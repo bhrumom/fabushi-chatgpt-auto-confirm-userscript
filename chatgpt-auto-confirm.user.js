@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.7.7
+// @version      2.7.8
 // @description  独立单标签任务工作台：目标编排、单次任务、授权识别、实时消息与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -14,7 +14,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.7.7';
+  const VERSION = '2.7.8';
   if (window[INSTANCE]?.version === VERSION && window[INSTANCE]?.active) return;
   window[INSTANCE]?.shutdown?.();
   document.getElementById('fabushi-auto-confirm-root')?.remove();
@@ -158,6 +158,20 @@
     lockRelease?.(); lockRelease = null;
     sessionStorage.removeItem(NAV);
   }
+  // A document can disappear because the user changed tabs, ChatGPT
+  // navigated, or the script was hot-updated. That lifecycle event is not a
+  // manual pause. Only the tab that actually owns the runner may stop its
+  // local timers, and it must preserve resumable task states so a new
+  // document can pick them up. Previously every idle ChatGPT tab called
+  // pause() here and globally converted the queue to paused; clicking
+  // Continue then immediately became "恢复 -> 暂停" again.
+  function suspendRunnerForPagehide() {
+    if (!running && !busy && !lockRelease) return false;
+    haltRunnerForPause();
+    save();
+    paint();
+    return true;
+  }
   function mergeStoredTasks(stored) {
     for (const remote of stored?.tasks || []) {
       const local = data.tasks.find(item => item.id === remote.id);
@@ -233,11 +247,17 @@
       if (task.state !== 'paused') continue;
       const knownURL = recordedConversationURL(task);
       const legacyBlocked = task.pausedState === 'blocked' && legacyNavigationFailureFor(task);
+      // `blocked` is a terminal display state, so restoring it verbatim makes
+      // the scheduler see no active task and call pause() again immediately.
+      // A blocked task with a durable URL can safely inspect that conversation;
+      // one without a URL must return to the queue and receive a fresh send.
       const resumeState = legacyBlocked && knownURL
         ? 'waiting'
-        : (pausableStates.has(task.pausedState)
-          ? task.pausedState
-          : (task.url && task.token ? 'waiting' : 'queued'));
+        : task.pausedState === 'blocked'
+          ? (knownURL && (task.token || task.attempted) ? 'waiting' : 'queued')
+          : (pausableStates.has(task.pausedState)
+            ? task.pausedState
+            : (task.url && task.token ? 'waiting' : 'queued'));
       if (legacyBlocked && knownURL) {
         task.url = knownURL;
         task.attempted = false;
@@ -1230,7 +1250,7 @@
     compose.onsubmit=event=>{event.preventDefault();try{enqueue(input.value,select.value);input.value='';start().catch(showError);}catch(error){showError(error);}};
     paint();
   }
-  window[INSTANCE]={active:true,version:VERSION,shutdown(){pause();globalApprovalController?.abort();clearTimeout(globalApprovalTimer);globalApprovalTimer=null;window[INSTANCE].active=false;document.getElementById(ROOT)?.remove();document.getElementById('fabushi-auto-confirm-style')?.remove();}};
+  window[INSTANCE]={active:true,version:VERSION,shutdown(){suspendRunnerForPagehide();globalApprovalController?.abort();clearTimeout(globalApprovalTimer);globalApprovalTimer=null;window[INSTANCE].active=false;document.getElementById(ROOT)?.remove();document.getElementById('fabushi-auto-confirm-style')?.remove();}};
   window.FabushiUserscript=Object.freeze({pluginId:'chatgpt-auto-confirm',getServer:()=> 'browser-local',call:async(tool,args={})=>{
     if(['status','diagnose','queue_status','chat_status'].includes(tool))return{version:VERSION,running,tasks:data.tasks,measurements,singleTab:true};
     if(['pause_queue','stop'].includes(tool)){pause();return{running:false};}
@@ -1272,5 +1292,5 @@
     if (event.key !== KEY) return;
     syncRemoteControl();
   });
-  window.addEventListener('pagehide',()=>{if(!navigating)pause();});
+  window.addEventListener('pagehide',()=>{if(!navigating)suspendRunnerForPagehide();});
 })();

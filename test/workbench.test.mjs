@@ -129,7 +129,7 @@ test('scheduler keeps one task through its whole Work and review chain',()=>{
   }
   dom.window.close();
 });
-test('pause marks active tasks and resume restores their exact states',()=>{
+test('pause marks active tasks and resume restores their runnable states',()=>{
   const {h,dom}=fixture();
   const waiting={id:'waiting',goal:'watch',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/live',token:'owner',messages:[]};
   const queued={id:'queued',goal:'send',state:'queued',phase:'work',round:1,url:'',token:'',messages:[]};
@@ -148,9 +148,56 @@ test('pause marks active tasks and resume restores their exact states',()=>{
   h.restorePausedTasks(h.data.controlRevision);
   assert.equal(waiting.state,'waiting');
   assert.equal(queued.state,'queued');
-  assert.equal(blocked.state,'blocked');
+  assert.equal(blocked.state,'waiting','a blocked task with a recorded URL resumes inspection instead of immediately pausing again');
   assert.equal(waiting.pausedState,undefined);
   assert.equal(queued.pausedState,undefined);
+  dom.window.close();
+});
+test('continue button starts a paused task instead of restoring a terminal blocked state',async()=>{
+  const {w,h,dom}=fixture();
+  const paused=h.enqueue('continue','goal');
+  Object.assign(paused,{state:'paused',pausedState:'blocked',phase:'work',round:1,url:'https://chatgpt.com/c/continue',token:'owner'});
+  h.data.autoResume=false;
+  h.log(paused,'已暂停');
+  const button=[...w.document.querySelectorAll('header button')].find(node=>node.textContent==='继续');
+  assert.ok(button);
+  button.click();
+  await new Promise(resolve=>setTimeout(resolve,20));
+  try {
+    assert.equal(h.data.autoResume,true);
+    assert.equal(paused.state,'waiting');
+  } finally {
+    h.pause();
+  }
+  dom.window.close();
+});
+test('an idle ChatGPT tab cannot pause a queue owned by another tab',()=>{
+  const {w,h,dom}=fixture();
+  const waiting={id:'idle-page',goal:'keep running',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/live',token:'owner',messages:[]};
+  h.data.tasks.push(waiting);
+  w.dispatchEvent(new w.Event('pagehide'));
+  assert.equal(waiting.state,'waiting');
+  assert.equal(h.data.autoResume,true);
+  dom.window.close();
+});
+test('runner pagehide suspends locally without converting the queue to manual pause',async()=>{
+  const {w,h,dom}=fixture();
+  const waiting={id:'runner-page',goal:'keep running',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/live',token:'owner',messages:[]};
+  h.data.tasks.push(waiting);
+  await h.start();
+  w.dispatchEvent(new w.Event('pagehide'));
+  assert.equal(waiting.state,'waiting');
+  assert.equal(h.data.autoResume,true);
+  assert.equal((await w.FabushiUserscript.call('status')).running,false);
+  dom.window.close();
+});
+test('replacing an idle script instance does not pause persisted tasks',()=>{
+  const {w,h,dom}=fixture();
+  const waiting={id:'idle-replace',goal:'keep running',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/live',token:'owner',messages:[]};
+  h.data.tasks.push(waiting);
+  w.__FABUSHI_AUTO_CONFIRM_INSTANCE__.shutdown();
+  assert.equal(waiting.state,'waiting');
+  assert.equal(h.data.autoResume,true);
   dom.window.close();
 });
 test('a persisted manual pause is made visible after script reload',()=>{
