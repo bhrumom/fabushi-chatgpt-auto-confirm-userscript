@@ -10,7 +10,7 @@ function fixture(body='') {
   w.HTMLElement.prototype.getClientRects = function(){return this.hidden ? [] : [{}];};
   let held = false;
   w.navigator.locks = {request:async(name,options,callback)=>{if(held)return callback(null);held=true;try{await callback({name});}finally{held=false;}}};
-  w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, classify, cards, latestTurn, parseReview, workPrompt, plannerPrompt, enqueue, start, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, restoreCancelledTask, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, recoverLegacyNavigationFailures, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, taskMatchesCurrentConversation, taskHoldsScheduler, getCurrent:()=>current };\n  mount();'));
+  w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, classify, cards, latestTurn, parseReview, workPrompt, plannerPrompt, enqueue, start, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, restoreCancelledTask, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, recoverLegacyNavigationFailures, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, taskMatchesCurrentConversation, taskHoldsScheduler, nextSupervisionTask, validNavigationTicket, getCurrent:()=>current };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('completion requires own final turn, stop absent, no approval and stable completion evidence',()=>{
@@ -111,6 +111,30 @@ test('missing send controls keep one prepared intent instead of blocking or dupl
   }
   dom.window.close();
 });
+test('dispatch clears an unrelated ChatGPT composer draft before sending',async()=>{
+  const {w,h,dom}=fixture('<main><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">Send</button></form></main>');
+  const input=w.document.querySelector('#prompt-textarea');
+  input.value='用户之前留下的草稿';
+  const sendButton=w.document.querySelector('[data-testid="send-button"]');
+  sendButton.type='button';
+  sendButton.onclick=()=>{
+    const task=h.data.tasks.at(-1);
+    w.history.pushState({},'',`/c/draft-${task.id}`);
+    const user=w.document.createElement('div');
+    user.dataset.messageAuthorRole='user';
+    user.textContent=`[Fabushi:${task.token}]`;
+    w.document.querySelector('main').append(user);
+  };
+  const root=w.document.getElementById('fabushi-auto-confirm-root');
+  root.querySelector('textarea').value='send after clearing draft';
+  root.querySelector('form').dispatchEvent(new w.Event('submit',{cancelable:true}));
+  await new Promise(resolve=>setTimeout(resolve,1100));
+  const task=h.data.tasks[0];
+  h.pause();
+  assert.equal(input.value,task.preparedPrompt);
+  assert.ok(task.messages.some(message=>/自动清空并替换/.test(message.text)));
+  dom.window.close();
+});
 test('new goals become the next scheduler target instead of waiting behind stale tasks',()=>{
   const {h,dom}=fixture();
   h.data.tasks.push({id:'stale',goal:'stale',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/WEB:stale',token:'old',messages:[]});
@@ -119,14 +143,29 @@ test('new goals become the next scheduler target instead of waiting behind stale
   assert.equal(h.data.selected,task.id);
   dom.window.close();
 });
-test('scheduler keeps one task through its whole Work and review chain',()=>{
+test('scheduler keeps sends and approvals exclusive while rotating inspections',()=>{
   const {h,dom}=fixture();
-  for (const state of ['queued','sending','waiting','generating','approval','reviewing']) {
+  for (const state of ['queued','sending','approval']) {
     assert.equal(h.taskHoldsScheduler({state}),true,`holds ${state}`);
+  }
+  for (const state of ['waiting','generating','reviewing']) {
+    assert.equal(h.taskHoldsScheduler({state,url:'https://chatgpt.com/c/live'}),false,`rotates ${state}`);
   }
   for (const state of ['done','blocked','cancelled','paused']) {
     assert.equal(h.taskHoldsScheduler({state}),false,`releases ${state}`);
   }
+  dom.window.close();
+});
+test('supervision rotates durable conversation URLs while keeping sends exclusive',()=>{
+  const {h,dom}=fixture();
+  const first=h.enqueue('first','goal');
+  Object.assign(first,{state:'waiting',url:'https://chatgpt.com/c/first',token:'first-token'});
+  const second={id:'second',goal:'second',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/second',token:'second-token',messages:[]};
+  h.data.tasks.push(second);
+  assert.equal(h.nextSupervisionTask([first,second],Date.now()),first);
+  assert.equal(h.nextSupervisionTask([first,second],Date.now()+16000),second);
+  assert.equal(h.taskHoldsScheduler({state:'sending'}),true);
+  assert.equal(h.taskHoldsScheduler({state:'approval'}),true);
   dom.window.close();
 });
 test('pause marks active tasks and resume restores their runnable states',()=>{
@@ -367,6 +406,16 @@ test('paused legacy sidebar waits resume directly from their recorded URL',()=>{
   assert.equal(task.url,'https://chatgpt.com/c/legacy-url');
   assert.equal(task.attempted,false);
   assert.match(task.messages.at(-1).text,/不等待侧栏/);
+  dom.window.close();
+});
+test('resuming a queued next round never reopens a historical Work URL',()=>{
+  const {h,dom}=fixture();
+  const task={id:'queued-next-round',goal:'continue with the new round',mode:'goal',phase:'review',round:2,state:'paused',pausedState:'queued',url:'',sessionUrl:'https://chatgpt.com/c/previous-work',sessionUrls:['https://chatgpt.com/c/previous-work'],token:'',attempted:false,messages:[]};
+  h.data.tasks.push(task);
+  assert.equal(h.restorePausedTasks(12),true);
+  assert.equal(task.state,'queued');
+  assert.equal(task.url,'');
+  assert.equal(h.validNavigationTicket({task:task.id,path:'/c/previous-work',href:'https://chatgpt.com/c/previous-work',resume:true}),false);
   dom.window.close();
 });
 test('transient navigation warning cannot redispatch an already generating conversation',()=>{

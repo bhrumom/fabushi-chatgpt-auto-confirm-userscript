@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.7.8
+// @version      2.7.9
 // @description  独立单标签任务工作台：目标编排、单次任务、授权识别、实时消息与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -14,7 +14,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.7.8';
+  const VERSION = '2.7.9';
   if (window[INSTANCE]?.version === VERSION && window[INSTANCE]?.active) return;
   window[INSTANCE]?.shutdown?.();
   document.getElementById('fabushi-auto-confirm-root')?.remove();
@@ -35,6 +35,10 @@
   const ROUTE_HYDRATION_TIMEOUT_MS = 30000;
   const ROUTE_RECOVERY_LIMIT = 2;
   const SEND_UI_WAIT_MS = 45000;
+  // A single browser tab can only render one ChatGPT route at a time, but
+  // independent conversations continue server-side. Rotate inspection of
+  // their durable /c/<id> URLs instead of holding the tab on one task.
+  const SUPERVISION_INTERVAL_MS = 15000;
   const AUTO_START_RETRY_MS = 5000;
   const NAV_TICKET_TTL_MS = 10 * 60 * 1000;
   const SEND_CONFIRM_TIMEOUT_MS = 90000;
@@ -130,11 +134,21 @@
     return Boolean(currentURL && taskURL && currentURL === taskURL);
   }
   function taskHoldsScheduler(task) {
-    // A single ChatGPT tab cannot safely monitor two live conversations at
-    // once. Keep the selected task in place through its whole Work -> review
-    // -> next Work chain; switching during an in-flight response was the
-    // source of visible URL jumps and duplicate dispatches.
-    return Boolean(task && !terminal.has(task.state) && task.state !== 'paused');
+    // Sends, ambiguous send confirmations, and approval menus are exclusive
+    // to the current route. A waiting/generating/reviewing task with a real
+    // URL can be inspected again after the rotation interval while other
+    // conversations continue independently on the server.
+    return Boolean(task && !terminal.has(task.state) && task.state !== 'paused'
+      && (!task.url || task.attempted || ['sending', 'approval'].includes(task.state)));
+  }
+  function nextSupervisionTask(active, now = Date.now()) {
+    if (!active.length) return null;
+    const focused = active.find(item => item.id === current);
+    const canRotate = active.length > 1 && focused && !taskHoldsScheduler(focused)
+      && now - lastSwitch >= SUPERVISION_INTERVAL_MS;
+    if (focused && !canRotate) return focused;
+    const index = focused ? active.findIndex(item => item.id === focused.id) : -1;
+    return active[(index + 1 + active.length) % active.length] || active[0];
   }
   const text = node => normalize(node?.textContent);
   const label = node => normalize(`${text(node)} ${node?.getAttribute('aria-label') || ''} ${node?.getAttribute('title') || ''}`);
@@ -245,7 +259,11 @@
     let restored = false;
     for (const task of data.tasks) {
       if (task.state !== 'paused') continue;
-      const knownURL = recordedConversationURL(task);
+      // Only the current phase's URL is resumable. sessionUrl/sessionUrls and
+      // history intentionally retain evidence from earlier rounds; using
+      // those here would reopen a completed Work chat before dispatching the
+      // queued planner or next Work chat.
+      const knownURL = canonicalConversationURL(task.url);
       const legacyBlocked = task.pausedState === 'blocked' && legacyNavigationFailureFor(task);
       // `blocked` is a terminal display state, so restoring it verbatim makes
       // the scheduler see no active task and call pause() again immediately.
@@ -323,7 +341,9 @@
       if (task.state !== 'blocked' || !legacyNavigationFailure) continue;
       const liveURL = currentConversationURL();
       if (task.token && liveURL && hasTaskMarker(task)) recordConversationURL(task, liveURL);
-      const knownURL = recordedConversationURL(task);
+      // Do not resurrect a historical URL after Work has advanced to a
+      // queued planner/next round. Only task.url identifies the live phase.
+      const knownURL = canonicalConversationURL(task.url);
       if (knownURL) {
         // A real /c/<id> URL is the conversation's durable identity. Keep it
         // and resume inspection directly; never discard it just because the
@@ -821,17 +841,25 @@
     if (!input) return waitForSendUI(task, '未找到 ChatGPT 输入框');
     if (nodes('[data-message-author-role=user]').length) return waitForSendUI(task, '新会话页面仍保留旧消息');
     const prompt = task.preparedPrompt || (task.phase === 'review' ? plannerPrompt(task) : workPrompt(task));
-    const draft = normalize(input.value || input.textContent);
-    if (draft && draft !== normalize(prompt)) throw new Error('ChatGPT 输入框已有其他草稿，请先处理草稿。');
+    let draft = normalize(input.value || input.textContent);
     let button = sendButtonFor(input);
     if (!button) return waitForSendUI(task, '发送按钮暂不可用');
+    // The composer is only a transient draft, not part of the user's task
+    // history. A stale manual draft used to block the queue forever. Once a
+    // real send control is available, clear that draft and replace it with
+    // the single prepared prompt; do not preserve or log the draft contents.
+    if (draft && draft !== normalize(prompt)) {
+      setInput(input, '');
+      log(task, '检测到输入框已有草稿，已自动清空并替换为本轮任务内容。');
+      draft = '';
+    }
     if (!draft) setInput(input, prompt);
     await delay(300, signal); check(signal);
     button = sendButtonFor(input) || (enabled(button) ? button : null);
     if (!button) return waitForSendUI(task, '发送按钮在输入后消失');
     // ChatGPT navigates from / to /c/<id> after a successful send. Mark this
-    // specific transition before clicking so pagehide does not pause the new
-    // page, while a manual reload/navigation still starts paused.
+    // specific transition before clicking so pagehide does not interfere with
+    // the handoff to the new page.
     task.attempted = true;
     task.sendPrepared = false;
     task.sendUiWaitSince = 0;
@@ -1006,15 +1034,13 @@
     try {
       const active = data.tasks.filter(item => !terminal.has(item.state) && item.state !== 'paused');
       if (!active.length) { pause(); return; }
-      task = active.find(item => item.id === current);
-      // Do not round-robin into another persisted URL while this task is
-      // sending, generating, awaiting approval, waiting for its reply, or
-      // queued for the next planner/work phase. The next task is selected
-      // only after this task reaches a terminal state (or the user explicitly
-      // pauses and resumes another task).
-      if (!task || !taskHoldsScheduler(task)) {
-        const index = active.findIndex(item => item.id === current);
-        task = active[(index + 1) % active.length];
+      const focused = active.find(item => item.id === current);
+      task = nextSupervisionTask(active);
+      // Keep a queued send, an ambiguous send confirmation, or an approval
+      // card on the foreground route. Once a task has a durable conversation
+      // URL and is merely waiting/generating/reviewing, rotate to the next
+      // active task after the supervision interval.
+      if (!focused || focused.id !== task.id) {
         if (current !== task.id) measurements.switches++;
         current = task.id; lastSwitch = Date.now(); paint();
       }
@@ -1165,6 +1191,16 @@
       : '已恢复取消的任务，继续监控取消前的 ChatGPT 会话。');
     return true;
   }
+  function validNavigationTicket(ticket) {
+    const task = data.tasks.find(item => item.id === ticket?.task);
+    if (!task || terminal.has(task.state) || task.state === 'paused') return false;
+    const ticketURL = canonicalConversationURL(ticket?.href);
+    if (ticketURL) return canonicalConversationURL(task.url) === ticketURL;
+    // A send starts at `/` before ChatGPT creates its real /c/<id> URL. The
+    // wildcard ticket is valid only while that exact send is still marked
+    // attempted; it must not resurrect an older round after the task moved on.
+    return ticket?.path === '*' && Boolean(task.attempted || task.state === 'sending');
+  }
   function resumeCancelledTask(task) {
     if (!restoreCancelledTask(task)) return Promise.resolve(false);
     data.autoResume = true;
@@ -1213,7 +1249,7 @@
       const task=data.tasks.find(item=>item.id===selected);
       heading.textContent=task ? (task.mode==='goal'?'持续目标':'单次任务')+' · '+statusNames[task.state] : '任务工作台';
       editGoalButton.disabled=!task || task.state==='done';
-      notice.textContent=`单标签页 · ${running?'监督中，当前任务串行推进':'已暂停，自动操作已停止'} · 扫描 ${measurements.scans} 次，平均 ${(measurements.totalScanMs / Math.max(1, measurements.scans)).toFixed(1)} ms`;
+      notice.textContent=`单标签页 · ${running?`监督中，按会话链接轮换检查（每 ${Math.round(SUPERVISION_INTERVAL_MS / 1000)} 秒；发送/授权独占）`:'已暂停，自动操作已停止'} · 扫描 ${measurements.scans} 次，平均 ${(measurements.totalScanMs / Math.max(1, measurements.scans)).toFixed(1)} ms`;
       pauseButton.textContent=task?.state==='cancelled'?'恢复任务':(running?'暂停':'继续');
       list.replaceChildren();
       const fresh=element('button','＋ 新任务'); fresh.onclick=()=>{selected='';save();input.focus();}; list.append(fresh);
@@ -1265,11 +1301,10 @@
   migratePersistedPause();
   let ticket;try{ticket=JSON.parse(sessionStorage.getItem(NAV));}catch{}
   const ticketFresh = ticket && ticket.resume && Date.now()-ticket.at < NAV_TICKET_TTL_MS;
+  const ticketUsable = ticketFresh && validNavigationTicket(ticket);
   if(recoveredTaskId && data.autoResume !== false){
     current=recoveredTaskId; lastSwitch=Date.now(); autoStart(recoveredTaskId);
-  } else if(ticketFresh && (ticket.path==='*' || ticket.path===location.pathname)){
-    current=ticket.task; lastSwitch=Date.now(); autoStart(ticket.task);
-  } else if(ticketFresh){
+  } else if(ticketUsable){
     // Resume the scheduler and let its finite navigation state machine inspect
     // the ticket. Startup must never perform an unconditional location.assign,
     // otherwise every document load can immediately trigger another refresh.
