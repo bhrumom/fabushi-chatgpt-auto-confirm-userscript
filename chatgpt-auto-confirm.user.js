@@ -688,7 +688,10 @@
       // yet. Wait once, then perform at most two explicit recovery loads. Do
       // not reassign the same URL on every scheduler tick.
       sameRouteWaitUntil = Math.max(sameRouteWaitUntil, now + 2000);
-      if (now - sameRouteWaitSince >= ROUTE_HYDRATION_TIMEOUT_MS) return recoverStalledRoute(target, task);
+      if (now - sameRouteWaitSince >= ROUTE_HYDRATION_TIMEOUT_MS) {
+        check(signal);
+        return recoverStalledRoute(target, task);
+      }
       return false;
     }
     check(signal);
@@ -718,6 +721,9 @@
     if (!task.sendUiWaitSince) task.sendUiWaitSince = now;
     if (task.rendererRecoveryExhausted) return false;
     if (now - task.sendUiWaitSince >= SEND_UI_WAIT_MS) {
+      // A pause may arrive between scheduler scans. Never reload a page after
+      // the user has paused the queue.
+      check();
       let target;
       try { target = safeURL(location.href); } catch { target = new URL('/', location.origin); }
       return recoverStalledRoute(target, task);
