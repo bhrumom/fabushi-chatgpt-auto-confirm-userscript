@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="UTF-8"><title>Fabushi 工作台 · 本地模拟验收</title>
+<style>body{margin:0;background:#171717;color:#eee;font:16px/1.6 system-ui;padding:32px}main{max-width:620px}article{padding:16px;border:1px solid #444;margin:12px 0}button,textarea{font:inherit;padding:10px;background:#303030;color:#eee;border:1px solid #555;border-radius:12px}a{color:#aaa}textarea{display:block;width:90%;height:80px}.note{color:#e9c177}#permission{border:1px solid #777;padding:20px}#menu{background:#444;padding:12px}</style>
+<h1>Fabushi 工作台 · 本地模拟验收</h1><p class="note">此页面模拟生成与授权卡，仅用于检查脚本。不是实际 ChatGPT 回复或任务执行证据。</p>
+<a href="/" id="new">新聊天</a><main><section id="turns"></section><form><textarea id="prompt-textarea" aria-label="模拟 ChatGPT 输入框"></textarea><button type="submit" data-testid="send-button" aria-label="Send prompt">发送</button><button type="button" data-testid="stop-button" aria-label="停止回答" hidden>停止回答</button></form></main>
+<script>
+const turns=document.querySelector('#turns'),input=document.querySelector('#prompt-textarea'),stop=document.querySelector('[data-testid=stop-button]');
+let pending;
+document.querySelector('#new').onclick=e=>{e.preventDefault();history.pushState({},'','/');turns.replaceChildren();input.value='';};
+document.querySelector('form').onsubmit=e=>{
+ e.preventDefault();const message=input.value;if(!message||!stop.hidden)return;
+ history.pushState({},'',`/c/${crypto.randomUUID()}`);
+ const user=document.createElement('div');user.dataset.messageAuthorRole='user';user.textContent=message;
+ const article=document.createElement('article');article.innerHTML='<div data-message-author-role="assistant"><div class="markdown">正在处理模拟任务…</div></div>';
+ turns.append(user,article);input.value='';stop.hidden=false;
+ const finish=()=>{stop.hidden=true;const markdown=article.querySelector('.markdown');
+ if(message.startsWith('请独立验收')){markdown.textContent=JSON.stringify({taskId:message.match(/"taskId":"([^"]+)"/)[1],round:Number(message.match(/"round":(\d+)/)[1]),status:'complete',summary:'本地模拟：工作输出满足演示条件',next:''});}
+ else markdown.textContent='模拟最终回复：已完成这次演示任务。此内容只验证脚本流程。';
+ const copy=document.createElement('button');copy.dataset.testid='copy-turn-action-button';copy.textContent='复制';article.append(copy);};
+ if(message.includes('授权卡')&&!message.startsWith('请独立验收')){pending=setTimeout(()=>{stop.hidden=true;const card=document.createElement('div');card.id='permission';card.innerHTML='<p>这里可以是任意内容，不参与授权卡识别。</p><div><button type="button">拒绝</button><button type="button">允许</button><button type="button" aria-haspopup="menu" aria-label="Allow 模拟工具 for this conversation">⌄</button></div>';article.append(card);card.querySelector('[aria-haspopup]').onclick=()=>{if(document.querySelector('#menu'))return;const menu=document.createElement('div');menu.id='menu';menu.setAttribute('role','menu');menu.innerHTML='<button role="menuitem" aria-label="Allow 模拟工具 for this conversation">Allow 模拟工具 for this conversation</button>';card.append(menu);menu.querySelector('button').onclick=()=>{card.remove();stop.hidden=false;pending=setTimeout(finish,2000);};};},1500);}
+ else pending=setTimeout(finish,3000);
+};
+stop.onclick=()=>{clearTimeout(pending);stop.hidden=true;};
+</script><script src="/chatgpt-auto-confirm.user.js"></script></html>
