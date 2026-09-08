@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.7.6
+// @version      2.7.7
 // @description  独立单标签任务工作台：目标编排、单次任务、授权识别、实时消息与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -14,7 +14,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.7.6';
+  const VERSION = '2.7.7';
   if (window[INSTANCE]?.version === VERSION && window[INSTANCE]?.active) return;
   window[INSTANCE]?.shutdown?.();
   document.getElementById('fabushi-auto-confirm-root')?.remove();
@@ -27,6 +27,14 @@
   // waits for a sidebar retry loop.
   const NO_FINAL_REPLY_RETRY_LIMIT = 4;
   const NO_FINAL_REPLY_MS = 300000;
+  // Once ChatGPT has visibly stopped generating, a missing final turn is an
+  // abnormal end much sooner than the long reload-safe fallback above. This
+  // catches the renderer state where Stop disappeared but no answer/card was
+  // rendered, without treating a brief transition as a failure.
+  const STOP_LOST_FINAL_REPLY_MS = 15000;
+  const ROUTE_HYDRATION_TIMEOUT_MS = 30000;
+  const ROUTE_RECOVERY_LIMIT = 2;
+  const SEND_UI_WAIT_MS = 45000;
   const AUTO_START_RETRY_MS = 5000;
   const NAV_TICKET_TTL_MS = 10 * 60 * 1000;
   const SEND_CONFIRM_TIMEOUT_MS = 90000;
@@ -58,7 +66,7 @@
   let running = false, controller = null, timer = null, navigationTimer = null, lockRelease = null, busy = false, autoStartTimer = null, autoStartTaskId = '';
   let globalApprovalTimer = null, globalApprovalBusy = false;
   let globalApprovalController = data.globalAutoApprove ? new AbortController() : null;
-  let selected = data.selected, current = '', lastSwitch = 0, navigating = false, sameRouteWaitUntil = 0;
+  let selected = data.selected, current = '', lastSwitch = 0, navigating = false, sameRouteWaitUntil = 0, sameRouteWaitSince = 0;
   let recoveredTaskId = '';
   let paint = () => {}, mode = 'once';
   const measurements = { scans: 0, totalScanMs: 0, sends: 0, switches: 0 };
@@ -145,6 +153,8 @@
     clearTimeout(navigationTimer); navigationTimer = null;
     clearTimeout(autoStartTimer); autoStartTimer = null; autoStartTaskId = '';
     navigating = false;
+    sameRouteWaitUntil = 0;
+    sameRouteWaitSince = 0;
     lockRelease?.(); lockRelease = null;
     sessionStorage.removeItem(NAV);
   }
@@ -491,6 +501,16 @@
     if (sample.cards) return { state:'approval' };
     if (sample.stop) return { state:'generating' };
     if (sample.final && sample.text && previous?.clear && previous?.text === sample.text && now - previous.since >= 4000) return { state:'complete' };
+    // ChatGPT can lose the Stop control while the assistant turn is still
+    // absent (or while a renderer error leaves only a partial/empty turn).
+    // Once that transition remains stable, it is an abnormal end and must be
+    // handed to a fresh Chat rather than waiting for the five-minute reload
+    // fallback. `endedAt` is recorded only after a real Stop -> no-Stop
+    // transition, so ordinary initial page hydration is not misclassified.
+    if (previous?.endedAt && now - previous.endedAt >= STOP_LOST_FINAL_REPLY_MS
+      && previous?.text === sample.text && !sample.final) {
+      return { state:'no-final-reply', reason:'会话停止生成后没有新的最终回复或授权卡。' };
+    }
     if (previous?.clear && now - previous.idleSince >= NO_FINAL_REPLY_MS && !sample.final) return { state:'no-final-reply', reason:'会话已结束但没有新的最终回复。' };
     return { state:'waiting' };
   }
@@ -556,6 +576,56 @@
     return false;
   }
 
+  function recoverStalledRoute(target, task) {
+    const attempts = Number(task?.routeRecoveryAttempts || 0);
+    if (task?.rendererRecoveryExhausted || attempts >= ROUTE_RECOVERY_LIMIT) {
+      if (task && !task.rendererRecoveryExhausted) {
+        task.rendererRecoveryExhausted = true;
+        state(task, 'waiting', 'ChatGPT 页面仍未完成加载；已停止重复刷新，保留当前会话和发送意图，等待页面恢复后继续。');
+        save();
+      }
+      sameRouteWaitUntil = Date.now() + 5000;
+      sameRouteWaitSince = Date.now();
+      navigating = false;
+      return false;
+    }
+    const nextAttempt = attempts + 1;
+    const href = target.href;
+    if (task) {
+      task.routeRecoveryAttempts = nextAttempt;
+      task.rendererRecoveryExhausted = false;
+      task.updatedAt = Date.now();
+    }
+    const now = Date.now();
+    sessionStorage.setItem(NAV, JSON.stringify({
+      path: target.pathname,
+      href,
+      at: now,
+      task: task?.id || current,
+      attempts: nextAttempt,
+      assigned: true,
+      direct: true,
+      recovery: true,
+      resume: true,
+    }));
+    if (task) {
+      log(task, `ChatGPT 页面长时间没有恢复；正在进行第 ${nextAttempt}/${ROUTE_RECOVERY_LIMIT} 次单次加载恢复，不会循环刷新。`);
+      save();
+    }
+    sameRouteWaitUntil = 0;
+    sameRouteWaitSince = 0;
+    navigating = true;
+    try { location.replace(href); } catch (error) {
+      navigating = false;
+      if (task) {
+        task.rendererRecoveryExhausted = true;
+        state(task, 'waiting', `页面恢复加载失败：${error.message}；已停止重复刷新，保留当前任务等待。`);
+        save();
+      }
+    }
+    return false;
+  }
+
   function stopAmbiguousSend(task) {
     if (!task.url && currentConversationURL()) recordConversationURL(task, currentConversationURL());
     task.updatedAt = Date.now();
@@ -567,7 +637,7 @@
     }
     save();
   }
-  async function navigate(url, signal, task = data.tasks.find(item => item.id === current)) {
+  async function navigate(url, signal, task = data.tasks.find(item => item.id === current), requireComposer = true) {
     // The conversation URL is the only session identity. If the live page
     // carries this task's ownership marker, canonicalize any stale/synthetic
     // address to the real browser path before doing anything else.
@@ -581,16 +651,44 @@
       }
       sessionStorage.removeItem(NAV);
       sameRouteWaitUntil = 0;
+      sameRouteWaitSince = 0;
       navigating = false;
+      if (task?.rendererRecoveryExhausted || task?.routeRecoveryAttempts) {
+        task.rendererRecoveryExhausted = false;
+        task.routeRecoveryAttempts = 0;
+        task.sendUiWaitSince = 0;
+        task.updatedAt = Date.now();
+        save();
+      }
       return true;
     }
     const target = safeURL(url);
     if (location.pathname === target.pathname) {
-      if (composer()) { sessionStorage.removeItem(NAV); sameRouteWaitUntil = 0; navigating = false; return true; }
-      // The route is already correct; a missing composer means ChatGPT is
-      // still hydrating or a modal is covering it. Do not create a navigation
-      // ticket for this same route and do not call location.assign repeatedly.
-      sameRouteWaitUntil = Math.max(sameRouteWaitUntil, Date.now() + 15000);
+      const inputReady = Boolean(composer());
+      // Inspection only needs the conversation route; requiring a composer
+      // here made a stuck renderer impossible to classify as no-final-reply.
+      if (!requireComposer || inputReady) {
+        sessionStorage.removeItem(NAV); sameRouteWaitUntil = 0; sameRouteWaitSince = 0; navigating = false;
+        if (task?.rendererRecoveryExhausted || task?.routeRecoveryAttempts) {
+          task.rendererRecoveryExhausted = false;
+          task.routeRecoveryAttempts = 0;
+          task.sendUiWaitSince = 0;
+          task.updatedAt = Date.now();
+          save();
+        }
+        return true;
+      }
+      const now = Date.now();
+      if (task?.rendererRecoveryExhausted) {
+        sameRouteWaitUntil = now + 5000;
+        return false;
+      }
+      if (!sameRouteWaitSince) sameRouteWaitSince = now;
+      // The route is already correct, but ChatGPT has not hydrated the input
+      // yet. Wait once, then perform at most two explicit recovery loads. Do
+      // not reassign the same URL on every scheduler tick.
+      sameRouteWaitUntil = Math.max(sameRouteWaitUntil, now + 2000);
+      if (now - sameRouteWaitSince >= ROUTE_HYDRATION_TIMEOUT_MS) return recoverStalledRoute(target, task);
       return false;
     }
     check(signal);
@@ -610,6 +708,25 @@
       input.dispatchEvent(new InputEvent('input', { bubbles:true, inputType:'insertText', data:message }));
     }
   }
+  function sendButtonFor(input) {
+    const form = input?.closest('form') || document;
+    return nodes('button[data-testid="send-button"],button[aria-label="发送提示词"],button[aria-label="发送提示"],button[aria-label="Send prompt"],button[aria-label="发送消息"]', form).find(enabled)
+      || nodes('button', form).find(node => enabled(node) && /^(发送|send|submit)(?:\s|$)/i.test(label(node)));
+  }
+  function waitForSendUI(task, reason) {
+    const now = Date.now();
+    if (!task.sendUiWaitSince) task.sendUiWaitSince = now;
+    if (task.rendererRecoveryExhausted) return false;
+    if (now - task.sendUiWaitSince >= SEND_UI_WAIT_MS) {
+      let target;
+      try { target = safeURL(location.href); } catch { target = new URL('/', location.origin); }
+      return recoverStalledRoute(target, task);
+    }
+    const message = `${reason}；保留本轮发送意图，等待页面恢复，不会重复发送。`;
+    if (task.state === 'sending') log(task, message); else state(task, 'sending', message);
+    save();
+    return false;
+  }
   function workPrompt(task) {
     return `${task.next || task.goal}\n${task.round > 1 ? `原始目标：${task.goal}\n` : ''}请直接执行上述任务，最终用自然语言返回实际完成结果、验证依据、阻塞和下一步建议；不要输出任何固定回执模板。\n[Fabushi:${task.token}]`;
   }
@@ -622,6 +739,9 @@
     task.next = '';
     task.goalRevision = Number(task.goalRevision || 0) + 1;
     task.updatedAt = Date.now();
+    task.sendPrepared = false;
+    task.preparedPrompt = '';
+    task.sendUiWaitSince = 0;
     if (queuedReview) {
       task.result = '';
       task.round++;
@@ -646,34 +766,52 @@
       restForRateLimit(task);
       return;
     }
-    if (!await navigate('/', signal, task)) return;
+    if (!await navigate('/', signal, task, true)) return;
     check(signal);
     if (stopButton() || cards().length) throw new Error('当前页面仍在生成或等待授权，禁止发送。');
     if (blocker()) throw new Error(blocker());
-    const input = composer();
-    if (!input) throw new Error('未找到 ChatGPT 输入框');
-    if (normalize(input.value || input.textContent)) throw new Error('ChatGPT 输入框已有草稿，请先处理草稿。');
-    if (nodes('[data-message-author-role=user]').length) throw new Error('新会话仍包含历史消息，禁止追加发送。');
     const dispatchWait = dispatchCooldownRemaining();
     if (dispatchWait > 0) {
       state(task, 'queued', `上一会话刚结束，插件正在休息 ${Math.ceil(dispatchWait / 1000)} 秒后再派发；不会连续发送会话。`);
       save();
       return;
     }
-    task.token = id(); task.sentAt = Date.now(); task.state = 'sending'; task.attempted = false;
-    task.dispatchGoalRevision = Number(task.goalRevision || 0);
-    task.updatedAt = Date.now();
-    save(); // Persist intent before clicking: ambiguous sends must never retry.
-    setInput(input, task.phase === 'review' ? plannerPrompt(task) : workPrompt(task));
+    // Persist a prepared prompt before touching the page. If the renderer
+    // loses its send control, later scans reuse this exact token/prompt rather
+    // than generating a second message or a second planner conversation.
+    if (!task.sendPrepared || !task.token) {
+      task.token = id();
+      task.preparedPrompt = task.phase === 'review' ? plannerPrompt(task) : workPrompt(task);
+      task.preparedAt = Date.now();
+      task.state = 'sending';
+      task.attempted = false;
+      task.sendPrepared = true;
+      task.dispatchGoalRevision = Number(task.goalRevision || 0);
+      task.updatedAt = Date.now();
+      observations.delete(task.id);
+      save(); // Persist intent before clicking: ambiguous sends must never retry.
+    }
+    const input = composer();
+    if (!input) return waitForSendUI(task, '未找到 ChatGPT 输入框');
+    if (nodes('[data-message-author-role=user]').length) return waitForSendUI(task, '新会话页面仍保留旧消息');
+    const prompt = task.preparedPrompt || (task.phase === 'review' ? plannerPrompt(task) : workPrompt(task));
+    const draft = normalize(input.value || input.textContent);
+    if (draft && draft !== normalize(prompt)) throw new Error('ChatGPT 输入框已有其他草稿，请先处理草稿。');
+    let button = sendButtonFor(input);
+    if (!button) return waitForSendUI(task, '发送按钮暂不可用');
+    if (!draft) setInput(input, prompt);
     await delay(300, signal); check(signal);
-    const form = input.closest('form') || document;
-    const button = nodes('button[data-testid="send-button"],button[aria-label="发送提示词"],button[aria-label="发送提示"],button[aria-label="Send prompt"],button[aria-label="发送消息"]', form).find(enabled)
-      || nodes('button', form).find(node => enabled(node) && /^(发送|send|submit)(?:\s|$)/i.test(label(node)));
-    if (!button) throw new Error('发送按钮不可用；没有重复点击或模拟回车。');
+    button = sendButtonFor(input) || (enabled(button) ? button : null);
+    if (!button) return waitForSendUI(task, '发送按钮在输入后消失');
     // ChatGPT navigates from / to /c/<id> after a successful send. Mark this
     // specific transition before clicking so pagehide does not pause the new
     // page, while a manual reload/navigation still starts paused.
     task.attempted = true;
+    task.sendPrepared = false;
+    task.sendUiWaitSince = 0;
+    task.rendererRecoveryExhausted = false;
+    task.routeRecoveryAttempts = 0;
+    task.sentAt = Date.now();
     task.updatedAt = Date.now();
     data.lastDispatchAt = Date.now();
     save();
@@ -726,6 +864,12 @@
   }
   function finish(task, reply) {
     task.preview = '';
+    task.sendPrepared = false;
+    task.preparedPrompt = '';
+    task.sendUiWaitSince = 0;
+    task.rendererRecoveryExhausted = false;
+    task.routeRecoveryAttempts = 0;
+    observations.delete(task.id);
     log(task, reply, 'assistant');
     const sessionURL = canonicalConversationURL(task.url);
     if (sessionURL) recordConversationURL(task, sessionURL);
@@ -757,7 +901,10 @@
     save();
   }
   async function inspect(task, signal) {
-    if (!await navigate(task.url, signal, task)) return;
+    // Existing conversation inspection must not depend on the composer. A
+    // stuck/partial renderer can hide the input while still exposing enough
+    // turn state to detect an abnormal end and recover in a fresh Chat.
+    if (!await navigate(task.url, signal, task, false)) return;
     check(signal);
     const begin = performance.now(), turn = latestTurn(), pending = cards();
     const sample = {
@@ -775,8 +922,20 @@
     };
     const previous = observations.get(task.id);
     const result = classify(sample, previous, Date.now());
-    const stable = previous?.text === sample.text && previous?.clear && !sample.stop && !sample.cards;
-    observations.set(task.id, { text:sample.text, since:stable ? previous.since : Date.now(), idleSince:previous?.clear ? previous.idleSince : Date.now(), clear:!sample.stop && !sample.cards });
+    const now = Date.now();
+    const clear = !sample.stop && !sample.cards;
+    const stable = previous?.text === sample.text && previous?.clear && clear;
+    const endedAt = clear && !sample.final && !sample.rateLimit && !sample.blocker
+      ? (previous?.stop ? now : (stable ? previous?.endedAt || 0 : 0))
+      : 0;
+    observations.set(task.id, {
+      text:sample.text,
+      since:stable ? previous.since : now,
+      idleSince:previous?.clear ? previous.idleSince : now,
+      endedAt,
+      stop:Boolean(sample.stop),
+      clear,
+    });
     measurements.scans++; measurements.totalScanMs += performance.now() - begin;
     if (sample.owned && task.preview !== sample.text) {
       task.preview = sample.text.slice(-6000);
@@ -793,6 +952,11 @@
       task.url = '';
       task.attempted = false;
       task.token = '';
+      task.sendPrepared = false;
+      task.preparedPrompt = '';
+      task.sendUiWaitSince = 0;
+      task.rendererRecoveryExhausted = false;
+      task.routeRecoveryAttempts = 0;
       observations.delete(task.id);
       state(task, 'queued', `会话已结束但没有最终回复；插件已关闭当前会话目标，正在新开 Work/规划会话原样重发（第 ${task.noFinalReplyAttempts}/${NO_FINAL_REPLY_RETRY_LIMIT} 次）。`);
       save();

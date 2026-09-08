@@ -10,7 +10,7 @@ function fixture(body='') {
   w.HTMLElement.prototype.getClientRects = function(){return this.hidden ? [] : [{}];};
   let held = false;
   w.navigator.locks = {request:async(name,options,callback)=>{if(held)return callback(null);held=true;try{await callback({name});}finally{held=false;}}};
-  w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, classify, cards, latestTurn, parseReview, workPrompt, plannerPrompt, enqueue, start, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, restoreCancelledTask, navigate, queueNavigation, directNavigate, stopAmbiguousSend, recoverLegacyNavigationFailures, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, taskMatchesCurrentConversation, taskHoldsScheduler, getCurrent:()=>current };\n  mount();'));
+  w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, classify, cards, latestTurn, parseReview, workPrompt, plannerPrompt, enqueue, start, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, restoreCancelledTask, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, recoverLegacyNavigationFailures, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, taskMatchesCurrentConversation, taskHoldsScheduler, getCurrent:()=>current };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('completion requires own final turn, stop absent, no approval and stable completion evidence',()=>{
@@ -27,6 +27,15 @@ test('completion requires own final turn, stop absent, no approval and stable co
   assert.equal(h.classify({...sample,final:false},previous,96000).state,'waiting');
   assert.equal(h.classify({...sample,final:false},previous,301000).state,'no-final-reply');
   assert.equal(h.classify({...sample,final:false},{...previous,clear:false},301000).state,'waiting','generation stopping gets a fresh grace period');
+  dom.window.close();
+});
+test('a lost Stop control with no final answer becomes a recoverable abnormal end',()=>{
+  const {h,dom}=fixture();
+  const previous={text:'partial reply',since:1000,idleSince:1000,clear:true,stop:false,endedAt:1000};
+  const sample={owned:true,final:false,text:'partial reply',sentAt:0,cards:0,stop:false};
+  assert.equal(h.classify(sample,previous,16_001).state,'no-final-reply');
+  assert.equal(h.classify({...sample,cards:1},previous,16_001).state,'approval');
+  assert.equal(h.classify({...sample,stop:true},previous,16_001).state,'generating');
   dom.window.close();
 });
 test('work prompt stays natural while the fresh planner alone receives the report contract',()=>{
@@ -76,6 +85,30 @@ test('startup is paused and UI submission remains local until one explicit sched
   assert.equal(sends,0,'pause interrupts the delayed send');
   assert.equal(h.data.tasks.length,1);
   assert.equal(w.document.querySelectorAll('.desk').length,1);
+  dom.window.close();
+});
+test('existing conversation inspection does not wait for a missing composer',async()=>{
+  const {h,w,dom}=fixture('<main><div data-message-author-role="user">[Fabushi:owner]</div><article><div data-message-author-role="assistant">partial</div></article></main>');
+  w.history.pushState({},'', '/c/existing');
+  const task={id:'existing',goal:'inspect',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/existing',token:'owner',messages:[]};
+  assert.equal(await h.navigate(task.url,null,task,false),true);
+  dom.window.close();
+});
+test('missing send controls keep one prepared intent instead of blocking or duplicating',async()=>{
+  const {h,dom}=fixture('<main><form><textarea id="prompt-textarea"></textarea></form></main>');
+  const task={id:'prepared',goal:'send once',mode:'goal',phase:'work',round:1,state:'queued',url:'',token:'',messages:[]};
+  h.data.tasks.push(task);
+  await h.start();
+  try {
+    const result=await h.send(task,null);
+    assert.equal(result,false);
+    assert.equal(task.state,'sending');
+    assert.equal(task.sendPrepared,true);
+    assert.ok(task.token);
+    assert.match(task.messages.at(-1).text,/发送按钮暂不可用/);
+  } finally {
+    h.pause();
+  }
   dom.window.close();
 });
 test('new goals become the next scheduler target instead of waiting behind stale tasks',()=>{
