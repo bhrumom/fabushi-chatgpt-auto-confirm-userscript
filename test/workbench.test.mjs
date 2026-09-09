@@ -10,7 +10,7 @@ function fixture(body='') {
   w.HTMLElement.prototype.getClientRects = function(){return this.hidden ? [] : [{}];};
   let held = false;
   w.navigator.locks = {request:async(name,options,callback)=>{if(held)return callback(null);held=true;try{await callback({name});}finally{held=false;}}};
-  w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, classify, cards, latestTurn, parseReview, workPrompt, plannerPrompt, enqueue, start, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, deleteTask, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, recoverLegacyNavigationFailures, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, taskMatchesCurrentConversation, taskHoldsScheduler, nextSupervisionTask, validNavigationTicket, getCurrent:()=>current };\n  mount();'));
+  w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, classify, cards, latestTurn, parseReview, workPrompt, plannerPrompt, enqueue, start, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, deleteTask, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, recoverLegacyNavigationFailures, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, nextSupervisionTask, validNavigationTicket, getCurrent:()=>current };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('completion requires own final turn, stop absent, no approval and stable completion evidence',()=>{
@@ -192,6 +192,48 @@ test('empty ChatGPT composer is filled before looking up its send control',async
   assert.equal(pageInput.value,task.preparedPrompt);
   assert.ok(task.url.endsWith(`/c/empty-${task.id}`));
   assert.equal(task.sendPrepared,false);
+  dom.window.close();
+});
+test('a stale route during SPA send handoff is not recorded before the task marker',async()=>{
+  const {w,h,dom}=fixture('<main><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">Send</button></form></main>');
+  const button=w.document.querySelector('[data-testid="send-button"]');
+  button.type='button';
+  button.onclick=()=>w.history.pushState({},'', '/c/old-route-left-on-screen');
+  const task={id:'route-guard',goal:'send with route guard',mode:'once',phase:'work',round:1,state:'queued',url:'',token:'',messages:[]};
+  h.data.tasks.push(task);
+  await h.start();
+  const controller=new w.AbortController();
+  const pending=h.send(task,controller.signal);
+  setTimeout(()=>controller.abort(),900);
+  await assert.rejects(pending,/已暂停/);
+  h.pause();
+  assert.equal(task.url,'');
+  assert.equal(task.sessionUrls,undefined);
+  dom.window.close();
+});
+test('the new route is the only link captured once this task marker appears',async()=>{
+  const {w,h,dom}=fixture('<main><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">Send</button></form></main>');
+  const button=w.document.querySelector('[data-testid="send-button"]');
+  button.type='button';
+  button.onclick=()=>{
+    const task=h.data.tasks.at(-1);
+    w.history.pushState({},'', '/c/old-route-left-on-screen');
+    setTimeout(()=>{
+      w.history.pushState({},'', `/c/new-route-${task.id}`);
+      const user=w.document.createElement('div');
+      user.dataset.messageAuthorRole='user';
+      user.textContent=`[Fabushi:${task.token}]`;
+      w.document.querySelector('main').append(user);
+    },350);
+  };
+  const task={id:'route-capture',goal:'capture only owned route',mode:'once',phase:'work',round:1,state:'queued',url:'',token:'',messages:[]};
+  h.data.tasks.push(task);
+  await h.start();
+  const pending=h.send(task,null);
+  await pending;
+  h.pause();
+  assert.equal(task.url,`https://chatgpt.com/c/new-route-${task.id}`);
+  assert.deepEqual(Array.from(task.sessionUrls),[`https://chatgpt.com/c/new-route-${task.id}`]);
   dom.window.close();
 });
 test('new goals become the next scheduler target instead of waiting behind stale tasks',()=>{
@@ -529,6 +571,16 @@ test('recorded conversation links are canonical identities and direct recovery i
   assert.equal(JSON.parse(w.sessionStorage.getItem('fabushi-workbench-navigation-v2')).attempts,1);
   dom.window.close();
 });
+test('a conversation URL cannot be adopted by two active tasks',()=>{
+  const {h,dom}=fixture();
+  const first={id:'owner',url:'https://chatgpt.com/c/unique',messages:[]};
+  const second={id:'new-task',url:'',messages:[]};
+  h.data.tasks.push(first,second);
+  assert.equal(h.captureConversationURL(second,first.url),'');
+  assert.equal(second.url,'');
+  assert.equal(h.conversationURLOwner(first.url),first);
+  dom.window.close();
+});
 test('synthetic conversation URL stays on the current page without retrying',()=>{
   const {h,w,dom}=fixture();
   const task={id:'unverified',goal:'wait',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/WEB:not-in-sidebar',token:'owner',attempted:false,messages:[]};
@@ -540,11 +592,13 @@ test('synthetic conversation URL stays on the current page without retrying',()=
   dom.window.close();
 });
 test('ambiguous send timeout preserves token and stops instead of creating another planner',()=>{
-  const {h,dom}=fixture();
+  const {h,w,dom}=fixture();
+  w.history.pushState({},'', '/c/old-conversation');
   const task={id:'sent',goal:'review once',mode:'goal',round:1,state:'sending',phase:'review',url:'',token:'one-dispatch',attempted:true,messages:[]};
   h.data.tasks.push(task);
   h.stopAmbiguousSend(task);
   assert.equal(task.state,'blocked');
+  assert.equal(task.url,'','the visible old route must never be adopted after an ambiguous send');
   assert.equal(task.token,'one-dispatch');
   assert.equal(task.attempted,true);
   assert.match(task.messages.at(-1).text,/不会自动重发/);

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.8.0
+// @version      2.8.1
 // @description  独立单标签任务工作台：目标编排、单次任务、授权识别、实时消息与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -14,7 +14,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.8.0';
+  const VERSION = '2.8.1';
   if (window[INSTANCE]?.version === VERSION && window[INSTANCE]?.active) return;
   window[INSTANCE]?.shutdown?.();
   document.getElementById('fabushi-auto-confirm-root')?.remove();
@@ -130,6 +130,21 @@
     if (!urls.includes(canonical)) urls.push(canonical);
     task.sessionUrls = urls.slice(-40);
     return canonical;
+  }
+  function conversationURLOwner(value, exceptTaskId = '') {
+    const canonical = canonicalConversationURL(value);
+    if (!canonical) return null;
+    return data.tasks.find(item => item?.id !== exceptTaskId
+      && canonicalConversationURL(item?.url) === canonical) || null;
+  }
+  // A newly dispatched turn may briefly expose a stale /c/<id> route while the
+  // ChatGPT SPA is switching documents. Never bind that route to a new task
+  // until the task's own marker is visible, and never steal a URL already
+  // owned by another task.
+  function captureConversationURL(task, value) {
+    const canonical = canonicalConversationURL(value);
+    if (!canonical || conversationURLOwner(canonical, task?.id)) return '';
+    return recordConversationURL(task, canonical);
   }
   function taskMatchesCurrentConversation(task) {
     const currentURL = currentConversationURL();
@@ -351,7 +366,7 @@
       // that task would create a second concurrent ChatGPT conversation.
       if (task.state !== 'blocked' || !legacyNavigationFailure) continue;
       const liveURL = currentConversationURL();
-      if (task.token && liveURL && hasTaskMarker(task)) recordConversationURL(task, liveURL);
+      if (task.token && liveURL && hasTaskMarker(task)) captureConversationURL(task, liveURL);
       // Do not resurrect a historical URL after Work has advanced to a
       // queued planner/next round. Only task.url identifies the live phase.
       const knownURL = canonicalConversationURL(task.url);
@@ -740,13 +755,12 @@
   }
 
   function stopAmbiguousSend(task) {
-    if (!task.url && currentConversationURL()) recordConversationURL(task, currentConversationURL());
     task.updatedAt = Date.now();
     if (task.url && canonicalConversationURL(task.url)) {
       task.attempted = false;
       state(task, 'waiting', '已记录本轮会话链接；无法读取消息标识时仍按唯一链接继续监控，不会重复发送。');
     } else {
-      state(task, 'blocked', '原消息发送结果超过 90 秒仍无法确认；插件已停止且保留派发标识，不会自动重发。请打开已有会话检查后再恢复。');
+      state(task, 'blocked', '原消息发送结果超过 90 秒仍无法确认；当前页面链接未被绑定到本任务，已停止且保留派发标识，不会自动重发。请在 ChatGPT 中找到本轮会话后，把真实会话链接记录到任务再恢复。');
     }
     save();
   }
@@ -755,10 +769,19 @@
     // carries this task's ownership marker, canonicalize any stale/synthetic
     // address to the real browser path before doing anything else.
     const liveURL = currentConversationURL();
-    if (task?.token && liveURL && hasTaskMarker(task)) {
+    const ownsLiveRoute = Boolean(task?.token && liveURL && hasTaskMarker(task));
+    const knownTaskURL = canonicalConversationURL(task?.url);
+    // A stale marker can survive briefly while the SPA changes the address
+    // during rotation. An already persisted URL wins unless this is the
+    // explicitly attempted send that is waiting to adopt its new route.
+    const canAdoptLiveRoute = ownsLiveRoute && (!knownTaskURL || task.url === liveURL || task.attempted);
+    if (canAdoptLiveRoute) {
       if (task.url !== liveURL || task.attempted) {
-        recordConversationURL(task, liveURL);
+        const captured = task.url === liveURL ? liveURL : captureConversationURL(task, liveURL);
+        if (!captured) return false;
         task.attempted = false;
+        task.dispatchOriginURL = '';
+        task.dispatchStartedAt = 0;
         task.updatedAt = Date.now();
         save();
       }
@@ -861,6 +884,8 @@
     task.sendPrepared = false;
     task.preparedPrompt = '';
     task.sendUiWaitSince = 0;
+    task.dispatchOriginURL = '';
+    task.dispatchStartedAt = 0;
     if (queuedReview) {
       task.result = '';
       task.round++;
@@ -868,6 +893,8 @@
       task.url = '';
       task.token = '';
       task.attempted = false;
+      task.dispatchOriginURL = '';
+      task.dispatchStartedAt = 0;
       task.noFinalReplyAttempts = 0;
       task.state = 'queued';
       log(task, '任务目标已更新；尚未发送的旧验收已跳过，下一轮 Work 将按新目标执行。');
@@ -945,6 +972,10 @@
     task.rendererRecoveryExhausted = false;
     task.routeRecoveryAttempts = 0;
     task.sentAt = Date.now();
+    // The send always starts from `/`. Keep the origin only as diagnostic
+    // context; it is never promoted to the task's conversation identity.
+    task.dispatchOriginURL = currentConversationURL();
+    task.dispatchStartedAt = task.sentAt;
     task.updatedAt = Date.now();
     data.lastDispatchAt = Date.now();
     save();
@@ -953,17 +984,22 @@
     check(signal); button.click(); measurements.sends++;
     for (let n = 0; n < 40; n++) {
       await delay(250, signal); check(signal);
-      // Record the real browser URL as soon as ChatGPT creates the
-      // conversation. The URL is the durable identity; sidebar rendering is
-      // unrelated and may lag or be virtualized.
+      // ChatGPT can briefly expose an old /c/<id> route while its SPA is
+      // switching after the click. A URL alone is not proof that this task
+      // owns it. Wait for this task's marker, then persist that exact route as
+      // the durable identity; sidebar rendering is unrelated and may lag or
+      // be virtualized.
       const liveURL = currentConversationURL();
-      if (liveURL && task.url !== liveURL) {
-        recordConversationURL(task, liveURL);
-        task.updatedAt = Date.now();
-        save();
-      }
       if (liveURL && hasTaskMarker(task)) {
+        const captured = task.url === liveURL ? liveURL : captureConversationURL(task, liveURL);
+        if (!captured) continue;
+        if (task.url !== liveURL) {
+          task.updatedAt = Date.now();
+          save();
+        }
         task.attempted = false;
+        task.dispatchOriginURL = '';
+        task.dispatchStartedAt = 0;
         navigating = false;
         sessionStorage.removeItem(NAV);
         state(task, 'waiting', `${task.phase === 'review' ? '规划/验收' : '工作'}会话已确认发送 · 第 ${task.round} 轮`);
@@ -1000,6 +1036,8 @@
     task.sendPrepared = false;
     task.preparedPrompt = '';
     task.sendUiWaitSince = 0;
+    task.dispatchOriginURL = '';
+    task.dispatchStartedAt = 0;
     task.rendererRecoveryExhausted = false;
     task.routeRecoveryAttempts = 0;
     observations.delete(task.id);
@@ -1011,23 +1049,24 @@
     if (task.phase === 'work') {
       if (Number(task.dispatchGoalRevision || 0) !== Number(task.goalRevision || 0)) {
         task.result = ''; task.next = ''; task.round++; task.phase = 'work'; task.url = ''; task.token = ''; task.attempted = false; task.state = 'queued'; task.noFinalReplyAttempts = 0;
+        task.dispatchOriginURL = ''; task.dispatchStartedAt = 0;
         log(task, '工作会话执行期间目标已更新；已忽略旧目标结果，下一轮 Work 将按新目标开始。');
         save();
         return;
       }
-      task.result = reply.slice(0,24000); task.phase = 'review'; task.url = ''; task.token = ''; task.attempted = false; task.state = 'queued'; task.noFinalReplyAttempts = 0;
+      task.result = reply.slice(0,24000); task.phase = 'review'; task.url = ''; task.token = ''; task.attempted = false; task.dispatchOriginURL = ''; task.dispatchStartedAt = 0; task.state = 'queued'; task.noFinalReplyAttempts = 0;
       log(task, 'Work 自然回复已确认结束，插件正在新开规划/验收会话。');
     } else {
       const report = parseReview(reply, task);
       if (Number(task.dispatchGoalRevision || 0) !== Number(task.goalRevision || 0)) {
-        task.result = ''; task.next = ''; task.round++; task.phase = 'work'; task.url = ''; task.token = ''; task.attempted = false; task.state = 'queued'; task.noFinalReplyAttempts = 0;
+        task.result = ''; task.next = ''; task.round++; task.phase = 'work'; task.url = ''; task.token = ''; task.attempted = false; task.dispatchOriginURL = ''; task.dispatchStartedAt = 0; task.state = 'queued'; task.noFinalReplyAttempts = 0;
         log(task, '验收期间任务目标已更新；已忽略旧验收结论，下一轮 Work 将按新目标开始。');
         save();
         return;
       }
       if (report.status === 'complete') state(task, 'done', `验收完成：${report.summary}`);
       else {
-        task.next = report.next.slice(0,16000); task.round++; task.phase = 'work'; task.url = ''; task.token = ''; task.attempted = false; task.state = 'queued'; task.noFinalReplyAttempts = 0;
+        task.next = report.next.slice(0,16000); task.round++; task.phase = 'work'; task.url = ''; task.token = ''; task.attempted = false; task.dispatchOriginURL = ''; task.dispatchStartedAt = 0; task.state = 'queued'; task.noFinalReplyAttempts = 0;
         log(task, `规划/验收要求继续：${report.summary}`);
       }
     }
@@ -1088,6 +1127,8 @@
       task.sendPrepared = false;
       task.preparedPrompt = '';
       task.sendUiWaitSince = 0;
+      task.dispatchOriginURL = '';
+      task.dispatchStartedAt = 0;
       task.rendererRecoveryExhausted = false;
       task.routeRecoveryAttempts = 0;
       observations.delete(task.id);
@@ -1141,9 +1182,16 @@
       }
       if (task.attempted) {
         const liveURL = currentConversationURL();
-        if (liveURL && ((task.token && hasTaskMarker(task)) || (task.url && taskMatchesCurrentConversation(task)))) {
-          recordConversationURL(task, liveURL);
+        // A matching URL without the task marker is not enough to confirm a
+        // fresh send: it may simply be the previous task's conversation left
+        // on screen during an SPA transition. Confirm ownership first, then
+        // persist the URL.
+        if (liveURL && task.token && hasTaskMarker(task)) {
+          const captured = task.url === liveURL ? liveURL : captureConversationURL(task, liveURL);
+          if (!captured) return;
           task.attempted = false;
+          task.dispatchOriginURL = '';
+          task.dispatchStartedAt = 0;
           task.state = 'waiting';
           task.updatedAt = Date.now();
           save();
@@ -1261,6 +1309,8 @@
       task.url = '';
       task.token = '';
       task.attempted = false;
+      task.dispatchOriginURL = '';
+      task.dispatchStartedAt = 0;
     }
     task.updatedAt = Date.now();
     selected = task.id;
@@ -1363,12 +1413,23 @@
       if(task?.preview && !terminal.has(task.state))feed.append(element('div',`实时回复\n${task.preview}`,'bubble assistant'));
       const sessionURL = canonicalConversationURL(task?.url);
       if(sessionURL){
-        const link=element('div',`会话链接：${sessionURL}`,'session-link');
+        const phaseName = task.phase === 'review' ? '验收' : '工作';
+        const link=element('div',`会话链接（第 ${task.round} 轮 · ${phaseName}）：${sessionURL}`,'session-link');
         link.title=sessionURL;
         feed.append(link);
         const view=element('button','打开已记录会话链接');
         view.title=sessionURL;
-        view.onclick=()=>{pause();location.assign(sessionURL);};
+        view.dataset.taskId=task.id;
+        view.onclick=()=>{
+          // Do not navigate to a URL captured by an old render of the panel.
+          // Resolve the selected task again at click time, then pause before
+          // navigating so the runner cannot rotate the tab underneath it.
+          const latest=data.tasks.find(item=>item.id===view.dataset.taskId);
+          const target=canonicalConversationURL(latest?.url);
+          if(!target)return;
+          pause();
+          location.assign(target);
+        };
         feed.append(view);
       }
       if(task?.state==='blocked' && task.url){const inspectButton=element('button','检查已有回复（不重发）');inspectButton.onclick=()=>{task.state='waiting';task.attempted=false;task.updatedAt=Date.now();save();start().catch(showError);};feed.append(inspectButton);}
