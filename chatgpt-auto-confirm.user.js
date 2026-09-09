@@ -307,6 +307,19 @@
         task.url = knownURL;
         task.attempted = false;
       }
+      if (resumeState === 'queued') {
+        // A paused task that never obtained a real conversation URL has no
+        // safe send-confirmation route to resume. Drop the old click token so
+        // Continue can create exactly one fresh dispatch instead of entering
+        // the stale attempted-send branch forever.
+        task.url = '';
+        task.token = '';
+        task.attempted = false;
+        task.sendPrepared = false;
+        task.preparedPrompt = '';
+        task.dispatchOriginURL = '';
+        task.dispatchStartedAt = 0;
+      }
       delete task.pausedState;
       task.pauseRevision = revision;
       task.state = resumeState;

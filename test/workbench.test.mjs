@@ -311,6 +311,18 @@ test('continue button starts a paused task instead of restoring a terminal block
   }
   dom.window.close();
 });
+test('a paused task without a real URL resumes as a fresh queued dispatch',()=>{
+  const {h,dom}=fixture();
+  const task={id:'paused-no-url',goal:'send again safely',state:'paused',pausedState:'blocked',phase:'work',round:1,url:'',token:'stale-token',attempted:true,sendPrepared:true,preparedPrompt:'old prompt',dispatchOriginURL:'https://chatgpt.com/c/old',messages:[]};
+  h.data.tasks.push(task);
+  assert.equal(h.restorePausedTasks(7),true);
+  assert.equal(task.state,'queued');
+  assert.equal(task.url,'');
+  assert.equal(task.token,'');
+  assert.equal(task.attempted,false);
+  assert.equal(task.sendPrepared,false);
+  dom.window.close();
+});
 test('an idle ChatGPT tab cannot pause a queue owned by another tab',()=>{
   const {w,h,dom}=fixture();
   const waiting={id:'idle-page',goal:'keep running',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/live',token:'owner',messages:[]};
