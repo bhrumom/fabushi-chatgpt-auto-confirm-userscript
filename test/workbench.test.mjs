@@ -10,7 +10,7 @@ function fixture(body='') {
   w.HTMLElement.prototype.getClientRects = function(){return this.hidden ? [] : [{}];};
   let held = false;
   w.navigator.locks = {request:async(name,options,callback)=>{if(held)return callback(null);held=true;try{await callback({name});}finally{held=false;}}};
-  w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, classify, cards, latestTurn, parseReview, workPrompt, plannerPrompt, enqueue, start, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, restoreCancelledTask, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, recoverLegacyNavigationFailures, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, taskMatchesCurrentConversation, taskHoldsScheduler, nextSupervisionTask, validNavigationTicket, getCurrent:()=>current };\n  mount();'));
+  w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, classify, cards, latestTurn, parseReview, workPrompt, plannerPrompt, enqueue, start, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, deleteTask, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, recoverLegacyNavigationFailures, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, taskMatchesCurrentConversation, taskHoldsScheduler, nextSupervisionTask, validNavigationTicket, getCurrent:()=>current };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('completion requires own final turn, stop absent, no approval and stable completion evidence',()=>{
@@ -57,6 +57,31 @@ test('nested split authorization card is detected without article/section wrappe
 test('ordinary allow controls are not mistaken for authorization cards',()=>{
   const {h,dom}=fixture('<main><button>允许</button><div><button>拒绝</button><button>允许</button></div><div><button>允许</button><button aria-haspopup="menu">选项</button></div></main>');
   assert.equal(h.cards().length,0);
+  dom.window.close();
+});
+test('unexpected ChatGPT modal is automatically closed while authorization cards stay untouched',async()=>{
+  const {w,h,dom}=fixture();
+  const modal=w.document.createElement('div');
+  modal.setAttribute('role','dialog');
+  modal.innerHTML='<h2>图像创作迎来重大升级</h2><button aria-label="Close">×</button><button>立即体验</button>';
+  const close=modal.querySelector('[aria-label="Close"]');
+  close.onclick=()=>modal.remove();
+  w.document.body.append(modal);
+  await new Promise(resolve=>setTimeout(resolve,150));
+  assert.equal(modal.isConnected,false);
+
+  const approval=w.document.createElement('div');
+  approval.setAttribute('role','dialog');
+  approval.innerHTML='<button>拒绝</button><button>允许</button><button aria-haspopup="menu">⌄</button>';
+  const approvalClose=w.document.createElement('button');
+  approvalClose.setAttribute('aria-label','Close');
+  approvalClose.textContent='×';
+  approvalClose.onclick=()=>approval.remove();
+  approval.append(approvalClose);
+  w.document.body.append(approval);
+  assert.equal(h.cards().length,1);
+  assert.equal(h.dismissUnexpectedModals(),0);
+  assert.equal(approval.isConnected,true);
   dom.window.close();
 });
 test('historical final answer cannot complete a new user turn',()=>{
@@ -133,6 +158,40 @@ test('dispatch clears an unrelated ChatGPT composer draft before sending',async(
   h.pause();
   assert.equal(input.value,task.preparedPrompt);
   assert.ok(task.messages.some(message=>/自动清空并替换/.test(message.text)));
+  dom.window.close();
+});
+test('empty ChatGPT composer is filled before looking up its send control',async()=>{
+  const {w,h,dom}=fixture('<main><form><textarea id="prompt-textarea"></textarea></form></main>');
+  const pageInput=w.document.querySelector('#prompt-textarea');
+  const form=pageInput.closest('form');
+  let sends=0;
+  pageInput.addEventListener('input',()=>{
+    if (!pageInput.value || form.querySelector('[data-testid="send-button"]')) return;
+    const button=w.document.createElement('button');
+    button.type='button';
+    button.dataset.testid='send-button';
+    button.textContent='Send';
+    button.onclick=()=>{
+      sends++;
+      const task=h.data.tasks.at(-1);
+      w.history.pushState({},'',`/c/empty-${task.id}`);
+      const user=w.document.createElement('div');
+      user.dataset.messageAuthorRole='user';
+      user.textContent=`[Fabushi:${task.token}]`;
+      w.document.querySelector('main').append(user);
+    };
+    form.append(button);
+  });
+  const root=w.document.getElementById('fabushi-auto-confirm-root');
+  root.querySelector('textarea').value='send with initially empty composer';
+  root.querySelector('form').dispatchEvent(new w.Event('submit',{cancelable:true}));
+  await new Promise(resolve=>setTimeout(resolve,1100));
+  const task=h.data.tasks[0];
+  h.pause();
+  assert.equal(sends,1);
+  assert.equal(pageInput.value,task.preparedPrompt);
+  assert.ok(task.url.endsWith(`/c/empty-${task.id}`));
+  assert.equal(task.sendPrepared,false);
   dom.window.close();
 });
 test('new goals become the next scheduler target instead of waiting behind stale tasks',()=>{
@@ -537,6 +596,23 @@ test('message history is not truncated after eighty entries',()=>{
   assert.equal(task.messages.length,120);
   assert.equal(task.messages[0].text,'记录 0');
   assert.equal(task.messages.at(-1).text,'记录 119');
+  dom.window.close();
+});
+test('completed, cancelled, and paused tasks can be deleted while live tasks are retained',()=>{
+  const {h,w,dom}=fixture();
+  const completed=h.enqueue('old completed','once');
+  completed.state='done';
+  const cancelled={id:'old-cancelled',goal:'old cancelled',mode:'once',phase:'work',round:1,state:'cancelled',messages:[]};
+  const paused={id:'old-paused',goal:'old paused',mode:'goal',phase:'work',round:1,state:'paused',messages:[]};
+  const live={id:'live',goal:'keep running',mode:'goal',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/live',token:'live',messages:[]};
+  h.data.tasks.push(cancelled,paused,live);
+  h.paint?.();
+  assert.equal(h.deleteTask(live),false);
+  assert.equal(h.deleteTask(completed),true);
+  assert.equal(h.deleteTask(cancelled),true);
+  assert.equal(h.deleteTask(paused),true);
+  assert.equal(h.data.tasks.map(task=>task.id).join(','),'live');
+  assert.equal(h.data.selected,'live');
   dom.window.close();
 });
 test('same-route hydration waits without creating a navigation ticket',async()=>{

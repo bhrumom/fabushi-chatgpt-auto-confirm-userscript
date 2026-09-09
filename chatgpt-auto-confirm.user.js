@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.7.9
+// @version      2.8.0
 // @description  独立单标签任务工作台：目标编排、单次任务、授权识别、实时消息与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -14,7 +14,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.7.9';
+  const VERSION = '2.8.0';
   if (window[INSTANCE]?.version === VERSION && window[INSTANCE]?.active) return;
   window[INSTANCE]?.shutdown?.();
   document.getElementById('fabushi-auto-confirm-root')?.remove();
@@ -45,9 +45,11 @@
   const RATE_LIMIT_COOLDOWN_MS = 5 * 60 * 1000;
   const MIN_SEND_INTERVAL_MS = 60 * 1000;
   const GLOBAL_APPROVAL_SCAN_MS = 1200;
+  const POPUP_DISMISS_SCAN_MS = 1000;
   const read = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key)) || fallback; } catch { return fallback; } };
   const data = read(KEY, { tasks: [], selected: '', autoApprove: true });
   if (!Array.isArray(data.tasks)) data.tasks = [];
+  if (!Array.isArray(data.deletedTaskIds)) data.deletedTaskIds = [];
   for (const task of data.tasks) {
     if (!Array.isArray(task.messages)) task.messages = [];
     if (!Number.isFinite(Number(task.messageVersion))) task.messageVersion = task.messages.length;
@@ -69,6 +71,7 @@
 
   let running = false, controller = null, timer = null, navigationTimer = null, lockRelease = null, busy = false, autoStartTimer = null, autoStartTaskId = '';
   let globalApprovalTimer = null, globalApprovalBusy = false;
+  let popupDismissTimer = null;
   let globalApprovalController = data.globalAutoApprove ? new AbortController() : null;
   let selected = data.selected, current = '', lastSwitch = 0, navigating = false, sameRouteWaitUntil = 0, sameRouteWaitSince = 0;
   let recoveredTaskId = '';
@@ -187,7 +190,15 @@
     return true;
   }
   function mergeStoredTasks(stored) {
+    const deleted = new Set([...(data.deletedTaskIds || []), ...(Array.isArray(stored?.deletedTaskIds) ? stored.deletedTaskIds : [])]);
+    data.deletedTaskIds = [...deleted].slice(-200);
+    if (deleted.size) {
+      data.tasks = data.tasks.filter(task => !deleted.has(task.id));
+      if (selected && deleted.has(selected)) selected = '';
+      if (current && deleted.has(current)) current = '';
+    }
     for (const remote of stored?.tasks || []) {
+      if (deleted.has(remote.id)) continue;
       const local = data.tasks.find(item => item.id === remote.id);
       if (!local) { data.tasks.push(remote); continue; }
       const localRevision = Number(local.pauseRevision || 0);
@@ -461,6 +472,68 @@
       }
     }
     return result;
+  }
+  // ChatGPT occasionally shows product announcements, image-generation tips,
+  // feedback prompts, and other modal overlays that block the composer. These
+  // are not authorization cards: close only an explicit dismiss control and
+  // leave every approval card for the dedicated arrow/menu flow below.
+  const popupCloseLabel = /^(?:×|✕|✖|x|关闭|close|dismiss|取消|cancel|稍后|以后再说|跳过|skip|not now|maybe later)(?:\s+(?:弹窗|窗口|对话框|modal|dialog|popup))?$/iu;
+  function popupDialogs() {
+    const selectors = [
+      '[role="dialog"]', '[aria-modal="true"]',
+      '[data-radix-dialog-content]', '[data-dialog-content]',
+      '[data-modal="true"]', '[class*="modal"]', '[class*="Modal"]',
+      '[class*="dialog"]', '[class*="Dialog"]',
+    ].join(',');
+    const seen = new Set();
+    return nodes(selectors).filter(node => {
+      if (seen.has(node) || !visible(node)) return false;
+      seen.add(node);
+      return true;
+    });
+  }
+  function modalCloseButton(dialog) {
+    const candidates = nodes('button,[role="button"]', dialog).filter(enabled);
+    const labelled = candidates.find(node => [text(node), node.getAttribute('aria-label'), node.getAttribute('title')]
+      .some(value => popupCloseLabel.test(normalize(value))));
+    if (labelled) return labelled;
+    const classClose = candidates.find(node => /(?:modal|dialog|popup)[-_]?(?:close|dismiss)|(?:close|dismiss|close-button)[-_]?(?:modal|dialog|popup)?/i.test(`${node.className || ''} ${node.getAttribute('data-testid') || ''}`));
+    if (classClose) return classClose;
+    // Some ChatGPT overlays render an icon-only close button without an
+    // aria-label. Restrict this fallback to an icon in the dialog's upper
+    // right corner so ordinary action buttons are not clicked accidentally.
+    const bounds = dialog.getBoundingClientRect?.();
+    if (!bounds) return null;
+    return candidates.filter(node => !text(node) && node.querySelector('svg')).find(node => {
+      const buttonBounds = node.getBoundingClientRect?.();
+      return buttonBounds && buttonBounds.top <= bounds.top + 96 && buttonBounds.right >= bounds.right - 140;
+    }) || null;
+  }
+  function dismissUnexpectedModals(task = null) {
+    const approvalContainers = cards().map(card => card.container);
+    let dismissed = 0;
+    for (const dialog of popupDialogs()) {
+      // A connector authorization card may itself be rendered inside a
+      // dialog. Never close that card through the generic popup heuristic.
+      const actions = nodes('button,[role="button"]', dialog).filter(enabled);
+      const approvalLike = actions.some(node => actionMatches(node, allowLabel))
+        && actions.some(node => actionMatches(node, denyLabel));
+      if (approvalLike || approvalContainers.some(container => container === dialog || dialog.contains(container) || container.contains(dialog))) continue;
+      const close = modalCloseButton(dialog);
+      if (!close) continue;
+      activateControl(close);
+      dismissed++;
+      if (task) log(task, '检测到 ChatGPT 弹窗，已自动关闭。');
+    }
+    return dismissed;
+  }
+  function schedulePopupDismissScan(ms = POPUP_DISMISS_SCAN_MS) {
+    clearTimeout(popupDismissTimer);
+    popupDismissTimer = setTimeout(() => {
+      popupDismissTimer = null;
+      try { dismissUnexpectedModals(); } catch (error) { console.warn('[Fabushi] ChatGPT 弹窗检查暂未完成', error); }
+      schedulePopupDismissScan();
+    }, ms);
   }
   function checkAuthorizationRun(signal, queueOwned) {
     if (signal?.aborted || (queueOwned && !running)) throw new Error('已暂停');
@@ -814,6 +887,7 @@
     }
     if (!await navigate('/', signal, task, true)) return;
     check(signal);
+    dismissUnexpectedModals(task);
     if (stopButton() || cards().length) throw new Error('当前页面仍在生成或等待授权，禁止发送。');
     if (blocker()) throw new Error(blocker());
     const dispatchWait = dispatchCooldownRemaining();
@@ -842,18 +916,23 @@
     if (nodes('[data-message-author-role=user]').length) return waitForSendUI(task, '新会话页面仍保留旧消息');
     const prompt = task.preparedPrompt || (task.phase === 'review' ? plannerPrompt(task) : workPrompt(task));
     let draft = normalize(input.value || input.textContent);
-    let button = sendButtonFor(input);
-    if (!button) return waitForSendUI(task, '发送按钮暂不可用');
     // The composer is only a transient draft, not part of the user's task
     // history. A stale manual draft used to block the queue forever. Once a
-    // real send control is available, clear that draft and replace it with
-    // the single prepared prompt; do not preserve or log the draft contents.
+    // composer exists, clear that draft and replace it with the single
+    // prepared prompt; do not preserve or log the draft contents. ChatGPT
+    // hides its send button while the composer is empty, so this must happen
+    // before looking up the send control.
     if (draft && draft !== normalize(prompt)) {
       setInput(input, '');
       log(task, '检测到输入框已有草稿，已自动清空并替换为本轮任务内容。');
       draft = '';
     }
-    if (!draft) setInput(input, prompt);
+    if (!draft) {
+      setInput(input, prompt);
+      draft = normalize(prompt);
+    }
+    let button = sendButtonFor(input);
+    if (!button) return waitForSendUI(task, '发送按钮暂不可用');
     await delay(300, signal); check(signal);
     button = sendButtonFor(input) || (enabled(button) ? button : null);
     if (!button) return waitForSendUI(task, '发送按钮在输入后消失');
@@ -1044,6 +1123,7 @@
         if (current !== task.id) measurements.switches++;
         current = task.id; lastSwitch = Date.now(); paint();
       }
+      dismissUnexpectedModals(task);
       const rateLimit = rateLimitNotice();
       if (rateLimit) {
         nextScheduleMs = restForRateLimit(task);
@@ -1208,6 +1288,25 @@
     if (running) { schedule(100); return Promise.resolve(true); }
     return start().then(() => true);
   }
+  function deleteTask(task) {
+    // Deletion is deliberately limited to tasks that can no longer dispatch a
+    // message. A live task must be paused/cancelled first so a user cannot
+    // accidentally remove the only durable handle for an in-flight ChatGPT
+    // conversation.
+    if (!task || (!terminal.has(task.state) && task.state !== 'paused')) return false;
+    const index = data.tasks.findIndex(item => item.id === task.id);
+    if (index < 0) return false;
+    data.tasks.splice(index, 1);
+    data.deletedTaskIds ||= [];
+    if (!data.deletedTaskIds.includes(task.id)) data.deletedTaskIds.push(task.id);
+    data.deletedTaskIds = data.deletedTaskIds.slice(-200);
+    observations.delete(task.id);
+    if (current === task.id) current = '';
+    if (selected === task.id) selected = data.tasks[0]?.id || '';
+    save();
+    paint();
+    return true;
+  }
   function element(tag, content, className) {
     const node = document.createElement(tag); if (content) node.textContent = content; if (className) node.className = className; return node;
   }
@@ -1274,6 +1373,7 @@
       }
       if(task?.state==='blocked' && task.url){const inspectButton=element('button','检查已有回复（不重发）');inspectButton.onclick=()=>{task.state='waiting';task.attempted=false;task.updatedAt=Date.now();save();start().catch(showError);};feed.append(inspectButton);}
       if(task && !terminal.has(task.state)){const cancel=element('button','取消此任务');cancel.onclick=()=>{pause();state(task,'cancelled');};feed.append(cancel);}
+      if(task && (terminal.has(task.state) || task.state === 'paused')){const remove=element('button','删除此任务');remove.onclick=()=>deleteTask(task);feed.append(remove);}
       if(nearBottom)feed.scrollTop=feed.scrollHeight;
     };
     function showError(error){notice.textContent=error.message;}
@@ -1286,7 +1386,7 @@
     compose.onsubmit=event=>{event.preventDefault();try{enqueue(input.value,select.value);input.value='';start().catch(showError);}catch(error){showError(error);}};
     paint();
   }
-  window[INSTANCE]={active:true,version:VERSION,shutdown(){suspendRunnerForPagehide();globalApprovalController?.abort();clearTimeout(globalApprovalTimer);globalApprovalTimer=null;window[INSTANCE].active=false;document.getElementById(ROOT)?.remove();document.getElementById('fabushi-auto-confirm-style')?.remove();}};
+  window[INSTANCE]={active:true,version:VERSION,shutdown(){suspendRunnerForPagehide();globalApprovalController?.abort();clearTimeout(globalApprovalTimer);globalApprovalTimer=null;clearTimeout(popupDismissTimer);popupDismissTimer=null;window[INSTANCE].active=false;document.getElementById(ROOT)?.remove();document.getElementById('fabushi-auto-confirm-style')?.remove();}};
   window.FabushiUserscript=Object.freeze({pluginId:'chatgpt-auto-confirm',getServer:()=> 'browser-local',call:async(tool,args={})=>{
     if(['status','diagnose','queue_status','chat_status'].includes(tool))return{version:VERSION,running,tasks:data.tasks,measurements,singleTab:true};
     if(['pause_queue','stop'].includes(tool)){pause();return{running:false};}
@@ -1297,6 +1397,7 @@
   }});
   mount();
   scheduleGlobalApprovalScan(50);
+  schedulePopupDismissScan(50);
   recoveredTaskId = recoverLegacyNavigationFailures();
   migratePersistedPause();
   let ticket;try{ticket=JSON.parse(sessionStorage.getItem(NAV));}catch{}
