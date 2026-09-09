@@ -143,7 +143,8 @@
   // owned by another task.
   function captureConversationURL(task, value) {
     const canonical = canonicalConversationURL(value);
-    if (!canonical || conversationURLOwner(canonical, task?.id)) return '';
+    const origin = canonicalConversationURL(task?.dispatchOriginURL);
+    if (!canonical || canonical === origin || conversationURLOwner(canonical, task?.id)) return '';
     return recordConversationURL(task, canonical);
   }
   function taskMatchesCurrentConversation(task) {
