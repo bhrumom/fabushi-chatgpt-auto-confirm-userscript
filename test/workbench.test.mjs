@@ -10,7 +10,7 @@ function fixture(body='') {
   w.HTMLElement.prototype.getClientRects = function(){return this.hidden ? [] : [{}];};
   let held = false;
   w.navigator.locks = {request:async(name,options,callback)=>{if(held)return callback(null);held=true;try{await callback({name});}finally{held=false;}}};
-  w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, classify, cards, latestTurn, parseReview, workPrompt, plannerPrompt, enqueue, start, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, deleteTask, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, recoverLegacyNavigationFailures, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, nextSupervisionTask, validNavigationTicket, getCurrent:()=>current };\n  mount();'));
+  w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, classify, cards, latestTurn, parseReview, workPrompt, plannerPrompt, enqueue, start, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, recoverLegacyNavigationFailures, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, nextSupervisionTask, validNavigationTicket, getCurrent:()=>current };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('completion requires own final turn, stop absent, no approval and stable completion evidence',()=>{
@@ -581,6 +581,43 @@ test('recorded conversation links are canonical identities and direct recovery i
   assert.equal(ticket.attempts,1);
   h.directNavigate(new w.URL(task.url),task,false);
   assert.equal(JSON.parse(w.sessionStorage.getItem('fabushi-workbench-navigation-v2')).attempts,1);
+  dom.window.close();
+});
+test('open control is a native link bound to the selected task exact conversation URL',()=>{
+  const {h,w,dom}=fixture();
+  const oldTask=h.enqueue('old task','goal');
+  h.recordConversationURL(oldTask,'https://chatgpt.com/c/old-conversation');
+  const newTask=h.enqueue('new task','goal');
+  h.recordConversationURL(newTask,'https://chatgpt.com/c/new-conversation');
+  h.log(newTask,'工作会话已确认发送');
+  w.sessionStorage.setItem('fabushi-workbench-navigation-v2',JSON.stringify({
+    task:oldTask.id,path:'/c/old-conversation',href:oldTask.url,resume:true,at:Date.now()
+  }));
+  const link=[...w.document.querySelectorAll('a.action')].find(node=>node.textContent==='打开已记录会话链接');
+  assert.ok(link);
+  assert.equal(link.href,newTask.url,'the visible control carries the selected task URL as a native href');
+  assert.equal(link.dataset.taskId,newTask.id);
+  assert.equal(link.dataset.conversationUrl,newTask.url);
+  let prevented=false;
+  link.onclick({preventDefault(){prevented=true;}});
+  assert.equal(prevented,false);
+  assert.equal(link.href,newTask.url,'click cannot be retargeted to a stale task URL');
+  assert.equal(h.data.autoResume,false,'manual open creates a durable scheduler pause barrier');
+  assert.equal(w.sessionStorage.getItem('fabushi-workbench-navigation-v2'),null,'stale navigation ticket is discarded');
+  assert.equal(oldTask.url,'https://chatgpt.com/c/old-conversation');
+  assert.equal(newTask.url,'https://chatgpt.com/c/new-conversation');
+  dom.window.close();
+});
+test('open control rejects a task URL that changed after the panel rendered',()=>{
+  const {h,dom}=fixture();
+  const task=h.enqueue('changing task','goal');
+  h.recordConversationURL(task,'https://chatgpt.com/c/rendered');
+  assert.equal(h.prepareRecordedConversationOpen(task.id,'https://chatgpt.com/c/rendered'),task.url);
+  h.data.autoResume=true;
+  task.state='waiting';
+  h.recordConversationURL(task,'https://chatgpt.com/c/changed');
+  assert.equal(h.prepareRecordedConversationOpen(task.id,'https://chatgpt.com/c/rendered'),'');
+  assert.equal(h.data.autoResume,true,'a stale control cannot pause or navigate the current task');
   dom.window.close();
 });
 test('a conversation URL cannot be adopted by two active tasks',()=>{

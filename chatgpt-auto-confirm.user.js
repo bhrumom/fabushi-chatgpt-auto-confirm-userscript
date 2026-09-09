@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.8.1
+// @version      2.8.2
 // @description  独立单标签任务工作台：目标编排、单次任务、授权识别、实时消息与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -14,7 +14,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.8.1';
+  const VERSION = '2.8.2';
   if (window[INSTANCE]?.version === VERSION && window[INSTANCE]?.active) return;
   window[INSTANCE]?.shutdown?.();
   document.getElementById('fabushi-auto-confirm-root')?.remove();
@@ -1371,6 +1371,23 @@
     paint();
     return true;
   }
+  function prepareRecordedConversationOpen(taskId, expectedURL) {
+    const task = data.tasks.find(item => item.id === taskId);
+    const target = canonicalConversationURL(expectedURL);
+    // The href rendered for this exact task is authoritative. If another tab
+    // changed the task between render and click, refuse the click instead of
+    // resolving a different selected/current task and opening its old route.
+    if (!task || !target || canonicalConversationURL(task.url) !== target) return '';
+    selected = task.id;
+    current = task.id;
+    lastSwitch = Date.now();
+    // Opening a conversation is a manual inspection action. Persist a real
+    // pause barrier before the document changes so neither this document nor
+    // another ChatGPT tab can rotate the browser back to an older task URL.
+    pause(true);
+    sessionStorage.removeItem(NAV);
+    return target;
+  }
   function element(tag, content, className) {
     const node = document.createElement(tag); if (content) node.textContent = content; if (className) node.className = className; return node;
   }
@@ -1379,7 +1396,7 @@
     const style = element('style'); style.id = 'fabushi-auto-confirm-style';
     style.textContent = `
       #${ROOT}{position:fixed;right:18px;bottom:18px;z-index:2147483646;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#ececec;color-scheme:dark}
-      #${ROOT} *{box-sizing:border-box} #${ROOT} button,#${ROOT} select{font:inherit;cursor:pointer;color:inherit;background:#303030;border:1px solid #484848;border-radius:10px;padding:8px 12px} #${ROOT} button:hover{background:#414141} #${ROOT} button:disabled{opacity:.45;cursor:default}
+      #${ROOT} *{box-sizing:border-box} #${ROOT} button,#${ROOT} select,#${ROOT} a.action{font:inherit;cursor:pointer;color:inherit;background:#303030;border:1px solid #484848;border-radius:10px;padding:8px 12px} #${ROOT} a.action{display:inline-block;text-decoration:none} #${ROOT} button:hover,#${ROOT} a.action:hover{background:#414141} #${ROOT} button:disabled{opacity:.45;cursor:default}
       #${ROOT} .launch{float:right;border-radius:24px;background:#6048dc;border:0}
       #${ROOT} .desk{display:none;width:min(880px,calc(100vw - 36px));height:min(700px,calc(100vh - 110px));margin-bottom:10px;border:1px solid #4a4a4a;border-radius:20px;background:#212121;box-shadow:0 16px 60px #0008;overflow:hidden}
       #${ROOT} .desk.open{display:flex} #${ROOT} aside{width:210px;flex-shrink:0;background:#171717;padding:16px 10px;overflow:auto} #${ROOT} aside h3{margin:0 8px 16px} #${ROOT} aside button{width:100%;text-align:left;margin-bottom:8px;background:transparent;border-color:transparent;overflow:hidden;text-overflow:ellipsis} #${ROOT} aside button.selected{background:#303030} #${ROOT} small{display:block;color:#aaa;font-size:12px}
@@ -1431,18 +1448,21 @@
         const link=element('div',`会话链接（第 ${task.round} 轮 · ${phaseName}）：${sessionURL}`,'session-link');
         link.title=sessionURL;
         feed.append(link);
-        const view=element('button','打开已记录会话链接');
+        // This must be a native anchor with the exact URL visible above. A
+        // scripted location.assign could be swallowed while ChatGPT replaced
+        // its SPA document, leaving the previous conversation on screen.
+        const view=element('a','打开已记录会话链接','action');
+        view.href=sessionURL;
+        view.target='_self';
         view.title=sessionURL;
         view.dataset.taskId=task.id;
-        view.onclick=()=>{
-          // Do not navigate to a URL captured by an old render of the panel.
-          // Resolve the selected task again at click time, then pause before
-          // navigating so the runner cannot rotate the tab underneath it.
-          const latest=data.tasks.find(item=>item.id===view.dataset.taskId);
-          const target=canonicalConversationURL(latest?.url);
-          if(!target)return;
-          pause();
-          location.assign(target);
+        view.dataset.conversationUrl=sessionURL;
+        view.onclick=event=>{
+          const target=prepareRecordedConversationOpen(view.dataset.taskId,view.dataset.conversationUrl);
+          if(!target){event.preventDefault();showError(new Error('任务会话链接已变化，请重新选择任务后再打开。'));return;}
+          // Keep the native link destination synchronized with the exact value
+          // that passed the task/URL identity check. Do not call location.assign.
+          view.href=target;
         };
         feed.append(view);
       }
