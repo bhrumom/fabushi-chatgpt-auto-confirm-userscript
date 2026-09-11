@@ -11,7 +11,7 @@ async function fixture(body='', setup=()=>{}) {
   const held = new Set();
   w.navigator.locks = {query:async()=>({held:[...held].map(name=>({name}))}),request:async(name,options,callback)=>{callback ||= options;if(held.has(name))return callback(null);held.add(name);try{return await callback({name});}finally{held.delete(name);}}};
   setup(w);
-  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, classify, cards, latestTurn, parseReview, workPrompt, plannerPrompt, enqueue, start, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, recoverLegacyNavigationFailures, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, nextSupervisionTask, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, classify, abnormalEndSince, cards, latestTurn, parseReview, workPrompt, plannerPrompt, enqueue, start, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, recoverLegacyNavigationFailures, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, nextSupervisionTask, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('completion requires own final turn, stop absent, no approval and stable completion evidence',async()=>{
@@ -37,6 +37,23 @@ test('a lost Stop control with no final answer becomes a recoverable abnormal en
   assert.equal(h.classify(sample,previous,16_001).state,'no-final-reply');
   assert.equal(h.classify({...sample,cards:1},previous,16_001).state,'approval');
   assert.equal(h.classify({...sample,stop:true},previous,16_001).state,'generating');
+  dom.window.close();
+});
+test('late observation starts the short abnormal-end timer even when Stop already disappeared',async()=>{
+  const {h,dom}=await fixture();
+  const sample={owned:true,final:false,text:'tool calls only',sentAt:0,cards:0,stop:false,blocker:'',rateLimit:''};
+  const started=h.abnormalEndSince(sample,null,1_000);
+  assert.equal(started,1_000,'the first clear observation starts the grace period');
+  const stable={text:sample.text,idleSince:1_000,endedAt:started,clear:true,stop:false};
+  assert.equal(h.abnormalEndSince(sample,stable,3_000),1_000,'stable absence keeps the original timer');
+  assert.equal(h.classify(sample,stable,16_001).state,'no-final-reply');
+  assert.equal(h.abnormalEndSince({...sample,text:'new partial output'},stable,3_000),3_000,'new text resets the timer');
+  assert.equal(h.abnormalEndSince({...sample,stop:true},stable,3_000),0);
+  assert.equal(h.abnormalEndSince({...sample,cards:1},stable,3_000),0);
+  assert.equal(h.abnormalEndSince({...sample,final:true},stable,3_000),0);
+  assert.equal(h.abnormalEndSince({...sample,owned:false},stable,3_000),0);
+  assert.equal(h.abnormalEndSince({...sample,blocker:'security verification'},stable,3_000),0);
+  assert.equal(h.abnormalEndSince({...sample,rateLimit:'rate limit'},stable,3_000),0);
   dom.window.close();
 });
 test('work prompt stays natural while the fresh planner alone receives the report contract',async()=>{

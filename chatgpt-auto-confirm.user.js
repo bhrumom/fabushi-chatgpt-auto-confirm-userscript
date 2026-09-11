@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.3
+// @version      2.9.4
 // @description  独立单标签任务工作台：目标编排、单次任务、授权识别、实时消息与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -14,7 +14,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.3';
+  const VERSION = '2.9.4';
   if (window[INSTANCE]?.version === VERSION && window[INSTANCE]?.active) return;
   window[INSTANCE]?.shutdown?.();
   document.getElementById('fabushi-auto-confirm-root')?.remove();
@@ -730,14 +730,25 @@
     // absent (or while a renderer error leaves only a partial/empty turn).
     // Once that transition remains stable, it is an abnormal end and must be
     // handed to a fresh Chat rather than waiting for the five-minute reload
-    // fallback. `endedAt` is recorded only after a real Stop -> no-Stop
-    // transition, so ordinary initial page hydration is not misclassified.
+    // fallback. `endedAt` is started by the first stable clear observation as
+    // well as a witnessed Stop -> no-Stop transition. The scheduler may return
+    // after Stop already disappeared, so requiring that transient edge would
+    // leave an already-ended conversation waiting for the five-minute fallback.
     if (previous?.endedAt && now - previous.endedAt >= STOP_LOST_FINAL_REPLY_MS
       && previous?.text === sample.text && !sample.final) {
       return { state:'no-final-reply', reason:'会话停止生成后没有新的最终回复或授权卡。' };
     }
     if (previous?.clear && now - previous.idleSince >= NO_FINAL_REPLY_MS && !sample.final) return { state:'no-final-reply', reason:'会话已结束但没有新的最终回复。' };
     return { state:'waiting' };
+  }
+  function abnormalEndSince(sample, previous, now) {
+    const clear = !sample.stop && !sample.cards;
+    if (!sample.owned || !clear || sample.final || sample.rateLimit || sample.blocker) return 0;
+    const stable = previous?.text === sample.text && previous?.clear && clear;
+    // Start immediately on the first clear observation, but reset whenever the
+    // visible assistant text changes. `classify` still requires a subsequent
+    // stable scan and the full short grace period before retrying.
+    return stable ? (previous.endedAt || previous.idleSince || now) : now;
   }
   function safeURL(url) {
     const target = new URL(url, location.origin);
@@ -1207,9 +1218,7 @@
     const now = Date.now();
     const clear = !sample.stop && !sample.cards;
     const stable = previous?.text === sample.text && previous?.clear && clear;
-    const endedAt = clear && !sample.final && !sample.rateLimit && !sample.blocker
-      ? (previous?.stop ? now : (stable ? previous?.endedAt || 0 : 0))
-      : 0;
+    const endedAt = abnormalEndSince(sample, previous, now);
     observations.set(task.id, {
       text:sample.text,
       since:stable ? previous.since : now,
