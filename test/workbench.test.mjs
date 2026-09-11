@@ -446,6 +446,32 @@ test('replacing an idle script instance does not pause persisted tasks',async()=
   assert.equal(h.data.autoResume,true);
   dom.window.close();
 });
+test('same-document hot replacement keeps the workspace and continuous review transition',async()=>{
+  const {w,h,dom}=await fixture();
+  const task=h.enqueue('continue through validation','goal');
+  Object.assign(task,{state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/hot-reload',token:'owner-token'});
+  w.history.pushState({},'', '/c/hot-reload');
+  h.log(task,'persist before hot replacement');
+  const originalTabId=h.getTabId();
+
+  const duplicateRoot=w.document.createElement('div');duplicateRoot.id='fabushi-auto-confirm-root';w.document.body.append(duplicateRoot);
+  const duplicateStyle=w.document.createElement('style');duplicateStyle.id='fabushi-auto-confirm-style';w.document.head.append(duplicateStyle);
+  w.__FABUSHI_AUTO_CONFIRM_INSTANCE__.version='2.9.5';
+  await w.eval(source.replace('  mount();','  window.replacementHooks = { finish, data, getTabId:()=>tabId };\n  mount();'));
+
+  assert.equal(w.replacementHooks.getTabId(),originalTabId,'replacement must reclaim the same document workspace');
+  assert.equal(w.document.querySelectorAll('#fabushi-auto-confirm-root').length,1);
+  assert.equal(w.document.querySelectorAll('#fabushi-auto-confirm-style').length,1);
+  const replacementTask=w.replacementHooks.data.tasks.find(item=>item.id===task.id);
+  assert.ok(replacementTask,'the continuous task remains owned by the replacement instance');
+  w.replacementHooks.finish(replacementTask,'completed Work result');
+  assert.equal(replacementTask.phase,'review');
+  assert.equal(replacementTask.state,'queued');
+  assert.equal(replacementTask.url,'');
+  assert.match(replacementTask.messages.at(-1).text,/新开规划\/验收会话/);
+  await w.__FABUSHI_AUTO_CONFIRM_INSTANCE__.shutdown();
+  dom.window.close();
+});
 test('a persisted manual pause is made visible after script reload',async()=>{
   const {h,dom}=await fixture();
   const task={id:'reload-paused',goal:'keep paused',state:'generating',phase:'work',round:1,url:'https://chatgpt.com/c/live',token:'owner',messages:[]};

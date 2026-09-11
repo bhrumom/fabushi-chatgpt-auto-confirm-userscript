@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.5
+// @version      2.9.6
 // @description  独立单标签任务工作台：目标编排、单次任务、授权识别、实时消息与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -14,11 +14,13 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.5';
-  if (window[INSTANCE]?.version === VERSION && window[INSTANCE]?.active) return;
-  window[INSTANCE]?.shutdown?.();
-  document.getElementById('fabushi-auto-confirm-root')?.remove();
-  document.getElementById('fabushi-auto-confirm-style')?.remove();
+  const VERSION = '2.9.6';
+  const previousInstance = window[INSTANCE];
+  if (previousInstance?.version === VERSION && previousInstance?.active) return;
+  const replacingActiveInstance = Boolean(previousInstance?.active);
+  await previousInstance?.shutdown?.();
+  document.querySelectorAll('#fabushi-auto-confirm-root').forEach(node => node.remove());
+  document.querySelectorAll('#fabushi-auto-confirm-style').forEach(node => node.remove());
   const KEY = 'fabushi-workbench-v2';
   const NAV = 'fabushi-workbench-navigation-v2';
   const TAB_SESSION_KEY = 'fabushi-workbench-tab-session-v1';
@@ -54,6 +56,7 @@
   const WORKSPACE_LOCK = 'fabushi-workspace-v1:';
   const RECOVERY_KEY = 'fabushi-workspace-recovery-v1:';
   let workspaceRelease = null;
+  let workspaceReleased = Promise.resolve();
   const recoveryToken = new URLSearchParams(location.hash.slice(1)).get('fabushi-resume');
   let recoveredWorkspace = '';
   if (recoveryToken) {
@@ -72,16 +75,36 @@
   // personal or paused tab. Browser closure releases it without heartbeat races.
   async function claimWorkspace(owner) {
     if (!navigator.locks) return true; // The runner still refuses unsafe sends.
-    return new Promise((resolve, reject) => {
-      navigator.locks.request(WORKSPACE_LOCK + owner, { ifAvailable:true }, async lock => {
-        if (!lock) { resolve(false); return; }
+    let resolveClaim, rejectClaim;
+    const claim = new Promise((resolve, reject) => { resolveClaim = resolve; rejectClaim = reject; });
+    workspaceReleased = navigator.locks.request(WORKSPACE_LOCK + owner, { ifAvailable:true }, async lock => {
+        if (!lock) { resolveClaim(false); return; }
         const held = new Promise(done => { workspaceRelease = done; });
-        resolve(true);
+        resolveClaim(true);
         await held;
-      }).catch(reject);
-    });
+      }).catch(error => { rejectClaim(error); });
+    return claim;
   }
-  if (!await claimWorkspace(tabId)) {
+  async function releaseWorkspace() {
+    const released = workspaceReleased;
+    workspaceRelease?.();
+    workspaceRelease = null;
+    await released.catch(() => {});
+  }
+  async function reclaimReplacedWorkspace(owner) {
+    // Web Locks release runs on its own task queue after the old callback's
+    // promise settles. Only a proven same-window replacement may wait for that
+    // handoff; a genuinely duplicated tab must still fail immediately and get
+    // an independent workspace identity.
+    for (let attempt = 0; attempt < 20; attempt++) {
+      if (await claimWorkspace(owner)) return true;
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
+    return false;
+  }
+  let workspaceClaimed = await claimWorkspace(tabId);
+  if (!workspaceClaimed && replacingActiveInstance) workspaceClaimed = await reclaimReplacedWorkspace(tabId);
+  if (!workspaceClaimed) {
     tabId = crypto.randomUUID();
     await claimWorkspace(tabId);
     sessionStorage.removeItem(NAV);
@@ -1733,7 +1756,7 @@
     compose.onsubmit=event=>{event.preventDefault();try{enqueue(input.value,select.value);input.value='';start().catch(showError);}catch(error){showError(error);}};
     paint();
   }
-  window[INSTANCE]={active:true,version:VERSION,shutdown(){suspendRunnerForPagehide();workspaceRelease?.();workspaceRelease=null;globalApprovalController?.abort();clearTimeout(globalApprovalTimer);globalApprovalTimer=null;clearTimeout(popupDismissTimer);popupDismissTimer=null;window[INSTANCE].active=false;document.getElementById(ROOT)?.remove();document.getElementById('fabushi-auto-confirm-style')?.remove();}};
+  window[INSTANCE]={active:true,version:VERSION,async shutdown(){suspendRunnerForPagehide();globalApprovalController?.abort();clearTimeout(globalApprovalTimer);globalApprovalTimer=null;clearTimeout(popupDismissTimer);popupDismissTimer=null;this.active=false;document.querySelectorAll(`#${ROOT}`).forEach(node=>node.remove());document.querySelectorAll('#fabushi-auto-confirm-style').forEach(node=>node.remove());await releaseWorkspace();}};
   window.FabushiUserscript=Object.freeze({pluginId:'chatgpt-auto-confirm',getServer:()=> 'browser-local',call:async(tool,args={})=>{
     if(['status','diagnose','queue_status','chat_status'].includes(tool))return{version:VERSION,running,tasks:tabTasks(),measurements,tabWorkspace:true,tabId};
     if(['pause_queue','stop'].includes(tool)){pause();return{running:false};}
@@ -1776,6 +1799,6 @@
     if (event.key !== KEY) return;
     syncRemoteControl();
   });
-  window.addEventListener('pagehide',()=>{if(!navigating)suspendRunnerForPagehide();workspaceRelease?.();workspaceRelease=null;});
+  window.addEventListener('pagehide',()=>{if(!navigating)suspendRunnerForPagehide();releaseWorkspace();});
   window.addEventListener('pageshow',event=>{if(event.persisted)location.reload();});
 })();
