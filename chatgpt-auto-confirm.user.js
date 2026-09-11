@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.8.2
+// @version      2.9.3
 // @description  独立单标签任务工作台：目标编排、单次任务、授权识别、实时消息与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -10,17 +10,19 @@
 // @run-at       document-idle
 // ==/UserScript==
 
-(() => {
+(async () => {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.8.2';
+  const VERSION = '2.9.3';
   if (window[INSTANCE]?.version === VERSION && window[INSTANCE]?.active) return;
   window[INSTANCE]?.shutdown?.();
   document.getElementById('fabushi-auto-confirm-root')?.remove();
   document.getElementById('fabushi-auto-confirm-style')?.remove();
   const KEY = 'fabushi-workbench-v2';
   const NAV = 'fabushi-workbench-navigation-v2';
+  const TAB_SESSION_KEY = 'fabushi-workbench-tab-session-v1';
+  const LEGACY_OWNER_KEY = 'fabushi-workbench-legacy-owner-v1';
   const ROOT = 'fabushi-auto-confirm-root';
   // This limit is only for a conversation that ended without a final reply.
   // Session navigation itself is keyed by the persisted ChatGPT URL and never
@@ -47,6 +49,42 @@
   const GLOBAL_APPROVAL_SCAN_MS = 1200;
   const POPUP_DISMISS_SCAN_MS = 1000;
   const read = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key)) || fallback; } catch { return fallback; } };
+  const WORKSPACE_LOCK = 'fabushi-workspace-v1:';
+  const RECOVERY_KEY = 'fabushi-workspace-recovery-v1:';
+  let workspaceRelease = null;
+  const recoveryToken = new URLSearchParams(location.hash.slice(1)).get('fabushi-resume');
+  let recoveredWorkspace = '';
+  if (recoveryToken) {
+    const recovery = read(RECOVERY_KEY + recoveryToken, null);
+    if (recovery && Date.now() - recovery.at < NAV_TICKET_TTL_MS) {
+      recoveredWorkspace = recovery.ownerTabId;
+      localStorage.removeItem(RECOVERY_KEY + recoveryToken);
+      localStorage.removeItem(RECOVERY_KEY + 'pending:' + recoveredWorkspace);
+    }
+    history.replaceState(history.state, '', location.pathname + location.search);
+    window.opener = null;
+  }
+  let tabId = recoveredWorkspace || sessionStorage.getItem(TAB_SESSION_KEY) || crypto.randomUUID();
+  // A lifetime lock distinguishes duplicate tabs even when the browser copies
+  // sessionStorage. It remains held while paused, so recovery cannot steal a
+  // personal or paused tab. Browser closure releases it without heartbeat races.
+  async function claimWorkspace(owner) {
+    if (!navigator.locks) return true; // The runner still refuses unsafe sends.
+    return new Promise((resolve, reject) => {
+      navigator.locks.request(WORKSPACE_LOCK + owner, { ifAvailable:true }, async lock => {
+        if (!lock) { resolve(false); return; }
+        const held = new Promise(done => { workspaceRelease = done; });
+        resolve(true);
+        await held;
+      }).catch(reject);
+    });
+  }
+  if (!await claimWorkspace(tabId)) {
+    tabId = crypto.randomUUID();
+    await claimWorkspace(tabId);
+    sessionStorage.removeItem(NAV);
+  }
+  sessionStorage.setItem(TAB_SESSION_KEY, tabId);
   const data = read(KEY, { tasks: [], selected: '', autoApprove: true });
   if (!Array.isArray(data.tasks)) data.tasks = [];
   if (!Array.isArray(data.deletedTaskIds)) data.deletedTaskIds = [];
@@ -55,11 +93,43 @@
     if (!Number.isFinite(Number(task.messageVersion))) task.messageVersion = task.messages.length;
     if (!Number.isFinite(Number(task.goalRevision))) task.goalRevision = 0;
   }
-  if (typeof data.autoResume !== 'boolean') data.autoResume = true;
   if (typeof data.globalAutoApprove !== 'boolean') data.globalAutoApprove = false;
-  if (!Number.isFinite(Number(data.lastDispatchAt))) data.lastDispatchAt = 0;
-  if (!Number.isFinite(Number(data.controlRevision))) data.controlRevision = 0;
-  if (!Number.isFinite(Number(data.pausedAt))) data.pausedAt = 0;
+  let legacyOwner = localStorage.getItem(LEGACY_OWNER_KEY);
+  if (!legacyOwner || legacyOwner === 'legacy-workspace-v2') {
+    // The first document that opens an old v2 queue becomes its owner. Once
+    // the task records carry an owner id, the workspace lock below prevents a
+    // duplicated tab from taking those tasks over.
+    localStorage.setItem(LEGACY_OWNER_KEY, tabId);
+    legacyOwner = localStorage.getItem(LEGACY_OWNER_KEY);
+  }
+  let ownershipMigrated = false;
+  if (legacyOwner === tabId) {
+    for (const task of data.tasks) {
+      if (task.ownerTabId && task.ownerTabId !== 'legacy-workspace-v2') continue;
+      task.ownerTabId = tabId;
+      ownershipMigrated = true;
+    }
+  }
+  data.tabControls ||= {};
+  data.selectedByTab ||= {};
+  const legacyControl = {
+    autoResume: typeof data.autoResume === 'boolean' ? data.autoResume : true,
+    lastDispatchAt: Number.isFinite(Number(data.lastDispatchAt)) ? Number(data.lastDispatchAt) : 0,
+    controlRevision: Number.isFinite(Number(data.controlRevision)) ? Number(data.controlRevision) : 0,
+    pausedAt: Number.isFinite(Number(data.pausedAt)) ? Number(data.pausedAt) : 0,
+  };
+  if (!data.tabControls[tabId]) data.tabControls[tabId] = legacyOwner === tabId ? legacyControl : { autoResume:true, lastDispatchAt:0, controlRevision:0, pausedAt:0 };
+  data.tabControls[tabId].globalAutoApprove ??= legacyOwner === tabId && data.globalAutoApprove;
+  data.tabControls[tabId].autoApprove ??= data.autoApprove !== false;
+  for (const field of ['autoResume','lastDispatchAt','controlRevision','pausedAt','globalAutoApprove','autoApprove']) {
+    delete data[field];
+    Object.defineProperty(data, field, {
+      configurable:true,
+      get:() => data.tabControls[tabId]?.[field],
+      set:value => { data.tabControls[tabId] ||= {}; data.tabControls[tabId][field] = value; },
+    });
+  }
+  if (ownershipMigrated) localStorage.setItem(KEY, JSON.stringify(data));
   // Upgrades preserve the old queue but never resume its workers.
   for (const key of ['fabushi-auto-confirm-queue-v3', 'fabushi-auto-confirm-queue-v2']) {
     const old = read(key, null);
@@ -73,7 +143,7 @@
   let globalApprovalTimer = null, globalApprovalBusy = false;
   let popupDismissTimer = null;
   let globalApprovalController = data.globalAutoApprove ? new AbortController() : null;
-  let selected = data.selected, current = '', lastSwitch = 0, navigating = false, sameRouteWaitUntil = 0, sameRouteWaitSince = 0;
+  let selected = data.selectedByTab[tabId] || (legacyOwner === tabId ? data.selected : ''), current = '', lastSwitch = 0, navigating = false, sameRouteWaitUntil = 0, sameRouteWaitSince = 0;
   let recoveredTaskId = '';
   let paint = () => {}, mode = 'once';
   const measurements = { scans: 0, totalScanMs: 0, sends: 0, switches: 0 };
@@ -84,6 +154,8 @@
   const pausableStates = new Set([...resumableStates, 'blocked']);
   const statusNames = { queued:'等待派发', sending:'正在发送', waiting:'等待响应', generating:'正在生成', approval:'等待授权', reviewing:'正在验收', done:'已完成', blocked:'需要处理', paused:'已暂停', cancelled:'已取消' };
   const id = () => crypto.randomUUID();
+  const taskBelongsToTab = task => Boolean(task && (task.ownerTabId === tabId || (!task.ownerTabId && legacyOwner === tabId)));
+  const tabTasks = () => data.tasks.filter(taskBelongsToTab);
   const normalize = value => String(value || '').replace(/\s+/g, ' ').trim();
   function parseConversationURL(value) {
     let target;
@@ -145,6 +217,7 @@
     const canonical = canonicalConversationURL(value);
     const origin = canonicalConversationURL(task?.dispatchOriginURL);
     if (!canonical || canonical === origin || conversationURLOwner(canonical, task?.id)) return '';
+    if (task?.attempted && (task.sessionUrls || []).some(url => canonicalConversationURL(url) === canonical)) return '';
     return recordConversationURL(task, canonical);
   }
   function taskMatchesCurrentConversation(task) {
@@ -223,7 +296,7 @@
       // A newer pause/resume transition is authoritative even when an older
       // runner has a later updatedAt from a scan that raced the button click.
       if (remoteRevision > localRevision
-        || (remotePaused && data.autoResume === false && remoteRevision >= localRevision)
+        || (taskBelongsToTab(local) && remotePaused && data.autoResume === false && remoteRevision >= localRevision)
         || (!(local.state === 'paused' && localRevision >= remoteRevision)
           && (remote.updatedAt || 0) > (local.updatedAt || 0))) {
         Object.assign(local, remote);
@@ -232,17 +305,19 @@
   }
   function save() {
     const stored = read(KEY, { tasks:[] });
-    const storedRevision = Number(stored.controlRevision || 0);
+    const storedControl = stored.tabControls?.[tabId] || {};
+    const storedRevision = Number(storedControl.controlRevision || 0);
     const localRevision = Number(data.controlRevision || 0);
     // A manual pause from another tab is a durable barrier. Do not let a
     // stale runner write autoResume=true or active task states over it.
-    if (stored.autoResume === false && (storedRevision > localRevision
+    if (storedControl.autoResume === false && (storedRevision > localRevision
       || (storedRevision === localRevision && data.autoResume !== false))) {
       data.controlRevision = storedRevision;
       data.autoResume = false;
-      data.pausedAt = Number(stored.pausedAt || Date.now());
+      data.pausedAt = Number(storedControl.pausedAt || Date.now());
       mergeStoredTasks(stored);
       for (const task of data.tasks) {
+        if (!taskBelongsToTab(task)) continue;
         if (!pausableStates.has(task.state)) continue;
         task.pausedState = task.state;
         task.pauseRevision = storedRevision;
@@ -251,12 +326,14 @@
       haltRunnerForPause();
     } else if (storedRevision > localRevision) {
       data.controlRevision = storedRevision;
-      data.autoResume = stored.autoResume !== false;
-      data.pausedAt = Number(stored.pausedAt || 0);
+      data.autoResume = storedControl.autoResume !== false;
+      data.pausedAt = Number(storedControl.pausedAt || 0);
       mergeStoredTasks(stored);
     } else {
       mergeStoredTasks(stored);
     }
+    data.tabControls = { ...(data.tabControls || {}), ...(stored.tabControls || {}), [tabId]:{ ...(stored.tabControls?.[tabId] || {}), ...(data.tabControls?.[tabId] || {}) } };
+    data.selectedByTab = { ...(data.selectedByTab || {}), ...(stored.selectedByTab || {}), [tabId]:selected };
     data.selected = selected;
     localStorage.setItem(KEY, JSON.stringify(data));
     paint();
@@ -264,15 +341,18 @@
   function syncRemoteControl() {
     const stored = read(KEY, null);
     if (!stored || typeof stored !== 'object') return false;
-    const storedRevision = Number(stored.controlRevision || 0);
+    const storedControl = stored.tabControls?.[tabId];
+    if (!storedControl) return false;
+    const storedRevision = Number(storedControl.controlRevision || 0);
     const localRevision = Number(data.controlRevision || 0);
     if (storedRevision < localRevision) return false;
-    if (stored.autoResume !== false || data.autoResume === false) return false;
+    if (storedControl.autoResume !== false || data.autoResume === false) return false;
     data.controlRevision = storedRevision;
     data.autoResume = false;
-    data.pausedAt = Number(stored.pausedAt || Date.now());
+    data.pausedAt = Number(storedControl.pausedAt || Date.now());
     mergeStoredTasks(stored);
     for (const task of data.tasks) {
+      if (!taskBelongsToTab(task)) continue;
       if (!pausableStates.has(task.state)) continue;
       task.pausedState = task.state;
       task.pauseRevision = storedRevision;
@@ -285,6 +365,7 @@
   function restorePausedTasks(revision = Number(data.controlRevision || 0)) {
     let restored = false;
     for (const task of data.tasks) {
+      if (!taskBelongsToTab(task)) continue;
       if (task.state !== 'paused') continue;
       // Only the current phase's URL is resumable. sessionUrl/sessionUrls and
       // history intentionally retain evidence from earlier rounds; using
@@ -335,6 +416,7 @@
   function markTasksPaused(message = '已暂停；不会发送、导航或刷新，恢复后从当前目标继续。') {
     let changed = false;
     for (const task of data.tasks) {
+      if (!taskBelongsToTab(task)) continue;
       if (!pausableStates.has(task.state)) continue;
       task.pausedState = task.state;
       task.pauseRevision = Number(data.controlRevision || 0);
@@ -368,6 +450,7 @@
   function recoverLegacyNavigationFailures() {
     const recovered = [];
     for (const task of data.tasks) {
+      if (!taskBelongsToTab(task)) continue;
       // Migrate navigation/send errors emitted by older builds, including the
       // sidebar-wait wording. A normal in-flight task must keep its URL and
       // ownership token across ChatGPT document reloads, and a rate-limited
@@ -560,7 +643,7 @@
     clearTimeout(popupDismissTimer);
     popupDismissTimer = setTimeout(() => {
       popupDismissTimer = null;
-      try { dismissUnexpectedModals(); } catch (error) { console.warn('[Fabushi] ChatGPT 弹窗检查暂未完成', error); }
+      try { if (running || data.globalAutoApprove) dismissUnexpectedModals(); } catch (error) { console.warn('[Fabushi] ChatGPT 弹窗检查暂未完成', error); }
       schedulePopupDismissScan();
     }, ms);
   }
@@ -681,6 +764,19 @@
     const parsed = parseConversationURL(href);
     const targetHref = parsed && !parsed.synthetic ? parsed.href : href;
     const targetPath = parsed && !parsed.synthetic ? parsed.pathname : new URL(href, location.origin).pathname;
+    const latestURL = canonicalConversationURL(task?.url);
+    if (parsed && !parsed.synthetic && latestURL && latestURL !== targetHref) {
+      sessionStorage.removeItem(NAV);
+      navigating = false;
+      return false;
+    }
+    // Never re-open or reload the route that this tab is already displaying.
+    // With a single local task, inspection stays entirely on the current page.
+    if (new URL(targetHref, location.origin).pathname === location.pathname) {
+      sessionStorage.removeItem(NAV);
+      navigating = false;
+      return true;
+    }
     let previous = null;
     try { previous = JSON.parse(sessionStorage.getItem(NAV)); } catch {}
     const sameTicket = Boolean(previous?.direct && previous?.task === task?.id
@@ -1166,7 +1262,7 @@
     let nextScheduleMs = 2000;
     let task;
     try {
-      const active = data.tasks.filter(item => !terminal.has(item.state) && item.state !== 'paused');
+      const active = tabTasks().filter(item => !terminal.has(item.state) && item.state !== 'paused');
       if (!active.length) { pause(); return; }
       const focused = active.find(item => item.id === current);
       task = nextSupervisionTask(active);
@@ -1248,10 +1344,10 @@
     if (running || busy) return;
     if (!navigator.locks) throw new Error('浏览器不支持单标签互斥锁，无法安全启动。');
     await new Promise((resolve, reject) => {
-      navigator.locks.request('fabushi-single-tab-runner-v2', { ifAvailable:true }, async lock => {
-        if (!lock) { reject(new Error('另一标签页正在监督任务，请先暂停该标签页。')); return; }
+      navigator.locks.request(`fabushi-tab-runner-v3:${tabId}`, { ifAvailable:true }, async lock => {
+        if (!lock) { reject(new Error('这个标签页的任务监督器已经在运行。')); return; }
         const stored = read(KEY, null);
-        const nextRevision = Math.max(Number(data.controlRevision || 0), Number(stored?.controlRevision || 0)) + 1;
+        const nextRevision = Math.max(Number(data.controlRevision || 0), Number(stored?.tabControls?.[tabId]?.controlRevision || 0)) + 1;
         data.controlRevision = nextRevision;
         data.autoResume = true;
         data.pausedAt = 0;
@@ -1272,7 +1368,7 @@
       if (autoStartTaskId === taskId) autoStartTaskId = '';
     }).catch(error => {
       if (autoStartTaskId !== taskId) return;
-      const task = data.tasks.find(item => item.id === taskId);
+      const task = data.tasks.find(item => item.id === taskId && taskBelongsToTab(item));
       if (!task || terminal.has(task.state)) { autoStartTaskId = ''; return; }
       log(task, `插件自动启动未完成：${error.message}；将自动重试，不需要手动点击继续。`);
       autoStartTimer = setTimeout(() => {
@@ -1284,7 +1380,7 @@
   function pause(manual = false) {
     if (manual) {
       const stored = read(KEY, null);
-      data.controlRevision = Math.max(Number(data.controlRevision || 0), Number(stored?.controlRevision || 0)) + 1;
+      data.controlRevision = Math.max(Number(data.controlRevision || 0), Number(stored?.tabControls?.[tabId]?.controlRevision || 0)) + 1;
       data.autoResume = false;
       data.pausedAt = Date.now();
     }
@@ -1295,8 +1391,8 @@
   }
   function enqueue(goal, taskMode = mode) {
     if (!goal.trim()) throw new Error('请输入任务目标');
-    if (data.tasks.length >= 50) throw new Error('最多保存 50 个任务，请先归档已完成任务。');
-    const task = { id:id(), goal:goal.trim().slice(0,16000), mode:taskMode, state:'queued', phase:'work', round:1, url:'', messages:[], messageVersion:0, goalRevision:0 };
+    if (tabTasks().length >= 50) throw new Error('每个标签页最多保存 50 个任务，请先归档已完成任务。');
+    const task = { id:id(), ownerTabId:tabId, goal:goal.trim().slice(0,16000), mode:taskMode, state:'queued', phase:'work', round:1, url:'', messages:[], messageVersion:0, goalRevision:0 };
     data.tasks.push(task); selected = task.id;
     // A newly submitted goal must not wait behind an older task whose
     // persisted URL is stale or synthetic. Make it the next scheduler target
@@ -1308,7 +1404,7 @@
     return task;
   }
   function restoreCancelledTask(task) {
-    if (!task || task.state !== 'cancelled') return false;
+    if (!taskBelongsToTab(task) || task.state !== 'cancelled') return false;
     // `task.url` is the active round's identity. `sessionUrl`, `sessionUrls`,
     // and history are evidence for display/recovery, but after a Work round
     // finishes `task.url` is deliberately cleared while the next planner is
@@ -1337,7 +1433,7 @@
   }
   function validNavigationTicket(ticket) {
     const task = data.tasks.find(item => item.id === ticket?.task);
-    if (!task || terminal.has(task.state) || task.state === 'paused') return false;
+    if (!taskBelongsToTab(task) || terminal.has(task.state) || task.state === 'paused') return false;
     const ticketURL = canonicalConversationURL(ticket?.href);
     if (ticketURL) return canonicalConversationURL(task.url) === ticketURL;
     // A send starts at `/` before ChatGPT creates its real /c/<id> URL. The
@@ -1357,7 +1453,7 @@
     // message. A live task must be paused/cancelled first so a user cannot
     // accidentally remove the only durable handle for an in-flight ChatGPT
     // conversation.
-    if (!task || (!terminal.has(task.state) && task.state !== 'paused')) return false;
+    if (!taskBelongsToTab(task) || (!terminal.has(task.state) && task.state !== 'paused')) return false;
     const index = data.tasks.findIndex(item => item.id === task.id);
     if (index < 0) return false;
     data.tasks.splice(index, 1);
@@ -1366,7 +1462,7 @@
     data.deletedTaskIds = data.deletedTaskIds.slice(-200);
     observations.delete(task.id);
     if (current === task.id) current = '';
-    if (selected === task.id) selected = data.tasks[0]?.id || '';
+    if (selected === task.id) selected = tabTasks()[0]?.id || '';
     save();
     paint();
     return true;
@@ -1377,7 +1473,7 @@
     // The href rendered for this exact task is authoritative. If another tab
     // changed the task between render and click, refuse the click instead of
     // resolving a different selected/current task and opening its old route.
-    if (!task || !target || canonicalConversationURL(task.url) !== target) return '';
+    if (!taskBelongsToTab(task) || !target || canonicalConversationURL(task.url) !== target) return '';
     selected = task.id;
     current = task.id;
     lastSwitch = Date.now();
@@ -1387,6 +1483,67 @@
     pause(true);
     sessionStorage.removeItem(NAV);
     return target;
+  }
+  function recoverableWorkspaces() {
+    const stored = read(KEY, {tasks:[]});
+    return [...new Set((stored.tasks || [])
+      .filter(task => task.ownerTabId && task.ownerTabId !== tabId)
+      .map(task => task.ownerTabId))]
+      .map(ownerTabId => ({
+        ownerTabId,
+        tasks:(stored.tasks || []).filter(task => task.ownerTabId === ownerTabId),
+      }));
+  }
+  async function restoreWorkspace(ownerTabId, takeOverCurrentTab = false) {
+    if (!ownerTabId || ownerTabId === tabId) throw new Error('这是当前标签页的工作区。');
+    if (!navigator.locks?.query) throw new Error('浏览器无法确认原标签页是否已关闭，暂不能恢复。');
+    return navigator.locks.request('fabushi-workspace-restore:' + ownerTabId, async () => {
+      const locks = await navigator.locks.query();
+      if (locks.held.some(lock => lock.name === WORKSPACE_LOCK + ownerTabId)) {
+        throw new Error('这个工作区仍在原标签页中，请在原标签页继续。');
+      }
+      const stored = read(KEY, {tasks:[]});
+      const tasks = stored.tasks.filter(task => task.ownerTabId === ownerTabId);
+      if (!tasks.length) throw new Error('没有可恢复的工作区。');
+      const task = tasks.find(task => task.id === stored.selectedByTab?.[ownerTabId] && !terminal.has(task.state))
+        || tasks.find(task => !terminal.has(task.state)) || tasks[0];
+      if (takeOverCurrentTab && !tabTasks().length) {
+        const previousTabId = tabId;
+        workspaceRelease?.();
+        workspaceRelease = null;
+        if (!await claimWorkspace(ownerTabId)) {
+          await claimWorkspace(previousTabId);
+          throw new Error('这个工作区刚刚被另一个标签页恢复，请在那个标签页继续。');
+        }
+        tabId = ownerTabId;
+        sessionStorage.setItem(TAB_SESSION_KEY, tabId);
+        sessionStorage.removeItem(NAV);
+        mergeStoredTasks(stored);
+        selected = task.id;
+        current = terminal.has(task.state) || task.state === 'paused' ? '' : task.id;
+        lastSwitch = Date.now();
+        save();
+        paint();
+        if (data.autoResume !== false && current) autoStart(current);
+        return { restored:true, target:'current', ownerTabId, taskId:task.id };
+      }
+      const pendingKey = RECOVERY_KEY + 'pending:' + ownerTabId;
+      const pending = read(pendingKey, null);
+      if (pending && Date.now() - pending.at < 30000) throw new Error('专用标签页正在打开，请稍候。');
+      const token = crypto.randomUUID();
+      const record = {ownerTabId,at:Date.now()};
+      localStorage.setItem(RECOVERY_KEY + token, JSON.stringify(record));
+      localStorage.setItem(pendingKey, JSON.stringify(record));
+      const url = (canonicalConversationURL(task.url) || location.origin + '/') + '#fabushi-resume=' + token;
+      const opened = window.open(url, '_blank');
+      if (!opened) {
+        localStorage.removeItem(RECOVERY_KEY + token);
+        localStorage.removeItem(pendingKey);
+        throw new Error('浏览器未打开恢复标签页，请允许本次弹出窗口后重试。');
+      }
+      opened.opener = null;
+      return { restored:true, target:'new', ownerTabId, taskId:task.id };
+    });
   }
   function element(tag, content, className) {
     const node = document.createElement(tag); if (content) node.textContent = content; if (className) node.className = className; return node;
@@ -1400,19 +1557,40 @@
       #${ROOT} .launch{float:right;border-radius:24px;background:#6048dc;border:0}
       #${ROOT} .desk{display:none;width:min(880px,calc(100vw - 36px));height:min(700px,calc(100vh - 110px));margin-bottom:10px;border:1px solid #4a4a4a;border-radius:20px;background:#212121;box-shadow:0 16px 60px #0008;overflow:hidden}
       #${ROOT} .desk.open{display:flex} #${ROOT} aside{width:210px;flex-shrink:0;background:#171717;padding:16px 10px;overflow:auto} #${ROOT} aside h3{margin:0 8px 16px} #${ROOT} aside button{width:100%;text-align:left;margin-bottom:8px;background:transparent;border-color:transparent;overflow:hidden;text-overflow:ellipsis} #${ROOT} aside button.selected{background:#303030} #${ROOT} small{display:block;color:#aaa;font-size:12px}
-      #${ROOT} .chat{display:flex;flex-direction:column;flex:1;min-width:0} #${ROOT} header{padding:14px 16px;border-bottom:1px solid #383838;display:flex;gap:8px;align-items:center} #${ROOT} header strong{flex:1} #${ROOT} .settings{display:none;padding:12px 16px;border-bottom:1px solid #383838;background:#262626} #${ROOT} .settings.open{display:block} #${ROOT} .settings label{display:flex;gap:9px;align-items:flex-start} #${ROOT} .settings small{margin-left:25px} #${ROOT} .feed{flex:1;overflow:auto;padding:20px;overscroll-behavior:contain} #${ROOT} .goal{white-space:pre-wrap;overflow-wrap:anywhere;margin:0 0 18px;padding:10px 12px;background:#2b2b2b;border:1px solid #484848;border-radius:12px;color:#f0f0f0} #${ROOT} .bubble{white-space:pre-wrap;overflow-wrap:anywhere;margin:0 0 16px;max-width:100%} #${ROOT} .bubble.user{background:#343434;border-radius:18px;padding:12px 16px;margin-left:30px} #${ROOT} .bubble.status{color:#aaa;font-size:12px;border-left:2px solid #7965d8;padding-left:10px} #${ROOT} .bubble time{display:block;color:#999;font-size:10px} #${ROOT} .session-link{color:#aaa;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:0 0 8px}
+      #${ROOT} .chat{display:flex;flex-direction:column;flex:1;min-width:0} #${ROOT} header{padding:14px 16px;border-bottom:1px solid #383838;display:flex;gap:8px;align-items:center} #${ROOT} header strong{flex:1} #${ROOT} .recovery{display:none;padding:10px 16px;border-bottom:1px solid #4a4330;background:#302b1f} #${ROOT} .recovery.open{display:flex;gap:8px;flex-wrap:wrap} #${ROOT} .recovery button{flex:1;min-width:260px;text-align:left} #${ROOT} .settings{display:none;padding:12px 16px;border-bottom:1px solid #383838;background:#262626} #${ROOT} .settings.open{display:block} #${ROOT} .settings label{display:flex;gap:9px;align-items:flex-start} #${ROOT} .settings small{margin-left:25px} #${ROOT} .feed{flex:1;overflow:auto;padding:20px;overscroll-behavior:contain} #${ROOT} .goal{white-space:pre-wrap;overflow-wrap:anywhere;margin:0 0 18px;padding:10px 12px;background:#2b2b2b;border:1px solid #484848;border-radius:12px;color:#f0f0f0} #${ROOT} .bubble{white-space:pre-wrap;overflow-wrap:anywhere;margin:0 0 16px;max-width:100%} #${ROOT} .bubble.user{background:#343434;border-radius:18px;padding:12px 16px;margin-left:30px} #${ROOT} .bubble.status{color:#aaa;font-size:12px;border-left:2px solid #7965d8;padding-left:10px} #${ROOT} .bubble time{display:block;color:#999;font-size:10px} #${ROOT} .session-link{color:#aaa;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:0 0 8px}
       #${ROOT} .compose{margin:0 16px 16px;padding:12px;background:#303030;border:1px solid #484848;border-radius:20px} #${ROOT} textarea{width:100%;min-height:72px;max-height:160px;resize:vertical;border:0;outline:0;background:transparent;color:#eee;font:inherit} #${ROOT} .tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap} #${ROOT} .tools label{font-size:12px;color:#bbb} #${ROOT} .send{margin-left:auto;background:#eee;color:#111;border-radius:50%;font-size:19px;padding:3px 12px} #${ROOT} .notice{padding:0 16px 8px;color:#aaa;font-size:12px} @media(max-width:600px){#${ROOT} aside{width:130px} #${ROOT} .feed{padding:12px}}
     `;
     const desk = element('section', '', 'desk'); desk.setAttribute('aria-label','Fabushi 任务工作台');
     const sidebar = element('aside'), list = element('div'); sidebar.append(element('h3','Fabushi'), list);
     const chat = element('div','','chat'), head = element('header'), heading = element('strong','任务工作台');
     const editGoalButton = element('button','编辑目标');
+    const restoreButton = element('button','恢复任务记录');
     const settingsButton = element('button','设置'), pauseButton = element('button','暂停'), close = element('button','×'); close.setAttribute('aria-label','收起任务工作台');
-    head.append(heading,editGoalButton,settingsButton,pauseButton,close);
+    head.append(heading,editGoalButton,restoreButton,settingsButton,pauseButton,close);
     const settings = element('div','','settings');
     const globalApproval = element('input'); globalApproval.type='checkbox'; globalApproval.checked=data.globalAutoApprove;
     const globalApprovalLabel = element('label');
-    globalApprovalLabel.append(globalApproval,document.createTextNode('在任何 ChatGPT 会话中自动处理授权卡'));
+    globalApprovalLabel.append(globalApproval,document.createTextNode('在当前标签页的会话中自动处理授权卡'));
+    const recoveryList = element('div','','recovery'); chat.append(head,recoveryList);
+    restoreButton.onclick = () => {
+      recoveryList.replaceChildren();
+      const workspaces = recoverableWorkspaces();
+      recoveryList.classList.toggle('open', workspaces.length > 0);
+      for (const workspace of workspaces) {
+        const {ownerTabId:owner,tasks} = workspace;
+        const useCurrent = tabTasks().length === 0;
+        const button=element('button', `${useCurrent?'恢复到当前标签页':'在新标签页恢复'}：${tasks[0].goal.slice(0,28)}（${tasks.length} 个任务）`);
+        button.onclick=()=>restoreWorkspace(owner,useCurrent).then(result=>{
+          recoveryList.classList.remove('open');
+          notice.textContent=result.target==='current'?'旧任务记录已恢复到当前标签页。':'已打开专用标签页，旧任务记录将在那里恢复。';
+        }).catch(showError);
+        recoveryList.append(button);
+      }
+      if (!workspaces.length) {
+        recoveryList.append(element('small','没有其他已保存的工作区。'));
+        recoveryList.classList.add('open');
+      }
+    };
     settings.append(globalApprovalLabel,element('small','仅展开“允许”旁的菜单并选择“允许本次会话”；不会选择永久授权。'));
     const feed = element('div','','feed'); feed.setAttribute('role','log'); feed.setAttribute('aria-live','polite');
     const notice = element('div','单标签页 · 已暂停','notice');
@@ -1422,18 +1600,19 @@
     const auto = element('input'); auto.type='checkbox'; auto.checked=data.autoApprove !== false;
     const autoLabel=element('label'); autoLabel.append(auto,document.createTextNode('本次会话自动授权'));
     const submit = element('button','↑','send'); submit.type='submit'; submit.setAttribute('aria-label','发送任务');
-    controls.append(select,autoLabel,submit); compose.append(input,controls); chat.append(head,settings,feed,notice,compose); desk.append(sidebar,chat);
+    controls.append(select,autoLabel,submit); compose.append(input,controls); chat.append(settings,feed,notice,compose); desk.append(sidebar,chat);
     const launch=element('button','⚡ Fabushi 脚本','launch'); root.append(desk,launch); document.documentElement.append(style); (document.body || document.documentElement).append(root);
     let signature='';
     paint = () => {
-      const task=data.tasks.find(item=>item.id===selected);
+      const task=data.tasks.find(item=>item.id===selected && taskBelongsToTab(item));
       heading.textContent=task ? (task.mode==='goal'?'持续目标':'单次任务')+' · '+statusNames[task.state] : '任务工作台';
       editGoalButton.disabled=!task || task.state==='done';
-      notice.textContent=`单标签页 · ${running?`监督中，按会话链接轮换检查（每 ${Math.round(SUPERVISION_INTERVAL_MS / 1000)} 秒；发送/授权独占）`:'已暂停，自动操作已停止'} · 扫描 ${measurements.scans} 次，平均 ${(measurements.totalScanMs / Math.max(1, measurements.scans)).toFixed(1)} ms`;
+      notice.textContent=`当前标签页工作区 · ${running?`监督中，${tabTasks().filter(item=>!terminal.has(item.state)&&item.state!=='paused').length>1?`多个本页任务每 ${Math.round(SUPERVISION_INTERVAL_MS / 1000)} 秒轮换`:'单任务停留在当前会话'}；发送/授权独占`:'已暂停，自动操作已停止'} · 扫描 ${measurements.scans} 次，平均 ${(measurements.totalScanMs / Math.max(1, measurements.scans)).toFixed(1)} ms`;
       pauseButton.textContent=task?.state==='cancelled'?'恢复任务':(running?'暂停':'继续');
+      restoreButton.hidden=recoverableWorkspaces().length===0;
       list.replaceChildren();
       const fresh=element('button','＋ 新任务'); fresh.onclick=()=>{selected='';save();input.focus();}; list.append(fresh);
-      for(const item of data.tasks){const button=element('button',item.goal.slice(0,28),item.id===selected?'selected':'');button.append(element('small',`${item.id===current&&running?'● ':''}${statusNames[item.state]} · 第 ${item.round} 轮`));button.onclick=()=>{selected=item.id;save();};list.append(button);}
+      for(const item of tabTasks()){const button=element('button',item.goal.slice(0,28),item.id===selected?'selected':'');button.append(element('small',`${item.id===current&&running?'● ':''}${statusNames[item.state]} · 第 ${item.round} 轮`));button.onclick=()=>{selected=item.id;save();};list.append(button);}
       const nextSignature=JSON.stringify([selected,task?.goalRevision,task?.messageVersion,task?.url,task?.state,task?.preview]);
       if(signature===nextSignature)return; signature=nextSignature;
       const nearBottom=feed.scrollHeight-feed.scrollTop-feed.clientHeight<80;
@@ -1473,20 +1652,20 @@
     };
     function showError(error){notice.textContent=error.message;}
     launch.onclick=()=>{desk.classList.toggle('open');paint();};close.onclick=()=>desk.classList.remove('open');
-    editGoalButton.onclick=()=>{const task=data.tasks.find(item=>item.id===selected);if(!task)return;const value=window.prompt('编辑任务目标',task.goal||'');if(value!==null)editGoal(task,value);};
+    editGoalButton.onclick=()=>{const task=data.tasks.find(item=>item.id===selected&&taskBelongsToTab(item));if(!task)return;const value=window.prompt('编辑任务目标',task.goal||'');if(value!==null)editGoal(task,value);};
     settingsButton.onclick=()=>settings.classList.toggle('open');
-    pauseButton.onclick=()=>{const task=data.tasks.find(item=>item.id===selected);if(task?.state==='cancelled')resumeCancelledTask(task).catch(showError);else if(running)pause(true);else{if(task&&!terminal.has(task.state)){current=task.id;lastSwitch=Date.now();}start().catch(showError);}};
+    pauseButton.onclick=()=>{const task=data.tasks.find(item=>item.id===selected&&taskBelongsToTab(item));if(task?.state==='cancelled')resumeCancelledTask(task).catch(showError);else if(running)pause(true);else{if(task&&!terminal.has(task.state)){current=task.id;lastSwitch=Date.now();}start().catch(showError);}};
     globalApproval.onchange=()=>setGlobalAutoApprove(globalApproval.checked);
     auto.onchange=()=>{data.autoApprove=auto.checked;save();}; select.onchange=()=>{mode=select.value;};
     compose.onsubmit=event=>{event.preventDefault();try{enqueue(input.value,select.value);input.value='';start().catch(showError);}catch(error){showError(error);}};
     paint();
   }
-  window[INSTANCE]={active:true,version:VERSION,shutdown(){suspendRunnerForPagehide();globalApprovalController?.abort();clearTimeout(globalApprovalTimer);globalApprovalTimer=null;clearTimeout(popupDismissTimer);popupDismissTimer=null;window[INSTANCE].active=false;document.getElementById(ROOT)?.remove();document.getElementById('fabushi-auto-confirm-style')?.remove();}};
+  window[INSTANCE]={active:true,version:VERSION,shutdown(){suspendRunnerForPagehide();workspaceRelease?.();workspaceRelease=null;globalApprovalController?.abort();clearTimeout(globalApprovalTimer);globalApprovalTimer=null;clearTimeout(popupDismissTimer);popupDismissTimer=null;window[INSTANCE].active=false;document.getElementById(ROOT)?.remove();document.getElementById('fabushi-auto-confirm-style')?.remove();}};
   window.FabushiUserscript=Object.freeze({pluginId:'chatgpt-auto-confirm',getServer:()=> 'browser-local',call:async(tool,args={})=>{
-    if(['status','diagnose','queue_status','chat_status'].includes(tool))return{version:VERSION,running,tasks:data.tasks,measurements,singleTab:true};
+    if(['status','diagnose','queue_status','chat_status'].includes(tool))return{version:VERSION,running,tasks:tabTasks(),measurements,tabWorkspace:true,tabId};
     if(['pause_queue','stop'].includes(tool)){pause();return{running:false};}
     if(['start_queue','resume_queue'].includes(tool))return start();
-    if(tool==='enqueue_tasks'){for(const task of args.tasks||[])enqueue(task.prompt||task.goal||'',task.mode||'once');return data.tasks;}
+    if(tool==='enqueue_tasks'){for(const task of args.tasks||[])enqueue(task.prompt||task.goal||'',task.mode||'once');return tabTasks();}
     if(tool==='get_reply')return latestTurn().text;
     throw new Error('请通过新版任务输入框使用此功能。');
   }});
@@ -1508,8 +1687,9 @@
   } else {
     sessionStorage.removeItem(NAV);
     if (data.autoResume !== false) {
-      const resumable = data.tasks.find(item => item.id === selected && !terminal.has(item.state) && resumableStates.has(item.state))
-        || data.tasks.find(item => !terminal.has(item.state) && resumableStates.has(item.state));
+      const resumable = tabTasks().find(item => taskMatchesCurrentConversation(item) && resumableStates.has(item.state))
+        || tabTasks().find(item => item.id === selected && !terminal.has(item.state) && resumableStates.has(item.state))
+        || tabTasks().find(item => !terminal.has(item.state) && resumableStates.has(item.state));
       if (resumable) {
         current = resumable.id;
         lastSwitch = Date.now();
@@ -1523,5 +1703,6 @@
     if (event.key !== KEY) return;
     syncRemoteControl();
   });
-  window.addEventListener('pagehide',()=>{if(!navigating)suspendRunnerForPagehide();});
+  window.addEventListener('pagehide',()=>{if(!navigating)suspendRunnerForPagehide();workspaceRelease?.();workspaceRelease=null;});
+  window.addEventListener('pageshow',event=>{if(event.persisted)location.reload();});
 })();
