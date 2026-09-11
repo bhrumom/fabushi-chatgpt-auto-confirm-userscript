@@ -11,7 +11,7 @@ async function fixture(body='', setup=()=>{}) {
   const held = new Set();
   w.navigator.locks = {query:async()=>({held:[...held].map(name=>({name}))}),request:async(name,options,callback)=>{callback ||= options;if(held.has(name))return callback(null);held.add(name);try{return await callback({name});}finally{held.delete(name);}}};
   setup(w);
-  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, classify, cards, latestTurn, parseReview, workPrompt, plannerPrompt, enqueue, start, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, recoverLegacyNavigationFailures, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, nextSupervisionTask, validNavigationTicket, taskBelongsToTab, tabTasks, restoreWorkspace, getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, classify, cards, latestTurn, parseReview, workPrompt, plannerPrompt, enqueue, start, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, recoverLegacyNavigationFailures, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, nextSupervisionTask, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('completion requires own final turn, stop absent, no approval and stable completion evidence',async()=>{
@@ -874,4 +874,58 @@ test('closed workspace resumes via a one-use ticket in a dedicated tab without t
   const token=new URL(openedURL).hash.split('=')[1];
   assert.equal(restored.w.localStorage.getItem('fabushi-workspace-recovery-v1:'+token),null);
   original.dom.window.close();personal.dom.window.close();restored.dom.window.close();
+});
+
+test('an empty new tab visibly offers and adopts a closed workspace in place',async()=>{
+  const original=await fixture();
+  const task=original.h.enqueue('关闭标签页后仍要找得到','goal');
+  original.h.recordConversationURL(task,'https://chatgpt.com/c/recover-current-tab');
+  original.h.pause(true);
+  const owner=original.h.getTabId();
+  original.w.__FABUSHI_AUTO_CONFIRM_INSTANCE__.shutdown();
+  await Promise.resolve();
+
+  const personal=await fixture('',w=>{
+    w.navigator.locks=original.w.navigator.locks;
+    w.localStorage.setItem('fabushi-workbench-v2',original.w.localStorage.getItem('fabushi-workbench-v2'));
+    w.localStorage.setItem('fabushi-workbench-legacy-owner-v1',owner);
+  });
+  personal.w.open=()=>{throw new Error('an empty replacement tab must not open a third tab');};
+  const restore=[...personal.w.document.querySelectorAll('header button')]
+    .find(button=>button.textContent==='恢复任务记录');
+  assert.ok(restore);
+  assert.equal(restore.hidden,false,'recovery is discoverable without opening Settings');
+  assert.equal(personal.h.recoverableWorkspaces()[0].ownerTabId,owner);
+
+  const result=await personal.h.restoreWorkspace(owner,true);
+  assert.equal(result.target,'current');
+  assert.equal(personal.h.getTabId(),owner);
+  assert.equal(personal.h.tabTasks().length,1);
+  assert.equal(personal.h.tabTasks()[0].goal,'关闭标签页后仍要找得到');
+  assert.equal(personal.h.tabTasks()[0].state,'paused','manual pause remains authoritative after in-place recovery');
+  assert.equal(personal.w.sessionStorage.getItem('fabushi-workbench-tab-session-v1'),owner);
+  original.dom.window.close();personal.dom.window.close();
+});
+
+test('completed task records remain recoverable after their tab closes',async()=>{
+  const original=await fixture();
+  const task=original.h.enqueue('保留已完成任务记录','once');
+  task.state='done';
+  original.h.log(task,'任务已完成');
+  original.h.data.selected=task.id;
+  original.w.__FABUSHI_AUTO_CONFIRM_INSTANCE__.shutdown();
+  await Promise.resolve();
+  const owner=original.h.getTabId();
+
+  const personal=await fixture('',w=>{
+    w.navigator.locks=original.w.navigator.locks;
+    w.localStorage.setItem('fabushi-workbench-v2',original.w.localStorage.getItem('fabushi-workbench-v2'));
+    w.localStorage.setItem('fabushi-workbench-legacy-owner-v1',owner);
+  });
+  assert.equal(personal.h.recoverableWorkspaces().length,1);
+  const result=await personal.h.restoreWorkspace(owner,true);
+  assert.equal(result.target,'current');
+  assert.equal(personal.h.tabTasks()[0].state,'done');
+  assert.match(personal.h.tabTasks()[0].messages.at(-1).text,/任务已完成/);
+  original.dom.window.close();personal.dom.window.close();
 });

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.2
+// @version      2.9.3
 // @description  独立单标签任务工作台：目标编排、单次任务、授权识别、实时消息与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -14,7 +14,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.2';
+  const VERSION = '2.9.3';
   if (window[INSTANCE]?.version === VERSION && window[INSTANCE]?.active) return;
   window[INSTANCE]?.shutdown?.();
   document.getElementById('fabushi-auto-confirm-root')?.remove();
@@ -1484,7 +1484,17 @@
     sessionStorage.removeItem(NAV);
     return target;
   }
-  async function restoreWorkspace(ownerTabId) {
+  function recoverableWorkspaces() {
+    const stored = read(KEY, {tasks:[]});
+    return [...new Set((stored.tasks || [])
+      .filter(task => task.ownerTabId && task.ownerTabId !== tabId)
+      .map(task => task.ownerTabId))]
+      .map(ownerTabId => ({
+        ownerTabId,
+        tasks:(stored.tasks || []).filter(task => task.ownerTabId === ownerTabId),
+      }));
+  }
+  async function restoreWorkspace(ownerTabId, takeOverCurrentTab = false) {
     if (!ownerTabId || ownerTabId === tabId) throw new Error('这是当前标签页的工作区。');
     if (!navigator.locks?.query) throw new Error('浏览器无法确认原标签页是否已关闭，暂不能恢复。');
     return navigator.locks.request('fabushi-workspace-restore:' + ownerTabId, async () => {
@@ -1493,11 +1503,30 @@
         throw new Error('这个工作区仍在原标签页中，请在原标签页继续。');
       }
       const stored = read(KEY, {tasks:[]});
-      const tasks = stored.tasks.filter(task => task.ownerTabId === ownerTabId
-        && (!terminal.has(task.state) || task.state === 'paused'));
+      const tasks = stored.tasks.filter(task => task.ownerTabId === ownerTabId);
       if (!tasks.length) throw new Error('没有可恢复的工作区。');
       const task = tasks.find(task => task.id === stored.selectedByTab?.[ownerTabId] && !terminal.has(task.state))
         || tasks.find(task => !terminal.has(task.state)) || tasks[0];
+      if (takeOverCurrentTab && !tabTasks().length) {
+        const previousTabId = tabId;
+        workspaceRelease?.();
+        workspaceRelease = null;
+        if (!await claimWorkspace(ownerTabId)) {
+          await claimWorkspace(previousTabId);
+          throw new Error('这个工作区刚刚被另一个标签页恢复，请在那个标签页继续。');
+        }
+        tabId = ownerTabId;
+        sessionStorage.setItem(TAB_SESSION_KEY, tabId);
+        sessionStorage.removeItem(NAV);
+        mergeStoredTasks(stored);
+        selected = task.id;
+        current = terminal.has(task.state) || task.state === 'paused' ? '' : task.id;
+        lastSwitch = Date.now();
+        save();
+        paint();
+        if (data.autoResume !== false && current) autoStart(current);
+        return { restored:true, target:'current', ownerTabId, taskId:task.id };
+      }
       const pendingKey = RECOVERY_KEY + 'pending:' + ownerTabId;
       const pending = read(pendingKey, null);
       if (pending && Date.now() - pending.at < 30000) throw new Error('专用标签页正在打开，请稍候。');
@@ -1513,7 +1542,7 @@
         throw new Error('浏览器未打开恢复标签页，请允许本次弹出窗口后重试。');
       }
       opened.opener = null;
-      return true;
+      return { restored:true, target:'new', ownerTabId, taskId:task.id };
     });
   }
   function element(tag, content, className) {
@@ -1528,37 +1557,41 @@
       #${ROOT} .launch{float:right;border-radius:24px;background:#6048dc;border:0}
       #${ROOT} .desk{display:none;width:min(880px,calc(100vw - 36px));height:min(700px,calc(100vh - 110px));margin-bottom:10px;border:1px solid #4a4a4a;border-radius:20px;background:#212121;box-shadow:0 16px 60px #0008;overflow:hidden}
       #${ROOT} .desk.open{display:flex} #${ROOT} aside{width:210px;flex-shrink:0;background:#171717;padding:16px 10px;overflow:auto} #${ROOT} aside h3{margin:0 8px 16px} #${ROOT} aside button{width:100%;text-align:left;margin-bottom:8px;background:transparent;border-color:transparent;overflow:hidden;text-overflow:ellipsis} #${ROOT} aside button.selected{background:#303030} #${ROOT} small{display:block;color:#aaa;font-size:12px}
-      #${ROOT} .chat{display:flex;flex-direction:column;flex:1;min-width:0} #${ROOT} header{padding:14px 16px;border-bottom:1px solid #383838;display:flex;gap:8px;align-items:center} #${ROOT} header strong{flex:1} #${ROOT} .settings{display:none;padding:12px 16px;border-bottom:1px solid #383838;background:#262626} #${ROOT} .settings.open{display:block} #${ROOT} .settings label{display:flex;gap:9px;align-items:flex-start} #${ROOT} .settings small{margin-left:25px} #${ROOT} .feed{flex:1;overflow:auto;padding:20px;overscroll-behavior:contain} #${ROOT} .goal{white-space:pre-wrap;overflow-wrap:anywhere;margin:0 0 18px;padding:10px 12px;background:#2b2b2b;border:1px solid #484848;border-radius:12px;color:#f0f0f0} #${ROOT} .bubble{white-space:pre-wrap;overflow-wrap:anywhere;margin:0 0 16px;max-width:100%} #${ROOT} .bubble.user{background:#343434;border-radius:18px;padding:12px 16px;margin-left:30px} #${ROOT} .bubble.status{color:#aaa;font-size:12px;border-left:2px solid #7965d8;padding-left:10px} #${ROOT} .bubble time{display:block;color:#999;font-size:10px} #${ROOT} .session-link{color:#aaa;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:0 0 8px}
+      #${ROOT} .chat{display:flex;flex-direction:column;flex:1;min-width:0} #${ROOT} header{padding:14px 16px;border-bottom:1px solid #383838;display:flex;gap:8px;align-items:center} #${ROOT} header strong{flex:1} #${ROOT} .recovery{display:none;padding:10px 16px;border-bottom:1px solid #4a4330;background:#302b1f} #${ROOT} .recovery.open{display:flex;gap:8px;flex-wrap:wrap} #${ROOT} .recovery button{flex:1;min-width:260px;text-align:left} #${ROOT} .settings{display:none;padding:12px 16px;border-bottom:1px solid #383838;background:#262626} #${ROOT} .settings.open{display:block} #${ROOT} .settings label{display:flex;gap:9px;align-items:flex-start} #${ROOT} .settings small{margin-left:25px} #${ROOT} .feed{flex:1;overflow:auto;padding:20px;overscroll-behavior:contain} #${ROOT} .goal{white-space:pre-wrap;overflow-wrap:anywhere;margin:0 0 18px;padding:10px 12px;background:#2b2b2b;border:1px solid #484848;border-radius:12px;color:#f0f0f0} #${ROOT} .bubble{white-space:pre-wrap;overflow-wrap:anywhere;margin:0 0 16px;max-width:100%} #${ROOT} .bubble.user{background:#343434;border-radius:18px;padding:12px 16px;margin-left:30px} #${ROOT} .bubble.status{color:#aaa;font-size:12px;border-left:2px solid #7965d8;padding-left:10px} #${ROOT} .bubble time{display:block;color:#999;font-size:10px} #${ROOT} .session-link{color:#aaa;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:0 0 8px}
       #${ROOT} .compose{margin:0 16px 16px;padding:12px;background:#303030;border:1px solid #484848;border-radius:20px} #${ROOT} textarea{width:100%;min-height:72px;max-height:160px;resize:vertical;border:0;outline:0;background:transparent;color:#eee;font:inherit} #${ROOT} .tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap} #${ROOT} .tools label{font-size:12px;color:#bbb} #${ROOT} .send{margin-left:auto;background:#eee;color:#111;border-radius:50%;font-size:19px;padding:3px 12px} #${ROOT} .notice{padding:0 16px 8px;color:#aaa;font-size:12px} @media(max-width:600px){#${ROOT} aside{width:130px} #${ROOT} .feed{padding:12px}}
     `;
     const desk = element('section', '', 'desk'); desk.setAttribute('aria-label','Fabushi 任务工作台');
     const sidebar = element('aside'), list = element('div'); sidebar.append(element('h3','Fabushi'), list);
     const chat = element('div','','chat'), head = element('header'), heading = element('strong','任务工作台');
     const editGoalButton = element('button','编辑目标');
-    const restoreButton = element('button','恢复其他工作区');
+    const restoreButton = element('button','恢复任务记录');
     const settingsButton = element('button','设置'), pauseButton = element('button','暂停'), close = element('button','×'); close.setAttribute('aria-label','收起任务工作台');
-    head.append(heading,editGoalButton,settingsButton,pauseButton,close);
+    head.append(heading,editGoalButton,restoreButton,settingsButton,pauseButton,close);
     const settings = element('div','','settings');
     const globalApproval = element('input'); globalApproval.type='checkbox'; globalApproval.checked=data.globalAutoApprove;
     const globalApprovalLabel = element('label');
     globalApprovalLabel.append(globalApproval,document.createTextNode('在当前标签页的会话中自动处理授权卡'));
-    settings.append(globalApprovalLabel,element('small','仅展开“允许”旁的菜单并选择“允许本次会话”；不会选择永久授权。'));
-    const recoveryList = element('div'); settings.append(restoreButton, recoveryList);
+    const recoveryList = element('div','','recovery'); chat.append(head,recoveryList);
     restoreButton.onclick = () => {
       recoveryList.replaceChildren();
-      const stored = read(KEY, {tasks:[]});
-      const owners = [...new Set(stored.tasks
-        .filter(task => (!terminal.has(task.state) || task.state === 'paused')
-          && task.ownerTabId && task.ownerTabId !== tabId)
-        .map(task=>task.ownerTabId))];
-      for (const owner of owners) {
-        const tasks=stored.tasks.filter(task=>task.ownerTabId===owner);
-        const button=element('button', `恢复：${tasks[0].goal.slice(0,28)}（${tasks.length} 个目标）`);
-        button.onclick=()=>restoreWorkspace(owner).then(()=>{notice.textContent='已打开专用标签页，原工作区将在那里恢复。';}).catch(showError);
+      const workspaces = recoverableWorkspaces();
+      recoveryList.classList.toggle('open', workspaces.length > 0);
+      for (const workspace of workspaces) {
+        const {ownerTabId:owner,tasks} = workspace;
+        const useCurrent = tabTasks().length === 0;
+        const button=element('button', `${useCurrent?'恢复到当前标签页':'在新标签页恢复'}：${tasks[0].goal.slice(0,28)}（${tasks.length} 个任务）`);
+        button.onclick=()=>restoreWorkspace(owner,useCurrent).then(result=>{
+          recoveryList.classList.remove('open');
+          notice.textContent=result.target==='current'?'旧任务记录已恢复到当前标签页。':'已打开专用标签页，旧任务记录将在那里恢复。';
+        }).catch(showError);
         recoveryList.append(button);
       }
-      if (!owners.length) recoveryList.append(element('small','没有其他已保存的工作区。'));
+      if (!workspaces.length) {
+        recoveryList.append(element('small','没有其他已保存的工作区。'));
+        recoveryList.classList.add('open');
+      }
     };
+    settings.append(globalApprovalLabel,element('small','仅展开“允许”旁的菜单并选择“允许本次会话”；不会选择永久授权。'));
     const feed = element('div','','feed'); feed.setAttribute('role','log'); feed.setAttribute('aria-live','polite');
     const notice = element('div','单标签页 · 已暂停','notice');
     const compose = element('form','','compose'), input = element('textarea'); input.placeholder = '输入任务目标…'; input.setAttribute('aria-label','任务目标');
@@ -1567,7 +1600,7 @@
     const auto = element('input'); auto.type='checkbox'; auto.checked=data.autoApprove !== false;
     const autoLabel=element('label'); autoLabel.append(auto,document.createTextNode('本次会话自动授权'));
     const submit = element('button','↑','send'); submit.type='submit'; submit.setAttribute('aria-label','发送任务');
-    controls.append(select,autoLabel,submit); compose.append(input,controls); chat.append(head,settings,feed,notice,compose); desk.append(sidebar,chat);
+    controls.append(select,autoLabel,submit); compose.append(input,controls); chat.append(settings,feed,notice,compose); desk.append(sidebar,chat);
     const launch=element('button','⚡ Fabushi 脚本','launch'); root.append(desk,launch); document.documentElement.append(style); (document.body || document.documentElement).append(root);
     let signature='';
     paint = () => {
@@ -1576,6 +1609,7 @@
       editGoalButton.disabled=!task || task.state==='done';
       notice.textContent=`当前标签页工作区 · ${running?`监督中，${tabTasks().filter(item=>!terminal.has(item.state)&&item.state!=='paused').length>1?`多个本页任务每 ${Math.round(SUPERVISION_INTERVAL_MS / 1000)} 秒轮换`:'单任务停留在当前会话'}；发送/授权独占`:'已暂停，自动操作已停止'} · 扫描 ${measurements.scans} 次，平均 ${(measurements.totalScanMs / Math.max(1, measurements.scans)).toFixed(1)} ms`;
       pauseButton.textContent=task?.state==='cancelled'?'恢复任务':(running?'暂停':'继续');
+      restoreButton.hidden=recoverableWorkspaces().length===0;
       list.replaceChildren();
       const fresh=element('button','＋ 新任务'); fresh.onclick=()=>{selected='';save();input.focus();}; list.append(fresh);
       for(const item of tabTasks()){const button=element('button',item.goal.slice(0,28),item.id===selected?'selected':'');button.append(element('small',`${item.id===current&&running?'● ':''}${statusNames[item.state]} · 第 ${item.round} 轮`));button.onclick=()=>{selected=item.id;save();};list.append(button);}
