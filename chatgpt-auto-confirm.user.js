@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.6
+// @version      2.9.7
 // @description  独立单标签任务工作台：目标编排、单次任务、授权识别、实时消息与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -14,7 +14,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.6';
+  const VERSION = '2.9.7';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
   const replacingActiveInstance = Boolean(previousInstance?.active);
@@ -31,6 +31,12 @@
   // waits for a sidebar retry loop.
   const NO_FINAL_REPLY_RETRY_LIMIT = 4;
   const NO_FINAL_REPLY_MS = 300000;
+  // Four fast retries catch a short-lived renderer failure. If the same
+  // conversation keeps ending abnormally, keep the task alive with a
+  // persisted exponential backoff instead of converting it into a terminal
+  // error that silently stops the whole tab.
+  const NO_FINAL_REPLY_BACKOFF_BASE_MS = 5 * 60 * 1000;
+  const NO_FINAL_REPLY_BACKOFF_MAX_MS = 30 * 60 * 1000;
   // Once ChatGPT has visibly stopped generating, a missing final turn is an
   // abnormal end much sooner than the long reload-safe fallback above. This
   // catches the renderer state where Stop disappeared but no answer/card was
@@ -521,6 +527,34 @@
     save();
     return recovered[0].id;
   }
+  function recoverLegacyExhaustedNoFinalReplies() {
+    if (data.autoResume === false) return '';
+    const recovered = [];
+    for (const task of data.tasks) {
+      if (!taskBelongsToTab(task) || !['blocked', 'paused'].includes(task.state)) continue;
+      if (task.state === 'paused' && task.pausedState !== 'blocked') continue;
+      const messages = Array.isArray(task.messages) ? task.messages.slice(-16) : [];
+      const exhausted = messages.some(item => /会话已结束但没有最终回复[\s\S]*自动重发次数已用尽|自动重发次数已用尽[\s\S]*会话已结束但没有最终回复/i.test(String(item?.text || '')));
+      if (!exhausted) continue;
+      const knownURL = canonicalConversationURL(task.url);
+      // The old path always retained the live conversation URL before it
+      // stopped. If no URL exists, the send result is ambiguous and must stay
+      // fail-closed rather than creating a duplicate conversation.
+      if (!knownURL) continue;
+      task.url = knownURL;
+      task.attempted = false;
+      task.noFinalReplyAttempts = Math.max(Number(task.noFinalReplyAttempts || 0), NO_FINAL_REPLY_RETRY_LIMIT);
+      task.noFinalReplyRecoveryUntil = 0;
+      task.state = 'waiting';
+      delete task.pausedState;
+      task.updatedAt = Date.now();
+      recovered.push(task);
+    }
+    if (!recovered.length) return '';
+    for (const task of recovered) log(task, '已识别旧版本“异常重发次数用尽”记录；恢复为持续延迟恢复，下一次检查将自动继续，不会自动暂停。');
+    save();
+    return recovered[0].id;
+  }
   function check(signal = controller?.signal) {
     if (!running || data.autoResume === false || signal?.aborted) throw new Error('已暂停');
   }
@@ -553,6 +587,19 @@
       }
     }
     return '';
+  }
+  function sendTimeoutNotice() {
+    const pattern = /消息发送超时\s*[，,]?\s*请重试|message (?:send|sending) timed out|failed to send/i;
+    // Only a visible page-level error is actionable. Do not match the
+    // workbench's own log or a user/assistant message quoting the same text.
+    const walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT);
+    let currentNode;
+    while ((currentNode = walker.nextNode())) {
+      const parent = currentNode.parentElement;
+      if (!parent || own(parent) || parent.closest('[data-message-author-role]')) continue;
+      if (pattern.test(normalize(currentNode.nodeValue)) && visible(parent)) return true;
+    }
+    return false;
   }
   function connectionInterruptedNotice() {
     const pattern = /连接已中断[。.!]?\s*正在等待完整回复[。.!]?|connection (?:was |has been )?interrupted[.!]?\s*(?:we(?:'re| are) )?waiting for (?:the )?full response/i;
@@ -963,6 +1010,45 @@
     }
     save();
   }
+  function noFinalReplyBackoffMs(cycle) {
+    const round = Math.max(1, Number(cycle || 1));
+    return Math.min(NO_FINAL_REPLY_BACKOFF_BASE_MS * (2 ** Math.min(round - 1, 4)), NO_FINAL_REPLY_BACKOFF_MAX_MS);
+  }
+  function clearDispatchIntent(task) {
+    task.url = '';
+    task.attempted = false;
+    task.token = '';
+    task.sendPrepared = false;
+    task.preparedPrompt = '';
+    task.sendUiWaitSince = 0;
+    task.dispatchOriginURL = '';
+    task.dispatchStartedAt = 0;
+    task.rendererRecoveryExhausted = false;
+    task.routeRecoveryAttempts = 0;
+    observations.delete(task.id);
+  }
+  function queueNoFinalReplyRetry(task, reason = '会话已结束但没有最终回复') {
+    if (!task) return '';
+    const attempts = Number(task.noFinalReplyAttempts || 0);
+    if (attempts >= NO_FINAL_REPLY_RETRY_LIMIT) {
+      const cycle = Number(task.noFinalReplyRecoveryCycles || 0) + 1;
+      const delayMs = noFinalReplyBackoffMs(cycle);
+      task.noFinalReplyAttempts = 0;
+      task.noFinalReplyRecoveryCycles = cycle;
+      task.noFinalReplyRecoveryUntil = Date.now() + delayMs;
+      clearDispatchIntent(task);
+      task.state = 'waiting';
+      log(task, `${reason}；快速重发 ${NO_FINAL_REPLY_RETRY_LIMIT} 次仍失败，进入延迟恢复（第 ${cycle} 轮），约 ${Math.ceil(delayMs / 60000)} 分钟后自动新开会话，不会自动暂停。`);
+      save();
+      return 'backoff';
+    }
+    task.noFinalReplyAttempts = attempts + 1;
+    task.noFinalReplyRecoveryUntil = 0;
+    clearDispatchIntent(task);
+    state(task, 'queued', `${reason}；插件已关闭当前会话目标，正在新开 Work/规划会话原样重发（第 ${task.noFinalReplyAttempts}/${NO_FINAL_REPLY_RETRY_LIMIT} 次）。`);
+    save();
+    return 'queued';
+  }
   async function navigate(url, signal, task = data.tasks.find(item => item.id === current), requireComposer = true) {
     // The conversation URL is the only session identity. If the live page
     // carries this task's ownership marker, canonicalize any stale/synthetic
@@ -1232,6 +1318,9 @@
   }
   function finish(task, reply) {
     task.preview = '';
+    task.noFinalReplyAttempts = 0;
+    task.noFinalReplyRecoveryCycles = 0;
+    task.noFinalReplyRecoveryUntil = 0;
     task.sendPrepared = false;
     task.preparedPrompt = '';
     task.sendUiWaitSince = 0;
@@ -1281,6 +1370,10 @@
       refreshInterruptedConversation(task);
       return;
     }
+    if (sendTimeoutNotice()) {
+      queueNoFinalReplyRetry(task, '检测到“消息发送超时，请重试”');
+      return;
+    }
     const begin = performance.now(), turn = latestTurn(), pending = cards();
     const sample = {
       stop:Boolean(stopButton()),
@@ -1320,21 +1413,7 @@
       return;
     }
     if (result.state === 'no-final-reply') {
-      if ((task.noFinalReplyAttempts || 0) >= NO_FINAL_REPLY_RETRY_LIMIT) throw new Error('会话已结束但没有最终回复，自动重发次数已用尽。');
-      task.noFinalReplyAttempts = (task.noFinalReplyAttempts || 0) + 1;
-      task.url = '';
-      task.attempted = false;
-      task.token = '';
-      task.sendPrepared = false;
-      task.preparedPrompt = '';
-      task.sendUiWaitSince = 0;
-      task.dispatchOriginURL = '';
-      task.dispatchStartedAt = 0;
-      task.rendererRecoveryExhausted = false;
-      task.routeRecoveryAttempts = 0;
-      observations.delete(task.id);
-      state(task, 'queued', `会话已结束但没有最终回复；插件已关闭当前会话目标，正在新开 Work/规划会话原样重发（第 ${task.noFinalReplyAttempts}/${NO_FINAL_REPLY_RETRY_LIMIT} 次）。`);
-      save();
+      queueNoFinalReplyRetry(task, result.reason);
       return;
     }
     if (result.state === 'blocked') throw new Error(result.reason);
@@ -1354,7 +1433,11 @@
     let task;
     try {
       const active = tabTasks().filter(item => !terminal.has(item.state) && item.state !== 'paused');
-      if (!active.length) { pause(); return; }
+      // No active work means the runner is idle, not that every task should be
+      // rewritten as manually paused. In particular, a terminal error from an
+      // older build must remain visible as "需要处理" instead of being
+      // silently changed to "已暂停" on the next scan.
+      if (!active.length) { haltRunnerForPause(); paint(); return; }
       const focused = active.find(item => item.id === current);
       task = nextSupervisionTask(active);
       // Keep a queued send, an ambiguous send confirmation, or an approval
@@ -1379,6 +1462,21 @@
         }
         task.cooldownUntil = 0;
         log(task, '休息等待结束，插件恢复自动检查；不会手动刷新页面。');
+        save();
+      }
+      const recoveryUntil = Number(task.noFinalReplyRecoveryUntil || 0);
+      if (recoveryUntil > Date.now()) {
+        nextScheduleMs = Math.max(1000, recoveryUntil - Date.now());
+        if (task.state !== 'waiting') {
+          task.state = 'waiting';
+          log(task, `异常会话延迟恢复中，约 ${Math.ceil((recoveryUntil - Date.now()) / 60000)} 分钟后自动新开会话；不会自动暂停。`);
+        }
+        return;
+      }
+      if (task.noFinalReplyRecoveryUntil) {
+        task.noFinalReplyRecoveryUntil = 0;
+        task.updatedAt = Date.now();
+        log(task, '异常会话延迟恢复等待结束，插件继续自动新开会话。');
         save();
       }
       if (task.attempted) {
@@ -1691,6 +1789,8 @@
         if(item.id===current&&running)meta.append(element('span','●','run-indicator'));
         const badge=element('span',statusNames[item.state]||item.state,'state-badge');badge.dataset.state=item.state;
         meta.append(badge,document.createTextNode(`第 ${item.round} 轮`));row.append(meta);
+        const recoveryRemaining = Number(item.noFinalReplyRecoveryUntil || 0) - Date.now();
+        if (recoveryRemaining > 0) meta.append(document.createTextNode(' · 异常恢复约 '+Math.ceil(recoveryRemaining / 60000)+' 分钟'));
         if(interactive)row.onclick=()=>{selected=item.id;save();};
         group.append(row);
       };
@@ -1770,6 +1870,8 @@
   schedulePopupDismissScan(50);
   recoveredTaskId = recoverLegacyNavigationFailures();
   migratePersistedPause();
+  const exhaustedLegacyTaskId = recoverLegacyExhaustedNoFinalReplies();
+  if (exhaustedLegacyTaskId) recoveredTaskId = exhaustedLegacyTaskId;
   let ticket;try{ticket=JSON.parse(sessionStorage.getItem(NAV));}catch{}
   const ticketFresh = ticket && ticket.resume && Date.now()-ticket.at < NAV_TICKET_TTL_MS;
   const ticketUsable = ticketFresh && validNavigationTicket(ticket);
