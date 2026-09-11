@@ -4,17 +4,18 @@ import { readFileSync } from 'node:fs';
 import { JSDOM } from 'jsdom';
 
 const source = readFileSync(new URL('../chatgpt-auto-confirm.user.js', import.meta.url), 'utf8');
-function fixture(body='') {
+async function fixture(body='', setup=()=>{}) {
   const dom = new JSDOM(`<body>${body}</body>`, { url:'https://chatgpt.com/', runScripts:'outside-only' });
   const w = dom.window;
   w.HTMLElement.prototype.getClientRects = function(){return this.hidden ? [] : [{}];};
-  let held = false;
-  w.navigator.locks = {request:async(name,options,callback)=>{if(held)return callback(null);held=true;try{await callback({name});}finally{held=false;}}};
-  w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, classify, cards, latestTurn, parseReview, workPrompt, plannerPrompt, enqueue, start, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, recoverLegacyNavigationFailures, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, nextSupervisionTask, validNavigationTicket, getCurrent:()=>current };\n  mount();'));
+  const held = new Set();
+  w.navigator.locks = {query:async()=>({held:[...held].map(name=>({name}))}),request:async(name,options,callback)=>{callback ||= options;if(held.has(name))return callback(null);held.add(name);try{return await callback({name});}finally{held.delete(name);}}};
+  setup(w);
+  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, classify, cards, latestTurn, parseReview, workPrompt, plannerPrompt, enqueue, start, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, recoverLegacyNavigationFailures, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, nextSupervisionTask, validNavigationTicket, taskBelongsToTab, tabTasks, restoreWorkspace, getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
-test('completion requires own final turn, stop absent, no approval and stable completion evidence',()=>{
-  const {h,dom}=fixture();
+test('completion requires own final turn, stop absent, no approval and stable completion evidence',async()=>{
+  const {h,dom}=await fixture();
   const sample={owned:true,final:true,text:'result',sentAt:0,cards:0,stop:false};
   const previous={text:'result',since:1000,idleSince:1000,clear:true};
   assert.equal(h.classify(sample,previous,6000).state,'complete');
@@ -29,8 +30,8 @@ test('completion requires own final turn, stop absent, no approval and stable co
   assert.equal(h.classify({...sample,final:false},{...previous,clear:false},301000).state,'waiting','generation stopping gets a fresh grace period');
   dom.window.close();
 });
-test('a lost Stop control with no final answer becomes a recoverable abnormal end',()=>{
-  const {h,dom}=fixture();
+test('a lost Stop control with no final answer becomes a recoverable abnormal end',async()=>{
+  const {h,dom}=await fixture();
   const previous={text:'partial reply',since:1000,idleSince:1000,clear:true,stop:false,endedAt:1000};
   const sample={owned:true,final:false,text:'partial reply',sentAt:0,cards:0,stop:false};
   assert.equal(h.classify(sample,previous,16_001).state,'no-final-reply');
@@ -38,8 +39,8 @@ test('a lost Stop control with no final answer becomes a recoverable abnormal en
   assert.equal(h.classify({...sample,stop:true},previous,16_001).state,'generating');
   dom.window.close();
 });
-test('work prompt stays natural while the fresh planner alone receives the report contract',()=>{
-  const {h,dom}=fixture();
+test('work prompt stays natural while the fresh planner alone receives the report contract',async()=>{
+  const {h,dom}=await fixture();
   const task={id:'a',round:1,goal:'do work',next:'',result:'natural result',token:'t'};
   assert.doesNotMatch(h.workPrompt(task),/MAHAYANA_TASK_REPORT_V1/);
   assert.doesNotMatch(h.workPrompt(task),/status.*complete/);
@@ -47,20 +48,21 @@ test('work prompt stays natural while the fresh planner alone receives the repor
   assert.match(h.plannerPrompt(task),/natural result/);
   dom.window.close();
 });
-test('nested split authorization card is detected without article/section wrappers',()=>{
-  const {h,dom}=fixture('<main><div><div>这里可以是任意正文，不参与识别。</div><div><button>拒绝</button><button>允许</button><button aria-haspopup="menu"><svg></svg></button></div></div></main>');
+test('nested split authorization card is detected without article/section wrappers',async()=>{
+  const {h,dom}=await fixture('<main><div><div>这里可以是任意正文，不参与识别。</div><div><button>拒绝</button><button>允许</button><button aria-haspopup="menu"><svg></svg></button></div></div></main>');
   assert.equal(h.cards().length,1);
   h.cards()[0].button.disabled=true;
   assert.equal(h.cards().length,0);
   dom.window.close();
 });
-test('ordinary allow controls are not mistaken for authorization cards',()=>{
-  const {h,dom}=fixture('<main><button>允许</button><div><button>拒绝</button><button>允许</button></div><div><button>允许</button><button aria-haspopup="menu">选项</button></div></main>');
+test('ordinary allow controls are not mistaken for authorization cards',async()=>{
+  const {h,dom}=await fixture('<main><button>允许</button><div><button>拒绝</button><button>允许</button></div><div><button>允许</button><button aria-haspopup="menu">选项</button></div></main>');
   assert.equal(h.cards().length,0);
   dom.window.close();
 });
 test('unexpected ChatGPT modal is automatically closed while authorization cards stay untouched',async()=>{
-  const {w,h,dom}=fixture();
+  const {w,h,dom}=await fixture();
+  h.setGlobalAutoApprove(true);
   const modal=w.document.createElement('div');
   modal.setAttribute('role','dialog');
   modal.innerHTML='<h2>图像创作迎来重大升级</h2><button aria-label="Close">×</button><button>立即体验</button>';
@@ -84,21 +86,21 @@ test('unexpected ChatGPT modal is automatically closed while authorization cards
   assert.equal(approval.isConnected,true);
   dom.window.close();
 });
-test('historical final answer cannot complete a new user turn',()=>{
-  const {h,dom}=fixture('<article><div data-message-author-role="assistant"><div class="markdown">old final</div></div><button data-testid="copy-turn-action-button">Copy</button></article><div data-message-author-role="user">new task</div><article><div data-message-author-role="assistant">Thinking</div></article>');
+test('historical final answer cannot complete a new user turn',async()=>{
+  const {h,dom}=await fixture('<article><div data-message-author-role="assistant"><div class="markdown">old final</div></div><button data-testid="copy-turn-action-button">Copy</button></article><div data-message-author-role="user">new task</div><article><div data-message-author-role="assistant">Thinking</div></article>');
   assert.equal(h.latestTurn().final,false);
   assert.equal(h.latestTurn().text,'Thinking');
   dom.window.close();
 });
-test('review reports are tied to exact task and round',()=>{
-  const {h,dom}=fixture();const task={id:'a',round:2};
+test('review reports are tied to exact task and round',async()=>{
+  const {h,dom}=await fixture();const task={id:'a',round:2};
   assert.equal(h.parseReview('{"taskId":"a","round":2,"status":"complete","summary":"verified"}',task).status,'complete');
   assert.throws(()=>h.parseReview('{"taskId":"b","round":2,"status":"complete","summary":"verified"}',task));
   assert.throws(()=>h.parseReview('{"taskId":"a","round":2,"status":"next","summary":"incomplete"}',task));
   dom.window.close();
 });
 test('startup is paused and UI submission remains local until one explicit scheduler send',async()=>{
-  const {w,h,dom}=fixture('<form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">Send</button></form>');
+  const {w,h,dom}=await fixture('<form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">Send</button></form>');
   let sends=0;w.document.querySelector('[data-testid="send-button"]').onclick=()=>sends++;
   assert.equal((await w.FabushiUserscript.call('status')).running,false);
   const root=w.document.getElementById('fabushi-auto-confirm-root');
@@ -113,14 +115,14 @@ test('startup is paused and UI submission remains local until one explicit sched
   dom.window.close();
 });
 test('existing conversation inspection does not wait for a missing composer',async()=>{
-  const {h,w,dom}=fixture('<main><div data-message-author-role="user">[Fabushi:owner]</div><article><div data-message-author-role="assistant">partial</div></article></main>');
+  const {h,w,dom}=await fixture('<main><div data-message-author-role="user">[Fabushi:owner]</div><article><div data-message-author-role="assistant">partial</div></article></main>');
   w.history.pushState({},'', '/c/existing');
   const task={id:'existing',goal:'inspect',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/existing',token:'owner',messages:[]};
   assert.equal(await h.navigate(task.url,null,task,false),true);
   dom.window.close();
 });
 test('missing send controls keep one prepared intent instead of blocking or duplicating',async()=>{
-  const {h,dom}=fixture('<main><form><textarea id="prompt-textarea"></textarea></form></main>');
+  const {h,dom}=await fixture('<main><form><textarea id="prompt-textarea"></textarea></form></main>');
   const task={id:'prepared',goal:'send once',mode:'goal',phase:'work',round:1,state:'queued',url:'',token:'',messages:[]};
   h.data.tasks.push(task);
   await h.start();
@@ -137,7 +139,7 @@ test('missing send controls keep one prepared intent instead of blocking or dupl
   dom.window.close();
 });
 test('dispatch clears an unrelated ChatGPT composer draft before sending',async()=>{
-  const {w,h,dom}=fixture('<main><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">Send</button></form></main>');
+  const {w,h,dom}=await fixture('<main><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">Send</button></form></main>');
   const input=w.document.querySelector('#prompt-textarea');
   input.value='用户之前留下的草稿';
   const sendButton=w.document.querySelector('[data-testid="send-button"]');
@@ -161,11 +163,11 @@ test('dispatch clears an unrelated ChatGPT composer draft before sending',async(
   dom.window.close();
 });
 test('empty ChatGPT composer is filled before looking up its send control',async()=>{
-  const {w,h,dom}=fixture('<main><form><textarea id="prompt-textarea"></textarea></form></main>');
+  const {w,h,dom}=await fixture('<main><form><textarea id="prompt-textarea"></textarea></form></main>');
   const pageInput=w.document.querySelector('#prompt-textarea');
   const form=pageInput.closest('form');
   let sends=0;
-  pageInput.addEventListener('input',()=>{
+  pageInput.addEventListener('input',async()=>{
     if (!pageInput.value || form.querySelector('[data-testid="send-button"]')) return;
     const button=w.document.createElement('button');
     button.type='button';
@@ -195,7 +197,7 @@ test('empty ChatGPT composer is filled before looking up its send control',async
   dom.window.close();
 });
 test('a stale route during SPA send handoff is not recorded before the task marker',async()=>{
-  const {w,h,dom}=fixture('<main><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">Send</button></form></main>');
+  const {w,h,dom}=await fixture('<main><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">Send</button></form></main>');
   const button=w.document.querySelector('[data-testid="send-button"]');
   button.type='button';
   button.onclick=()=>w.history.pushState({},'', '/c/old-route-left-on-screen');
@@ -212,7 +214,7 @@ test('a stale route during SPA send handoff is not recorded before the task mark
   dom.window.close();
 });
 test('the new route is the only link captured once this task marker appears',async()=>{
-  const {w,h,dom}=fixture('<main><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">Send</button></form></main>');
+  const {w,h,dom}=await fixture('<main><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">Send</button></form></main>');
   const button=w.document.querySelector('[data-testid="send-button"]');
   button.type='button';
   button.onclick=()=>{
@@ -236,16 +238,16 @@ test('the new route is the only link captured once this task marker appears',asy
   assert.deepEqual(Array.from(task.sessionUrls),[`https://chatgpt.com/c/new-route-${task.id}`]);
   dom.window.close();
 });
-test('new goals become the next scheduler target instead of waiting behind stale tasks',()=>{
-  const {h,dom}=fixture();
+test('new goals become the next scheduler target instead of waiting behind stale tasks',async()=>{
+  const {h,dom}=await fixture();
   h.data.tasks.push({id:'stale',goal:'stale',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/WEB:stale',token:'old',messages:[]});
   const task=h.enqueue('new goal','goal');
   assert.equal(h.getCurrent(),task.id);
   assert.equal(h.data.selected,task.id);
   dom.window.close();
 });
-test('scheduler keeps sends and approvals exclusive while rotating inspections',()=>{
-  const {h,dom}=fixture();
+test('scheduler keeps sends and approvals exclusive while rotating inspections',async()=>{
+  const {h,dom}=await fixture();
   for (const state of ['queued','sending','approval']) {
     assert.equal(h.taskHoldsScheduler({state}),true,`holds ${state}`);
   }
@@ -257,8 +259,8 @@ test('scheduler keeps sends and approvals exclusive while rotating inspections',
   }
   dom.window.close();
 });
-test('supervision rotates durable conversation URLs while keeping sends exclusive',()=>{
-  const {h,dom}=fixture();
+test('supervision rotates durable conversation URLs while keeping sends exclusive',async()=>{
+  const {h,dom}=await fixture();
   const first=h.enqueue('first','goal');
   Object.assign(first,{state:'waiting',url:'https://chatgpt.com/c/first',token:'first-token'});
   const second={id:'second',goal:'second',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/second',token:'second-token',messages:[]};
@@ -269,8 +271,42 @@ test('supervision rotates durable conversation URLs while keeping sends exclusiv
   assert.equal(h.taskHoldsScheduler({state:'approval'}),true);
   dom.window.close();
 });
-test('pause marks active tasks and resume restores their runnable states',()=>{
-  const {h,dom}=fixture();
+test('each browser tab owns an isolated task workspace while local tasks can rotate',async()=>{
+  const {h,w,dom}=await fixture();
+  const localFirst=h.enqueue('local first','goal');
+  Object.assign(localFirst,{state:'waiting',url:'https://chatgpt.com/c/local-first',token:'first'});
+  const localSecond=h.enqueue('local second','goal');
+  Object.assign(localSecond,{state:'waiting',url:'https://chatgpt.com/c/local-second',token:'second'});
+  const foreign={id:'foreign',ownerTabId:'another-tab',goal:'foreign task',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/foreign',token:'foreign',messages:[]};
+  h.data.tasks.push(foreign);
+  assert.equal(localFirst.ownerTabId,h.getTabId());
+  assert.equal(localSecond.ownerTabId,h.getTabId());
+  assert.deepEqual(Array.from(h.tabTasks(),task=>task.id),[localFirst.id,localSecond.id]);
+  assert.equal(h.taskBelongsToTab(foreign),false);
+  const sidebarLabels=[...w.document.querySelectorAll('aside button')].map(node=>node.textContent);
+  assert.ok(sidebarLabels.some(label=>label.includes('local first')));
+  assert.ok(sidebarLabels.some(label=>label.includes('local second')));
+  assert.ok(sidebarLabels.every(label=>!label.includes('foreign task')));
+  h.pause(true);
+  assert.equal(localFirst.state,'paused');
+  assert.equal(localSecond.state,'paused');
+  assert.equal(foreign.state,'waiting','pausing one tab cannot pause another tab workspace');
+  dom.window.close();
+});
+test('a single task already on its exact route never creates a navigation or refresh ticket',async()=>{
+  const {h,w,dom}=await fixture();
+  const task=h.enqueue('stay here','goal');
+  Object.assign(task,{state:'waiting',url:'https://chatgpt.com/c/stay-here',token:'owner'});
+  w.history.pushState({},'', '/c/stay-here');
+  w.sessionStorage.setItem('fabushi-workbench-navigation-v2',JSON.stringify({task:task.id,href:task.url,path:'/c/stay-here',resume:true,direct:true,at:Date.now()}));
+  assert.equal(h.directNavigate(new w.URL(task.url),task,false),true);
+  assert.equal(w.location.href,task.url);
+  assert.equal(w.sessionStorage.getItem('fabushi-workbench-navigation-v2'),null);
+  assert.equal(h.measurements.switches,0);
+  dom.window.close();
+});
+test('pause marks active tasks and resume restores their runnable states',async()=>{
+  const {h,dom}=await fixture();
   const waiting={id:'waiting',goal:'watch',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/live',token:'owner',messages:[]};
   const queued={id:'queued',goal:'send',state:'queued',phase:'work',round:1,url:'',token:'',messages:[]};
   const blocked={id:'blocked',goal:'keep evidence',state:'blocked',phase:'review',round:1,url:'https://chatgpt.com/c/evidence',token:'evidence',messages:[]};
@@ -294,7 +330,7 @@ test('pause marks active tasks and resume restores their runnable states',()=>{
   dom.window.close();
 });
 test('continue button starts a paused task instead of restoring a terminal blocked state',async()=>{
-  const {w,h,dom}=fixture();
+  const {w,h,dom}=await fixture();
   const paused=h.enqueue('continue','goal');
   Object.assign(paused,{state:'paused',pausedState:'blocked',phase:'work',round:1,url:'https://chatgpt.com/c/continue',token:'owner'});
   h.data.autoResume=false;
@@ -311,8 +347,8 @@ test('continue button starts a paused task instead of restoring a terminal block
   }
   dom.window.close();
 });
-test('a paused task without a real URL resumes as a fresh queued dispatch',()=>{
-  const {h,dom}=fixture();
+test('a paused task without a real URL resumes as a fresh queued dispatch',async()=>{
+  const {h,dom}=await fixture();
   const task={id:'paused-no-url',goal:'send again safely',state:'paused',pausedState:'blocked',phase:'work',round:1,url:'',token:'stale-token',attempted:true,sendPrepared:true,preparedPrompt:'old prompt',dispatchOriginURL:'https://chatgpt.com/c/old',messages:[]};
   h.data.tasks.push(task);
   assert.equal(h.restorePausedTasks(7),true);
@@ -323,8 +359,8 @@ test('a paused task without a real URL resumes as a fresh queued dispatch',()=>{
   assert.equal(task.sendPrepared,false);
   dom.window.close();
 });
-test('an idle ChatGPT tab cannot pause a queue owned by another tab',()=>{
-  const {w,h,dom}=fixture();
+test('an idle ChatGPT tab cannot pause a queue owned by another tab',async()=>{
+  const {w,h,dom}=await fixture();
   const waiting={id:'idle-page',goal:'keep running',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/live',token:'owner',messages:[]};
   h.data.tasks.push(waiting);
   w.dispatchEvent(new w.Event('pagehide'));
@@ -333,7 +369,7 @@ test('an idle ChatGPT tab cannot pause a queue owned by another tab',()=>{
   dom.window.close();
 });
 test('runner pagehide suspends locally without converting the queue to manual pause',async()=>{
-  const {w,h,dom}=fixture();
+  const {w,h,dom}=await fixture();
   const waiting={id:'runner-page',goal:'keep running',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/live',token:'owner',messages:[]};
   h.data.tasks.push(waiting);
   await h.start();
@@ -343,8 +379,8 @@ test('runner pagehide suspends locally without converting the queue to manual pa
   assert.equal((await w.FabushiUserscript.call('status')).running,false);
   dom.window.close();
 });
-test('replacing an idle script instance does not pause persisted tasks',()=>{
-  const {w,h,dom}=fixture();
+test('replacing an idle script instance does not pause persisted tasks',async()=>{
+  const {w,h,dom}=await fixture();
   const waiting={id:'idle-replace',goal:'keep running',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/live',token:'owner',messages:[]};
   h.data.tasks.push(waiting);
   w.__FABUSHI_AUTO_CONFIRM_INSTANCE__.shutdown();
@@ -352,8 +388,8 @@ test('replacing an idle script instance does not pause persisted tasks',()=>{
   assert.equal(h.data.autoResume,true);
   dom.window.close();
 });
-test('a persisted manual pause is made visible after script reload',()=>{
-  const {h,dom}=fixture();
+test('a persisted manual pause is made visible after script reload',async()=>{
+  const {h,dom}=await fixture();
   const task={id:'reload-paused',goal:'keep paused',state:'generating',phase:'work',round:1,url:'https://chatgpt.com/c/live',token:'owner',messages:[]};
   h.data.tasks.push(task);
   h.data.autoResume=false;
@@ -362,17 +398,17 @@ test('a persisted manual pause is made visible after script reload',()=>{
   assert.equal(task.pausedState,'generating');
   dom.window.close();
 });
-test('a newer manual pause from another tab wins over a stale runner write',()=>{
-  const {h,w,dom}=fixture();
+test('a newer manual pause from another tab wins over a stale runner write',async()=>{
+  const {h,w,dom}=await fixture();
   const task={id:'remote-pause',goal:'keep stopped',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/live',token:'owner',messages:[]};
   h.data.tasks.push(task);
   h.data.controlRevision=3;
   h.data.autoResume=true;
   h.log(task,'旧标签页仍在巡视');
   const stored=JSON.parse(w.localStorage.getItem('fabushi-workbench-v2'));
-  stored.controlRevision=4;
-  stored.autoResume=false;
-  stored.pausedAt=Date.now();
+  stored.tabControls[h.getTabId()].controlRevision=4;
+  stored.tabControls[h.getTabId()].autoResume=false;
+  stored.tabControls[h.getTabId()].pausedAt=Date.now();
   stored.tasks[0]={...stored.tasks[0],state:'paused',pausedState:'waiting',pauseRevision:4,updatedAt:Date.now()+1};
   w.localStorage.setItem('fabushi-workbench-v2',JSON.stringify(stored));
   assert.equal(h.syncRemoteControl(),true);
@@ -385,7 +421,7 @@ test('a newer manual pause from another tab wins over a stale runner write',()=>
   dom.window.close();
 });
 test('pause between opening approval menu and selecting scope prevents approval',async()=>{
-  const {w,h,dom}=fixture('<main><div><p>任意内容</p><button>拒绝</button><button>允许</button><button aria-haspopup="menu">⌄</button></div><div role="menu"><button role="menuitem">允许本次会话</button></div></main>');
+  const {w,h,dom}=await fixture('<main><div><p>任意内容</p><button>拒绝</button><button>允许</button><button aria-haspopup="menu">⌄</button></div><div role="menu"><button role="menuitem">允许本次会话</button></div></main>');
   let approvals=0;w.document.querySelector('[role=menuitem]').onclick=()=>approvals++;
   await h.start();
   const task={messages:[]};
@@ -396,7 +432,7 @@ test('pause between opening approval menu and selecting scope prevents approval'
   dom.window.close();
 });
 test('global approval setting handles a card in a non-queue Chat',async()=>{
-  const {w,h,dom}=fixture('<main><div id="card"><p>任意内容</p><button>拒绝</button><button>允许</button><button aria-haspopup="menu">⌄</button><div role="menu"><button role="menuitem">允许本次会话</button></div></div></main>');
+  const {w,h,dom}=await fixture('<main><div id="card"><p>任意内容</p><button>拒绝</button><button>允许</button><button aria-haspopup="menu">⌄</button><div role="menu"><button role="menuitem">允许本次会话</button></div></div></main>');
   let arrowClicks=0, approvals=0;
   w.document.querySelector('[aria-haspopup]').onclick=()=>arrowClicks++;
   w.document.querySelector('[role=menuitem]').onclick=()=>approvals++;
@@ -406,8 +442,8 @@ test('global approval setting handles a card in a non-queue Chat',async()=>{
   assert.equal(approvals,1);
   dom.window.close();
 });
-test('connector-named conversation grant is accepted but permanent grants are rejected',()=>{
-  const {w,h,dom}=fixture();
+test('connector-named conversation grant is accepted but permanent grants are rejected',async()=>{
+  const {w,h,dom}=await fixture();
   const option=w.document.createElement('button');
   option.setAttribute('aria-label','Allow GitHub for this conversation');
   assert.equal(h.isConversationScopedAllow(option),true);
@@ -420,7 +456,7 @@ test('connector-named conversation grant is accepted but permanent grants are re
   dom.window.close();
 });
 test('GitHub card selects from the live UI selects its connector-named menu item',async()=>{
-  const {w,h,dom}=fixture('<main><div id="card"><h2>允许 ChatGPT 使用 GitHub？</h2><button>拒绝</button><button>允许</button><button aria-haspopup="menu" aria-label="Allow GitHub for this conversation">⌄</button></div><div role="menu"><button role="menuitem" aria-label="Allow GitHub for this conversation">Allow GitHub for this conversation</button></div></main>');
+  const {w,h,dom}=await fixture('<main><div id="card"><h2>允许 ChatGPT 使用 GitHub？</h2><button>拒绝</button><button>允许</button><button aria-haspopup="menu" aria-label="Allow GitHub for this conversation">⌄</button></div><div role="menu"><button role="menuitem" aria-label="Allow GitHub for this conversation">Allow GitHub for this conversation</button></div></main>');
   let arrowClicks=0, approvals=0;
   w.document.querySelector('#card [aria-haspopup]').onclick=()=>arrowClicks++;
   w.document.querySelector('[role=menuitem]').onclick=()=>approvals++;
@@ -430,9 +466,9 @@ test('GitHub card selects from the live UI selects its connector-named menu item
   dom.window.close();
 });
 test('Radix authorization trigger opens on pointerdown before selecting its div menuitem',async()=>{
-  const {w,h,dom}=fixture('<main><div id="card"><p>任意内容</p><button>拒绝</button><button>允许</button><button aria-haspopup="menu" aria-label="Allow GitHub for this conversation">⌄</button></div></main>');
+  const {w,h,dom}=await fixture('<main><div id="card"><p>任意内容</p><button>拒绝</button><button>允许</button><button aria-haspopup="menu" aria-label="Allow GitHub for this conversation">⌄</button></div></main>');
   let pointerdowns=0, approvals=0;
-  w.document.querySelector('[aria-haspopup]').addEventListener('pointerdown',()=>{
+  w.document.querySelector('[aria-haspopup]').addEventListener('pointerdown',async()=>{
     pointerdowns++;
     if(w.document.querySelector('[role=menu]'))return;
     const menu=w.document.createElement('div');menu.setAttribute('role','menu');
@@ -444,8 +480,8 @@ test('Radix authorization trigger opens on pointerdown before selecting its div 
   assert.equal(approvals,1);
   dom.window.close();
 });
-test('cancelled tasks resume the exact persisted conversation when possible',()=>{
-  const {h,dom}=fixture();
+test('cancelled tasks resume the exact persisted conversation when possible',async()=>{
+  const {h,dom}=await fixture();
   const task={id:'cancelled',goal:'continue me',mode:'goal',phase:'work',round:3,state:'cancelled',url:'https://chatgpt.com/c/existing',token:'owner',attempted:false,messages:[]};
   h.data.tasks.push(task);
   assert.equal(h.restoreCancelledTask(task),true);
@@ -455,8 +491,8 @@ test('cancelled tasks resume the exact persisted conversation when possible',()=
   assert.match(task.messages.at(-1).text,/继续监控取消前/);
   dom.window.close();
 });
-test('cancelled unsent tasks return to the dispatch queue',()=>{
-  const {h,dom}=fixture();
+test('cancelled unsent tasks return to the dispatch queue',async()=>{
+  const {h,dom}=await fixture();
   const task={id:'cancelled-unsent',goal:'continue me',mode:'goal',phase:'work',round:1,state:'cancelled',url:'',token:'stale',attempted:false,messages:[]};
   h.data.tasks.push(task);
   assert.equal(h.restoreCancelledTask(task),true);
@@ -464,8 +500,8 @@ test('cancelled unsent tasks return to the dispatch queue',()=>{
   assert.equal(task.token,'');
   dom.window.close();
 });
-test('cancelled queued planner does not reopen the previous Work URL',()=>{
-  const {h,dom}=fixture();
+test('cancelled queued planner does not reopen the previous Work URL',async()=>{
+  const {h,dom}=await fixture();
   const task={id:'cancelled-planner',goal:'continue me',next:'verify the new round',mode:'goal',phase:'review',round:2,state:'cancelled',url:'',sessionUrl:'https://chatgpt.com/c/previous-work',sessionUrls:['https://chatgpt.com/c/previous-work'],token:'',attempted:false,messages:[]};
   h.data.tasks.push(task);
   assert.equal(h.restoreCancelledTask(task),true);
@@ -474,15 +510,15 @@ test('cancelled queued planner does not reopen the previous Work URL',()=>{
   assert.equal(task.phase,'review');
   dom.window.close();
 });
-test('quota banner is ignored while real safety challenges remain blockers',()=>{
-  const {h,dom}=fixture('<p>工作区有成员达到使用上限</p><button>开启自动充值</button>');
+test('quota banner is ignored while real safety challenges remain blockers',async()=>{
+  const {h,dom}=await fixture('<p>工作区有成员达到使用上限</p><button>开启自动充值</button>');
   assert.equal(h.blocker(),'');
   assert.equal(h.classify({owned:true,final:false,text:'',sentAt:Date.now(),cards:0,stop:false,blocker:'ChatGPT 使用额度或访问频率受限'},null,Date.now()).state,'waiting');
   assert.equal(h.classify({owned:true,final:false,text:'',sentAt:Date.now(),cards:0,stop:false,blocker:'页面需要完成安全验证'},null,Date.now()).state,'blocked');
   dom.window.close();
 });
-test('rate-limit detection ignores the plugin log and conversation text',()=>{
-  const {h,dom}=fixture('<main><article><div data-message-author-role="user">Please explain rate limits</div></article></main>');
+test('rate-limit detection ignores the plugin log and conversation text',async()=>{
+  const {h,dom}=await fixture('<main><article><div data-message-author-role="user">Please explain rate limits</div></article></main>');
   const root=dom.window.document.getElementById('fabushi-auto-confirm-root');
   root.append(dom.window.document.createTextNode('检测到 ChatGPT 请求过于频繁'));
   assert.equal(h.rateLimitNotice(),'');
@@ -493,8 +529,8 @@ test('rate-limit detection ignores the plugin log and conversation text',()=>{
   assert.match(h.rateLimitNotice(),/休息等待/);
   dom.window.close();
 });
-test('reload recovery preserves healthy and rate-limited in-flight sessions',()=>{
-  const {h,dom}=fixture();
+test('reload recovery preserves healthy and rate-limited in-flight sessions',async()=>{
+  const {h,dom}=await fixture();
   const base={goal:'test task',mode:'goal',phase:'work',round:1};
   const healthy={...base,id:'healthy',state:'waiting',url:'https://chatgpt.com/c/healthy',token:'keep',messages:[{text:'正在生成'}]};
   const limited={...base,id:'limited',state:'waiting',url:'https://chatgpt.com/c/limited',token:'keep-too',messages:[{text:'检测到 ChatGPT 请求过于频繁'}]};
@@ -510,8 +546,8 @@ test('reload recovery preserves healthy and rate-limited in-flight sessions',()=
   assert.equal(legacy.state,'waiting');
   dom.window.close();
 });
-test('paused legacy sidebar waits resume directly from their recorded URL',()=>{
-  const {h,dom}=fixture();
+test('paused legacy sidebar waits resume directly from their recorded URL',async()=>{
+  const {h,dom}=await fixture();
   const task={id:'paused-legacy',goal:'keep this chat',mode:'goal',phase:'work',round:1,state:'paused',pausedState:'blocked',url:'https://chatgpt.com/c/legacy-url',token:'legacy-token',attempted:true,messages:[{text:'目标会话链接尚未出现在侧栏；保持当前页面等待，不会刷新或重复派发（第 4/4 次）。'}]};
   h.data.tasks.push(task);
   assert.equal(h.restorePausedTasks(9),true);
@@ -521,8 +557,8 @@ test('paused legacy sidebar waits resume directly from their recorded URL',()=>{
   assert.match(task.messages.at(-1).text,/不等待侧栏/);
   dom.window.close();
 });
-test('resuming a queued next round never reopens a historical Work URL',()=>{
-  const {h,dom}=fixture();
+test('resuming a queued next round never reopens a historical Work URL',async()=>{
+  const {h,dom}=await fixture();
   const task={id:'queued-next-round',goal:'continue with the new round',mode:'goal',phase:'review',round:2,state:'paused',pausedState:'queued',url:'',sessionUrl:'https://chatgpt.com/c/previous-work',sessionUrls:['https://chatgpt.com/c/previous-work'],token:'',attempted:false,messages:[]};
   h.data.tasks.push(task);
   assert.equal(h.restorePausedTasks(12),true);
@@ -531,8 +567,8 @@ test('resuming a queued next round never reopens a historical Work URL',()=>{
   assert.equal(h.validNavigationTicket({task:task.id,path:'/c/previous-work',href:'https://chatgpt.com/c/previous-work',resume:true}),false);
   dom.window.close();
 });
-test('transient navigation warning cannot redispatch an already generating conversation',()=>{
-  const {h,dom}=fixture();
+test('transient navigation warning cannot redispatch an already generating conversation',async()=>{
+  const {h,dom}=await fixture();
   const task={
     id:'generating',goal:'keep this chat',mode:'goal',phase:'planner',round:1,
     state:'generating',url:'https://chatgpt.com/c/current',token:'live-owner',attempted:true,
@@ -546,8 +582,8 @@ test('transient navigation warning cannot redispatch an already generating conve
   assert.equal(task.attempted,true);
   dom.window.close();
 });
-test('missing sidebar links never create a four-attempt wait loop',()=>{
-  const {h,w,dom}=fixture();
+test('missing sidebar links never create a four-attempt wait loop',async()=>{
+  const {h,w,dom}=await fixture();
   const task={id:'nav',state:'queued',messages:[]};
   const target=new w.URL('https://chatgpt.com/c/WEB:not-a-browser-session');
   assert.equal(h.queueNavigation(target,task),false);
@@ -557,7 +593,7 @@ test('missing sidebar links never create a four-attempt wait loop',()=>{
   dom.window.close();
 });
 test('live owned conversation canonicalizes a stale URL without navigation',async()=>{
-  const {h,w,dom}=fixture('<main><div data-message-author-role="user">[Fabushi:live-token]</div><article><div data-message-author-role="assistant">正在生成</div></article>');
+  const {h,w,dom}=await fixture('<main><div data-message-author-role="user">[Fabushi:live-token]</div><article><div data-message-author-role="assistant">正在生成</div></article>');
   const task={id:'canonical',goal:'keep',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/WEB:stale',token:'live-token',attempted:false,messages:[]};
   h.data.tasks.push(task);
   w.history.pushState({},'', '/c/real-conversation');
@@ -566,8 +602,8 @@ test('live owned conversation canonicalizes a stale URL without navigation',asyn
   assert.equal(w.sessionStorage.getItem('fabushi-workbench-navigation-v2'),null);
   dom.window.close();
 });
-test('recorded conversation links are canonical identities and direct recovery is one-shot',()=>{
-  const {h,w,dom}=fixture();
+test('recorded conversation links are canonical identities and direct recovery is one-shot',async()=>{
+  const {h,w,dom}=await fixture();
   const task={id:'direct',goal:'recover',state:'waiting',phase:'work',round:1,url:'',token:'owner',attempted:false,messages:[]};
   h.data.tasks.push(task);
   assert.equal(h.canonicalConversationURL('https://chatgpt.com/c/6aa0132a-c708-83e8-812c-818dcfc31876?messageId=ignored'),'https://chatgpt.com/c/6aa0132a-c708-83e8-812c-818dcfc31876');
@@ -583,8 +619,8 @@ test('recorded conversation links are canonical identities and direct recovery i
   assert.equal(JSON.parse(w.sessionStorage.getItem('fabushi-workbench-navigation-v2')).attempts,1);
   dom.window.close();
 });
-test('open control is a native link bound to the selected task exact conversation URL',()=>{
-  const {h,w,dom}=fixture();
+test('open control is a native link bound to the selected task exact conversation URL',async()=>{
+  const {h,w,dom}=await fixture();
   const oldTask=h.enqueue('old task','goal');
   h.recordConversationURL(oldTask,'https://chatgpt.com/c/old-conversation');
   const newTask=h.enqueue('new task','goal');
@@ -608,8 +644,8 @@ test('open control is a native link bound to the selected task exact conversatio
   assert.equal(newTask.url,'https://chatgpt.com/c/new-conversation');
   dom.window.close();
 });
-test('open control rejects a task URL that changed after the panel rendered',()=>{
-  const {h,dom}=fixture();
+test('open control rejects a task URL that changed after the panel rendered',async()=>{
+  const {h,dom}=await fixture();
   const task=h.enqueue('changing task','goal');
   h.recordConversationURL(task,'https://chatgpt.com/c/rendered');
   assert.equal(h.prepareRecordedConversationOpen(task.id,'https://chatgpt.com/c/rendered'),task.url);
@@ -620,8 +656,8 @@ test('open control rejects a task URL that changed after the panel rendered',()=
   assert.equal(h.data.autoResume,true,'a stale control cannot pause or navigate the current task');
   dom.window.close();
 });
-test('a conversation URL cannot be adopted by two active tasks',()=>{
-  const {h,dom}=fixture();
+test('a conversation URL cannot be adopted by two active tasks',async()=>{
+  const {h,dom}=await fixture();
   const first={id:'owner',url:'https://chatgpt.com/c/unique',messages:[]};
   const second={id:'new-task',url:'',messages:[]};
   h.data.tasks.push(first,second);
@@ -630,8 +666,8 @@ test('a conversation URL cannot be adopted by two active tasks',()=>{
   assert.equal(h.conversationURLOwner(first.url),first);
   dom.window.close();
 });
-test('synthetic conversation URL stays on the current page without retrying',()=>{
-  const {h,w,dom}=fixture();
+test('synthetic conversation URL stays on the current page without retrying',async()=>{
+  const {h,w,dom}=await fixture();
   const task={id:'unverified',goal:'wait',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/WEB:not-in-sidebar',token:'owner',attempted:false,messages:[]};
   h.data.tasks.push(task);
   assert.equal(h.queueNavigation(new w.URL(task.url),task,'会话地址无效'),false);
@@ -640,8 +676,8 @@ test('synthetic conversation URL stays on the current page without retrying',()=
   h.pause();
   dom.window.close();
 });
-test('ambiguous send timeout preserves token and stops instead of creating another planner',()=>{
-  const {h,w,dom}=fixture();
+test('ambiguous send timeout preserves token and stops instead of creating another planner',async()=>{
+  const {h,w,dom}=await fixture();
   w.history.pushState({},'', '/c/old-conversation');
   const task={id:'sent',goal:'review once',mode:'goal',round:1,state:'sending',phase:'review',url:'',token:'one-dispatch',attempted:true,messages:[]};
   h.data.tasks.push(task);
@@ -653,8 +689,8 @@ test('ambiguous send timeout preserves token and stops instead of creating anoth
   assert.match(task.messages.at(-1).text,/不会自动重发/);
   dom.window.close();
 });
-test('edited goal is persisted and replaces stale next-round instructions',()=>{
-  const {h,dom}=fixture();
+test('edited goal is persisted and replaces stale next-round instructions',async()=>{
+  const {h,dom}=await fixture();
   const task={id:'goal-edit',goal:'旧目标',next:'旧的下一步',mode:'goal',phase:'work',round:2,state:'queued',messages:[],goalRevision:0};
   h.data.tasks.push(task);
   assert.equal(h.editGoal(task,'新目标'),true);
@@ -665,8 +701,8 @@ test('edited goal is persisted and replaces stale next-round instructions',()=>{
   assert.match(task.messages.at(-1).text,/下一轮将按新目标执行/);
   dom.window.close();
 });
-test('goal edits during review discard stale acceptance next and start a new work round',()=>{
-  const {h,dom}=fixture();
+test('goal edits during review discard stale acceptance next and start a new work round',async()=>{
+  const {h,dom}=await fixture();
   const task={id:'review-edit',goal:'旧目标',next:'',mode:'goal',phase:'review',round:1,state:'waiting',url:'https://chatgpt.com/c/review',token:'review-token',messages:[],goalRevision:0,dispatchGoalRevision:0,result:'旧结果'};
   h.data.tasks.push(task);
   h.editGoal(task,'新目标');
@@ -678,8 +714,8 @@ test('goal edits during review discard stale acceptance next and start a new wor
   assert.match(task.messages.at(-1).text,/忽略旧验收结论/);
   dom.window.close();
 });
-test('editing a queued review skips the unsent stale planner immediately',()=>{
-  const {h,dom}=fixture();
+test('editing a queued review skips the unsent stale planner immediately',async()=>{
+  const {h,dom}=await fixture();
   const task={id:'queued-review-edit',goal:'旧目标',next:'旧验收安排',mode:'goal',phase:'review',round:1,state:'queued',url:'',token:'old-token',messages:[],goalRevision:0,result:'旧结果'};
   h.data.tasks.push(task);
   assert.equal(h.editGoal(task,'新目标'),true);
@@ -691,8 +727,8 @@ test('editing a queued review skips the unsent stale planner immediately',()=>{
   assert.match(task.messages.at(-1).text,/尚未发送的旧验收已跳过/);
   dom.window.close();
 });
-test('message history is not truncated after eighty entries',()=>{
-  const {h,dom}=fixture();
+test('message history is not truncated after eighty entries',async()=>{
+  const {h,dom}=await fixture();
   const task={id:'history',goal:'keep history',messages:[],messageVersion:0};
   h.data.tasks.push(task);
   for(let index=0;index<120;index++) h.log(task,`记录 ${index}`);
@@ -701,8 +737,8 @@ test('message history is not truncated after eighty entries',()=>{
   assert.equal(task.messages.at(-1).text,'记录 119');
   dom.window.close();
 });
-test('completed, cancelled, and paused tasks can be deleted while live tasks are retained',()=>{
-  const {h,w,dom}=fixture();
+test('completed, cancelled, and paused tasks can be deleted while live tasks are retained',async()=>{
+  const {h,w,dom}=await fixture();
   const completed=h.enqueue('old completed','once');
   completed.state='done';
   const cancelled={id:'old-cancelled',goal:'old cancelled',mode:'once',phase:'work',round:1,state:'cancelled',messages:[]};
@@ -719,14 +755,14 @@ test('completed, cancelled, and paused tasks can be deleted while live tasks are
   dom.window.close();
 });
 test('same-route hydration waits without creating a navigation ticket',async()=>{
-  const {h,w,dom}=fixture('<main>ChatGPT is loading</main>');
+  const {h,w,dom}=await fixture('<main>ChatGPT is loading</main>');
   const result=await h.navigate('/',undefined,{id:'task'});
   assert.equal(result,false);
   assert.equal(w.sessionStorage.getItem('fabushi-workbench-navigation-v2'),null);
   dom.window.close();
 });
-test('dispatches keep a full cooldown between Chat sessions',()=>{
-  const {h,dom}=fixture();
+test('dispatches keep a full cooldown between Chat sessions',async()=>{
+  const {h,dom}=await fixture();
   const now=Date.now();
   h.data.lastDispatchAt=now;
   assert.ok(h.dispatchCooldownRemaining(now) >= 59_000);
@@ -737,4 +773,105 @@ test('dispatches keep a full cooldown between Chat sessions',()=>{
   assert.equal(task.state,'waiting');
   assert.match(task.messages.at(-1).text,/暂停发送、导航和刷新/);
   dom.window.close();
+});
+
+test('a new round rejects historical routes even when its new marker is already rendered',async()=>{
+  const {h,dom}=await fixture();
+  const task={id:'new-round',attempted:true,url:'',sessionUrls:['https://chatgpt.com/c/old-round']};
+  assert.equal(h.captureConversationURL(task,'https://chatgpt.com/c/old-round'),'');
+  assert.equal(task.url,'');
+  assert.equal(h.captureConversationURL(task,'https://chatgpt.com/c/new-round'),'https://chatgpt.com/c/new-round');
+  dom.window.close();
+});
+test('different non-conversation routes are not treated as an already open destination',async()=>{
+  const {h,w,dom}=await fixture();
+  w.history.pushState({},'', '/settings');
+  const task=h.enqueue('new task','once');
+  assert.equal(h.directNavigate(new w.URL('https://chatgpt.com/'),task,false),false);
+  assert.equal(JSON.parse(w.sessionStorage.getItem('fabushi-workbench-navigation-v2')).path,'/');
+  dom.window.close();
+});
+test('an idle personal tab leaves its modal untouched',async()=>{
+  const {w,dom}=await fixture('<div role="dialog"><button aria-label="Close">×</button></div>');
+  let clicks=0;
+  w.document.querySelector('[aria-label="Close"]').onclick=()=>clicks++;
+  await new Promise(resolve=>setTimeout(resolve,150));
+  assert.equal(clicks,0);
+  dom.window.close();
+});
+
+test('a stale navigation call cannot overwrite or open an already advanced conversation',async()=>{
+  const {h,w,dom}=await fixture();
+  const task=h.enqueue('advanced task','goal');
+  h.recordConversationURL(task,'https://chatgpt.com/c/latest');
+  assert.equal(h.directNavigate(new w.URL('https://chatgpt.com/c/previous'),task,false),false);
+  assert.equal(task.url,'https://chatgpt.com/c/latest');
+  assert.equal(w.sessionStorage.getItem('fabushi-workbench-navigation-v2'),null);
+  dom.window.close();
+});
+
+test('duplicating a live tab creates a distinct workspace instead of sharing its tasks',async()=>{
+  const original=await fixture();
+  original.h.enqueue('original goal','goal');
+  const copy=await fixture('',w=>{
+    w.navigator.locks=original.w.navigator.locks;
+    w.localStorage.setItem('fabushi-workbench-v2',original.w.localStorage.getItem('fabushi-workbench-v2'));
+    w.localStorage.setItem('fabushi-workbench-legacy-owner-v1',original.h.getTabId());
+    w.sessionStorage.setItem('fabushi-workbench-tab-session-v1',original.h.getTabId());
+  });
+  assert.notEqual(copy.h.getTabId(),original.h.getTabId());
+  assert.equal(copy.h.tabTasks().length,0);
+  assert.equal(original.h.tabTasks().length,1);
+  assert.equal((await copy.w.FabushiUserscript.call('status')).running,false);
+  original.dom.window.close();copy.dom.window.close();
+});
+
+test('restoration refuses a workspace whose original tab is still open even while paused',async()=>{
+  const original=await fixture();
+  original.h.enqueue('original goal','goal');original.h.pause(true);
+  const personal=await fixture('',w=>{
+    w.navigator.locks=original.w.navigator.locks;
+    w.localStorage.setItem('fabushi-workbench-v2',original.w.localStorage.getItem('fabushi-workbench-v2'));
+    w.localStorage.setItem('fabushi-workbench-legacy-owner-v1',original.h.getTabId());
+  });
+  personal.w.open=()=>{throw new Error('must not open a duplicate');};
+  await assert.rejects(personal.h.restoreWorkspace(original.h.getTabId()),/仍在原标签页/);
+  assert.equal(personal.h.tabTasks().length,0);
+  original.dom.window.close();personal.dom.window.close();
+});
+
+test('closed workspace resumes via a one-use ticket in a dedicated tab without taking over the caller',async()=>{
+  const original=await fixture();
+  const task=original.h.enqueue('restore exact task','goal');
+  original.h.recordConversationURL(task,'https://chatgpt.com/c/current-round');
+  original.h.pause(true);
+  const owner=original.h.getTabId();
+  original.w.__FABUSHI_AUTO_CONFIRM_INSTANCE__.shutdown();
+  await Promise.resolve();
+  const personal=await fixture('',w=>{
+    w.navigator.locks=original.w.navigator.locks;
+    w.localStorage.setItem('fabushi-workbench-v2',original.w.localStorage.getItem('fabushi-workbench-v2'));
+    w.localStorage.setItem('fabushi-workbench-legacy-owner-v1',owner);
+  });
+  const personalId=personal.h.getTabId();let openedURL='';
+  personal.w.open=url=>{openedURL=url;return {opener:personal.w};};
+  await personal.h.restoreWorkspace(owner);
+  assert.match(openedURL,/\/c\/current-round#fabushi-resume=/);
+  assert.equal(personal.h.getTabId(),personalId);
+  assert.equal(personal.w.location.href,'https://chatgpt.com/');
+  assert.equal(personal.h.tabTasks().length,0);
+  const restored=await fixture('',w=>{
+    w.navigator.locks=personal.w.navigator.locks;
+    for(let i=0;i<personal.w.localStorage.length;i++){
+      const key=personal.w.localStorage.key(i);w.localStorage.setItem(key,personal.w.localStorage.getItem(key));
+    }
+    w.history.replaceState({},'',openedURL);
+  });
+  assert.equal(restored.h.getTabId(),owner);
+  assert.equal(restored.h.tabTasks()[0].url,'https://chatgpt.com/c/current-round');
+  assert.equal(restored.h.tabTasks()[0].state,'paused','explicit manual pause remains authoritative');
+  assert.equal(restored.w.location.hash,'');
+  const token=new URL(openedURL).hash.split('=')[1];
+  assert.equal(restored.w.localStorage.getItem('fabushi-workspace-recovery-v1:'+token),null);
+  original.dom.window.close();personal.dom.window.close();restored.dom.window.close();
 });
