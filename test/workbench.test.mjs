@@ -11,7 +11,7 @@ async function fixture(body='', setup=()=>{}) {
   const held = new Set();
   w.navigator.locks = {query:async()=>({held:[...held].map(name=>({name}))}),request:async(name,options,callback)=>{callback ||= options;if(held.has(name))return callback(null);held.add(name);try{return await callback({name});}finally{held.delete(name);}}};
   setup(w);
-  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, classify, abnormalEndSince, cards, latestTurn, parseReview, workPrompt, plannerPrompt, enqueue, start, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, recoverLegacyNavigationFailures, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, nextSupervisionTask, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, connectionInterruptedNotice, refreshInterruptedConversation, classify, abnormalEndSince, cards, latestTurn, parseReview, workPrompt, plannerPrompt, enqueue, start, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, recoverLegacyNavigationFailures, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, nextSupervisionTask, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('completion requires own final turn, stop absent, no approval and stable completion evidence',async()=>{
@@ -54,6 +54,43 @@ test('late observation starts the short abnormal-end timer even when Stop alread
   assert.equal(h.abnormalEndSince({...sample,owned:false},stable,3_000),0);
   assert.equal(h.abnormalEndSince({...sample,blocker:'security verification'},stable,3_000),0);
   assert.equal(h.abnormalEndSince({...sample,rateLimit:'rate limit'},stable,3_000),0);
+  dom.window.close();
+});
+test('connection interruption recovery only recognizes visible ChatGPT page notices',async()=>{
+  const page=await fixture('<div role="status">连接已中断。正在等待完整回复。</div>');
+  assert.equal(page.h.connectionInterruptedNotice(),true);
+  page.dom.window.close();
+
+  const quoted=await fixture('<div data-message-author-role="user">连接已中断。正在等待完整回复。</div>');
+  assert.equal(quoted.h.connectionInterruptedNotice(),false,'task transcript must not trigger a refresh');
+  const ownNotice=quoted.w.document.createElement('div');
+  ownNotice.textContent='连接已中断。正在等待完整回复。';
+  quoted.w.document.querySelector('#fabushi-auto-confirm-root').append(ownNotice);
+  assert.equal(quoted.h.connectionInterruptedNotice(),false,'workbench logs must not self-trigger');
+  quoted.dom.window.close();
+});
+test('connection interruption refresh is bounded per conversation and preserves identity',async()=>{
+  const {h,w,dom}=await fixture();
+  const task=h.enqueue('keep this exact task','goal');
+  Object.assign(task,{state:'generating',url:'https://chatgpt.com/c/disconnected',token:'owner-token',attempted:false});
+  w.history.pushState({},'', '/c/disconnected');
+  const first=h.refreshInterruptedConversation(task,false,20_000);
+  assert.equal(first,true);
+  assert.equal(task.state,'waiting');
+  assert.equal(task.url,'https://chatgpt.com/c/disconnected');
+  assert.equal(task.token,'owner-token');
+  assert.equal(task.attempted,false);
+  assert.equal(task.connectionInterruptedRefreshAttempts,1);
+  assert.equal(h.refreshInterruptedConversation(task,false,25_000),false,'cooldown prevents a reload loop');
+  assert.equal(h.refreshInterruptedConversation(task,false,40_000),true);
+  assert.equal(task.connectionInterruptedRefreshAttempts,2);
+  assert.equal(h.refreshInterruptedConversation(task,false,60_000),false);
+  assert.equal(task.connectionInterruptedRefreshExhausted,true);
+  assert.match(task.messages.at(-1).text,/已停止重复刷新/);
+  w.history.pushState({},'', '/c/next-conversation');
+  task.url='https://chatgpt.com/c/next-conversation';
+  assert.equal(h.refreshInterruptedConversation(task,false,80_000),true,'a new durable conversation gets its own bounded recovery budget');
+  assert.equal(task.connectionInterruptedRefreshAttempts,1);
   dom.window.close();
 });
 test('work prompt stays natural while the fresh planner alone receives the report contract',async()=>{
@@ -296,6 +333,7 @@ test('each browser tab owns an isolated task workspace while local tasks can rot
   Object.assign(localSecond,{state:'waiting',url:'https://chatgpt.com/c/local-second',token:'second'});
   const foreign={id:'foreign',ownerTabId:'another-tab',goal:'foreign task',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/foreign',token:'foreign',messages:[]};
   h.data.tasks.push(foreign);
+  h.log(localFirst,'refresh grouped sidebar');
   assert.equal(localFirst.ownerTabId,h.getTabId());
   assert.equal(localSecond.ownerTabId,h.getTabId());
   assert.deepEqual(Array.from(h.tabTasks(),task=>task.id),[localFirst.id,localSecond.id]);
@@ -303,7 +341,10 @@ test('each browser tab owns an isolated task workspace while local tasks can rot
   const sidebarLabels=[...w.document.querySelectorAll('aside button')].map(node=>node.textContent);
   assert.ok(sidebarLabels.some(label=>label.includes('local first')));
   assert.ok(sidebarLabels.some(label=>label.includes('local second')));
-  assert.ok(sidebarLabels.every(label=>!label.includes('foreign task')));
+  assert.ok(sidebarLabels.every(label=>!label.includes('foreign task')),'foreign task records are read-only rows, not current-tab buttons');
+  assert.ok(w.document.querySelector('[data-owner-tab-id="another-tab"] [data-task-id="foreign"]'));
+  assert.equal(w.document.querySelector('[data-task-id="foreign"]').dataset.taskState,'waiting');
+  assert.match(w.document.querySelector('[data-task-id="foreign"] .state-badge').textContent,/等待响应/);
   h.pause(true);
   assert.equal(localFirst.state,'paused');
   assert.equal(localSecond.state,'paused');
@@ -908,10 +949,11 @@ test('an empty new tab visibly offers and adopts a closed workspace in place',as
     w.localStorage.setItem('fabushi-workbench-legacy-owner-v1',owner);
   });
   personal.w.open=()=>{throw new Error('an empty replacement tab must not open a third tab');};
-  const restore=[...personal.w.document.querySelectorAll('header button')]
-    .find(button=>button.textContent==='恢复任务记录');
+  const restore=[...personal.w.document.querySelectorAll('aside .restore-workspace')]
+    .find(button=>button.textContent==='恢复到当前标签页');
   assert.ok(restore);
-  assert.equal(restore.hidden,false,'recovery is discoverable without opening Settings');
+  assert.equal(personal.w.document.querySelectorAll('aside .task-group[data-owner-tab-id]').length,1,'recovery is grouped in the left task list');
+  assert.equal(personal.w.document.querySelector('header button:nth-of-type(2)').textContent,'设置','top recovery strip is removed');
   assert.equal(personal.h.recoverableWorkspaces()[0].ownerTabId,owner);
 
   const result=await personal.h.restoreWorkspace(owner,true);

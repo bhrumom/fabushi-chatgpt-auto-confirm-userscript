@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.4
+// @version      2.9.5
 // @description  独立单标签任务工作台：目标编排、单次任务、授权识别、实时消息与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -14,7 +14,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.4';
+  const VERSION = '2.9.5';
   if (window[INSTANCE]?.version === VERSION && window[INSTANCE]?.active) return;
   window[INSTANCE]?.shutdown?.();
   document.getElementById('fabushi-auto-confirm-root')?.remove();
@@ -36,6 +36,8 @@
   const STOP_LOST_FINAL_REPLY_MS = 15000;
   const ROUTE_HYDRATION_TIMEOUT_MS = 30000;
   const ROUTE_RECOVERY_LIMIT = 2;
+  const CONNECTION_INTERRUPTED_REFRESH_LIMIT = 2;
+  const CONNECTION_INTERRUPTED_REFRESH_COOLDOWN_MS = 15000;
   const SEND_UI_WAIT_MS = 45000;
   // A single browser tab can only render one ChatGPT route at a time, but
   // independent conversations continue server-side. Rotate inspection of
@@ -528,6 +530,59 @@
       }
     }
     return '';
+  }
+  function connectionInterruptedNotice() {
+    const pattern = /连接已中断[。.!]?\s*正在等待完整回复[。.!]?|connection (?:was |has been )?interrupted[.!]?\s*(?:we(?:'re| are) )?waiting for (?:the )?full response/i;
+    // This recovery signal must come from ChatGPT chrome/status UI. A user or
+    // assistant may quote the same sentence while discussing the failure, and
+    // the workbench logs it after detection; neither is allowed to self-trigger.
+    const walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT);
+    let currentNode;
+    while ((currentNode = walker.nextNode())) {
+      const parent = currentNode.parentElement;
+      if (!parent || own(parent) || parent.closest('[data-message-author-role]')) continue;
+      if (pattern.test(normalize(currentNode.nodeValue)) && visible(parent)) return true;
+    }
+    return false;
+  }
+  function refreshInterruptedConversation(task, perform = true, now = Date.now()) {
+    const conversationURL = currentConversationURL() || canonicalConversationURL(task?.url);
+    if (!task || !conversationURL) return false;
+    if (task.connectionInterruptedURL !== conversationURL) {
+      task.connectionInterruptedURL = conversationURL;
+      task.connectionInterruptedRefreshAttempts = 0;
+      task.connectionInterruptedRefreshAt = 0;
+      task.connectionInterruptedRefreshExhausted = false;
+    }
+    const attempts = Number(task.connectionInterruptedRefreshAttempts || 0);
+    if (task.connectionInterruptedRefreshExhausted || attempts >= CONNECTION_INTERRUPTED_REFRESH_LIMIT) {
+      if (!task.connectionInterruptedRefreshExhausted) {
+        task.connectionInterruptedRefreshExhausted = true;
+        task.state = 'waiting';
+        log(task, `连接中断提示在 ${CONNECTION_INTERRUPTED_REFRESH_LIMIT} 次刷新后仍存在；已停止重复刷新，保留当前会话和任务记录等待恢复。`);
+        save();
+      }
+      return false;
+    }
+    if (now - Number(task.connectionInterruptedRefreshAt || 0) < CONNECTION_INTERRUPTED_REFRESH_COOLDOWN_MS) return false;
+    const nextAttempt = attempts + 1;
+    task.connectionInterruptedRefreshAttempts = nextAttempt;
+    task.connectionInterruptedRefreshAt = now;
+    task.connectionInterruptedRefreshExhausted = false;
+    task.state = 'waiting';
+    log(task, `检测到“连接已中断，正在等待完整回复”；正在刷新当前会话（第 ${nextAttempt}/${CONNECTION_INTERRUPTED_REFRESH_LIMIT} 次），不会新建会话或重复发送。`);
+    save();
+    if (!perform) return true;
+    navigating = true;
+    try { location.reload(); } catch (error) {
+      navigating = false;
+      task.connectionInterruptedRefreshExhausted = true;
+      task.state = 'waiting';
+      log(task, `连接中断后的页面刷新失败：${error.message}；已保留当前任务等待。`);
+      save();
+      return false;
+    }
+    return true;
   }
   function dispatchCooldownRemaining(now = Date.now()) {
     return Math.max(0, Number(data.lastDispatchAt || 0) + MIN_SEND_INTERVAL_MS - now);
@@ -1199,6 +1254,10 @@
     // turn state to detect an abnormal end and recover in a fresh Chat.
     if (!await navigate(task.url, signal, task, false)) return;
     check(signal);
+    if (connectionInterruptedNotice()) {
+      refreshInterruptedConversation(task);
+      return;
+    }
     const begin = performance.now(), turn = latestTurn(), pending = cards();
     const sample = {
       stop:Boolean(stopButton()),
@@ -1565,41 +1624,22 @@
       #${ROOT} *{box-sizing:border-box} #${ROOT} button,#${ROOT} select,#${ROOT} a.action{font:inherit;cursor:pointer;color:inherit;background:#303030;border:1px solid #484848;border-radius:10px;padding:8px 12px} #${ROOT} a.action{display:inline-block;text-decoration:none} #${ROOT} button:hover,#${ROOT} a.action:hover{background:#414141} #${ROOT} button:disabled{opacity:.45;cursor:default}
       #${ROOT} .launch{float:right;border-radius:24px;background:#6048dc;border:0}
       #${ROOT} .desk{display:none;width:min(880px,calc(100vw - 36px));height:min(700px,calc(100vh - 110px));margin-bottom:10px;border:1px solid #4a4a4a;border-radius:20px;background:#212121;box-shadow:0 16px 60px #0008;overflow:hidden}
-      #${ROOT} .desk.open{display:flex} #${ROOT} aside{width:210px;flex-shrink:0;background:#171717;padding:16px 10px;overflow:auto} #${ROOT} aside h3{margin:0 8px 16px} #${ROOT} aside button{width:100%;text-align:left;margin-bottom:8px;background:transparent;border-color:transparent;overflow:hidden;text-overflow:ellipsis} #${ROOT} aside button.selected{background:#303030} #${ROOT} small{display:block;color:#aaa;font-size:12px}
-      #${ROOT} .chat{display:flex;flex-direction:column;flex:1;min-width:0} #${ROOT} header{padding:14px 16px;border-bottom:1px solid #383838;display:flex;gap:8px;align-items:center} #${ROOT} header strong{flex:1} #${ROOT} .recovery{display:none;padding:10px 16px;border-bottom:1px solid #4a4330;background:#302b1f} #${ROOT} .recovery.open{display:flex;gap:8px;flex-wrap:wrap} #${ROOT} .recovery button{flex:1;min-width:260px;text-align:left} #${ROOT} .settings{display:none;padding:12px 16px;border-bottom:1px solid #383838;background:#262626} #${ROOT} .settings.open{display:block} #${ROOT} .settings label{display:flex;gap:9px;align-items:flex-start} #${ROOT} .settings small{margin-left:25px} #${ROOT} .feed{flex:1;overflow:auto;padding:20px;overscroll-behavior:contain} #${ROOT} .goal{white-space:pre-wrap;overflow-wrap:anywhere;margin:0 0 18px;padding:10px 12px;background:#2b2b2b;border:1px solid #484848;border-radius:12px;color:#f0f0f0} #${ROOT} .bubble{white-space:pre-wrap;overflow-wrap:anywhere;margin:0 0 16px;max-width:100%} #${ROOT} .bubble.user{background:#343434;border-radius:18px;padding:12px 16px;margin-left:30px} #${ROOT} .bubble.status{color:#aaa;font-size:12px;border-left:2px solid #7965d8;padding-left:10px} #${ROOT} .bubble time{display:block;color:#999;font-size:10px} #${ROOT} .session-link{color:#aaa;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:0 0 8px}
+      #${ROOT} .desk.open{display:flex} #${ROOT} aside{width:250px;flex-shrink:0;background:#171717;padding:16px 10px;overflow:auto} #${ROOT} aside h3{margin:0 8px 16px} #${ROOT} aside button{width:100%;text-align:left;background:transparent;border-color:transparent;overflow:hidden;text-overflow:ellipsis} #${ROOT} aside button.selected{background:#303030} #${ROOT} small{display:block;color:#aaa;font-size:12px}
+      #${ROOT} .task-group{margin:12px 0 16px;padding-top:10px;border-top:1px solid #2f2f2f} #${ROOT} .task-group-title{display:flex;align-items:center;gap:6px;padding:0 8px 6px;color:#aaa;font-size:11px;font-weight:600;letter-spacing:.02em} #${ROOT} .task-group-title span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap} #${ROOT} .task-count{margin-left:auto;color:#777} #${ROOT} .restore-workspace{margin:0 4px 6px;width:calc(100% - 8px);border-color:#5d5034;background:#302b1f;color:#e9d9a7;text-align:center} #${ROOT} .task-row{display:block;width:100%;padding:8px 10px;margin:0 0 4px;border-radius:10px;color:#ececec} #${ROOT} .task-row.readonly{background:#1d1d1d} #${ROOT} .task-name{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap} #${ROOT} .task-meta{display:flex;align-items:center;gap:6px;margin-top:3px;color:#888;font-size:11px} #${ROOT} .state-badge{display:inline-flex;align-items:center;gap:4px;color:#bbb} #${ROOT} .state-badge:before{content:'';width:7px;height:7px;border-radius:50%;background:#777} #${ROOT} .state-badge[data-state='sending']:before,#${ROOT} .state-badge[data-state='generating']:before,#${ROOT} .state-badge[data-state='reviewing']:before{background:#4ba3ff} #${ROOT} .state-badge[data-state='queued']:before,#${ROOT} .state-badge[data-state='waiting']:before,#${ROOT} .state-badge[data-state='approval']:before{background:#e3aa3b} #${ROOT} .state-badge[data-state='done']:before{background:#45b96b} #${ROOT} .state-badge[data-state='blocked']:before{background:#e35d5d} #${ROOT} .state-badge[data-state='paused']:before,#${ROOT} .state-badge[data-state='cancelled']:before{background:#777} #${ROOT} .run-indicator{color:#65adff;font-weight:700}
+      #${ROOT} .chat{display:flex;flex-direction:column;flex:1;min-width:0} #${ROOT} header{padding:14px 16px;border-bottom:1px solid #383838;display:flex;gap:8px;align-items:center} #${ROOT} header strong{flex:1} #${ROOT} .settings{display:none;padding:12px 16px;border-bottom:1px solid #383838;background:#262626} #${ROOT} .settings.open{display:block} #${ROOT} .settings label{display:flex;gap:9px;align-items:flex-start} #${ROOT} .settings small{margin-left:25px} #${ROOT} .feed{flex:1;overflow:auto;padding:20px;overscroll-behavior:contain} #${ROOT} .goal{white-space:pre-wrap;overflow-wrap:anywhere;margin:0 0 18px;padding:10px 12px;background:#2b2b2b;border:1px solid #484848;border-radius:12px;color:#f0f0f0} #${ROOT} .bubble{white-space:pre-wrap;overflow-wrap:anywhere;margin:0 0 16px;max-width:100%} #${ROOT} .bubble.user{background:#343434;border-radius:18px;padding:12px 16px;margin-left:30px} #${ROOT} .bubble.status{color:#aaa;font-size:12px;border-left:2px solid #7965d8;padding-left:10px} #${ROOT} .bubble time{display:block;color:#999;font-size:10px} #${ROOT} .session-link{color:#aaa;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:0 0 8px}
       #${ROOT} .compose{margin:0 16px 16px;padding:12px;background:#303030;border:1px solid #484848;border-radius:20px} #${ROOT} textarea{width:100%;min-height:72px;max-height:160px;resize:vertical;border:0;outline:0;background:transparent;color:#eee;font:inherit} #${ROOT} .tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap} #${ROOT} .tools label{font-size:12px;color:#bbb} #${ROOT} .send{margin-left:auto;background:#eee;color:#111;border-radius:50%;font-size:19px;padding:3px 12px} #${ROOT} .notice{padding:0 16px 8px;color:#aaa;font-size:12px} @media(max-width:600px){#${ROOT} aside{width:130px} #${ROOT} .feed{padding:12px}}
     `;
     const desk = element('section', '', 'desk'); desk.setAttribute('aria-label','Fabushi 任务工作台');
     const sidebar = element('aside'), list = element('div'); sidebar.append(element('h3','Fabushi'), list);
     const chat = element('div','','chat'), head = element('header'), heading = element('strong','任务工作台');
     const editGoalButton = element('button','编辑目标');
-    const restoreButton = element('button','恢复任务记录');
     const settingsButton = element('button','设置'), pauseButton = element('button','暂停'), close = element('button','×'); close.setAttribute('aria-label','收起任务工作台');
-    head.append(heading,editGoalButton,restoreButton,settingsButton,pauseButton,close);
+    head.append(heading,editGoalButton,settingsButton,pauseButton,close);
     const settings = element('div','','settings');
     const globalApproval = element('input'); globalApproval.type='checkbox'; globalApproval.checked=data.globalAutoApprove;
     const globalApprovalLabel = element('label');
     globalApprovalLabel.append(globalApproval,document.createTextNode('在当前标签页的会话中自动处理授权卡'));
-    const recoveryList = element('div','','recovery'); chat.append(head,recoveryList);
-    restoreButton.onclick = () => {
-      recoveryList.replaceChildren();
-      const workspaces = recoverableWorkspaces();
-      recoveryList.classList.toggle('open', workspaces.length > 0);
-      for (const workspace of workspaces) {
-        const {ownerTabId:owner,tasks} = workspace;
-        const useCurrent = tabTasks().length === 0;
-        const button=element('button', `${useCurrent?'恢复到当前标签页':'在新标签页恢复'}：${tasks[0].goal.slice(0,28)}（${tasks.length} 个任务）`);
-        button.onclick=()=>restoreWorkspace(owner,useCurrent).then(result=>{
-          recoveryList.classList.remove('open');
-          notice.textContent=result.target==='current'?'旧任务记录已恢复到当前标签页。':'已打开专用标签页，旧任务记录将在那里恢复。';
-        }).catch(showError);
-        recoveryList.append(button);
-      }
-      if (!workspaces.length) {
-        recoveryList.append(element('small','没有其他已保存的工作区。'));
-        recoveryList.classList.add('open');
-      }
-    };
+    chat.append(head);
     settings.append(globalApprovalLabel,element('small','仅展开“允许”旁的菜单并选择“允许本次会话”；不会选择永久授权。'));
     const feed = element('div','','feed'); feed.setAttribute('role','log'); feed.setAttribute('aria-live','polite');
     const notice = element('div','单标签页 · 已暂停','notice');
@@ -1618,10 +1658,34 @@
       editGoalButton.disabled=!task || task.state==='done';
       notice.textContent=`当前标签页工作区 · ${running?`监督中，${tabTasks().filter(item=>!terminal.has(item.state)&&item.state!=='paused').length>1?`多个本页任务每 ${Math.round(SUPERVISION_INTERVAL_MS / 1000)} 秒轮换`:'单任务停留在当前会话'}；发送/授权独占`:'已暂停，自动操作已停止'} · 扫描 ${measurements.scans} 次，平均 ${(measurements.totalScanMs / Math.max(1, measurements.scans)).toFixed(1)} ms`;
       pauseButton.textContent=task?.state==='cancelled'?'恢复任务':(running?'暂停':'继续');
-      restoreButton.hidden=recoverableWorkspaces().length===0;
       list.replaceChildren();
       const fresh=element('button','＋ 新任务'); fresh.onclick=()=>{selected='';save();input.focus();}; list.append(fresh);
-      for(const item of tabTasks()){const button=element('button',item.goal.slice(0,28),item.id===selected?'selected':'');button.append(element('small',`${item.id===current&&running?'● ':''}${statusNames[item.state]} · 第 ${item.round} 轮`));button.onclick=()=>{selected=item.id;save();};list.append(button);}
+      const appendTaskRow=(group,item,interactive=true)=>{
+        const row=element(interactive?'button':'div','',`task-row${item.id===selected&&interactive?' selected':''}${interactive?'':' readonly'}`);
+        row.dataset.taskId=item.id; row.dataset.taskState=item.state;
+        row.append(element('span',item.goal.slice(0,34),'task-name'));
+        const meta=element('span','','task-meta');
+        if(item.id===current&&running)meta.append(element('span','●','run-indicator'));
+        const badge=element('span',statusNames[item.state]||item.state,'state-badge');badge.dataset.state=item.state;
+        meta.append(badge,document.createTextNode(`第 ${item.round} 轮`));row.append(meta);
+        if(interactive)row.onclick=()=>{selected=item.id;save();};
+        group.append(row);
+      };
+      const currentTasks=tabTasks();
+      if(currentTasks.length){
+        const group=element('section','','task-group');group.setAttribute('role','group');group.setAttribute('aria-label','当前标签页任务');
+        const title=element('div','','task-group-title');title.append(element('span','当前标签页'),element('span',`${currentTasks.length}`,'task-count'));group.append(title);
+        for(const item of currentTasks)appendTaskRow(group,item,true);list.append(group);
+      }
+      recoverableWorkspaces().forEach((workspace,index)=>{
+        const group=element('section','','task-group');group.dataset.ownerTabId=workspace.ownerTabId;group.setAttribute('role','group');group.setAttribute('aria-label',`可恢复标签页 ${index+1}`);
+        const title=element('div','','task-group-title');title.title=workspace.ownerTabId;title.append(element('span',`可恢复标签页 ${index+1}`),element('span',`${workspace.tasks.length}`,'task-count'));group.append(title);
+        const useCurrent=currentTasks.length===0;
+        const restore=element('button',useCurrent?'恢复到当前标签页':'在新标签页恢复','restore-workspace');
+        restore.onclick=()=>restoreWorkspace(workspace.ownerTabId,useCurrent).then(result=>{notice.textContent=result.target==='current'?'旧任务记录已恢复到当前标签页。':'已打开专用标签页，旧任务记录将在那里恢复。';}).catch(showError);
+        group.append(restore);
+        for(const item of workspace.tasks)appendTaskRow(group,item,false);list.append(group);
+      });
       const nextSignature=JSON.stringify([selected,task?.goalRevision,task?.messageVersion,task?.url,task?.state,task?.preview]);
       if(signature===nextSignature)return; signature=nextSignature;
       const nearBottom=feed.scrollHeight-feed.scrollTop-feed.clientHeight<80;
