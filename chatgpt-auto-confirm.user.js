@@ -58,12 +58,25 @@
   const MIN_SEND_INTERVAL_MS = 60 * 1000;
   const GLOBAL_APPROVAL_SCAN_MS = 1200;
   const POPUP_DISMISS_SCAN_MS = 1000;
+  // A full ChatGPT navigation creates a new document before the previous
+  // document's Web Lock callback has necessarily unwound. Keep the persisted
+  // tab identity while that handoff settles; only after the bounded window do
+  // we treat the page as a genuine duplicate tab and allocate a new owner.
+  const WORKSPACE_RECLAIM_TIMEOUT_MS = 5000;
+  const WORKSPACE_RECLAIM_FAST_TIMEOUT_MS = 1000;
+  const WORKSPACE_RECLAIM_POLL_MS = 50;
   const read = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key)) || fallback; } catch { return fallback; } };
   const WORKSPACE_LOCK = 'fabushi-workspace-v1:';
   const RECOVERY_KEY = 'fabushi-workspace-recovery-v1:';
   let workspaceRelease = null;
   let workspaceReleased = Promise.resolve();
   const recoveryToken = new URLSearchParams(location.hash.slice(1)).get('fabushi-resume');
+  const sessionTabId = sessionStorage.getItem(TAB_SESSION_KEY);
+  let handoffTicket = null;
+  try { handoffTicket = JSON.parse(sessionStorage.getItem(NAV)); } catch {}
+  const handoffTicketFresh = Boolean(handoffTicket?.resume
+    && Number.isFinite(Number(handoffTicket.at))
+    && Date.now() - Number(handoffTicket.at) < NAV_TICKET_TTL_MS);
   let recoveredWorkspace = '';
   if (recoveryToken) {
     const recovery = read(RECOVERY_KEY + recoveryToken, null);
@@ -108,8 +121,27 @@
     }
     return false;
   }
+  async function reclaimWorkspaceAfterDocumentHandoff(owner, timeoutMs) {
+    const deadline = Date.now() + Math.max(0, Number(timeoutMs) || 0);
+    while (Date.now() <= deadline) {
+      if (await claimWorkspace(owner)) return true;
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      await new Promise(resolve => setTimeout(resolve, Math.min(WORKSPACE_RECLAIM_POLL_MS, remaining)));
+    }
+    return false;
+  }
   let workspaceClaimed = await claimWorkspace(tabId);
   if (!workspaceClaimed && replacingActiveInstance) workspaceClaimed = await reclaimReplacedWorkspace(tabId);
+  // On a full navigation the old `window[INSTANCE]` is gone, so the new
+  // document cannot use the hot-replacement signal above. A fresh navigation
+  // ticket (or the same document's persisted session id on a normal reload)
+  // proves that this is a handoff candidate, not an arbitrary new tab. Wait
+  // briefly for the old lock to release before splitting the task workspace.
+  if (!workspaceClaimed && !recoveredWorkspace && sessionTabId === tabId) {
+    const timeout = handoffTicketFresh ? WORKSPACE_RECLAIM_TIMEOUT_MS : WORKSPACE_RECLAIM_FAST_TIMEOUT_MS;
+    workspaceClaimed = await reclaimWorkspaceAfterDocumentHandoff(tabId, timeout);
+  }
   if (!workspaceClaimed) {
     tabId = crypto.randomUUID();
     await claimWorkspace(tabId);
