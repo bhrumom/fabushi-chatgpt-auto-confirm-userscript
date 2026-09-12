@@ -555,6 +555,26 @@ test('same-document hot replacement keeps the workspace and continuous review tr
   await w.__FABUSHI_AUTO_CONFIRM_INSTANCE__.shutdown();
   dom.window.close();
 });
+test('same-tab navigation reclaims the persisted workspace after the old document releases its lock',async()=>{
+  const original=await fixture();
+  const task=original.h.enqueue('保持同一标签页身份','goal');
+  original.h.recordConversationURL(task,'https://chatgpt.com/c/same-tab-handoff');
+  original.h.log(task,'准备进行同页导航');
+  const owner=original.h.getTabId();
+  const ticket={path:'/c/same-tab-handoff',href:'https://chatgpt.com/c/same-tab-handoff',task:task.id,at:Date.now(),resume:true};
+  const resumed=await fixture('',w=>{
+    w.navigator.locks=original.w.navigator.locks;
+    w.localStorage.setItem('fabushi-workbench-v2',original.w.localStorage.getItem('fabushi-workbench-v2'));
+    w.localStorage.setItem('fabushi-workbench-legacy-owner-v1',owner);
+    w.sessionStorage.setItem('fabushi-workbench-tab-session-v1',owner);
+    w.sessionStorage.setItem('fabushi-workbench-navigation-v2',JSON.stringify(ticket));
+    setTimeout(()=>original.w.__FABUSHI_AUTO_CONFIRM_INSTANCE__.shutdown(),100);
+  });
+  assert.equal(resumed.h.getTabId(),owner,'same-tab document handoff must keep the persisted owner id');
+  assert.equal(resumed.h.tabTasks().length,1);
+  assert.equal(resumed.h.tabTasks()[0].goal,'保持同一标签页身份');
+  original.dom.window.close();resumed.dom.window.close();
+});
 test('a persisted manual pause is made visible after script reload',async()=>{
   const {h,dom}=await fixture();
   const task={id:'reload-paused',goal:'keep paused',state:'generating',phase:'work',round:1,url:'https://chatgpt.com/c/live',token:'owner',messages:[]};
