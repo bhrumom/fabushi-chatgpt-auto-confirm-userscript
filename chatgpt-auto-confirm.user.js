@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.8
+// @version      2.9.9
 // @description  独立单标签任务工作台：目标编排、单次任务、授权识别、实时消息与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -14,10 +14,23 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.8';
+  const VERSION = '2.9.9';
+  const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
   const replacingActiveInstance = Boolean(previousInstance?.active);
+  // Two independent userscript injections can start in the same document
+  // before either one reaches `window[INSTANCE]` (the first await is during
+  // workspace-lock setup). Claim a synchronous DOM marker before awaiting so
+  // only one instance can mount a workbench and race for the tab workspace.
+  const existingBootstrap = document.getElementById(BOOTSTRAP_MARKER);
+  if (existingBootstrap && !replacingActiveInstance) return;
+  if (existingBootstrap) existingBootstrap.remove();
+  const bootstrap = document.createElement('meta');
+  bootstrap.id = BOOTSTRAP_MARKER;
+  bootstrap.dataset.version = VERSION;
+  bootstrap.dataset.token = crypto.randomUUID();
+  (document.head || document.documentElement).append(bootstrap);
   await previousInstance?.shutdown?.();
   document.querySelectorAll('#fabushi-auto-confirm-root').forEach(node => node.remove());
   document.querySelectorAll('#fabushi-auto-confirm-style').forEach(node => node.remove());
@@ -1888,7 +1901,7 @@
     compose.onsubmit=event=>{event.preventDefault();try{enqueue(input.value,select.value);input.value='';start().catch(showError);}catch(error){showError(error);}};
     paint();
   }
-  window[INSTANCE]={active:true,version:VERSION,async shutdown(){suspendRunnerForPagehide();globalApprovalController?.abort();clearTimeout(globalApprovalTimer);globalApprovalTimer=null;clearTimeout(popupDismissTimer);popupDismissTimer=null;this.active=false;document.querySelectorAll(`#${ROOT}`).forEach(node=>node.remove());document.querySelectorAll('#fabushi-auto-confirm-style').forEach(node=>node.remove());await releaseWorkspace();}};
+  window[INSTANCE]={active:true,version:VERSION,async shutdown(){suspendRunnerForPagehide();globalApprovalController?.abort();clearTimeout(globalApprovalTimer);globalApprovalTimer=null;clearTimeout(popupDismissTimer);popupDismissTimer=null;this.active=false;document.querySelectorAll(`#${ROOT}`).forEach(node=>node.remove());document.querySelectorAll('#fabushi-auto-confirm-style').forEach(node=>node.remove());if(document.getElementById(BOOTSTRAP_MARKER)===bootstrap)bootstrap.remove();await releaseWorkspace();}};
   window.FabushiUserscript=Object.freeze({pluginId:'chatgpt-auto-confirm',getServer:()=> 'browser-local',call:async(tool,args={})=>{
     if(['status','diagnose','queue_status','chat_status'].includes(tool))return{version:VERSION,running,tasks:tabTasks(),measurements,tabWorkspace:true,tabId};
     if(['pause_queue','stop'].includes(tool)){pause();return{running:false};}
