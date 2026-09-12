@@ -8,10 +8,11 @@ async function fixture(body='', setup=()=>{}) {
   const dom = new JSDOM(`<body>${body}</body>`, { url:'https://chatgpt.com/', runScripts:'outside-only' });
   const w = dom.window;
   w.HTMLElement.prototype.getClientRects = function(){return this.hidden ? [] : [{}];};
+  w.SVGElement.prototype.getClientRects = function(){return this.hidden ? [] : [{}];};
   const held = new Set();
   w.navigator.locks = {query:async()=>({held:[...held].map(name=>({name}))}),request:async(name,options,callback)=>{callback ||= options;if(held.has(name))return callback(null);held.add(name);try{return await callback({name});}finally{held.delete(name);}}};
   setup(w);
-  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, connectionInterruptedNotice, refreshInterruptedConversation, classify, abnormalEndSince, cards, latestTurn, parseReview, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, nextSupervisionTask, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, connectionInterruptedNotice, refreshInterruptedConversation, classify, abnormalEndSince, pageLoadingState, conversationLoading, cards, latestTurn, parseReview, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, nextSupervisionTask, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('completion requires own final turn, stop absent, no approval and stable completion evidence',async()=>{
@@ -28,6 +29,48 @@ test('completion requires own final turn, stop absent, no approval and stable co
   assert.equal(h.classify({...sample,final:false},previous,96000).state,'waiting');
   assert.equal(h.classify({...sample,final:false},previous,301000).state,'no-final-reply');
   assert.equal(h.classify({...sample,final:false},{...previous,clear:false},301000).state,'waiting','generation stopping gets a fresh grace period');
+  dom.window.close();
+});
+test('a visible conversation spinner is loading, not an abnormal end',async()=>{
+  const {h,w,dom}=await fixture('<main><div class="flex h-full items-center justify-center"><svg class="animate-spin" aria-hidden="true"></svg></div><form><textarea id="prompt-textarea"></textarea></form></main>');
+  w.history.pushState({},'', '/c/loading-page');
+  assert.equal(h.pageLoadingState(),'ChatGPT 页面正在加载，等待会话内容完全渲染。');
+  assert.equal(h.conversationLoading(),true);
+  const sample={owned:true,final:false,text:'',sentAt:1,cards:0,stop:false,loading:true,blocker:'',rateLimit:''};
+  const previous={text:'',since:1_000,idleSince:1_000,endedAt:1_000,clear:true};
+  assert.equal(h.classify(sample,previous,301_000).state,'loading');
+  assert.equal(h.abnormalEndSince(sample,previous,301_000),0);
+  const task={id:'loading-page',goal:'wait for page',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/loading-page',token:'owner-token',attempted:false,messages:[]};
+  h.data.tasks.push(task);
+  await h.start();
+  await h.inspect(task,null);
+  assert.equal(task.state,'loading');
+  h.pause();
+  dom.window.close();
+});
+test('loading detection ignores transcript, composer, sidebar and workbench indicators',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-message-author-role="assistant" aria-busy="true">partial answer</article><div role="status">Saved</div><form><div class="loading"></div><textarea id="prompt-textarea"></textarea></form></main><aside><div class="animate-spin"></div></aside>');
+  w.history.pushState({},'', '/c/stable-page');
+  const ownSpinner=w.document.createElement('div');
+  ownSpinner.className='animate-spin';
+  w.document.querySelector('#fabushi-auto-confirm-root').append(ownSpinner);
+  assert.equal(h.pageLoadingState(),'');
+  dom.window.close();
+});
+test('clearing the loading signal starts a fresh abnormal-end observation',async()=>{
+  const {h,w,dom}=await fixture('<main><div id="loader" aria-busy="true"></div></main>');
+  w.history.pushState({},'', '/c/loading-transition');
+  const loading={owned:true,final:false,text:'',sentAt:1,cards:0,stop:false,loading:true,blocker:'',rateLimit:''};
+  const previous={text:'',since:1_000,idleSince:1_000,endedAt:1_000,clear:true};
+  assert.equal(h.pageLoadingState(),'ChatGPT 页面正在加载，等待会话内容完全渲染。');
+  assert.equal(h.classify(loading,previous,301_000).state,'loading');
+  assert.equal(h.abnormalEndSince(loading,previous,301_000),0);
+  w.document.querySelector('#loader').remove();
+  const loaded={...loading,loading:false,text:'partial answer'};
+  const loadingObservation={text:'',since:1_000,idleSince:1_000,endedAt:0,clear:false,loading:true};
+  assert.equal(h.pageLoadingState(),'');
+  assert.equal(h.classify(loaded,loadingObservation,301_000).state,'waiting');
+  assert.equal(h.abnormalEndSince(loaded,loadingObservation,301_000),301_000);
   dom.window.close();
 });
 test('a lost Stop control with no final answer becomes a recoverable abnormal end',async()=>{
@@ -385,7 +428,7 @@ test('new goals become the next scheduler target instead of waiting behind stale
 });
 test('scheduler keeps sends and approvals exclusive while rotating inspections',async()=>{
   const {h,dom}=await fixture();
-  for (const state of ['queued','sending','approval']) {
+  for (const state of ['queued','sending','loading','approval']) {
     assert.equal(h.taskHoldsScheduler({state}),true,`holds ${state}`);
   }
   for (const state of ['waiting','generating','reviewing']) {
