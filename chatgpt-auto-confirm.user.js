@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.9
+// @version      2.9.10
 // @description  独立单标签任务工作台：目标编排、单次任务、授权识别、实时消息与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -14,7 +14,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.9';
+  const VERSION = '2.9.10';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -226,9 +226,9 @@
   const observations = new Map();
   const approvalAttempts = new WeakMap();
   const terminal = new Set(['done', 'blocked', 'cancelled']);
-  const resumableStates = new Set(['queued', 'sending', 'waiting', 'generating', 'approval', 'reviewing']);
+  const resumableStates = new Set(['queued', 'sending', 'waiting', 'loading', 'generating', 'approval', 'reviewing']);
   const pausableStates = new Set([...resumableStates, 'blocked']);
-  const statusNames = { queued:'等待派发', sending:'正在发送', waiting:'等待响应', generating:'正在生成', approval:'等待授权', reviewing:'正在验收', done:'已完成', blocked:'需要处理', paused:'已暂停', cancelled:'已取消' };
+  const statusNames = { queued:'等待派发', sending:'正在发送', waiting:'等待响应', loading:'正在加载', generating:'正在生成', approval:'等待授权', reviewing:'正在验收', done:'已完成', blocked:'需要处理', paused:'已暂停', cancelled:'已取消' };
   const id = () => crypto.randomUUID();
   const taskBelongsToTab = task => Boolean(task && (task.ownerTabId === tabId || (!task.ownerTabId && legacyOwner === tabId)));
   const tabTasks = () => data.tasks.filter(taskBelongsToTab);
@@ -307,7 +307,7 @@
     // URL can be inspected again after the rotation interval while other
     // conversations continue independently on the server.
     return Boolean(task && !terminal.has(task.state) && task.state !== 'paused'
-      && (!task.url || task.attempted || ['sending', 'approval'].includes(task.state)));
+      && (!task.url || task.attempted || ['sending', 'loading', 'approval'].includes(task.state)));
   }
   function nextSupervisionTask(active, now = Date.now()) {
     if (!active.length) return null;
@@ -328,6 +328,52 @@
   };
   const enabled = node => visible(node) && !node.disabled && node.getAttribute('aria-disabled') !== 'true';
   const nodes = (selector, scope = document) => [...scope.querySelectorAll(selector)].filter(node => !own(node));
+  const pageLoadingHint = /animate[-_]spin|spinner|progress(?:bar)?|hydrating|hydrate|loading|加载|水合|请稍候|please wait/i;
+  const pageLoadingSelectors = [
+    '[aria-busy="true"]',
+    '[role="progressbar"]',
+    '[role="status"]',
+    '[data-state="loading"]',
+    '[data-testid*="loading"]',
+    '[data-testid*="Loading"]',
+    '[data-testid*="spinner"]',
+    '[data-testid*="Spinner"]',
+    '[class*="animate-spin"]',
+    '[class*="spinner"]',
+    '[class*="Spinner"]',
+    '[class*="loading"]',
+    '[class*="Loading"]',
+    '[class*="progress"]',
+    '[class*="Progress"]',
+  ].join(',');
+  function pageLoadingState() {
+    if (!currentConversationURL()) return '';
+    const main = document.querySelector('main');
+    const scope = main || document.body || document.documentElement;
+    if (!scope || (main && !visible(main))) return '';
+    const candidates = [];
+    if (scope.matches?.(pageLoadingSelectors)) candidates.push(scope);
+    candidates.push(...nodes(pageLoadingSelectors, scope));
+    const turns = nodes('[data-message-author-role=user],[data-message-author-role=assistant]', scope);
+    const hasVisibleTurn = turns.some(visible);
+    for (const node of candidates) {
+      if (!visible(node)) continue;
+      if (node.closest(`#${ROOT},[data-message-author-role],form,nav,aside,header,textarea,[contenteditable="true"]`)) continue;
+      const attrs = `${label(node)} ${node.getAttribute('class') || String(node.className || '')} ${node.getAttribute('data-testid') || ''}`;
+      const semantic = node.matches('[aria-busy="true"],[role="progressbar"],[data-state="loading"]');
+      const statusSpinner = node.getAttribute('role') === 'status'
+        && (!text(node) || node.querySelector('svg'))
+        && pageLoadingHint.test(attrs);
+      if (semantic || pageLoadingHint.test(attrs) || statusSpinner) {
+        return 'ChatGPT 页面正在加载，等待会话内容完全渲染。';
+      }
+    }
+    if (document.readyState !== 'complete' && !hasVisibleTurn) {
+      return 'ChatGPT 文档仍在加载，等待会话内容完全渲染。';
+    }
+    return '';
+  }
+  function conversationLoading() { return Boolean(pageLoadingState()); }
   function haltRunnerForPause() {
     running = false;
     controller?.abort();
@@ -895,6 +941,7 @@
     if (!sample.owned) return { state:'blocked', reason:'当前会话最后一条用户消息不属于这轮任务，已停止发送。' };
     if (sample.cards) return { state:'approval' };
     if (sample.stop) return { state:'generating' };
+    if (sample.loading) return { state:'loading', reason:'ChatGPT 页面正在加载，等待会话内容完全渲染。' };
     if (sample.final && sample.text && previous?.clear && previous?.text === sample.text && now - previous.since >= 4000) return { state:'complete' };
     // ChatGPT can lose the Stop control while the assistant turn is still
     // absent (or while a renderer error leaves only a partial/empty turn).
@@ -912,7 +959,7 @@
     return { state:'waiting' };
   }
   function abnormalEndSince(sample, previous, now) {
-    const clear = !sample.stop && !sample.cards;
+    const clear = !sample.stop && !sample.cards && !sample.loading;
     if (!sample.owned || !clear || sample.final || sample.rateLimit || sample.blocker) return 0;
     const stable = previous?.text === sample.text && previous?.clear && clear;
     // Start immediately on the first clear observation, but reset whenever the
@@ -1423,6 +1470,7 @@
     const sample = {
       stop:Boolean(stopButton()),
       cards:pending.length,
+      loading:Boolean(pageLoadingState()),
       blocker:blocker(),
       rateLimit:rateLimitNotice(),
       // The exact /c/<id> route is the primary identity. The marker remains a
@@ -1436,7 +1484,7 @@
     const previous = observations.get(task.id);
     const result = classify(sample, previous, Date.now());
     const now = Date.now();
-    const clear = !sample.stop && !sample.cards;
+    const clear = !sample.stop && !sample.cards && !sample.loading;
     const stable = previous?.text === sample.text && previous?.clear && clear;
     const endedAt = abnormalEndSince(sample, previous, now);
     observations.set(task.id, {
@@ -1445,6 +1493,7 @@
       idleSince:previous?.clear ? previous.idleSince : now,
       endedAt,
       stop:Boolean(sample.stop),
+      loading:Boolean(sample.loading),
       clear,
     });
     measurements.scans++; measurements.totalScanMs += performance.now() - begin;
