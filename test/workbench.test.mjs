@@ -575,6 +575,18 @@ test('same-tab navigation reclaims the persisted workspace after the old documen
   assert.equal(resumed.h.tabTasks()[0].goal,'保持同一标签页身份');
   original.dom.window.close();resumed.dom.window.close();
 });
+test('concurrent script injection mounts one workbench instance',async()=>{
+  const dom=new JSDOM('<body></body>',{url:'https://chatgpt.com/',runScripts:'outside-only'});
+  const w=dom.window;
+  w.HTMLElement.prototype.getClientRects=function(){return this.hidden?[]:[{}];};
+  const held=new Set();
+  w.navigator.locks={query:async()=>({held:[...held].map(name=>({name}))}),request:async(name,options,callback)=>{callback ||= options;if(held.has(name))return callback(null);held.add(name);try{return await callback({name});}finally{held.delete(name);}}};
+  const hooks='  window.testHooks = { getTabId:()=>tabId, tabTasks };\n  mount();';
+  await Promise.all([w.eval(source.replace('  mount();',hooks)),w.eval(source.replace('  mount();',hooks))]);
+  assert.equal(w.document.querySelectorAll('#fabushi-auto-confirm-root').length,1);
+  assert.equal(w.document.querySelectorAll('#fabushi-auto-confirm-bootstrap-v1').length,1);
+  dom.window.close();
+});
 test('a persisted manual pause is made visible after script reload',async()=>{
   const {h,dom}=await fixture();
   const task={id:'reload-paused',goal:'keep paused',state:'generating',phase:'work',round:1,url:'https://chatgpt.com/c/live',token:'owner',messages:[]};
