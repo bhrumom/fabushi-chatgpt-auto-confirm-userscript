@@ -589,9 +589,9 @@ test('continue button starts a paused task instead of restoring a terminal block
   }
   dom.window.close();
 });
-test('a paused task without a real URL resumes as a fresh queued dispatch',async()=>{
+test('a paused task without a real URL resumes as a fresh queued dispatch and keeps attachments',async()=>{
   const {h,dom}=await fixture();
-  const task={id:'paused-no-url',goal:'send again safely',state:'paused',pausedState:'blocked',phase:'work',round:1,url:'',token:'stale-token',attempted:true,sendPrepared:true,preparedPrompt:'old prompt',dispatchOriginURL:'https://chatgpt.com/c/old',messages:[]};
+  const task={id:'paused-no-url',goal:'send again safely',state:'paused',pausedState:'blocked',phase:'work',round:1,url:'',token:'stale-token',attempted:true,sendPrepared:true,preparedPrompt:'old prompt',dispatchOriginURL:'https://chatgpt.com/c/old',messages:[],attachments:[{id:'paused-file',name:'paused.png',type:'image/png',size:4,lastModified:1}]};
   h.data.tasks.push(task);
   assert.equal(h.restorePausedTasks(7),true);
   assert.equal(task.state,'queued');
@@ -599,6 +599,7 @@ test('a paused task without a real URL resumes as a fresh queued dispatch',async
   assert.equal(task.token,'');
   assert.equal(task.attempted,false);
   assert.equal(task.sendPrepared,false);
+  assert.deepEqual(task.attachments,[{id:'paused-file',name:'paused.png',type:'image/png',size:4,lastModified:1}]);
   dom.window.close();
 });
 test('an idle ChatGPT tab cannot pause a queue owned by another tab',async()=>{
@@ -791,13 +792,14 @@ test('cancelled tasks resume the exact persisted conversation when possible',asy
   assert.match(task.messages.at(-1).text,/继续监控取消前/);
   dom.window.close();
 });
-test('cancelled unsent tasks return to the dispatch queue',async()=>{
+test('cancelled unsent tasks return to the dispatch queue and keep attachments',async()=>{
   const {h,dom}=await fixture();
-  const task={id:'cancelled-unsent',goal:'continue me',mode:'goal',phase:'work',round:1,state:'cancelled',url:'',token:'stale',attempted:false,messages:[]};
+  const task={id:'cancelled-unsent',goal:'continue me',mode:'goal',phase:'work',round:1,state:'cancelled',url:'',token:'stale',attempted:false,messages:[],attachments:[{id:'cancelled-file',name:'cancelled.pdf',type:'application/pdf',size:4,lastModified:1}]};
   h.data.tasks.push(task);
   assert.equal(h.restoreCancelledTask(task),true);
   assert.equal(task.state,'queued');
   assert.equal(task.token,'');
+  assert.deepEqual(task.attachments,[{id:'cancelled-file',name:'cancelled.pdf',type:'application/pdf',size:4,lastModified:1}]);
   dom.window.close();
 });
 test('cancelled queued planner does not reopen the previous Work URL',async()=>{
