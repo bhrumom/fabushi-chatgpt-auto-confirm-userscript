@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.16
+// @version      2.9.17
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息与可中断调度。
 // @updateURL    https://raw.githubusercontent.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/main/chatgpt-auto-confirm.user.js
 // @downloadURL  https://raw.githubusercontent.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/main/chatgpt-auto-confirm.user.js
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.16';
+  const VERSION = '2.9.17';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -41,6 +41,12 @@
   const ATTACHMENT_STORE = 'files';
   const ATTACHMENT_UPLOAD_WAIT_MS = 45000;
   const ATTACHMENT_RETRY_INTERVAL_MS = 5000;
+  const ATTACHMENT_NATIVE_INPUT_STABLE_MS = 1000;
+  // An attachment that is still being processed is a resumable upload, not a
+  // terminal task error. Keep the retry bounded per attempt, then back off so
+  // a renderer that never exposes its preview cannot create a hot loop.
+  const ATTACHMENT_AUTO_RETRY_BASE_MS = 5000;
+  const ATTACHMENT_AUTO_RETRY_MAX_MS = 60000;
   const NAV = 'fabushi-workbench-navigation-v2';
   const TAB_SESSION_KEY = 'fabushi-workbench-tab-session-v1';
   const LEGACY_OWNER_KEY = 'fabushi-workbench-legacy-owner-v1';
@@ -905,8 +911,9 @@
     });
   }
   function composer() { return nodes('#prompt-textarea,textarea,[contenteditable=true]').find(enabled); }
-  function attachmentInputFor(input = composer()) {
+  function attachmentInputFor(input = composer(), preferredMetas = []) {
     const form = input?.closest?.('form');
+    const composerHost = input?.closest?.('[data-testid*="composer"],[data-testid*="Composer"]') || form;
     // ChatGPT has rendered the native picker both inside and outside the
     // composer form over time. Prefer the form-local control, but fall back
     // to the page-level picker when the app portals it elsewhere. `nodes`
@@ -918,13 +925,94 @@
     return candidates
       .filter(node => !node.disabled)
       .sort((left, right) => {
-        const leftScore = Number(left.multiple) * 4 + (left.accept ? 1 : 0);
-        const rightScore = Number(right.multiple) * 4 + (right.accept ? 1 : 0);
+        const score = node => {
+          let value = Number(node.multiple) * 4 + (node.accept ? 1 : 0);
+          if (form && node.closest?.('form') === form) value += 100;
+          if (composerHost && (composerHost === node || composerHost.contains?.(node))) value += 50;
+          if (node.files?.length) value += 2;
+          if (preferredMetas.length) {
+            const files = Array.from(node.files || []);
+            value += preferredMetas.filter(meta => files.some(file => attachmentFileMatches(meta, file))).length * 200;
+          }
+          return value;
+        };
+        const leftScore = score(left);
+        const rightScore = score(right);
         return rightScore - leftScore;
       })[0] || null;
   }
   function composerScope(input) {
     return input?.closest?.('form,[data-testid*="composer"],[data-testid*="Composer"]') || input?.parentElement || null;
+  }
+  function attachmentScopeChain(node, maxDepth = 4) {
+    const result = [];
+    let current = node;
+    for (let depth = 0; current && depth <= maxDepth; depth++, current = current.parentElement) {
+      if (own(current)) break;
+      if (depth > 0 && current.matches?.('main,body,html,nav,aside,header,footer,[role="navigation"],[role="banner"],[role="contentinfo"],[data-message-author-role]')) break;
+      result.push(current);
+    }
+    return result;
+  }
+  function attachmentScopes(input) {
+    const primary = composerScope(input);
+    if (!primary) return [];
+    const picker = attachmentInputFor(input);
+    const result = [];
+    const seen = new Set();
+    const add = node => {
+      if (!node || seen.has(node) || own(node)) return;
+      seen.add(node);
+      result.push(node);
+    };
+    // Include the form and only its nearby composer ancestors. This catches a
+    // preview rendered beside the form without treating an arbitrary filename
+    // elsewhere in <main> as proof that this task's file was uploaded.
+    attachmentScopeChain(primary).forEach(add);
+    // A page-level picker may live in a small portal sibling of the form. Its
+    // own nearby chain lets confirmation follow that portal without widening
+    // the search to the whole document.
+    if (picker && !primary.contains?.(picker)) attachmentScopeChain(picker).forEach(add);
+    return result;
+  }
+  function attachmentSurfaceNodes(input, selector = '*') {
+    const result = [];
+    const seen = new Set();
+    const add = node => {
+      if (!node || seen.has(node) || own(node)) return;
+      seen.add(node);
+      result.push(node);
+    };
+    for (const scope of attachmentScopes(input)) {
+      if (scope.matches?.(selector)) add(scope);
+      nodes(selector, scope).forEach(add);
+    }
+    return result;
+  }
+  function attachmentSurfaceExcluded(node) {
+    return Boolean(node?.matches?.('textarea,[contenteditable="true"],input[type="file"]')
+      || node?.closest?.('[data-message-author-role],nav,aside,header,footer,[role="navigation"],[role="banner"],[role="contentinfo"]'));
+  }
+  function attachmentFileMatches(meta, file) {
+    if (!meta || !file) return false;
+    const name = String(meta.name || '').trim().toLocaleLowerCase();
+    if (!name || String(file.name || '').trim().toLocaleLowerCase() !== name) return false;
+    if (Number.isFinite(Number(meta.size)) && Number(file.size) !== Number(meta.size)) return false;
+    const expectedType = String(meta.type || '').trim().toLocaleLowerCase();
+    const actualType = String(file.type || '').trim().toLocaleLowerCase();
+    return !expectedType || !actualType || expectedType === actualType;
+  }
+  function attachmentFileListReady(metas, input) {
+    const fileInput = attachmentInputFor(input, metas);
+    const files = Array.from(fileInput?.files || []);
+    if (files.length !== metas.length) return false;
+    const unmatched = files.slice();
+    return metas.every(meta => {
+      const index = unmatched.findIndex(file => attachmentFileMatches(meta, file));
+      if (index < 0) return false;
+      unmatched.splice(index, 1);
+      return true;
+    });
   }
   function assignFilesToInput(fileInput, files) {
     const source = Array.from(files || []);
@@ -957,12 +1045,9 @@
     } catch { return false; }
   }
   function attachmentSurfaceValues(input) {
-    const scope = composerScope(input);
-    if (!scope) return [];
     const values = [];
-    const nodesInScope = [scope, ...nodes('*', scope)];
-    for (const node of nodesInScope) {
-      if (node.matches?.('textarea,[contenteditable="true"]')) continue;
+    for (const node of attachmentSurfaceNodes(input)) {
+      if (attachmentSurfaceExcluded(node)) continue;
       const nodeText = text(node);
       if (nodeText) values.push(nodeText);
       for (const attribute of ['aria-label','title','alt','data-file-name','data-filename','data-name','data-testid']) {
@@ -973,27 +1058,36 @@
     return values;
   }
   function attachmentUploadError(input) {
-    const scope = composerScope(input);
-    if (!scope) return '';
-    const pattern = /上传(?:失败|错误|中断)|failed to upload|upload (?:failed|error)|file (?:upload )?(?:failed|error)|unsupported (?:file|format)|文件(?:不支持|过大|太大|上传失败)/i;
-    const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
-    let currentNode;
-    while ((currentNode = walker.nextNode())) {
-      const parent = currentNode.parentElement;
-      if (!parent || parent.matches?.('textarea,[contenteditable="true"]') || !visible(parent)) continue;
-      const value = normalize(currentNode.nodeValue);
-      if (pattern.test(value)) return value.slice(0, 180);
+    const pattern = /上传(?:失败|错误|中断)|failed to upload|upload (?:failed|error)|file (?:upload )?(?:failed|error)|unsupported (?:file|format)|(?:file|format)(?: type)? (?:is )?(?:not )?supported|file (?:is )?too large|文件(?:类型)?(?:不支持|过大|太大|上传失败)/i;
+    const seen = new Set();
+    for (const scope of attachmentScopes(input)) {
+      const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
+      let currentNode;
+      while ((currentNode = walker.nextNode())) {
+        if (seen.has(currentNode)) continue;
+        seen.add(currentNode);
+        const parent = currentNode.parentElement;
+        if (!parent || attachmentSurfaceExcluded(parent) || !visible(parent)) continue;
+        const value = normalize(currentNode.nodeValue);
+        if (pattern.test(value)) return value.slice(0, 180);
+      }
     }
     return '';
   }
   function attachmentReady(taskOrMetas, input = composer()) {
     const metas = Array.isArray(taskOrMetas) ? taskOrMetas : taskAttachments(taskOrMetas);
     if (!metas.length) return true;
-    const scope = composerScope(input);
-    if (!scope) return false;
+    if (!attachmentScopes(input).length) return false;
     const pendingSelectors = '[aria-busy="true"],[data-state="loading"],[data-state="uploading"],[data-testid*="uploading"],[data-testid*="Uploading"],[data-testid*="progress"],[data-testid*="Progress"]';
-    const pending = [scope, ...nodes(pendingSelectors, scope)].filter(node => node.matches?.(pendingSelectors) && visible(node));
+    const pending = attachmentSurfaceNodes(input, pendingSelectors).filter(visible);
     if (pending.length) return false;
+    // Once ChatGPT has accepted the native picker, its FileList is a stronger
+    // acknowledgment than a generic image/file node. It also covers portal
+    // UIs that render the preview outside the composer form.
+    const nativeInputStable = Array.isArray(taskOrMetas)
+      || (taskOrMetas?.attachmentUploadPending
+        && Date.now() - Number(taskOrMetas.attachmentLastAttemptAt || 0) >= ATTACHMENT_NATIVE_INPUT_STABLE_MS);
+    if (nativeInputStable && attachmentFileListReady(metas, input)) return true;
     const values = attachmentSurfaceValues(input).map(value => value.toLocaleLowerCase());
     const named = metas.filter(meta => {
       const name = String(meta?.name || '').trim().toLocaleLowerCase();
@@ -1001,7 +1095,7 @@
     });
     if (named.length === metas.length) return true;
     const labelledPreviewSelectors = '[data-file-name],[data-filename]';
-    const labelledPreviews = nodes(labelledPreviewSelectors, scope).filter(visible);
+    const labelledPreviews = attachmentSurfaceNodes(input, labelledPreviewSelectors).filter(visible);
     if (labelledPreviews.length) {
       const matchedLabelledPreviews = labelledPreviews.filter(node => {
         const values = [node.getAttribute('data-file-name'), node.getAttribute('data-filename'), text(node)]
@@ -1014,10 +1108,19 @@
       return matchedLabelledPreviews.length >= metas.length;
     }
     const previewSelectors = 'img,video,audio,object,embed,[data-testid*="attachment"],[data-testid*="Attachment"],[data-testid*="file"],[data-testid*="File"]';
-    const previews = nodes(previewSelectors, scope).filter(node => visible(node)
+    const previews = attachmentSurfaceNodes(input, previewSelectors).filter(node => visible(node)
+      && !attachmentSurfaceExcluded(node)
       && !node.matches?.('button,label,input,textarea,[contenteditable="true"]')
       && !node.closest?.('button,label,[role="button"]'));
     return previews.length >= metas.length;
+  }
+  function attachmentRetryDelayMs(attempt) {
+    const count = Math.max(1, Number(attempt || 1));
+    return Math.min(ATTACHMENT_AUTO_RETRY_BASE_MS * (2 ** Math.min(count - 1, 4)), ATTACHMENT_AUTO_RETRY_MAX_MS);
+  }
+  function attachmentFailureRequiresUserAction(reason) {
+    const value = String(reason || '');
+    return /(?:浏览器|本地附件|附件记录|文件).*(?:不支持|不存在|缺少|重新选择|无法保存|数量不一致)|indexeddb|storage quota|quota exceeded|unsupported (?:file|format)|(?:file|format)(?: type)? (?:is )?(?:not )?supported|file (?:is )?too large|(?:文件|附件).*(?:不支持|过大|太大)/i.test(value);
   }
   function resetAttachmentUploadState(task) {
     if (!task) return;
@@ -1026,14 +1129,28 @@
     delete task.attachmentUploadLastError;
     task.attachmentUploadStartedAt = 0;
     task.attachmentLastAttemptAt = 0;
+    task.attachmentUploadRetryAt = 0;
+    task.attachmentUploadRetryCount = 0;
   }
   function failAttachmentUpload(task, reason) {
+    const message = String(reason || '').slice(0, 240);
     task.attachmentUploadPending = false;
     task.attachmentUploadFailed = true;
-    task.attachmentUploadLastError = String(reason || '').slice(0, 240);
+    task.attachmentUploadLastError = message;
     task.attachmentUploadStartedAt = 0;
     task.attachmentLastAttemptAt = 0;
-    state(task, 'blocked', `附件上传未确认，已停止发送纯文字目标。${reason ? ` ${reason}` : ''} 可点击重试；若文件已被浏览器清理，请重新选择文件。`);
+    if (attachmentFailureRequiresUserAction(message)) {
+      task.attachmentUploadRetryAt = 0;
+      state(task, 'blocked', `附件上传未确认，已停止发送纯文字目标。${message ? ` ${message}` : ''} 可点击重试；若文件已被浏览器清理，请重新选择文件。`);
+    } else {
+      const attempt = Number(task.attachmentUploadRetryCount || 0) + 1;
+      const retryMs = attachmentRetryDelayMs(attempt);
+      task.attachmentUploadRetryCount = attempt;
+      task.attachmentUploadRetryAt = Date.now() + retryMs;
+      const retryMessage = `附件上传暂未确认${message ? `：${message}` : ''}；将在 ${Math.ceil(retryMs / 1000)} 秒后自动重试，确认前不会发送任务。`;
+      if (task.state === 'uploading') log(task, retryMessage);
+      else state(task, 'uploading', retryMessage);
+    }
     save();
     return false;
   }
@@ -1058,7 +1175,6 @@
   async function ensureTaskAttachments(task, input, signal) {
     const attachments = taskAttachments(task);
     if (!attachments.length) return true;
-    if (task.attachmentUploadFailed) return false;
     if (pageLoadingState()) {
       holdForChatGPTLoading(task);
       return false;
@@ -1072,6 +1188,22 @@
       return true;
     }
     const now = Date.now();
+    const retryAt = Number(task.attachmentUploadRetryAt || 0);
+    if (task.attachmentUploadFailed && retryAt > now) {
+      state(task, 'uploading', `附件尚未确认，约 ${Math.ceil((retryAt - now) / 1000)} 秒后自动重试；确认前不会发送任务。`);
+      return false;
+    }
+    if (task.attachmentUploadFailed && retryAt > 0 && retryAt <= now) {
+      task.attachmentUploadFailed = false;
+      task.attachmentUploadRetryAt = 0;
+      task.attachmentUploadPending = false;
+      task.attachmentUploadStartedAt = 0;
+      task.attachmentLastAttemptAt = 0;
+      log(task, '附件自动重试时间到，继续尝试当前任务；确认附件出现前不会发送。');
+    }
+    // A zero retry time denotes a permanent/manual-action failure. The UI's
+    // explicit retry action clears it; never silently turn it into a send.
+    if (task.attachmentUploadFailed) return false;
     const startedAt = Number(task.attachmentUploadStartedAt || 0);
     if (task.attachmentUploadPending && startedAt && now - startedAt >= ATTACHMENT_UPLOAD_WAIT_MS) {
       return failAttachmentUpload(task, '等待 ChatGPT 显示附件已超过 45 秒。');
@@ -2092,6 +2224,13 @@
           return;
         }
         await send(task, signal);
+        const attachmentRetryAt = Number(task.attachmentUploadRetryAt || 0);
+        if (task.attachmentUploadFailed && attachmentRetryAt > Date.now()) {
+          // Wake exactly when the resumable attachment attempt may run again;
+          // do not let the generic 2-second scan turn a backoff into a busy
+          // loop or mark the active task idle.
+          nextScheduleMs = Math.max(250, attachmentRetryAt - Date.now());
+        }
       } else await inspect(task, signal);
     } catch (error) {
       if (!signal.aborted && task) state(task, 'blocked', error.message);
@@ -2475,7 +2614,7 @@
         group.append(restore);
         for(const item of workspace.tasks)appendTaskRow(group,item,false);list.append(group);
       });
-      const nextSignature=JSON.stringify([selected,task?.goalRevision,task?.messageVersion,task?.url,task?.state,task?.preview,taskAttachmentSummary(task),task?.attachmentUploadPending,task?.attachmentUploadFailed]);
+      const nextSignature=JSON.stringify([selected,task?.goalRevision,task?.messageVersion,task?.url,task?.state,task?.preview,taskAttachmentSummary(task),task?.attachmentUploadPending,task?.attachmentUploadFailed,task?.attachmentUploadRetryAt,task?.attachmentUploadRetryCount]);
       if(signature===nextSignature)return; signature=nextSignature;
       const nearBottom=feed.scrollHeight-feed.scrollTop-feed.clientHeight<80;
       feed.replaceChildren();
@@ -2508,7 +2647,11 @@
         };
         feed.append(view);
       }
-      if(task?.attachmentUploadFailed){const retry=element('button','重试附件上传');retry.onclick=()=>retryAttachmentUpload(task).catch(showError);feed.append(retry);}
+      if(task?.attachmentUploadFailed){
+        const retry=element('button',task.attachmentUploadRetryAt?'立即重试附件上传':'重试附件上传');
+        retry.onclick=()=>retryAttachmentUpload(task).catch(showError);
+        feed.append(retry);
+      }
       if(task?.state==='blocked' && task.url){const inspectButton=element('button','检查已有回复（不重发）');inspectButton.onclick=()=>{task.state='waiting';task.attempted=false;task.updatedAt=Date.now();save();start().catch(showError);};feed.append(inspectButton);}
       if(task && !terminal.has(task.state)){const cancel=element('button','取消此任务');cancel.onclick=()=>{pause();state(task,'cancelled');};feed.append(cancel);}
       if(task && (terminal.has(task.state) || task.state === 'paused')){const remove=element('button','删除此任务');remove.onclick=()=>deleteTask(task);feed.append(remove);}
