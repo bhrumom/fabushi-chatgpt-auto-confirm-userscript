@@ -12,7 +12,7 @@ async function fixture(body='', setup=()=>{}) {
   const held = new Set();
   w.navigator.locks = {query:async()=>({held:[...held].map(name=>({name}))}),request:async(name,options,callback)=>{callback ||= options;if(held.has(name))return callback(null);held.add(name);try{return await callback({name});}finally{held.delete(name);}}};
   setup(w);
-  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, connectionInterruptedNotice, refreshInterruptedConversation, classify, abnormalEndSince, pageLoadingState, conversationLoading, cards, latestTurn, parseReview, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, nextSupervisionTask, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, connectionInterruptedNotice, refreshInterruptedConversation, classify, abnormalEndSince, pageLoadingState, conversationLoading, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, nextSupervisionTask, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('completion requires own final turn, stop absent, no approval and stable completion evidence',async()=>{
@@ -71,6 +71,36 @@ test('clearing the loading signal starts a fresh abnormal-end observation',async
   assert.equal(h.pageLoadingState(),'');
   assert.equal(h.classify(loaded,loadingObservation,301_000).state,'waiting');
   assert.equal(h.abnormalEndSince(loaded,loadingObservation,301_000),301_000);
+  dom.window.close();
+});
+test('task prompts carry attachment names without embedding file contents',async()=>{
+  const {h,dom}=await fixture();
+  const task={goal:'分析这批素材',next:'',round:1,token:'attachment-token',attachments:[{id:'video-1',name:'采访视频.mp4',type:'video/mp4',size:1234,lastModified:1}]};
+  const prompt=h.workPrompt(task);
+  assert.match(prompt,/采访视频\.mp4/);
+  assert.match(prompt,/附件名称仅作文件标签/);
+  assert.doesNotMatch(prompt,/PRIVATE_FILE_CONTENT/);
+  assert.match(h.plannerPrompt({...task,id:'task-1',result:'已完成'}),/采访视频\.mp4/);
+  dom.window.close();
+});
+test('enqueue persists attachment metadata only and the workbench exposes a multi-file picker',async()=>{
+  const {w,h,dom}=await fixture();
+  const task=h.enqueue('整理附件','once',[{id:'image-1',name:'产品图.png',type:'image/png',size:2048,lastModified:2}]);
+  assert.deepEqual(JSON.parse(JSON.stringify(task.attachments)),[{id:'image-1',name:'产品图.png',type:'image/png',size:2048,lastModified:2}]);
+  assert.doesNotMatch(w.localStorage.getItem('fabushi-workbench-v2'),/PRIVATE_FILE_CONTENT/);
+  const root=w.document.getElementById('fabushi-auto-confirm-root');
+  const picker=root.querySelector('input[type="file"]');
+  assert.ok(picker);
+  assert.equal(picker.multiple,true);
+  assert.match(root.textContent,/添加图片 \/ 视频 \/ 文件/);
+  assert.match(root.textContent,/不会发送目标文字/);
+  dom.window.close();
+});
+test('attachment confirmation is scoped to the current ChatGPT composer',async()=>{
+  const {h,w,dom}=await fixture('<main><div data-file-name="outside.pdf">outside.pdf</div><form id="chat"><div data-testid="file-attachment" data-file-name="clip.mp4">clip.mp4</div><textarea id="prompt-textarea"></textarea></form></main>');
+  const input=w.document.querySelector('#prompt-textarea');
+  assert.equal(h.attachmentReady([{id:'clip',name:'clip.mp4'}],input),true);
+  assert.equal(h.attachmentReady([{id:'missing',name:'missing.mov'}],input),false);
   dom.window.close();
 });
 test('a lost Stop control with no final answer becomes a recoverable abnormal end',async()=>{
@@ -428,7 +458,7 @@ test('new goals become the next scheduler target instead of waiting behind stale
 });
 test('scheduler keeps sends and approvals exclusive while rotating inspections',async()=>{
   const {h,dom}=await fixture();
-  for (const state of ['queued','sending','loading','approval']) {
+  for (const state of ['queued','sending','uploading','loading','approval']) {
     assert.equal(h.taskHoldsScheduler({state}),true,`holds ${state}`);
   }
   for (const state of ['waiting','generating','reviewing']) {
