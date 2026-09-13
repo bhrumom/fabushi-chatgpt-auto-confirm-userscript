@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.15
+// @version      2.9.16
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息与可中断调度。
 // @updateURL    https://raw.githubusercontent.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/main/chatgpt-auto-confirm.user.js
 // @downloadURL  https://raw.githubusercontent.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/main/chatgpt-auto-confirm.user.js
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.15';
+  const VERSION = '2.9.16';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -535,8 +535,13 @@
   const pageLoadingHint = /animate[-_]spin|spinner|progress(?:bar)?|hydrating|hydrate|loading|加载|水合|请稍候|please wait/i;
   const pageLoadingSelectors = [
     '[aria-busy="true"]',
+    '[aria-label*="load" i]',
+    '[aria-label*="加载"]',
+    '[title*="load" i]',
+    '[title*="加载"]',
     '[role="progressbar"]',
     '[role="status"]',
+    '[data-loading="true"]',
     '[data-state="loading"]',
     '[data-testid*="loading"]',
     '[data-testid*="Loading"]',
@@ -552,22 +557,39 @@
   ].join(',');
   function pageLoadingState() {
     const main = document.querySelector('main');
-    const scope = main || document.body || document.documentElement;
-    if (!scope || (main && !visible(main))) return '';
+    const scopes = [...new Set([main, document.body, document.documentElement].filter(Boolean))];
+    if (!scopes.length) return '';
     const candidates = [];
-    if (scope.matches?.(pageLoadingSelectors)) candidates.push(scope);
-    candidates.push(...nodes(pageLoadingSelectors, scope));
-    const turns = nodes('[data-message-author-role=user],[data-message-author-role=assistant]', scope);
+    const turns = [];
+    for (const scope of scopes) {
+      if (scope.matches?.(pageLoadingSelectors)) candidates.push(scope);
+      candidates.push(...nodes(pageLoadingSelectors, scope));
+      // Some ChatGPT loading glyphs are SVGs with only a runtime CSS
+      // animation and no stable loading class/ARIA label. Inspect SVGs in all
+      // page surfaces, not just <main>, because the app-level overlay can be
+      // mounted beside the main route container.
+      candidates.push(...nodes('svg', scope));
+      turns.push(...nodes('[data-message-author-role=user],[data-message-author-role=assistant]', scope));
+    }
     const hasVisibleTurn = turns.some(visible);
+    const seen = new Set();
     for (const node of candidates) {
+      if (seen.has(node)) continue;
+      seen.add(node);
       if (!visible(node)) continue;
       if (node.closest(`#${ROOT},[data-message-author-role],form,nav,aside,header,textarea,[contenteditable="true"]`)) continue;
       const attrs = `${label(node)} ${node.getAttribute('class') || String(node.className || '')} ${node.getAttribute('data-testid') || ''}`;
-      const semantic = node.matches('[aria-busy="true"],[role="progressbar"],[data-state="loading"]');
+      const semantic = node.matches('[aria-busy="true"],[role="progressbar"],[data-loading="true"],[data-state="loading"]');
       const statusSpinner = node.getAttribute('role') === 'status'
         && (!text(node) || node.querySelector('svg'))
         && pageLoadingHint.test(attrs);
-      if (semantic || pageLoadingHint.test(attrs) || statusSpinner) {
+      let animation = '';
+      try {
+        const css = getComputedStyle(node);
+        animation = `${css.animationName || ''} ${css.animation || ''}`;
+      } catch {}
+      const animatedSpinner = node.matches('svg') && /spin|rotate|load|progress/i.test(animation);
+      if (semantic || pageLoadingHint.test(attrs) || statusSpinner || animatedSpinner) {
         return 'ChatGPT 页面正在加载，等待会话内容完全渲染。';
       }
     }
