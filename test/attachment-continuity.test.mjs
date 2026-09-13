@@ -6,7 +6,7 @@ import { JSDOM } from 'jsdom';
 const source = await fs.readFile(new URL('../chatgpt-auto-confirm.user.js', import.meta.url), 'utf8');
 const instrumentedSource = source.replace(
   '  mount();',
-  `  window.__fabushiAttachmentTestHooks = Object.freeze({ attachmentReady, ensureTaskAttachments, failAttachmentUpload });
+  `  window.__fabushiAttachmentTestHooks = Object.freeze({ attachmentReady, ensureTaskAttachments, failAttachmentUpload, attachmentDispatchContextFor });
   mount();`,
 );
 
@@ -75,6 +75,48 @@ test('a matching native FileList confirms a portal-style attachment without a pr
     assert.equal(hooks.attachmentReady(task, input), false);
     task.attachmentLastAttemptAt = Date.now() - 1000;
     assert.equal(hooks.attachmentReady(task, input), true);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('attachment confirmation is invalidated by a new composer or dispatch token', async () => {
+  const { dom, window, hooks } = await createHarness(`
+    <main>
+      <form id="chat">
+        <textarea id="first"></textarea>
+        <textarea id="second"></textarea>
+      </form>
+    </main>
+  `);
+  try {
+    const first = window.document.querySelector('#first');
+    const second = window.document.querySelector('#second');
+    const task = {
+      id: 'context-task',
+      token: 'dispatch-1',
+      attachments: [{ name: 'clip.mp4', size: 4, type: 'video/mp4' }],
+      attachmentUploadPending: true,
+      attachmentUploadStartedAt: Date.now() - 1000,
+      attachmentLastAttemptAt: Date.now() - 1000,
+    };
+    const firstContext = hooks.attachmentDispatchContextFor(task, first);
+    firstContext.confirmed = true;
+    assert.equal(hooks.attachmentDispatchContextFor(task, first), firstContext);
+
+    const rebuiltContext = hooks.attachmentDispatchContextFor(task, second);
+    assert.notEqual(rebuiltContext, firstContext);
+    assert.equal(rebuiltContext.confirmed, false);
+    assert.equal(task.attachmentUploadPending, false);
+    assert.equal(task.attachmentUploadStartedAt, 0);
+    assert.equal(task.attachmentLastAttemptAt, 0);
+
+    task.attachmentUploadPending = true;
+    task.token = 'dispatch-2';
+    const nextRoundContext = hooks.attachmentDispatchContextFor(task, second);
+    assert.notEqual(nextRoundContext, rebuiltContext);
+    assert.equal(nextRoundContext.confirmed, false);
+    assert.deepEqual(task.attachments, [{ name: 'clip.mp4', size: 4, type: 'video/mp4' }]);
   } finally {
     dom.window.close();
   }

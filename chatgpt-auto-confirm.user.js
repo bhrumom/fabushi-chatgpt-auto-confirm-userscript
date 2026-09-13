@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.18
+// @version      2.9.19
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息与可中断调度。
 // @updateURL    https://raw.githubusercontent.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/main/chatgpt-auto-confirm.user.js
 // @downloadURL  https://raw.githubusercontent.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/main/chatgpt-auto-confirm.user.js
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.18';
+  const VERSION = '2.9.19';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -253,6 +253,12 @@
   let paint = () => {}, mode = 'once';
   const measurements = { scans: 0, totalScanMs: 0, sends: 0, switches: 0 };
   const observations = new Map();
+  // Attachment previews and native FileLists belong to one rendered ChatGPT
+  // composer only. Keep that acknowledgement in memory and bind it to the
+  // dispatch token plus the current route/input node; persisted task metadata
+  // must never be treated as proof that a replacement document already has
+  // the files attached.
+  const attachmentDispatchContexts = new Map();
   const approvalAttempts = new WeakMap();
   const terminal = new Set(['done', 'blocked', 'cancelled']);
   const resumableStates = new Set(['queued', 'sending', 'uploading', 'waiting', 'loading', 'generating', 'approval', 'reviewing']);
@@ -1122,7 +1128,24 @@
     const value = String(reason || '');
     return /(?:浏览器|本地附件|附件记录|文件).*(?:不支持|不存在|缺少|重新选择|无法保存|数量不一致)|indexeddb|storage quota|quota exceeded|unsupported (?:file|format)|(?:file|format)(?: type)? (?:is )?(?:not )?supported|file (?:is )?too large|(?:文件|附件).*(?:不支持|过大|太大)/i.test(value);
   }
-  function resetAttachmentUploadState(task) {
+  function attachmentDispatchContextFor(task, input) {
+    if (!task) return null;
+    const token = String(task.token || '');
+    const route = `${location.pathname}${location.search}`;
+    const previous = attachmentDispatchContexts.get(task.id);
+    if (previous && previous.token === token && previous.input === input && previous.route === route) return previous;
+    // A document reload, SPA route change, or composer re-render invalidates
+    // the old page-local upload attempt. Preserve retry/backoff and the
+    // IndexedDB reference, but force the new composer to receive a fresh
+    // FileList/paste event before this dispatch can send.
+    task.attachmentUploadPending = false;
+    task.attachmentUploadStartedAt = 0;
+    task.attachmentLastAttemptAt = 0;
+    const context = { token, input, route, confirmed: false };
+    attachmentDispatchContexts.set(task.id, context);
+    return context;
+  }
+  function resetAttachmentUploadState(task, options = {}) {
     if (!task) return;
     task.attachmentUploadPending = false;
     task.attachmentUploadFailed = false;
@@ -1131,6 +1154,7 @@
     task.attachmentLastAttemptAt = 0;
     task.attachmentUploadRetryAt = 0;
     task.attachmentUploadRetryCount = 0;
+    if (!options.keepContext) attachmentDispatchContexts.delete(task.id);
   }
   function failAttachmentUpload(task, reason) {
     const message = String(reason || '').slice(0, 240);
@@ -1175,13 +1199,20 @@
   async function ensureTaskAttachments(task, input, signal) {
     const attachments = taskAttachments(task);
     if (!attachments.length) return true;
+    const context = attachmentDispatchContextFor(task, input);
     if (pageLoadingState()) {
       holdForChatGPTLoading(task);
       return false;
     }
-    if (attachmentReady(task, input)) {
+    if (context?.confirmed) return true;
+    // This only accepts an attachment surface that is present in the current
+    // composer. It is safe for a task to have been manually/previously
+    // attached in this same rendered composer, but it cannot carry a stale
+    // acknowledgement across a new context.
+    if (attachmentReady(attachments, input)) {
+      if (context) context.confirmed = true;
       if (task.attachmentUploadPending || task.attachmentUploadFailed || task.state === 'loading') {
-        resetAttachmentUploadState(task);
+        resetAttachmentUploadState(task, { keepContext: true });
         if (task.state === 'uploading' || task.state === 'loading') state(task, 'sending', '附件已在当前会话中确认，继续发送任务。');
         save();
       }
@@ -1235,10 +1266,20 @@
         return false;
       }
       const currentInput = composer() || input;
+      if (currentInput !== input) {
+        // ChatGPT can replace the composer while the upload is settling. Do
+        // not confirm the new node from the old node; the next scheduler
+        // pass will rehydrate and inject the same persisted files there.
+        attachmentDispatchContextFor(task, currentInput);
+        state(task, 'uploading', 'ChatGPT composer 已重建，正在重新注入本轮附件；确认前不会发送任务。');
+        save();
+        return false;
+      }
       const uploadError = attachmentUploadError(currentInput);
       if (uploadError) return failAttachmentUpload(task, `ChatGPT 返回：${uploadError}`);
       if (attachmentReady(task, currentInput)) {
-        resetAttachmentUploadState(task);
+        if (context) context.confirmed = true;
+        resetAttachmentUploadState(task, { keepContext: true });
         state(task, 'sending', '附件上传已确认，继续发送任务。');
         save();
         return true;
@@ -2456,6 +2497,7 @@
     if (!data.deletedTaskIds.includes(task.id)) data.deletedTaskIds.push(task.id);
     data.deletedTaskIds = data.deletedTaskIds.slice(-200);
     observations.delete(task.id);
+    attachmentDispatchContexts.delete(task.id);
     if (current === task.id) current = '';
     if (selected === task.id) selected = tabTasks()[0]?.id || '';
     save();

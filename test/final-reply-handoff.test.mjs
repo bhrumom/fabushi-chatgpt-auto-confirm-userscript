@@ -6,7 +6,7 @@ import { JSDOM } from 'jsdom';
 const source = await fs.readFile(new URL('../chatgpt-auto-confirm.user.js', import.meta.url), 'utf8');
 const instrumentedSource = source.replace(
   '  mount();',
-  `  window.__fabushiFinalReplyTestHooks = Object.freeze({ latestTurn, classify, abnormalEndSince, finish, plannerPrompt });
+  `  window.__fabushiFinalReplyTestHooks = Object.freeze({ latestTurn, classify, abnormalEndSince, finish, workPrompt, plannerPrompt });
   mount();`,
 );
 
@@ -146,7 +146,7 @@ test('a confirmed Work reply is copied verbatim into the next review prompt', as
       attempted: true,
       messages: [],
       history: [],
-      attachments: [],
+      attachments: [{ id: 'evidence-image', name: 'evidence.png', type: 'image/png', size: 4, lastModified: 1 }],
     };
 
     hooks.finish(task, finalReply);
@@ -154,7 +154,46 @@ test('a confirmed Work reply is copied verbatim into the next review prompt', as
     assert.equal(task.phase, 'review');
     assert.equal(task.state, 'queued');
     assert.equal(task.result, finalReply);
+    assert.deepEqual(task.attachments, [{ id: 'evidence-image', name: 'evidence.png', type: 'image/png', size: 4, lastModified: 1 }]);
     assert.match(hooks.plannerPrompt(task), new RegExp(`Work 自然结果：${finalReply.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}`));
+    assert.match(hooks.plannerPrompt(task), /evidence\.png/);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('a review result that requests more work keeps the same attachments for the next Work round', async () => {
+  const { dom, hooks } = await createHarness('<main></main>');
+  try {
+    const task = {
+      id: 'attachment-next-round',
+      mode: 'continuous',
+      phase: 'review',
+      round: 2,
+      goal: '继续验证附件驱动的任务',
+      goalRevision: 1,
+      dispatchGoalRevision: 1,
+      url: 'https://chatgpt.com/c/review-round-2',
+      token: 'review-round-token',
+      state: 'waiting',
+      attempted: true,
+      messages: [],
+      history: [],
+      attachments: [{ id: 'sample-video', name: 'sample.mp4', type: 'video/mp4', size: 4, lastModified: 1 }],
+    };
+
+    hooks.finish(task, JSON.stringify({
+      taskId: task.id,
+      round: task.round,
+      status: 'next',
+      summary: '需要带着同一份视频继续验证',
+      next: '检查视频中的第二个场景',
+    }));
+
+    assert.equal(task.phase, 'work');
+    assert.equal(task.state, 'queued');
+    assert.deepEqual(task.attachments, [{ id: 'sample-video', name: 'sample.mp4', type: 'video/mp4', size: 4, lastModified: 1 }]);
+    assert.match(hooks.workPrompt(task), /sample\.mp4/);
   } finally {
     dom.window.close();
   }
