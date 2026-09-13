@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.17
+// @version      2.9.18
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息与可中断调度。
 // @updateURL    https://raw.githubusercontent.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/main/chatgpt-auto-confirm.user.js
 // @downloadURL  https://raw.githubusercontent.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/main/chatgpt-auto-confirm.user.js
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.17';
+  const VERSION = '2.9.18';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -1362,15 +1362,110 @@
     const user = users.at(-1);
     const replies = nodes('[data-message-author-role=assistant]').filter(node => !user || Boolean(user.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING));
     const assistant = replies.at(-1);
-    const article = assistant?.closest('article,[data-testid^="conversation-turn-"]') || assistant;
-    const markdown = assistant?.querySelector('.markdown,[data-message-content]');
+    const article = assistant?.closest('article,[data-testid^="conversation-turn-"],[data-turn-key],[data-content-search-turn-key]') || assistant;
+    const markdown = assistant?.querySelector('.markdown,[data-message-content],[data-selected-text-overlay-target]');
     const content = String(markdown?.textContent || assistant?.textContent || '').trim();
-    // Text stability alone is not a final-answer signal. Require the response's
-    // own completion controls/explicit completion marker, never an older turn.
-    const finalControl = article && nodes('button[data-testid="copy-turn-action-button"],button[data-testid="good-response-turn-action-button"],button[data-testid="bad-response-turn-action-button"]', article).some(visible);
-    const explicitFinal = assistant?.matches('[data-is-streaming="false"][data-message-id]') && Boolean(markdown);
-    const streaming = article?.querySelector('[data-is-streaming="true"],[aria-busy="true"]');
-    return { user: text(user), text: content, final: Boolean(content && (finalControl || explicitFinal) && !streaming), article };
+    // The ChatGPT renderer changes action data-testid values and can mount the
+    // action row next to (or, briefly, outside) the response article. Text
+    // stability alone is not a final-answer signal, but a single fixed
+    // selector is not a reliable one either. Use semantic labels, bind the
+    // controls to the latest response turn, and keep the explicit static
+    // marker as a second independent signal.
+    const responseControlSelector = 'button,a,[role="button"]';
+    const responseControlKind = node => {
+      const value = normalize([
+        node?.textContent,
+        node?.getAttribute?.('aria-label'),
+        node?.getAttribute?.('title'),
+        node?.getAttribute?.('data-testid'),
+      ].filter(Boolean).join(' ')).toLowerCase();
+      if (/(?:copy|复制)(?:\s+(?:response|turn|message|content))?|复制(?:回复|回答|内容|消息)?/.test(value)) return 'copy';
+      if (/(?:good[\s_-]*response|like|thumbs?[\s_-]*up|赞|喜欢|好的回答|回复优秀)/.test(value)) return 'like';
+      if (/(?:bad[\s_-]*response|dislike|thumbs?[\s_-]*down|踩|不喜欢|不好的回答|回复不佳)/.test(value)) return 'dislike';
+      if (/(?:regenerate|retry|try[\s_-]*again|重新生成|重试|再次生成)/.test(value)) return 'regenerate';
+      if (/(?:more(?:\s+actions?)?|更多操作|更多|显示更多)/.test(value)) return 'more';
+      if (/(?:branch|continue in (?:a )?new (?:chat|task)|新建(?:聊天)?分支|在新.*聊天.*分支|从这里.*(?:继续|分支))/.test(value)) return 'branch';
+      return '';
+    };
+    const controlsIn = scope => {
+      if (!scope) return [];
+      const candidates = [];
+      if (scope.matches?.(responseControlSelector)) candidates.push(scope);
+      candidates.push(...nodes(responseControlSelector, scope));
+      return candidates.filter(visible).map(node => ({ node, kind: responseControlKind(node) })).filter(item => item.kind);
+    };
+    const responseSelector = 'article,[data-testid^="conversation-turn-"],[data-turn-key],[data-content-search-turn-key]';
+    const controlsBelongToResponse = node => {
+      const nearestTurn = node.closest?.(responseSelector);
+      return !nearestTurn || nearestTurn === article || nearestTurn === assistant;
+    };
+    const scopes = [];
+    const addScope = scope => { if (scope && !scopes.includes(scope)) scopes.push(scope); };
+    addScope(article);
+    addScope(assistant);
+    let ancestor = article?.parentElement;
+    for (let depth = 0; ancestor && depth < 2; depth++, ancestor = ancestor.parentElement) {
+      if (ancestor.matches?.('main,[role="main"],body')) break;
+      addScope(ancestor);
+    }
+    let responseControls = [];
+    for (const scope of scopes) {
+      const found = controlsIn(scope).filter(item => controlsBelongToResponse(item.node));
+      if (!found.length) continue;
+      const kinds = new Set(found.map(item => item.kind));
+      const complete = kinds.has('copy') && (kinds.has('like') || kinds.has('dislike'))
+        && (kinds.has('dislike') || kinds.has('regenerate') || kinds.has('more') || kinds.has('branch'));
+      if (!responseControls.length || complete) responseControls = found;
+      if (complete) break;
+    }
+    // Some renderer versions portal the action row. Only accept a portaled
+    // control when it carries an explicit message/turn association, so an
+    // older response's toolbar cannot make the current turn look complete.
+    const messageId = assistant?.getAttribute('data-message-id') || '';
+    const turnKey = article?.getAttribute('data-turn-key') || article?.getAttribute('data-content-search-turn-key') || '';
+    if (messageId || turnKey) {
+      for (const item of nodes(responseControlSelector).filter(visible)) {
+        const associationParents = [
+          item,
+          item.closest?.('[data-message-id]'),
+          item.closest?.('[data-turn-key]'),
+          item.closest?.('[data-content-search-turn-key]'),
+          item.closest?.('[data-for-turn]'),
+        ].filter(Boolean);
+        const association = [
+          ...associationParents.flatMap(node => [
+            node.getAttribute('aria-controls'),
+            node.getAttribute('data-message-id'),
+            node.getAttribute('data-turn-key'),
+            node.getAttribute('data-content-search-turn-key'),
+            node.getAttribute('data-for-turn'),
+          ]),
+        ].filter(Boolean).join(' ');
+        if (!association || (!association.includes(messageId) && !association.includes(turnKey))) continue;
+        const kind = responseControlKind(item);
+        if (kind && !responseControls.some(existing => existing.node === item)) responseControls.push({ node: item, kind });
+      }
+    }
+    const responseActions = new Set(responseControls.map(item => item.kind));
+    const responseActionsComplete = responseActions.has('copy')
+      && (responseActions.has('like') || responseActions.has('dislike'))
+      && (responseActions.has('dislike') || responseActions.has('regenerate') || responseActions.has('more') || responseActions.has('branch'));
+    const explicitFinal = Boolean(
+      markdown
+      && [assistant, article].some(node => node?.getAttribute?.('data-is-streaming') === 'false'
+        && (node.hasAttribute?.('data-message-id') || node.hasAttribute?.('data-turn-key') || node.hasAttribute?.('data-content-search-turn-key'))),
+    );
+    const streaming = article?.querySelector('[data-is-streaming="true"],[aria-busy="true"]')
+      || [assistant, article].find(node => node?.getAttribute?.('data-is-streaming') === 'true' || node?.getAttribute?.('aria-busy') === 'true');
+    return {
+      user: text(user),
+      text: content,
+      final: Boolean(content && (responseActionsComplete || explicitFinal) && !streaming),
+      responseActions: [...responseActions],
+      responseActionsComplete,
+      explicitFinal,
+      article,
+    };
   }
   const allowLabel = /^(?:允许|allow|approve|批准)$/i;
   const denyLabel = /^(?:拒绝|不允许|deny|decline|reject)$/i;
