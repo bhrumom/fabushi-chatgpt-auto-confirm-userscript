@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 35751)
-Total output lines: 2578
-
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
@@ -1171,7 +1168,446 @@ Total output lines: 2578
       if (!task.connectionInterruptedRefreshExhausted) {
         task.connectionInterruptedRefreshExhausted = true;
         task.state = 'waiting';
-        log(task, `连接中断提示在 ${CONNECTION_INTERRUPTED_REFRESH_LIMIT} 次刷新后仍存在；已停止重复刷新…5751 tokens truncated…task.dispatchStartedAt = 0;
+        log(task, `连接中断提示在 ${CONNECTION_INTERRUPTED_REFRESH_LIMIT} 次刷新后仍存在；已停止重复刷新，保留当前会话和任务记录等待恢复。`);
+        save();
+      }
+      return false;
+    }
+    if (now - Number(task.connectionInterruptedRefreshAt || 0) < CONNECTION_INTERRUPTED_REFRESH_COOLDOWN_MS) return false;
+    const nextAttempt = attempts + 1;
+    task.connectionInterruptedRefreshAttempts = nextAttempt;
+    task.connectionInterruptedRefreshAt = now;
+    task.connectionInterruptedRefreshExhausted = false;
+    task.state = 'waiting';
+    log(task, `检测到“连接已中断，正在等待完整回复”；正在刷新当前会话（第 ${nextAttempt}/${CONNECTION_INTERRUPTED_REFRESH_LIMIT} 次），不会新建会话或重复发送。`);
+    save();
+    if (!perform) return true;
+    navigating = true;
+    try { location.reload(); } catch (error) {
+      navigating = false;
+      task.connectionInterruptedRefreshExhausted = true;
+      task.state = 'waiting';
+      log(task, `连接中断后的页面刷新失败：${error.message}；已保留当前任务等待。`);
+      save();
+      return false;
+    }
+    return true;
+  }
+  function dispatchCooldownRemaining(now = Date.now()) {
+    return Math.max(0, Number(data.lastDispatchAt || 0) + MIN_SEND_INTERVAL_MS - now);
+  }
+  function restForRateLimit(task) {
+    const cooldownUntil = Math.max(Number(task.cooldownUntil || 0), Date.now() + RATE_LIMIT_COOLDOWN_MS);
+    task.cooldownUntil = cooldownUntil;
+    state(task, 'waiting', `检测到 ChatGPT 请求过于频繁；插件暂停发送、导航和刷新，预计 ${Math.ceil((cooldownUntil - Date.now()) / 60000)} 分钟后自动恢复。`);
+    save();
+    return Math.max(1, cooldownUntil - Date.now());
+  }
+  function latestTurn() {
+    const users = nodes('[data-message-author-role=user]');
+    const user = users.at(-1);
+    const replies = nodes('[data-message-author-role=assistant]').filter(node => !user || Boolean(user.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING));
+    const assistant = replies.at(-1);
+    const article = assistant?.closest('article,[data-testid^="conversation-turn-"]') || assistant;
+    const markdown = assistant?.querySelector('.markdown,[data-message-content]');
+    const content = String(markdown?.textContent || assistant?.textContent || '').trim();
+    // Text stability alone is not a final-answer signal. Require the response's
+    // own completion controls/explicit completion marker, never an older turn.
+    const finalControl = article && nodes('button[data-testid="copy-turn-action-button"],button[data-testid="good-response-turn-action-button"],button[data-testid="bad-response-turn-action-button"]', article).some(visible);
+    const explicitFinal = assistant?.matches('[data-is-streaming="false"][data-message-id]') && Boolean(markdown);
+    const streaming = article?.querySelector('[data-is-streaming="true"],[aria-busy="true"]');
+    return { user: text(user), text: content, final: Boolean(content && (finalControl || explicitFinal) && !streaming), article };
+  }
+  const allowLabel = /^(?:允许|allow|approve|批准)$/i;
+  const denyLabel = /^(?:拒绝|不允许|deny|decline|reject)$/i;
+  function approvalArrow(node, allowButton) {
+    return node !== allowButton && (
+      node.hasAttribute('aria-haspopup')
+      || /箭头|展开|选项|更多|menu|options|expand/i.test(label(node))
+      || (!text(node) && Boolean(node.querySelector('svg')) && node.parentElement === allowButton.parentElement)
+    );
+  }
+  const actionMatches = (node, pattern) => [text(node), node?.getAttribute('aria-label'), node?.getAttribute('title')]
+    .some(value => pattern.test(normalize(value)));
+  function cards() {
+    const result = [], seen = new Set();
+    for (const button of nodes('button,[role=button]').filter(enabled)) {
+      if (!actionMatches(button, allowLabel) || button.hasAttribute('aria-haspopup')) continue;
+      let container = button.parentElement;
+      for (let depth = 0; container && depth < 9; depth++, container = container.parentElement) {
+        if (container === document.body || container.tagName === 'MAIN') break;
+        const actions = nodes('button,[role=button]', container).filter(enabled);
+        const deny = actions.find(node => actionMatches(node, denyLabel));
+        const arrow = actions.find(node => approvalArrow(node, button));
+        // Authorization-card copy varies by connector and language. The stable
+        // signal is its action cluster: Reject + Allow + the split-button menu.
+        if (deny && arrow) {
+          if (!seen.has(container)) { seen.add(container); result.push({ container, button, arrow }); }
+          break;
+        }
+      }
+    }
+    return result;
+  }
+  // ChatGPT occasionally shows product announcements, image-generation tips,
+  // feedback prompts, and other modal overlays that block the composer. These
+  // are not authorization cards: close only an explicit dismiss control and
+  // leave every approval card for the dedicated arrow/menu flow below.
+  const popupCloseLabel = /^(?:×|✕|✖|x|关闭|close|dismiss|取消|cancel|稍后|以后再说|跳过|skip|not now|maybe later)(?:\s+(?:弹窗|窗口|对话框|modal|dialog|popup))?$/iu;
+  function popupDialogs() {
+    const selectors = [
+      '[role="dialog"]', '[aria-modal="true"]',
+      '[data-radix-dialog-content]', '[data-dialog-content]',
+      '[data-modal="true"]', '[class*="modal"]', '[class*="Modal"]',
+      '[class*="dialog"]', '[class*="Dialog"]',
+    ].join(',');
+    const seen = new Set();
+    return nodes(selectors).filter(node => {
+      if (seen.has(node) || !visible(node)) return false;
+      seen.add(node);
+      return true;
+    });
+  }
+  function modalCloseButton(dialog) {
+    const candidates = nodes('button,[role="button"]', dialog).filter(enabled);
+    const labelled = candidates.find(node => [text(node), node.getAttribute('aria-label'), node.getAttribute('title')]
+      .some(value => popupCloseLabel.test(normalize(value))));
+    if (labelled) return labelled;
+    const classClose = candidates.find(node => /(?:modal|dialog|popup)[-_]?(?:close|dismiss)|(?:close|dismiss|close-button)[-_]?(?:modal|dialog|popup)?/i.test(`${node.className || ''} ${node.getAttribute('data-testid') || ''}`));
+    if (classClose) return classClose;
+    // Some ChatGPT overlays render an icon-only close button without an
+    // aria-label. Restrict this fallback to an icon in the dialog's upper
+    // right corner so ordinary action buttons are not clicked accidentally.
+    const bounds = dialog.getBoundingClientRect?.();
+    if (!bounds) return null;
+    return candidates.filter(node => !text(node) && node.querySelector('svg')).find(node => {
+      const buttonBounds = node.getBoundingClientRect?.();
+      return buttonBounds && buttonBounds.top <= bounds.top + 96 && buttonBounds.right >= bounds.right - 140;
+    }) || null;
+  }
+  function dismissUnexpectedModals(task = null) {
+    const approvalContainers = cards().map(card => card.container);
+    let dismissed = 0;
+    for (const dialog of popupDialogs()) {
+      // A connector authorization card may itself be rendered inside a
+      // dialog. Never close that card through the generic popup heuristic.
+      const actions = nodes('button,[role="button"]', dialog).filter(enabled);
+      const approvalLike = actions.some(node => actionMatches(node, allowLabel))
+        && actions.some(node => actionMatches(node, denyLabel));
+      if (approvalLike || approvalContainers.some(container => container === dialog || dialog.contains(container) || container.contains(dialog))) continue;
+      const close = modalCloseButton(dialog);
+      if (!close) continue;
+      activateControl(close);
+      dismissed++;
+      if (task) log(task, '检测到 ChatGPT 弹窗，已自动关闭。');
+    }
+    return dismissed;
+  }
+  function schedulePopupDismissScan(ms = POPUP_DISMISS_SCAN_MS) {
+    clearTimeout(popupDismissTimer);
+    popupDismissTimer = setTimeout(() => {
+      popupDismissTimer = null;
+      try { if (running || data.globalAutoApprove) dismissUnexpectedModals(); } catch (error) { console.warn('[Fabushi] ChatGPT 弹窗检查暂未完成', error); }
+      schedulePopupDismissScan();
+    }, ms);
+  }
+  function checkAuthorizationRun(signal, queueOwned) {
+    if (signal?.aborted || (queueOwned && !running)) throw new Error('已暂停');
+  }
+  function activateControl(node) {
+    const PointerCtor = window.PointerEvent || window.MouseEvent;
+    node.dispatchEvent(new PointerCtor('pointerdown', { bubbles:true, cancelable:true, button:0, buttons:1, pointerType:'mouse', isPrimary:true }));
+    node.click();
+  }
+  function isConversationScopedAllow(node) {
+    const value = label(node);
+    if (/始终|总是|永久|所有(?:会话|对话)|always|all (?:chats|conversations|sessions)|future (?:chats|conversations|sessions)/i.test(value)) return false;
+    return /^(?:允许本次会话|在此对话中允许|允许此对话|允许\s+.{1,80}?\s+(?:用于|在)?(?:本次会话|此对话)|allow (?:for )?this (?:chat|conversation|session)|allow .{1,80}? for this (?:chat|conversation|session))$/iu.test(value);
+  }
+  async function authorize(card, task, signal, queueOwned = true) {
+    const last = approvalAttempts.get(card.button) || 0;
+    if (Date.now() - last < 15000) return;
+    approvalAttempts.set(card.button, Date.now());
+    const candidates = nodes('button,[role=button]', card.container).filter(enabled);
+    const arrow = (enabled(card.arrow) && card.arrow)
+      || candidates.find(node => node.hasAttribute('aria-haspopup'))
+      || candidates.find(node => node !== card.button && /箭头|展开|选项|更多|menu|options|expand/i.test(label(node)))
+      || candidates.find(node => node !== card.button && !text(node) && node.querySelector('svg') && node.parentElement === card.button.parentElement)
+      || (card.button.querySelector('svg') ? card.button : null);
+    if (!arrow) { log(task, '授权卡已识别，但尚未找到下拉箭头；保持等待。'); return; }
+    checkAuthorizationRun(signal, queueOwned);
+    activateControl(arrow);
+    for (let attempt = 0; attempt < 6; attempt++) {
+      await delay(250, signal ?? null); checkAuthorizationRun(signal, queueOwned);
+      const option = nodes('[role=menuitem],[role=option], [role=menu] button').filter(enabled)
+        .find(isConversationScopedAllow);
+      if (!option) continue;
+      activateControl(option);
+      log(task, '已点击“允许本次会话”，正在确认授权卡解除。');
+      await delay(800, signal ?? null); checkAuthorizationRun(signal, queueOwned);
+      if (!enabled(card.button) || !visible(card.container)) log(task, '本次会话授权已生效。');
+      return;
+    }
+    log(task, '授权菜单没有“允许本次会话”；保留当前会话等待处理。');
+  }
+  async function processGlobalApprovalCards() {
+    if (!data.globalAutoApprove || globalApprovalBusy) return false;
+    const pending = cards();
+    if (!pending.length) return false;
+    globalApprovalBusy = true;
+    try {
+      await authorize(pending[0], null, globalApprovalController?.signal, false);
+      return true;
+    } finally {
+      globalApprovalBusy = false;
+    }
+  }
+  function scheduleGlobalApprovalScan(ms = GLOBAL_APPROVAL_SCAN_MS) {
+    clearTimeout(globalApprovalTimer);
+    globalApprovalTimer = null;
+    if (!data.globalAutoApprove) return;
+    globalApprovalTimer = setTimeout(async () => {
+      globalApprovalTimer = null;
+      try { await processGlobalApprovalCards(); } catch (error) {
+        if (error.message !== '已暂停') console.warn('[Fabushi] 全页面授权检查暂未完成', error);
+      } finally {
+        scheduleGlobalApprovalScan();
+      }
+    }, ms);
+  }
+  function setGlobalAutoApprove(enabled) {
+    globalApprovalController?.abort();
+    data.globalAutoApprove = Boolean(enabled);
+    globalApprovalController = data.globalAutoApprove ? new AbortController() : null;
+    save();
+    scheduleGlobalApprovalScan(data.globalAutoApprove ? 50 : GLOBAL_APPROVAL_SCAN_MS);
+  }
+  function classify(sample, previous, now) {
+    if (sample.rateLimit) return { state:'cooldown', reason:sample.rateLimit };
+    const ignoredPageNotice = /ChatGPT 使用额度或访问频率受限|达到使用上限|usage limit|rate limit|too many requests|请求过于频繁|达到.*限额/i.test(String(sample.blocker || ''));
+    if (sample.blocker && !ignoredPageNotice) return { state:'blocked', reason:sample.blocker };
+    if (!sample.owned) return { state:'blocked', reason:'当前会话最后一条用户消息不属于这轮任务，已停止发送。' };
+    if (sample.cards) return { state:'approval' };
+    if (sample.stop) return { state:'generating' };
+    if (sample.loading) return { state:'loading', reason:'ChatGPT 页面正在加载，等待会话内容完全渲染。' };
+    if (sample.final && sample.text && previous?.clear && previous?.text === sample.text && now - previous.since >= 4000) return { state:'complete' };
+    // ChatGPT can lose the Stop control while the assistant turn is still
+    // absent (or while a renderer error leaves only a partial/empty turn).
+    // Once that transition remains stable, it is an abnormal end and must be
+    // handed to a fresh Chat rather than waiting for the five-minute reload
+    // fallback. `endedAt` is started by the first stable clear observation as
+    // well as a witnessed Stop -> no-Stop transition. The scheduler may return
+    // after Stop already disappeared, so requiring that transient edge would
+    // leave an already-ended conversation waiting for the five-minute fallback.
+    if (previous?.endedAt && now - previous.endedAt >= STOP_LOST_FINAL_REPLY_MS
+      && previous?.text === sample.text && !sample.final) {
+      return { state:'no-final-reply', reason:'会话停止生成后没有新的最终回复或授权卡。' };
+    }
+    if (previous?.clear && now - previous.idleSince >= NO_FINAL_REPLY_MS && !sample.final) return { state:'no-final-reply', reason:'会话已结束但没有新的最终回复。' };
+    return { state:'waiting' };
+  }
+  function abnormalEndSince(sample, previous, now) {
+    const clear = !sample.stop && !sample.cards && !sample.loading;
+    if (!sample.owned || !clear || sample.final || sample.rateLimit || sample.blocker) return 0;
+    const stable = previous?.text === sample.text && previous?.clear && clear;
+    // Start immediately on the first clear observation, but reset whenever the
+    // visible assistant text changes. `classify` still requires a subsequent
+    // stable scan and the full short grace period before retrying.
+    return stable ? (previous.endedAt || previous.idleSince || now) : now;
+  }
+  function safeURL(url) {
+    const target = new URL(url, location.origin);
+    if (target.origin !== location.origin || !/^\/(?:c\/[^/?#]+)?$/.test(target.pathname)) throw new Error('会话地址无效');
+    if (target.search || target.hash) {
+      const canonical = canonicalConversationURL(target.href);
+      if (!canonical) throw new Error('会话地址无效');
+      return new URL(canonical);
+    }
+    return target;
+  }
+  function queueNavigation(target, task, reason = '会话切换未确认') {
+    clearTimeout(navigationTimer); navigationTimer = null; navigating = false;
+    sessionStorage.removeItem(NAV);
+    if (task) {
+      state(task, 'blocked', `${reason}；没有可用的真实会话链接，已停止等待，不会刷新或重复派发。`);
+      log(task, '请在任务中保留有效的 https://chatgpt.com/c/<会话ID> 链接后再恢复。');
+    }
+    return false;
+  }
+
+  function directNavigate(target, task, perform = true) {
+    const href = target instanceof URL ? target.href : String(target || '');
+    const parsed = parseConversationURL(href);
+    const targetHref = parsed && !parsed.synthetic ? parsed.href : href;
+    const targetPath = parsed && !parsed.synthetic ? parsed.pathname : new URL(href, location.origin).pathname;
+    const latestURL = canonicalConversationURL(task?.url);
+    if (parsed && !parsed.synthetic && latestURL && latestURL !== targetHref) {
+      sessionStorage.removeItem(NAV);
+      navigating = false;
+      return false;
+    }
+    // Never re-open or reload the route that this tab is already displaying.
+    // With a single local task, inspection stays entirely on the current page.
+    if (new URL(targetHref, location.origin).pathname === location.pathname) {
+      sessionStorage.removeItem(NAV);
+      navigating = false;
+      return true;
+    }
+    let previous = null;
+    try { previous = JSON.parse(sessionStorage.getItem(NAV)); } catch {}
+    const sameTicket = Boolean(previous?.direct && previous?.task === task?.id
+      && previous?.path === targetPath && previous?.href === targetHref);
+    if (!sameTicket) {
+      const now = Date.now();
+      sessionStorage.setItem(NAV, JSON.stringify({
+        path: targetPath,
+        href: targetHref,
+        at: now,
+        task: task?.id || current,
+        attempts: 1,
+        assigned: true,
+        direct: true,
+        resume: true,
+      }));
+      if (task) {
+        if (parsed && !parsed.synthetic) recordConversationURL(task, targetHref);
+        task.updatedAt = Date.now();
+        save();
+      }
+      log(task, `正在按已记录的会话链接恢复：${targetHref}`);
+      navigating = true;
+      if (perform) {
+        try { location.assign(targetHref); } catch (error) {
+          navigating = false;
+          if (task) state(task, 'blocked', `会话链接打开失败：${error.message}`);
+        }
+      }
+    } else {
+      // The browser may still be hydrating after the first direct navigation.
+      // Keep the ticket, but never assign the same URL again.
+      navigating = true;
+    }
+    return false;
+  }
+
+  function recoverStalledRoute(target, task) {
+    const attempts = Number(task?.routeRecoveryAttempts || 0);
+    if (task?.rendererRecoveryExhausted || attempts >= ROUTE_RECOVERY_LIMIT) {
+      if (task && !task.rendererRecoveryExhausted) {
+        task.rendererRecoveryExhausted = true;
+        state(task, 'waiting', 'ChatGPT 页面仍未完成加载；已停止重复刷新，保留当前会话和发送意图，等待页面恢复后继续。');
+        save();
+      }
+      sameRouteWaitUntil = Date.now() + 5000;
+      sameRouteWaitSince = Date.now();
+      navigating = false;
+      return false;
+    }
+    const nextAttempt = attempts + 1;
+    const href = target.href;
+    if (task) {
+      task.routeRecoveryAttempts = nextAttempt;
+      task.rendererRecoveryExhausted = false;
+      task.updatedAt = Date.now();
+    }
+    const now = Date.now();
+    sessionStorage.setItem(NAV, JSON.stringify({
+      path: target.pathname,
+      href,
+      at: now,
+      task: task?.id || current,
+      attempts: nextAttempt,
+      assigned: true,
+      direct: true,
+      recovery: true,
+      resume: true,
+    }));
+    if (task) {
+      log(task, `ChatGPT 页面长时间没有恢复；正在进行第 ${nextAttempt}/${ROUTE_RECOVERY_LIMIT} 次单次加载恢复，不会循环刷新。`);
+      save();
+    }
+    sameRouteWaitUntil = 0;
+    sameRouteWaitSince = 0;
+    navigating = true;
+    try { location.replace(href); } catch (error) {
+      navigating = false;
+      if (task) {
+        task.rendererRecoveryExhausted = true;
+        state(task, 'waiting', `页面恢复加载失败：${error.message}；已停止重复刷新，保留当前任务等待。`);
+        save();
+      }
+    }
+    return false;
+  }
+
+  function stopAmbiguousSend(task) {
+    task.updatedAt = Date.now();
+    if (task.url && canonicalConversationURL(task.url)) {
+      task.attempted = false;
+      state(task, 'waiting', '已记录本轮会话链接；无法读取消息标识时仍按唯一链接继续监控，不会重复发送。');
+    } else {
+      state(task, 'blocked', '原消息发送结果超过 90 秒仍无法确认；当前页面链接未被绑定到本任务，已停止且保留派发标识，不会自动重发。请在 ChatGPT 中找到本轮会话后，把真实会话链接记录到任务再恢复。');
+    }
+    save();
+  }
+  function noFinalReplyBackoffMs(cycle) {
+    const round = Math.max(1, Number(cycle || 1));
+    return Math.min(NO_FINAL_REPLY_BACKOFF_BASE_MS * (2 ** Math.min(round - 1, 4)), NO_FINAL_REPLY_BACKOFF_MAX_MS);
+  }
+  function clearDispatchIntent(task) {
+    task.url = '';
+    task.attempted = false;
+    task.token = '';
+    task.sendPrepared = false;
+    task.preparedPrompt = '';
+    task.sendUiWaitSince = 0;
+    task.dispatchOriginURL = '';
+    task.dispatchStartedAt = 0;
+    task.rendererRecoveryExhausted = false;
+    task.routeRecoveryAttempts = 0;
+    resetAttachmentUploadState(task);
+    observations.delete(task.id);
+  }
+  function queueNoFinalReplyRetry(task, reason = '会话已结束但没有最终回复') {
+    if (!task) return '';
+    const attempts = Number(task.noFinalReplyAttempts || 0);
+    if (attempts >= NO_FINAL_REPLY_RETRY_LIMIT) {
+      const cycle = Number(task.noFinalReplyRecoveryCycles || 0) + 1;
+      const delayMs = noFinalReplyBackoffMs(cycle);
+      task.noFinalReplyAttempts = 0;
+      task.noFinalReplyRecoveryCycles = cycle;
+      task.noFinalReplyRecoveryUntil = Date.now() + delayMs;
+      clearDispatchIntent(task);
+      task.state = 'waiting';
+      log(task, `${reason}；快速重发 ${NO_FINAL_REPLY_RETRY_LIMIT} 次仍失败，进入延迟恢复（第 ${cycle} 轮），约 ${Math.ceil(delayMs / 60000)} 分钟后自动新开会话，不会自动暂停。`);
+      save();
+      return 'backoff';
+    }
+    task.noFinalReplyAttempts = attempts + 1;
+    task.noFinalReplyRecoveryUntil = 0;
+    clearDispatchIntent(task);
+    state(task, 'queued', `${reason}；插件已关闭当前会话目标，正在新开 Work/规划会话原样重发（第 ${task.noFinalReplyAttempts}/${NO_FINAL_REPLY_RETRY_LIMIT} 次）。`);
+    save();
+    return 'queued';
+  }
+  async function navigate(url, signal, task = data.tasks.find(item => item.id === current), requireComposer = true) {
+    // The conversation URL is the only session identity. If the live page
+    // carries this task's ownership marker, canonicalize any stale/synthetic
+    // address to the real browser path before doing anything else.
+    const liveURL = currentConversationURL();
+    const ownsLiveRoute = Boolean(task?.token && liveURL && hasTaskMarker(task));
+    const knownTaskURL = canonicalConversationURL(task?.url);
+    // A stale marker can survive briefly while the SPA changes the address
+    // during rotation. An already persisted URL wins unless this is the
+    // explicitly attempted send that is waiting to adopt its new route.
+    const canAdoptLiveRoute = ownsLiveRoute && (!knownTaskURL || task.url === liveURL || task.attempted);
+    if (canAdoptLiveRoute) {
+      if (task.url !== liveURL || task.attempted) {
+        const captured = task.url === liveURL ? liveURL : captureConversationURL(task, liveURL);
+        if (!captured) return false;
+        task.attempted = false;
+        task.dispatchOriginURL = '';
+        task.dispatchStartedAt = 0;
         task.updatedAt = Date.now();
         save();
       }

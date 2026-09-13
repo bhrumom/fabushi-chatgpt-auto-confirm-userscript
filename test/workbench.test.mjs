@@ -12,7 +12,7 @@ async function fixture(body='', setup=()=>{}) {
   const held = new Set();
   w.navigator.locks = {query:async()=>({held:[...held].map(name=>({name}))}),request:async(name,options,callback)=>{callback ||= options;if(held.has(name))return callback(null);held.add(name);try{return await callback({name});}finally{held.delete(name);}}};
   setup(w);
-  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, connectionInterruptedNotice, refreshInterruptedConversation, classify, abnormalEndSince, pageLoadingState, conversationLoading, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, nextSupervisionTask, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, connectionInterruptedNotice, refreshInterruptedConversation, classify, abnormalEndSince, pageLoadingState, conversationLoading, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, nextSupervisionTask, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('completion requires own final turn, stop absent, no approval and stable completion evidence',async()=>{
@@ -46,6 +46,16 @@ test('a visible conversation spinner is loading, not an abnormal end',async()=>{
   await h.inspect(task,null);
   assert.equal(task.state,'loading');
   h.pause();
+  dom.window.close();
+});
+test('a root-page spinner is loading and blocks dispatch until hydration finishes',async()=>{
+  const {h,w,dom}=await fixture('<main><div class="animate-spin"></div><form><textarea id="prompt-textarea"></textarea></form></main>');
+  const task={id:'root-loading',goal:'wait for root',state:'queued',attachments:[],messages:[]};
+  assert.equal(h.pageLoadingState(),'ChatGPT 页面正在加载，等待会话内容完全渲染。');
+  assert.equal(await h.navigate('/',null,task,true),false);
+  assert.equal(task.state,'loading');
+  w.document.querySelector('.animate-spin').remove();
+  assert.equal(await h.navigate('/',null,task,true),true);
   dom.window.close();
 });
 test('loading detection ignores transcript, composer, sidebar and workbench indicators',async()=>{
@@ -101,6 +111,24 @@ test('attachment confirmation is scoped to the current ChatGPT composer',async()
   const input=w.document.querySelector('#prompt-textarea');
   assert.equal(h.attachmentReady([{id:'clip',name:'clip.mp4'}],input),true);
   assert.equal(h.attachmentReady([{id:'missing',name:'missing.mov'}],input),false);
+  dom.window.close();
+});
+test('attachment picker falls back to a page-level input outside the composer form',async()=>{
+  const {h,w,dom}=await fixture('<main><form><textarea id="prompt-textarea"></textarea></form><input id="portal-picker" type="file" multiple></main>');
+  const input=w.document.querySelector('#prompt-textarea');
+  assert.equal(h.attachmentInputFor(input)?.id,'portal-picker');
+  dom.window.close();
+});
+test('old attachment upload timeout records return to a safe queued retry',async()=>{
+  const {h,dom}=await fixture();
+  const task=h.enqueue('retry attachment','once',[{id:'clip',name:'clip.mp4',type:'video/mp4',size:12,lastModified:1}]);
+  Object.assign(task,{state:'blocked',url:'',attempted:false,sendPrepared:true,token:'old-token',messages:[{text:'附件上传未确认，已停止发送纯文字目标。等待 ChatGPT 显示附件已超过 45 秒。'}]});
+  assert.equal(h.recoverLegacyAttachmentUploadTimeouts(),task.id);
+  assert.equal(task.state,'queued');
+  assert.equal(task.token,'');
+  assert.equal(task.sendPrepared,false);
+  assert.equal(task.attachmentUploadFailed,false);
+  assert.match(task.messages.at(-1).text,/重新上传/);
   dom.window.close();
 });
 test('a lost Stop control with no final answer becomes a recoverable abnormal end',async()=>{
