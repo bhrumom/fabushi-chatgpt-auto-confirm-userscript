@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.12
-// @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴、授权识别、实时消息与可中断调度。
+// @version      2.9.13
+// @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息与可中断调度。
 // @updateURL    https://raw.githubusercontent.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/main/chatgpt-auto-confirm.user.js
 // @downloadURL  https://raw.githubusercontent.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/main/chatgpt-auto-confirm.user.js
 // @match        https://chatgpt.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.12';
+  const VERSION = '2.9.13';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -305,19 +305,40 @@
         if (file) source.push(file);
       } catch {}
     }
-    return uniqueAttachmentFiles(uniqueAttachmentFiles(source).map((file, index) => normalizeClipboardFile(file, index)));
+    return uniqueClipboardFiles(uniqueClipboardFiles(source).map((file, index) => normalizeClipboardFile(file, index)));
   }
   function uniqueAttachmentFiles(files) {
+    const seenObjects = new Set();
+    return Array.from(files || []).filter(file => {
+      if (!file || seenObjects.has(file)) return false;
+      seenObjects.add(file);
+      return true;
+    });
+  }
+  function attachmentFileKey(file) {
+    const name = String(file?.name || '').trim().toLocaleLowerCase();
+    const type = String(file?.type || '').trim().toLocaleLowerCase();
+    const size = Number(file?.size || 0);
+    return [name, type, Number.isFinite(size) ? size : 0].join('\u0000');
+  }
+  function uniqueClipboardFiles(files) {
     const seenObjects = new Set();
     const seenKeys = new Set();
     return Array.from(files || []).filter(file => {
       if (!file || seenObjects.has(file)) return false;
       seenObjects.add(file);
-      const key = [file.name, file.type, file.size, file.lastModified].map(value => String(value || '')).join('\u0000');
-      if (key !== '\u0000\u0000\u0000' && seenKeys.has(key)) return false;
-      if (key !== '\u0000\u0000\u0000') seenKeys.add(key);
+      const key = attachmentFileKey(file);
+      if (seenKeys.has(key)) return false;
+      seenKeys.add(key);
       return true;
     });
+  }
+  function attachmentKind(file) {
+    const type = String(file?.type || '').trim().toLocaleLowerCase();
+    const name = String(file?.name || '').trim().toLocaleLowerCase();
+    if (type.startsWith('image/') || /\.(?:avif|bmp|gif|jpe?g|png|svg|webp)$/i.test(name)) return 'image';
+    if (type.startsWith('video/') || /\.(?:avi|m4v|mkv|mov|mp4|mpeg|webm|wmv)$/i.test(name)) return 'video';
+    return '';
   }
   function openAttachmentDB() {
     if (typeof indexedDB === 'undefined') return Promise.reject(new Error('当前浏览器不支持本地附件存储。'));
@@ -2224,6 +2245,12 @@
       #${ROOT} .chat{display:flex;flex-direction:column;flex:1;min-width:0} #${ROOT} header{padding:14px 16px;border-bottom:1px solid #383838;display:flex;gap:8px;align-items:center} #${ROOT} header strong{flex:1} #${ROOT} .settings{display:none;padding:12px 16px;border-bottom:1px solid #383838;background:#262626} #${ROOT} .settings.open{display:block} #${ROOT} .settings label{display:flex;gap:9px;align-items:flex-start} #${ROOT} .settings small{margin-left:25px} #${ROOT} .feed{flex:1;overflow:auto;padding:20px;overscroll-behavior:contain} #${ROOT} .goal{white-space:pre-wrap;overflow-wrap:anywhere;margin:0 0 18px;padding:10px 12px;background:#2b2b2b;border:1px solid #484848;border-radius:12px;color:#f0f0f0} #${ROOT} .attachment-summary{white-space:pre-wrap;overflow-wrap:anywhere;margin:-8px 0 18px;padding:8px 12px;background:#252525;border:1px solid #444;border-radius:10px;color:#bbb;font-size:12px} #${ROOT} .bubble{white-space:pre-wrap;overflow-wrap:anywhere;margin:0 0 16px;max-width:100%} #${ROOT} .bubble.user{background:#343434;border-radius:18px;padding:12px 16px;margin-left:30px} #${ROOT} .bubble.status{color:#aaa;font-size:12px;border-left:2px solid #7965d8;padding-left:10px} #${ROOT} .bubble time{display:block;color:#999;font-size:10px} #${ROOT} .session-link{color:#aaa;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:0 0 8px}
       #${ROOT} .compose{margin:0 16px 16px;padding:12px;background:#303030;border:1px solid #484848;border-radius:20px} #${ROOT} textarea{width:100%;min-height:72px;max-height:160px;resize:vertical;border:0;outline:0;background:transparent;color:#eee;font:inherit} #${ROOT} .attachment-box{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:8px 0 10px;padding-top:8px;border-top:1px solid #424242} #${ROOT} .attachment-picker{display:inline-flex;align-items:center;gap:6px;border:1px dashed #666;border-radius:9px;padding:6px 9px;color:#d5d5d5;font-size:12px;cursor:pointer} #${ROOT} .attachment-picker:hover{background:#414141} #${ROOT} .attachment-picker input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none} #${ROOT} .attachment-list{display:flex;gap:5px;flex-wrap:wrap;flex:1;min-width:120px} #${ROOT} .attachment-chip{display:inline-flex;align-items:center;max-width:100%;padding:4px 7px;border-radius:7px;background:#3b3b3b;color:#ddd;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap} #${ROOT} .attachment-note{width:100%;color:#999;font-size:11px} #${ROOT} .tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap} #${ROOT} .tools label{font-size:12px;color:#bbb} #${ROOT} .send{margin-left:auto;background:#eee;color:#111;border-radius:50%;font-size:19px;padding:3px 12px} #${ROOT} .notice{padding:0 16px 8px;color:#aaa;font-size:12px} @media(max-width:600px){#${ROOT} aside{width:130px} #${ROOT} .feed{padding:12px}}
     `;
+    style.textContent += `
+      #${ROOT} .attachment-preview{display:flex;align-items:center;gap:7px;max-width:100%;padding:4px 6px;border:1px solid #4c4c4c;border-radius:9px;background:#292929}
+      #${ROOT} .attachment-preview img{display:block;width:100px;height:72px;object-fit:contain;border-radius:6px;background:#111}
+      #${ROOT} .attachment-preview video{display:block;width:140px;height:80px;object-fit:contain;border-radius:6px;background:#111}
+      #${ROOT} .attachment-preview .attachment-chip{min-width:0}
+    `;
     const desk = element('section', '', 'desk'); desk.setAttribute('aria-label','Fabushi 任务工作台');
     const sidebar = element('aside'), list = element('div'); sidebar.append(element('h3','Fabushi'), list);
     const chat = element('div','','chat'), head = element('header'), heading = element('strong','任务工作台');
@@ -2248,7 +2275,7 @@
     const attachmentNoteText = '附件只保存在当前浏览器；开始任务时上传到 ChatGPT，确认完成前不会发送目标文字。';
     const attachmentNote = element('small',attachmentNoteText,'attachment-note');
     attachmentBox.append(attachmentPicker,clearFiles,attachmentList,attachmentNote);
-    let selectedFiles = [];
+    let selectedFiles = [], previewURLs = [];
     const formatAttachmentSize = value => {
       const size = Number(value || 0);
       if (!size) return '0 B';
@@ -2257,9 +2284,42 @@
       if (size < 1024 * 1024 * 1024) return `${(size / 1024 / 1024).toFixed(1)} MB`;
       return `${(size / 1024 / 1024 / 1024).toFixed(1)} GB`;
     };
+    const revokePreviewURLs = () => {
+      previewURLs.forEach(url => { try { window.URL.revokeObjectURL(url); } catch {} });
+      previewURLs = [];
+    };
     const renderSelectedFiles = () => {
+      revokePreviewURLs();
       attachmentList.replaceChildren();
-      selectedFiles.forEach(file => attachmentList.append(element('span',`${file.name} · ${formatAttachmentSize(file.size)}`,'attachment-chip')));
+      selectedFiles.forEach(file => {
+        const preview = element('div','','attachment-preview');
+        const kind = attachmentKind(file);
+        const objectURL = kind && window.URL && typeof window.URL.createObjectURL === 'function'
+          ? window.URL.createObjectURL(file)
+          : '';
+        if (objectURL) {
+          previewURLs.push(objectURL);
+          if (kind === 'image') {
+            const image = element('img');
+            image.src = objectURL;
+            image.alt = file.name;
+            image.title = file.name;
+            image.loading = 'lazy';
+            preview.append(image);
+          } else {
+            const video = element('video');
+            video.src = objectURL;
+            video.controls = true;
+            video.muted = true;
+            video.playsInline = true;
+            video.preload = 'metadata';
+            video.setAttribute('aria-label', file.name);
+            preview.append(video);
+          }
+        }
+        preview.append(element('span',`${file.name} · ${formatAttachmentSize(file.size)}`,'attachment-chip'));
+        attachmentList.append(preview);
+      });
       clearFiles.disabled = selectedFiles.length === 0;
     };
     fileInput.onchange = () => {
