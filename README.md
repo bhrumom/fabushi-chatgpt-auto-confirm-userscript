@@ -1,8 +1,8 @@
-# Fabushi 独立油猴工作台 2.9.16
+# Fabushi 独立油猴工作台 2.9.17
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.16`。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.17`。
 
 ## 使用
 
@@ -114,3 +114,12 @@
 - 能识别上一版本留下的“附件上传未确认、等待超过 45 秒”阻塞记录，恢复为安全重试队列，不发送没有附件的纯文字目标。
 
 轻量验证（2026-09-13）：`node --check chatgpt-auto-confirm.user.js` 通过；`npm test` 共 88 项通过，其中新增根路径加载转圈阻止派发、main 外应用加载层识别、表单外原生文件控件回退、旧附件超时记录安全恢复回归。在线文件曾因传输截断提示导致 2.9.14 无法启动，2.9.15 已用完整源码覆盖并递增版本号；2.9.16 进一步覆盖 ChatGPT 应用级加载层，确保油猴重新拉取后不会在 spinner 仍存在时开始附件上传。ChatGPT 实站上传仍需在更新后由用户使用实际图片/视频验证。
+
+### 2.9.17 附件确认超时后的连续调度
+
+- 附件上传确认的瞬时超时、控件暂不可用和一般上传错误不再把持续目标写成终态“需要处理”；任务保留在上传中，以 5–60 秒持久化退避自动重试，runner 会在下一次重试时间唤醒并继续后续任务。
+- 不可恢复的本地附件缺失、重新选择、文件类型/大小不支持以及浏览器存储错误仍保持 fail-closed，必须由用户处理，不会降级发送无附件的纯文字目标。
+- 附件确认范围覆盖当前 composer 附近的 portal/picker 链，但排除主内容、导航、侧栏、聊天正文和 Fabushi 自己的文件选择器；原生 FileList 还需与任务文件逐一匹配并稳定至少 1 秒后才算确认，避免误判。
+- 新增附件连续调度回归，覆盖 portal 预览、原生 FileList、瞬时 45 秒超时退避、到点重试和永久错误阻断。
+
+轻量验证（2026-09-13）：`node --check chatgpt-auto-confirm.user.js` 通过；focused JSDOM regression `5/5` 通过。完整 `npm test` 与 GitHub Actions 结果以本版本 PR 的 CI 为准。ChatGPT 实站图片/视频上传仍需在发布后的安全样本环境完成登录态行为与视觉证据验证。
