@@ -12,7 +12,7 @@ async function fixture(body='', setup=()=>{}) {
   const held = new Set();
   w.navigator.locks = {query:async()=>({held:[...held].map(name=>({name}))}),request:async(name,options,callback)=>{callback ||= options;if(held.has(name))return callback(null);held.add(name);try{return await callback({name});}finally{held.delete(name);}}};
   setup(w);
-  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, connectionInterruptedNotice, refreshInterruptedConversation, classify, abnormalEndSince, pageLoadingState, conversationLoading, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, adoptUnboundAttemptedConversation, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, nextSupervisionTask, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, connectionInterruptedNotice, refreshInterruptedConversation, classify, abnormalEndSince, pageLoadingState, conversationLoading, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, adoptUnboundAttemptedConversation, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('completion requires own final turn, stop absent, no approval and stable completion evidence',async()=>{
@@ -514,6 +514,28 @@ test('supervision rotates durable conversation URLs while keeping sends exclusiv
   assert.equal(h.taskHoldsScheduler({state:'approval'}),true);
   dom.window.close();
 });
+test('a deferred task never head-of-line blocks another runnable task',async()=>{
+  const {h,dom}=await fixture();
+  const now=Date.now();
+  const deferred=h.enqueue('deferred','goal');
+  Object.assign(deferred,{state:'waiting',url:'https://chatgpt.com/c/deferred',token:'deferred',navigationGuardRetryAt:now+30000});
+  const runnable=h.enqueue('runnable','goal');
+  Object.assign(runnable,{state:'waiting',url:'https://chatgpt.com/c/runnable',token:'runnable'});
+  assert.equal(h.nextSupervisionTask([deferred,runnable],now),runnable);
+  assert.ok(h.taskDeferredUntil(deferred,now)>=now+29000);
+  dom.window.close();
+});
+test('queued dispatch throttling delays only unsent tasks while existing conversations remain inspectable',async()=>{
+  const {h,dom}=await fixture();
+  const now=Date.now();
+  h.data.lastDispatchAt=now;
+  const queued=h.enqueue('queued','goal');
+  const waiting={id:'waiting',ownerTabId:h.getTabId(),goal:'waiting',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/waiting',token:'waiting',messages:[]};
+  h.data.tasks.push(waiting);
+  assert.equal(h.nextSupervisionTask([queued,waiting],now),waiting);
+  assert.ok(h.nextTaskWakeDelay([queued],now)>=59000);
+  dom.window.close();
+});
 test('each browser tab owns an isolated task workspace while local tasks can rotate',async()=>{
   const {h,w,dom}=await fixture();
   const localFirst=h.enqueue('local first','goal');
@@ -681,6 +703,26 @@ test('same-tab navigation reclaims the persisted workspace after the old documen
   assert.equal(resumed.h.tabTasks().length,1);
   assert.equal(resumed.h.tabTasks()[0].goal,'保持同一标签页身份');
   original.dom.window.close();resumed.dom.window.close();
+});
+test('runner start waits for a retiring document lock and then self-heals',async()=>{
+  let runnerAttempts=0;
+  const {h,w,dom}=await fixture('',window=>{
+    const base=window.navigator.locks.request.bind(window.navigator.locks);
+    window.navigator.locks.request=async(name,options,callback)=>{
+      callback ||= options;
+      if(name.startsWith('fabushi-tab-runner-v3:') && runnerAttempts++ < 2) return callback(null);
+      return base(name,options,callback);
+    };
+  });
+  h.enqueue('lease handoff','goal');
+  try {
+    await h.start(false);
+    assert.ok(runnerAttempts>=3,'the new document retries until the retiring runner releases its lock');
+  } finally {
+    h.pause();
+    w.close();
+    dom.window.close();
+  }
 });
 test('concurrent script injection mounts one workbench instance',async()=>{
   const dom=new JSDOM('<body></body>',{url:'https://chatgpt.com/',runScripts:'outside-only'});
@@ -926,7 +968,7 @@ test('recorded conversation links are canonical identities and direct recovery i
   assert.equal(JSON.parse(w.sessionStorage.getItem('fabushi-workbench-navigation-v2')).attempts,1);
   dom.window.close();
 });
-test('open control is a native link bound to the selected task exact conversation URL',async()=>{
+test('open control keeps every task runnable and carries a generation-bound inspection ticket',async()=>{
   const {h,w,dom}=await fixture();
   const oldTask=h.enqueue('old task','goal');
   h.recordConversationURL(oldTask,'https://chatgpt.com/c/old-conversation');
@@ -945,11 +987,14 @@ test('open control is a native link bound to the selected task exact conversatio
   link.onclick({preventDefault(){prevented=true;}});
   assert.equal(prevented,false);
   assert.equal(link.href,newTask.url,'click cannot be retargeted to a stale task URL');
-  assert.equal(h.data.autoResume,true,'manual open pauses only the selected task');
+  assert.equal(h.data.autoResume,true,'manual open keeps automatic supervision enabled');
   assert.equal(oldTask.state,'queued','manual open leaves unrelated tasks runnable');
-  assert.equal(newTask.state,'paused','manual open pauses the selected task before navigation');
-  assert.match(newTask.messages.at(-1).text,/用户点击“打开已记录会话链接”/,'the pause reason identifies the manual inspection action');
-  assert.equal(w.sessionStorage.getItem('fabushi-workbench-navigation-v2'),null,'stale navigation ticket is discarded');
+  assert.equal(newTask.state,'queued','manual open leaves the selected task runnable');
+  assert.match(newTask.messages.at(-1).text,/任务保持运行/,'the status explains that inspection does not pause work');
+  const ticket=JSON.parse(w.sessionStorage.getItem('fabushi-workbench-navigation-v2'));
+  assert.equal(ticket.purpose,'inspect');
+  assert.equal(ticket.task,newTask.id);
+  assert.equal(h.validNavigationTicket(ticket),true);
   assert.equal(oldTask.url,'https://chatgpt.com/c/old-conversation');
   assert.equal(newTask.url,'https://chatgpt.com/c/new-conversation');
   dom.window.close();
