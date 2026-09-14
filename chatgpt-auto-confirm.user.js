@@ -629,6 +629,41 @@
       recovery:options.recovery === true,
     };
   }
+  function validNavigationTicket(ticket) {
+    if (!ticket || ticket.resume !== true || ticket.direct !== true || !ticket.task) return false;
+    const task = data.tasks.find(item => item.id === ticket.task && taskBelongsToTab(item));
+    if (!task || terminal.has(task.state) || task.state === 'paused') return false;
+    const phase = String(task.phase || 'work');
+    const round = Number(task.round || 0);
+    const goalRevision = Number(task.goalRevision || 0);
+    if (String(ticket.phase || '') !== phase
+      || Number(ticket.round || 0) !== round
+      || Number(ticket.goalRevision || 0) !== goalRevision) return false;
+    const targetHref = String(ticket.href || '');
+    const targetPath = String(ticket.path || '');
+    if (!targetHref || !targetPath || targetPath === '*') return false;
+    let target;
+    try { target = new URL(targetHref, location.origin); } catch { return false; }
+    if (target.origin !== location.origin || target.search) return false;
+    const taskURL = canonicalConversationURL(task.url);
+    const targetURL = canonicalConversationURL(target.href);
+    if (ticket.purpose === 'dispatch') {
+      if (ticket.recovery || ticket.documentRecovery || task.attempted) return false;
+      if (target.pathname === '/') {
+        return !taskURL && ['queued', 'sending'].includes(task.state);
+      }
+      return Boolean(taskURL && targetURL && taskURL === targetURL && resumableStates.has(task.state));
+    }
+    if (ticket.purpose === 'recovery') {
+      if (!ticket.recovery && !ticket.documentRecovery) return false;
+      if (!resumableStates.has(task.state)) return false;
+      if (ticket.documentRecovery) return target.pathname === '/';
+      return Boolean(target.pathname === '/'
+        || (taskURL && targetURL && taskURL === targetURL));
+    }
+    return false;
+  }
+
   function beginGuardedNavigation(targetHref, task, {
     replace = true,
     force = false,
@@ -2661,6 +2696,10 @@
       attempts: nextAttempt,
       assigned: true,
       direct: true,
+      purpose: 'recovery',
+      phase: String(task?.phase || 'work'),
+      round: Number(task?.round || 0),
+      goalRevision: Number(task?.goalRevision || 0),
       recovery: true,
       resume: true,
     }));
