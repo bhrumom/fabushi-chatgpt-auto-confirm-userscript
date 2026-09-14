@@ -1528,3 +1528,7 @@ test('blocked ambiguous send remains resumable when no route is visible and keep
   h.pause();
   dom.window.close();
 });
+
+test('the packaged userscript does not request remote user-manager updates',()=>{
+  assert.doesNotMatch(source,/^\/\/ @(?:updateURL|downloadURL)\b/m);
+});

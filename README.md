@@ -1,8 +1,8 @@
-# Fabushi 独立油猴工作台 2.9.22
+# Fabushi 独立油猴工作台 2.9.23
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.22`。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.23`。
 
 ## 使用
 
@@ -154,3 +154,7 @@
 - 单项暂停/取消不会写入全局自动恢复屏障；异步操作在下一次检查前停止副作用，也不会把人为暂停误记为“需要处理”。
 
 轻量验证（2026-09-14）：`node --check chatgpt-auto-confirm.user.js` 通过；`npm test` 共 108 项通过，其中新增单任务暂停/继续不影响兄弟任务、任务详情入口、取消隔离和安全删除回归。真实登录态 Chrome 的逐步截图、完整视频和 trace/diagnostics 仍需发布后现场验收。
+
+### 2.9.23 宿主更新契约清理
+
+移除 `@updateURL` / `@downloadURL` 远程自更新元数据。脚本版本由 Fabushi 的已校验安装/宿主链路管理，避免用户脚本绕过宿主版本和来源校验。
