@@ -170,10 +170,14 @@ test('connection interruption recovery only recognizes visible ChatGPT page noti
   assert.equal(quoted.h.connectionInterruptedNotice(),false,'workbench logs must not self-trigger');
   quoted.dom.window.close();
 });
-test('send timeout recovery only recognizes visible page errors',async()=>{
+test('send timeout recovery recognizes a retryable assistant error card without matching quoted text',async()=>{
   const page=await fixture('<div role="alert">消息发送超时，请重试。</div>');
   assert.equal(page.h.sendTimeoutNotice(),true);
   page.dom.window.close();
+
+  const assistantError=await fixture('<article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div>消息发送超时，请重试。</div><button aria-label="重试"></button></div></article>');
+  assert.equal(assistantError.h.sendTimeoutNotice(),true,'an assistant error card with a retry control is actionable');
+  assistantError.dom.window.close();
 
   const quoted=await fixture('<div data-message-author-role="assistant">消息发送超时，请重试。</div>');
   assert.equal(quoted.h.sendTimeoutNotice(),false,'task transcript must not trigger a resend');
@@ -944,6 +948,7 @@ test('open control is a native link bound to the selected task exact conversatio
   assert.equal(h.data.autoResume,true,'manual open pauses only the selected task');
   assert.equal(oldTask.state,'queued','manual open leaves unrelated tasks runnable');
   assert.equal(newTask.state,'paused','manual open pauses the selected task before navigation');
+  assert.match(newTask.messages.at(-1).text,/用户点击“打开已记录会话链接”/,'the pause reason identifies the manual inspection action');
   assert.equal(w.sessionStorage.getItem('fabushi-workbench-navigation-v2'),null,'stale navigation ticket is discarded');
   assert.equal(oldTask.url,'https://chatgpt.com/c/old-conversation');
   assert.equal(newTask.url,'https://chatgpt.com/c/new-conversation');
