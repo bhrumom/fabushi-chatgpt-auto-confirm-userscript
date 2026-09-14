@@ -12,7 +12,7 @@ async function fixture(body='', setup=()=>{}) {
   const held = new Set();
   w.navigator.locks = {query:async()=>({held:[...held].map(name=>({name}))}),request:async(name,options,callback)=>{callback ||= options;if(held.has(name))return callback(null);held.add(name);try{return await callback({name});}finally{held.delete(name);}}};
   setup(w);
-  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, connectionInterruptedNotice, refreshInterruptedConversation, classify, abnormalEndSince, pageLoadingState, conversationLoading, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, adoptUnboundAttemptedConversation, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, nextSupervisionTask, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, connectionInterruptedNotice, refreshInterruptedConversation, classify, abnormalEndSince, pageLoadingState, conversationLoading, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, adoptUnboundAttemptedConversation, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, nextSupervisionTask, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('completion requires own final turn, stop absent, no approval and stable completion evidence',async()=>{
@@ -1526,6 +1526,62 @@ test('blocked ambiguous send remains resumable when no route is visible and keep
   assert.match(heartbeat.recoveryURL,/fabushi-resume=/);
   assert.deepEqual(heartbeat.attachmentIds,['proof']);
   h.pause();
+  dom.window.close();
+});
+
+test('host navigation guard grants one redacted route switch and then enforces a local cooldown',async()=>{
+  const requests=[];
+  const navigationRequests=()=>requests.filter(message=>message?.type==='navigation-guard.request');
+  const {h,w,dom}=await fixture('',window=>{
+    const bridge=message=>{
+      requests.push(message);
+      window.setTimeout(()=>window.dispatchEvent(new window.MessageEvent('message',{
+        source:window,
+        data:{
+          source:'fabushi-extension',
+          type:'navigation-guard.granted',
+          requestId:message.requestId,
+          granted:true,
+          reason:'granted',
+        },
+      })),0);
+    };
+    try { Object.defineProperty(window,'postMessage',{configurable:true,writable:true,value:bridge}); }
+    catch { window.postMessage=bridge; }
+  });
+  const task={id:'guard-task',phase:'review',round:2,goalRevision:7,state:'reviewing',url:'https://chatgpt.com/c/review-route',messages:[]};
+  try {
+    const pending=h.requestHostNavigationPermit('https://chatgpt.com/c/next-route',task,{reason:'route-switch'});
+    await new Promise(resolve=>w.setTimeout(resolve,0));
+    assert.equal(navigationRequests().length,1);
+    h.settleHostNavigationRequest(navigationRequests()[0].requestId,{granted:true,reason:'granted'});
+    const granted=await pending;
+    assert.equal(granted.granted,true);
+    assert.equal(navigationRequests()[0].payload.capability,'tab-navigation-guard');
+    assert.equal(navigationRequests()[0].payload.taskId,'guard-task');
+    assert.equal(navigationRequests()[0].payload.phase,'review');
+    assert.equal(navigationRequests()[0].payload.round,2);
+    assert.equal(navigationRequests()[0].payload.goalRevision,7);
+    assert.equal(navigationRequests()[0].payload.prompt,undefined);
+    const denied=await h.requestHostNavigationPermit('https://chatgpt.com/c/another-route',task,{reason:'route-switch'});
+    assert.equal(denied.granted,false);
+    assert.equal(denied.reason,'local-cooldown');
+    assert.ok(Number(denied.retryAfterMs)>=29000);
+    assert.equal(navigationRequests().length,1);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('root dispatch navigation tickets are bound to the current review generation',async()=>{
+  const {h,dom}=await fixture();
+  const task={id:'review-dispatch',ownerTabId:h.getTabId(),phase:'review',round:3,goalRevision:9,state:'queued',url:'',attempted:false,messages:[]};
+  h.data.tasks.push(task);
+  const ticket={task:task.id,path:'/',href:'https://chatgpt.com/',resume:true,direct:true,purpose:'dispatch',phase:'review',round:3,goalRevision:9};
+  assert.equal(h.validNavigationTicket(ticket),true);
+  assert.equal(h.validNavigationTicket({...ticket,goalRevision:8}),false);
+  assert.equal(h.validNavigationTicket({...ticket,phase:'work'}),false);
+  assert.equal(h.validNavigationTicket({...ticket,task:'other'}),false);
   dom.window.close();
 });
 
