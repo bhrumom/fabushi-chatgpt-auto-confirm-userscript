@@ -23,8 +23,8 @@ test('completion requires own final turn, stop absent, no approval and stable co
   assert.equal(h.classify({...sample,stop:true},previous,6000).state,'generating');
   assert.equal(h.classify({...sample,cards:1},previous,6000).state,'approval');
   assert.equal(h.classify({...sample,final:false},previous,6000).state,'waiting');
-  assert.equal(h.classify({...sample,owned:false},previous,6000).state,'blocked');
-  assert.equal(h.classify({...sample,owned:false,cards:1},previous,6000).state,'blocked');
+  assert.equal(h.classify({...sample,owned:false},previous,6000).state,'waiting');
+  assert.equal(h.classify({...sample,owned:false,cards:1},previous,6000).state,'waiting','approval from another task must not cross the task boundary');
   assert.equal(h.classify(sample,{...previous,clear:false},6000).state,'waiting');
   assert.equal(h.classify({...sample,final:false},previous,96000).state,'waiting');
   assert.equal(h.classify({...sample,final:false},previous,301000).state,'no-final-reply');
