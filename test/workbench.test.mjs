@@ -1554,7 +1554,7 @@ test('host navigation guard grants one redacted route switch and then enforces a
   assert.equal(requests[0].payload.taskId,'guard-task');
   assert.equal(requests[0].payload.phase,'review');
   assert.equal(requests[0].payload.round,2);
-  assert.equal(requests[0].payload.goalRevision,undefined);
+  assert.equal(requests[0].payload.goalRevision,7);
   assert.equal(requests[0].payload.prompt,undefined);
   const denied=await h.requestHostNavigationPermit('https://chatgpt.com/c/another-route',task,{reason:'route-switch'});
   assert.equal(denied.granted,false);
