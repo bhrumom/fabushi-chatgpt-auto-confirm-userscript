@@ -471,6 +471,7 @@ test('the new route is the only link captured once this task marker appears',asy
   await h.start();
   const pending=h.send(task,null);
   await pending;
+  await new Promise(resolve=>setTimeout(resolve,400));
   h.pause();
   assert.equal(task.url,`https://chatgpt.com/c/new-route-${task.id}`);
   assert.deepEqual(Array.from(task.sessionUrls),[`https://chatgpt.com/c/new-route-${task.id}`]);
@@ -577,7 +578,7 @@ test('continue button starts a paused task instead of restoring a terminal block
   Object.assign(paused,{state:'paused',pausedState:'blocked',phase:'work',round:1,url:'https://chatgpt.com/c/continue',token:'owner'});
   h.data.autoResume=false;
   h.log(paused,'已暂停');
-  const button=[...w.document.querySelectorAll('header button')].find(node=>node.textContent==='继续');
+  const button=[...w.document.querySelectorAll('header button')].find(node=>node.textContent.includes('继续'));
   assert.ok(button);
   button.click();
   await new Promise(resolve=>setTimeout(resolve,20));
@@ -940,7 +941,9 @@ test('open control is a native link bound to the selected task exact conversatio
   link.onclick({preventDefault(){prevented=true;}});
   assert.equal(prevented,false);
   assert.equal(link.href,newTask.url,'click cannot be retargeted to a stale task URL');
-  assert.equal(h.data.autoResume,false,'manual open creates a durable scheduler pause barrier');
+  assert.equal(h.data.autoResume,true,'manual open pauses only the selected task');
+  assert.equal(oldTask.state,'queued','manual open leaves unrelated tasks runnable');
+  assert.equal(newTask.state,'paused','manual open pauses the selected task before navigation');
   assert.equal(w.sessionStorage.getItem('fabushi-workbench-navigation-v2'),null,'stale navigation ticket is discarded');
   assert.equal(oldTask.url,'https://chatgpt.com/c/old-conversation');
   assert.equal(newTask.url,'https://chatgpt.com/c/new-conversation');
@@ -1055,6 +1058,89 @@ test('completed, cancelled, and paused tasks can be deleted while live tasks are
   assert.equal(h.data.tasks.map(task=>task.id).join(','),'live');
   assert.equal(h.data.selected,'live');
   dom.window.close();
+});
+test('task rows expose isolated pause, details, cancel, and delete controls',async()=>{
+  const {h,w,dom}=await fixture();
+  const first=h.enqueue('first task detail','goal');
+  const second=h.enqueue('second task remains','once');
+  const rowFor=task=>w.document.querySelector(`[data-task-id="${task.id}"]`);
+  const action=(row,label)=>[...row.querySelectorAll('.task-action')].find(button=>button.textContent===label);
+  [...w.document.querySelectorAll('header button')].find(button=>button.textContent==='设置').click();
+  assert.ok([...w.document.querySelectorAll('.settings button')].some(button=>/^(暂停|继续)全部任务$/.test(button.textContent)),'the global pause action is explicit and separate');
+
+  assert.ok(action(rowFor(first),'详情'),'each task exposes a details action');
+  assert.ok(action(rowFor(first),'暂停'),'a runnable task exposes a pause action');
+  assert.equal(action(rowFor(first),'删除').disabled,true,'a live task cannot be deleted before it is stopped');
+  action(rowFor(first),'暂停').click();
+  assert.equal(first.state,'paused');
+  assert.equal(first.pausedState,'queued');
+  assert.equal(second.state,'queued','pausing one task leaves its sibling queued');
+  assert.equal(h.data.autoResume,true,'a task pause does not activate the global pause barrier');
+  assert.ok(action(rowFor(first),'继续'),'a paused task exposes a task-level continue action');
+  assert.equal(action(rowFor(first),'删除').disabled,false,'a paused task can be deleted');
+
+  action(rowFor(first),'详情').click();
+  assert.equal(h.data.selected,first.id);
+  assert.match(w.document.querySelector('.feed').textContent,/first task detail/,'details action selects the task feed');
+
+  action(rowFor(second),'详情').click();
+  const cancel=[...w.document.querySelectorAll('.feed button')].find(button=>button.textContent==='取消此任务');
+  assert.ok(cancel);
+  cancel.click();
+  assert.equal(second.state,'cancelled');
+  assert.equal(first.state,'paused','cancelling one task leaves the other paused');
+  assert.equal(h.data.autoResume,true,'cancelling one task does not activate the global pause barrier');
+
+  action(rowFor(first),'删除').click();
+  assert.equal(h.data.tasks.map(task=>task.id).join(','),second.id,'deleting one task leaves the sibling record');
+  dom.window.close();
+});
+test('continuing one paused task does not restore another paused task',async()=>{
+  const {h,w,dom}=await fixture();
+  const first=h.enqueue('resume only this task','goal');
+  const second=h.enqueue('keep this task paused','goal');
+  Object.assign(first,{state:'paused',pausedState:'queued'});
+  Object.assign(second,{state:'paused',pausedState:'waiting',url:'https://chatgpt.com/c/keep-paused',token:'keep-paused'});
+  h.log(second,'第二个任务保持暂停');
+  const rowFor=task=>w.document.querySelector(`[data-task-id="${task.id}"]`);
+  const action=(row,label)=>[...row.querySelectorAll('.task-action')].find(button=>button.textContent===label);
+  assert.ok(action(rowFor(first),'继续'));
+  action(rowFor(first),'继续').click();
+  await new Promise(resolve=>setTimeout(resolve,20));
+  try {
+    assert.notEqual(first.state,'paused','the selected task resumes');
+    assert.equal(second.state,'paused','the sibling task remains paused');
+    assert.equal(h.data.autoResume,true,'single-task continue does not restore the global barrier');
+  } finally {
+    h.pause();
+    dom.window.close();
+  }
+});
+test('header pause targets the selected task and settings owns the global pause',async()=>{
+  const {h,w,dom}=await fixture();
+  const first=h.enqueue('selected task','once');
+  const second=h.enqueue('sibling task','once');
+  const rowFor=task=>w.document.querySelector(`[data-task-id="${task.id}"]`);
+  [...rowFor(first).querySelectorAll('.task-action')].find(button=>button.textContent==='详情').click();
+  await h.start();
+  try {
+    const headerPause=[...w.document.querySelectorAll('header button')].find(button=>button.textContent==='暂停当前任务');
+    assert.ok(headerPause,'the running header exposes a task-level pause');
+    headerPause.click();
+    assert.equal(first.state,'paused');
+    assert.equal(second.state,'queued','the header action leaves the sibling task runnable');
+    assert.equal(h.data.autoResume,true);
+
+    [...w.document.querySelectorAll('header button')].find(button=>button.textContent==='设置').click();
+    const globalPause=[...w.document.querySelectorAll('.settings button')].find(button=>button.textContent==='暂停全部任务');
+    assert.ok(globalPause);
+    globalPause.click();
+    assert.equal(h.data.autoResume,false);
+    assert.equal(second.state,'paused','the explicit global action pauses the remaining task');
+  } finally {
+    h.pause();
+    dom.window.close();
+  }
 });
 test('same-route hydration waits without creating a navigation ticket',async()=>{
   const {h,w,dom}=await fixture('<main>ChatGPT is loading</main>');

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.20
+// @version      2.9.21
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息与可中断调度。
 // @updateURL    https://raw.githubusercontent.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/main/chatgpt-auto-confirm.user.js
 // @downloadURL  https://raw.githubusercontent.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/main/chatgpt-auto-confirm.user.js
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.20';
+  const VERSION = '2.9.21';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -1014,56 +1014,87 @@
     paint();
     return true;
   }
+  function restorePausedTask(task, revision = Number(data.controlRevision || 0), { global = false } = {}) {
+    if (!taskBelongsToTab(task) || task.state !== 'paused') return false;
+    // Only the current phase's URL is resumable. sessionUrl/sessionUrls and
+    // history intentionally retain evidence from earlier rounds; using
+    // those here would reopen a completed Work chat before dispatching the
+    // queued planner or next Work chat.
+    const knownURL = canonicalConversationURL(task.url);
+    const legacyBlocked = task.pausedState === 'blocked' && legacyNavigationFailureFor(task);
+    // `blocked` is a terminal display state, so restoring it verbatim makes
+    // the scheduler see no active task and call pause() again immediately.
+    // A blocked task with a durable URL can safely inspect that conversation;
+    // one without a URL must return to the queue and receive a fresh send.
+    const resumeState = legacyBlocked && knownURL
+      ? 'waiting'
+      : task.pausedState === 'blocked'
+        ? (knownURL && (task.token || task.attempted) ? 'waiting' : 'queued')
+        : (pausableStates.has(task.pausedState)
+          ? task.pausedState
+          : (task.url && task.token ? 'waiting' : 'queued'));
+    if (legacyBlocked && knownURL) {
+      task.url = knownURL;
+      task.attempted = false;
+    }
+    if (resumeState === 'queued') {
+      // A paused task that never obtained a real conversation URL has no
+      // safe send-confirmation route to resume. Drop the old click token so
+      // Continue can create exactly one fresh dispatch instead of entering
+      // the stale attempted-send branch forever.
+      task.url = '';
+      task.token = '';
+      task.attempted = false;
+      task.sendPrepared = false;
+      task.preparedPrompt = '';
+      task.dispatchOriginURL = '';
+      task.dispatchStartedAt = 0;
+    }
+    delete task.pausedState;
+    if (global) task.pauseRevision = revision;
+    task.state = resumeState;
+    task.updatedAt = Date.now();
+    log(task, legacyBlocked && knownURL
+      ? '已从旧记录恢复本轮会话链接；继续按链接监控，不等待侧栏。'
+      : global
+        ? '已恢复全部暂停任务，继续监控并按当前目标推进。'
+        : '已恢复当前任务，其他暂停任务保持暂停。');
+    return true;
+  }
   function restorePausedTasks(revision = Number(data.controlRevision || 0)) {
     let restored = false;
     for (const task of data.tasks) {
-      if (!taskBelongsToTab(task)) continue;
-      if (task.state !== 'paused') continue;
-      // Only the current phase's URL is resumable. sessionUrl/sessionUrls and
-      // history intentionally retain evidence from earlier rounds; using
-      // those here would reopen a completed Work chat before dispatching the
-      // queued planner or next Work chat.
-      const knownURL = canonicalConversationURL(task.url);
-      const legacyBlocked = task.pausedState === 'blocked' && legacyNavigationFailureFor(task);
-      // `blocked` is a terminal display state, so restoring it verbatim makes
-      // the scheduler see no active task and call pause() again immediately.
-      // A blocked task with a durable URL can safely inspect that conversation;
-      // one without a URL must return to the queue and receive a fresh send.
-      const resumeState = legacyBlocked && knownURL
-        ? 'waiting'
-        : task.pausedState === 'blocked'
-          ? (knownURL && (task.token || task.attempted) ? 'waiting' : 'queued')
-          : (pausableStates.has(task.pausedState)
-            ? task.pausedState
-            : (task.url && task.token ? 'waiting' : 'queued'));
-      if (legacyBlocked && knownURL) {
-        task.url = knownURL;
-        task.attempted = false;
-      }
-      if (resumeState === 'queued') {
-        // A paused task that never obtained a real conversation URL has no
-        // safe send-confirmation route to resume. Drop the old click token so
-        // Continue can create exactly one fresh dispatch instead of entering
-        // the stale attempted-send branch forever.
-        task.url = '';
-        task.token = '';
-        task.attempted = false;
-        task.sendPrepared = false;
-        task.preparedPrompt = '';
-        task.dispatchOriginURL = '';
-        task.dispatchStartedAt = 0;
-      }
-      delete task.pausedState;
-      task.pauseRevision = revision;
-      task.state = resumeState;
-      task.updatedAt = Date.now();
-      log(task, legacyBlocked && knownURL
-        ? '已从旧记录恢复本轮会话链接；继续按链接监控，不等待侧栏。'
-        : '已恢复暂停的任务，继续监控并按当前目标推进。');
-      restored = true;
+      if (restorePausedTask(task, revision, { global:true })) restored = true;
     }
     if (restored) save();
     return restored;
+  }
+
+  function pauseTask(task, message = '已暂停当前任务；其他任务继续运行。') {
+    if (!taskBelongsToTab(task) || terminal.has(task.state) || task.state === 'paused') return false;
+    task.pausedState = task.state;
+    task.state = 'paused';
+    task.updatedAt = Date.now();
+    log(task, message);
+    // Keep the current task id until its in-flight operation reaches the next
+    // check(). This lets the operation stop without aborting the whole queue;
+    // the next scheduler tick will select another runnable task.
+    save();
+    paint();
+    if (running) schedule(100);
+    return true;
+  }
+
+  function cancelTask(task) {
+    if (!taskBelongsToTab(task) || terminal.has(task.state)) return false;
+    if (task.state !== 'paused') task.pausedState = task.state;
+    task.state = 'cancelled';
+    task.updatedAt = Date.now();
+    log(task, '已取消当前任务；其他任务继续运行。');
+    save();
+    paint();
+    if (running) schedule(100);
+    return true;
   }
   function markTasksPaused(message = '已暂停；不会发送、导航或刷新，恢复后从当前目标继续。') {
     let changed = false;
@@ -1199,7 +1230,8 @@
     return recovered[0].id;
   }
   function check(signal = controller?.signal) {
-    if (!running || data.autoResume === false || signal?.aborted) throw new Error('已暂停');
+    const activeTask = data.tasks.find(task => task.id === current && taskBelongsToTab(task));
+    if (!running || data.autoResume === false || signal?.aborted || activeTask?.state === 'paused' || activeTask?.state === 'cancelled') throw new Error('已暂停');
   }
   function delay(ms, signal = controller?.signal) {
     return new Promise((resolve, reject) => {
@@ -1592,7 +1624,7 @@
     log(task, '已重置附件上传状态，重新尝试上传；确认附件出现前不会发送任务。');
     save();
     if (running) { schedule(100); return Promise.resolve(true); }
-    return start().then(() => true);
+    return start(false).then(() => true);
   }
   function stopButton() { return nodes('button[data-testid="stop-button"],button[aria-label*="Stop"],button[aria-label*="停止"]').find(visible); }
   function blocker() {
@@ -1895,7 +1927,8 @@
     }, ms);
   }
   function checkAuthorizationRun(signal, queueOwned) {
-    if (signal?.aborted || (queueOwned && !running)) throw new Error('已暂停');
+    const activeTask = data.tasks.find(task => task.id === current && taskBelongsToTab(task));
+    if (signal?.aborted || (queueOwned && !running) || activeTask?.state === 'paused' || activeTask?.state === 'cancelled') throw new Error('已暂停');
   }
   function activateControl(node) {
     const PointerCtor = window.PointerEvent || window.MouseEvent;
@@ -2733,13 +2766,13 @@
         }
       } else await inspect(task, signal);
     } catch (error) {
-      if (!signal.aborted && task) state(task, 'blocked', error.message);
+      if (!signal.aborted && task && task.state !== 'paused' && task.state !== 'cancelled') state(task, 'blocked', error.message);
     } finally {
       busy = false;
       if (!signal.aborted) schedule(document.hidden ? Math.max(4000, nextScheduleMs) : nextScheduleMs);
     }
   }
-  async function start() {
+  async function start(restorePaused = true) {
     if (running || busy) return;
     if (!navigator.locks) throw new Error('浏览器不支持单标签互斥锁，无法安全启动。');
     await new Promise((resolve, reject) => {
@@ -2750,7 +2783,7 @@
         data.controlRevision = nextRevision;
         data.autoResume = true;
         data.pausedAt = 0;
-        restorePausedTasks(nextRevision);
+        if (restorePaused) restorePausedTasks(nextRevision);
         save();
         if (data.autoResume === false) { haltRunnerForPause(); resolve(); return; }
         running = true; controller = new AbortController();
@@ -2763,7 +2796,7 @@
     if (!taskId) return;
     autoStartTaskId = taskId;
     clearTimeout(autoStartTimer); autoStartTimer = null;
-    start().then(() => {
+    start(false).then(() => {
       if (autoStartTaskId === taskId) autoStartTaskId = '';
     }).catch(error => {
       if (autoStartTaskId !== taskId) return;
@@ -2846,7 +2879,7 @@
     data.autoResume = true;
     save();
     if (running) { schedule(100); return Promise.resolve(true); }
-    return start().then(() => true);
+    return start(false).then(() => true);
   }
   function prepareTaskForRecovery(task, { automatic = false } = {}) {
     if (!taskBelongsToTab(task) || !task || terminal.has(task.state) && task.state !== 'blocked') return false;
@@ -2921,7 +2954,19 @@
   }
   function resumeTask(task) {
     if (!taskBelongsToTab(task) || !task || task.state === 'done') return Promise.resolve(false);
-    if (task.state === 'cancelled') {
+    if (task.state === 'paused') {
+      // A task may be resumed individually even when the old global pause
+      // barrier is still persisted. Advance that barrier before the helper's
+      // log/save call, otherwise the stale global pause would immediately
+      // rewrite this task back to `paused`.
+      if (data.autoResume === false) {
+        const stored = read(KEY, null);
+        data.controlRevision = Math.max(Number(data.controlRevision || 0), Number(stored?.tabControls?.[tabId]?.controlRevision || 0)) + 1;
+        data.autoResume = true;
+        data.pausedAt = 0;
+      }
+      if (!restorePausedTask(task, Number(data.controlRevision || 0), { global:false })) return Promise.resolve(false);
+    } else if (task.state === 'cancelled') {
       if (!restoreCancelledTask(task)) return Promise.resolve(false);
     } else if (task.state === 'blocked') {
       if (!prepareTaskForRecovery(task)) return Promise.resolve(false);
@@ -2933,7 +2978,7 @@
     lastSwitch = Date.now();
     save();
     if (running) { schedule(100); return Promise.resolve(true); }
-    return start().then(() => true);
+    return start(false).then(() => true);
   }
   function deleteTask(task) {
     // Deletion is deliberately limited to tasks that can no longer dispatch a
@@ -2968,10 +3013,9 @@
     selected = task.id;
     current = task.id;
     lastSwitch = Date.now();
-    // Opening a conversation is a manual inspection action. Persist a real
-    // pause barrier before the document changes so neither this document nor
-    // another ChatGPT tab can rotate the browser back to an older task URL.
-    pause(true);
+    // Opening a conversation is a manual inspection action. Pause only this
+    // task before the document changes; unrelated tasks must keep running.
+    pauseTask(task, '已暂停当前任务，正在打开已记录会话；其他任务继续运行。');
     sessionStorage.removeItem(NAV);
     return target;
   }
@@ -3088,19 +3132,30 @@
       #${ROOT} .attachment-preview img{display:block;width:100px;height:72px;object-fit:contain;border-radius:6px;background:#111}
       #${ROOT} .attachment-preview video{display:block;width:140px;height:80px;object-fit:contain;border-radius:6px;background:#111}
       #${ROOT} .attachment-preview .attachment-chip{min-width:0}
+      #${ROOT} .task-row{display:flex;align-items:stretch;gap:5px;padding:5px;margin:0 0 4px;background:#202020}
+      #${ROOT} .task-row.selected{background:#2a2a2a}
+      #${ROOT} aside .task-select{flex:1;min-width:0;width:auto;padding:3px 5px;border-color:transparent;background:transparent;text-align:left}
+      #${ROOT} aside .task-select:hover{background:#303030}
+      #${ROOT} .task-row.readonly .task-select{cursor:default}
+      #${ROOT} .task-row-actions{display:flex;align-items:center;gap:3px;flex-shrink:0}
+      #${ROOT} aside .task-row-actions button.task-action{width:auto;padding:4px 6px;font-size:11px;white-space:nowrap}
+      #${ROOT} aside .task-row-actions button.task-action.danger{color:#ffaaaa}
+      #${ROOT} aside .task-row-actions button.task-action:disabled{color:#999}
+      #${ROOT} .pause-all{margin-top:10px}
     `;
     const desk = element('section', '', 'desk'); desk.setAttribute('aria-label','Fabushi 任务工作台');
     const sidebar = element('aside'), list = element('div'); sidebar.append(element('h3','Fabushi'), list);
     const chat = element('div','','chat'), head = element('header'), heading = element('strong','任务工作台');
     const editGoalButton = element('button','编辑目标');
-    const settingsButton = element('button','设置'), pauseButton = element('button','暂停'), close = element('button','×'); close.setAttribute('aria-label','收起任务工作台');
+    const settingsButton = element('button','设置'), pauseButton = element('button','暂停当前任务'), close = element('button','×'); close.setAttribute('aria-label','收起任务工作台');
     head.append(heading,editGoalButton,settingsButton,pauseButton,close);
     const settings = element('div','','settings');
     const globalApproval = element('input'); globalApproval.type='checkbox'; globalApproval.checked=data.globalAutoApprove;
     const globalApprovalLabel = element('label');
     globalApprovalLabel.append(globalApproval,document.createTextNode('在当前标签页的会话中自动处理授权卡'));
+    const globalPauseButton = element('button','暂停全部任务','pause-all'); globalPauseButton.type='button';
     chat.append(head);
-    settings.append(globalApprovalLabel,element('small','仅展开“允许”旁的菜单并选择“允许本次会话”；不会选择永久授权。'));
+    settings.append(globalApprovalLabel,globalPauseButton,element('small','仅展开“允许”旁的菜单并选择“允许本次会话”；不会选择永久授权。'));
     const feed = element('div','','feed'); feed.setAttribute('role','log'); feed.setAttribute('aria-live','polite');
     const notice = element('div','单标签页 · 已暂停','notice');
     const compose = element('form','','compose'), input = element('textarea'); input.placeholder = '输入任务目标，可直接粘贴图片或视频…'; input.setAttribute('aria-label','任务目标');
@@ -3199,23 +3254,42 @@
       const task=data.tasks.find(item=>item.id===selected && taskBelongsToTab(item));
       heading.textContent=task ? (task.mode==='goal'?'持续目标':'单次任务')+' · '+statusNames[task.state] : '任务工作台';
       editGoalButton.disabled=!task || task.state==='done';
-      notice.textContent=`当前标签页工作区 · ${running?`监督中，${tabTasks().filter(item=>!terminal.has(item.state)&&item.state!=='paused').length>1?`多个本页任务每 ${Math.round(SUPERVISION_INTERVAL_MS / 1000)} 秒轮换`:'单任务停留在当前会话'}；发送/授权独占`:'已暂停，自动操作已停止'} · 扫描 ${measurements.scans} 次，平均 ${(measurements.totalScanMs / Math.max(1, measurements.scans)).toFixed(1)} ms`;
-      pauseButton.textContent=(task?.state==='cancelled'||task?.state==='blocked')?'恢复任务':(running?'暂停':'继续');
+      const runnableCount=tabTasks().filter(item=>!terminal.has(item.state)&&item.state!=='paused').length;
+      notice.textContent=`当前标签页工作区 · ${running?`监督中，${runnableCount>1?`多个本页任务每 ${Math.round(SUPERVISION_INTERVAL_MS / 1000)} 秒轮换`:'按当前任务推进'}；任务可单独暂停/继续`:'已暂停，自动操作已停止'} · 扫描 ${measurements.scans} 次，平均 ${(measurements.totalScanMs / Math.max(1, measurements.scans)).toFixed(1)} ms`;
+      pauseButton.textContent=task?.state==='paused'?'继续当前任务':(task?.state==='cancelled'||task?.state==='blocked')?'恢复任务':task&&!terminal.has(task.state)?(running?'暂停当前任务':'继续当前任务'):running?'暂停全部':'继续全部';
+      globalPauseButton.textContent=running?'暂停全部任务':'继续全部任务';
+      globalPauseButton.disabled=tabTasks().length===0;
       list.replaceChildren();
       const fresh=element('button','＋ 新任务'); fresh.onclick=()=>{selected='';clearSelectedFiles();save();input.focus();}; list.append(fresh);
       const appendTaskRow=(group,item,interactive=true)=>{
-        const row=element(interactive?'button':'div','',`task-row${item.id===selected&&interactive?' selected':''}${interactive?'':' readonly'}`);
+        const row=element('div','',`task-row${item.id===selected&&interactive?' selected':''}${interactive?'':' readonly'}`);
         row.dataset.taskId=item.id; row.dataset.taskState=item.state;
-        row.append(element('span',item.goal.slice(0,34),'task-name'));
+        const selectControl=element(interactive?'button':'div','','task-select');
+        if(interactive){selectControl.type='button';selectControl.setAttribute('aria-label',`查看任务详情：${item.goal.slice(0,80)}`);selectControl.onclick=()=>{selected=item.id;save();};}
+        selectControl.append(element('span',item.goal.slice(0,34),'task-name'));
         const meta=element('span','','task-meta');
         if(item.id===current&&running)meta.append(element('span','●','run-indicator'));
         const badge=element('span',statusNames[item.state]||item.state,'state-badge');badge.dataset.state=item.state;
         meta.append(badge,document.createTextNode(`第 ${item.round} 轮`));
         if (taskAttachments(item).length) meta.append(document.createTextNode(` · 📎 ${taskAttachments(item).length}`));
-        row.append(meta);
         const recoveryRemaining = Number(item.noFinalReplyRecoveryUntil || 0) - Date.now();
         if (recoveryRemaining > 0) meta.append(document.createTextNode(' · 异常恢复约 '+Math.ceil(recoveryRemaining / 60000)+' 分钟'));
-        if(interactive)row.onclick=()=>{selected=item.id;save();};
+        selectControl.append(meta); row.append(selectControl);
+        if(interactive){
+          const actions=element('div','','task-row-actions');
+          const details=element('button','详情','task-action'); details.type='button'; details.title='查看任务详情'; details.onclick=event=>{event.stopPropagation();selected=item.id;save();}; actions.append(details);
+          if(item.state==='paused'){
+            const resume=element('button','继续','task-action'); resume.type='button'; resume.title='只继续此任务'; resume.onclick=event=>{event.stopPropagation();resumeTask(item).catch(showError);}; actions.append(resume);
+          } else if(item.state==='blocked'||item.state==='cancelled'){
+            const resume=element('button','恢复','task-action'); resume.type='button'; resume.title='只恢复此任务'; resume.onclick=event=>{event.stopPropagation();resumeTask(item).catch(showError);}; actions.append(resume);
+          } else if(!terminal.has(item.state)){
+            const pauseControl=element('button','暂停','task-action'); pauseControl.type='button'; pauseControl.title='只暂停此任务，其他任务继续'; pauseControl.onclick=event=>{event.stopPropagation();pauseTask(item);}; actions.append(pauseControl);
+          }
+          const removable=terminal.has(item.state)||item.state==='paused';
+          const remove=element('button','删除','task-action danger'); remove.type='button'; remove.disabled=!removable; remove.title=removable?'删除此任务及其本地附件':'请先暂停或取消此任务，再删除';
+          if(removable)remove.onclick=event=>{event.stopPropagation();deleteTask(item);};
+          actions.append(remove); row.append(actions);
+        }
         group.append(row);
       };
       const currentTasks=tabTasks();
@@ -3276,15 +3350,17 @@
         recoverButton.onclick=()=>resumeTask(task).catch(showError);
         feed.append(recoverButton);
       }
-      if(task && !terminal.has(task.state)){const cancel=element('button','取消此任务');cancel.onclick=()=>{pause();state(task,'cancelled');};feed.append(cancel);}
-      if(task && (terminal.has(task.state) || task.state === 'paused')){const remove=element('button','删除此任务');remove.onclick=()=>deleteTask(task);feed.append(remove);}
+      if(task?.state==='paused'){const resume=element('button','继续此任务');resume.onclick=()=>resumeTask(task).catch(showError);feed.append(resume);}
+      if(task && !terminal.has(task.state) && task.state !== 'paused'){const cancel=element('button','取消此任务');cancel.onclick=()=>cancelTask(task);feed.append(cancel);}
+      if(task){const removable=terminal.has(task.state)||task.state==='paused';const remove=element('button','删除此任务');remove.disabled=!removable;remove.title=removable?'删除此任务及其本地附件':'请先暂停或取消此任务，再删除';if(removable)remove.onclick=()=>deleteTask(task);feed.append(remove);}
       if(nearBottom)feed.scrollTop=feed.scrollHeight;
     };
     function showError(error){notice.textContent=error.message;}
     launch.onclick=()=>{desk.classList.toggle('open');paint();};close.onclick=()=>desk.classList.remove('open');
     editGoalButton.onclick=()=>{const task=data.tasks.find(item=>item.id===selected&&taskBelongsToTab(item));if(!task)return;const value=window.prompt('编辑任务目标',task.goal||'');if(value!==null)editGoal(task,value);};
     settingsButton.onclick=()=>settings.classList.toggle('open');
-    pauseButton.onclick=()=>{const task=data.tasks.find(item=>item.id===selected&&taskBelongsToTab(item));if(task?.state==='cancelled'||task?.state==='blocked')resumeTask(task).catch(showError);else if(running)pause(true);else{if(task&&!terminal.has(task.state)){current=task.id;lastSwitch=Date.now();}start().catch(showError);}};
+    pauseButton.onclick=()=>{const task=data.tasks.find(item=>item.id===selected&&taskBelongsToTab(item));if(task?.state==='paused'||task?.state==='cancelled'||task?.state==='blocked')resumeTask(task).catch(showError);else if(task&&!terminal.has(task.state)){if(running)pauseTask(task);else{current=task.id;lastSwitch=Date.now();start(false).catch(showError);}}else if(running)pause(true);else start(true).catch(showError);};
+    globalPauseButton.onclick=()=>{if(running)pause(true);else start(true).catch(showError);};
     globalApproval.onchange=()=>setGlobalAutoApprove(globalApproval.checked);
     auto.onchange=()=>{data.autoApprove=auto.checked;save();}; select.onchange=()=>{mode=select.value;};
     let submitting=false;
@@ -3308,7 +3384,7 @@
           }
         }
         input.value=''; clearSelectedFiles();
-        await start();
+        await start(false);
       } catch(error) { showError(error); }
       finally { submitting=false; submit.disabled=false; }
     };
