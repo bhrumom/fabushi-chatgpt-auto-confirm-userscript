@@ -1,8 +1,8 @@
-# Fabushi 独立油猴工作台 2.9.24
+# Fabushi 独立油猴工作台 2.9.25
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.24`。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.25`。
 
 ## 使用
 
@@ -159,3 +159,10 @@
 ### 2.9.23 宿主更新契约清理
 
 移除 `@updateURL` / `@downloadURL` 远程自更新元数据。脚本版本由 Fabushi 的已校验安装/宿主链路管理，避免用户脚本绕过宿主版本和来源校验。
+
+
+### 2.9.25 最终回复闭环与下一轮派发
+
+- 兼容 ChatGPT 在页面轮换/恢复后把 `data-is-streaming="false"` 放到 markdown 内容节点、或放到没有旧版 message/turn id 的会话包装节点；这些节点已经绑定到最后一条用户消息之后的 assistant 回复，因此不再因缺少旧 ID 把已结束回复留在“等待响应”。
+- 最终标记在之前的加载/生成观察之后出现时，单独记录最终状态并稳定 4 秒确认，不再要求上一轮观察也必须是“clear”；确认后按 `等待响应 → 等待派发 → 新会话` 转换。
+- “等待派发”是已确认结束后的跨会话安全节流（当前为 60 秒），用于避免多任务轮换造成连续导航、重复点击和 renderer 崩溃；它不是最终回复识别失败。没有安全节流时不会等待，已有会话仍按监督时间片轮换检查。
