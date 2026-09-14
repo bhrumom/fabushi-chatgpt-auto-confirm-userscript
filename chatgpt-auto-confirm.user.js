@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.27
+// @version      2.9.28
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -14,7 +14,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.27';
+  const VERSION = '2.9.28';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -1249,10 +1249,14 @@
     return parsed && !parsed.synthetic ? parsed.href : '';
   }
   function currentConversationURL() { return canonicalConversationURL(location.href); }
-  function hasTaskMarker(task) {
-    if (!task?.token) return false;
+  function taskMarkerUser(task) {
+    if (!task?.token) return null;
     const marker = `[Fabushi:${task.token}]`;
-    return nodes('[data-message-author-role=user]').some(node => text(node).includes(marker));
+    return nodes('[data-message-author-role=user]').slice().reverse()
+      .find(node => text(node).includes(marker)) || null;
+  }
+  function hasTaskMarker(task) {
+    return Boolean(taskMarkerUser(task));
   }
   function recordedConversationURL(task) {
     const candidates = [
@@ -2259,9 +2263,29 @@
     save();
     return Math.max(1, cooldownUntil - Date.now());
   }
-  function latestTurn() {
+  function latestTurn(task = null) {
     const users = nodes('[data-message-author-role=user]');
-    const user = users.at(-1);
+    const scoped = Boolean(task && typeof task === 'object');
+    const markedUser = scoped ? taskMarkerUser(task) : null;
+    const user = scoped ? markedUser : users.at(-1);
+    // A task marker is necessary but not sufficient: if another user turn is
+    // newer in the DOM, the assistant response after the marker belongs to a
+    // different turn (or to another task left behind during route rotation).
+    // Fail closed instead of allowing the global "last assistant" heuristic
+    // to attribute that response to the current task.
+    const owned = !scoped || Boolean(user && user === users.at(-1));
+    if (scoped && !owned) {
+      return {
+        user: text(user),
+        text: '',
+        final: false,
+        owned: false,
+        responseActions: [],
+        responseActionsComplete: false,
+        explicitFinal: false,
+        article: null,
+      };
+    }
     const replies = nodes('[data-message-author-role=assistant]').filter(node => !user || Boolean(user.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING));
     const assistant = replies.at(-1);
     const article = assistant?.closest('article,[data-testid^="conversation-turn-"],[data-turn-key],[data-content-search-turn-key]') || assistant;
@@ -2376,6 +2400,7 @@
       user: text(user),
       text: content,
       final: Boolean(content && (responseActionsComplete || explicitFinal) && !streaming),
+      owned,
       responseActions: [...responseActions],
       responseActionsComplete,
       explicitFinal,
@@ -2551,7 +2576,15 @@
     if (sample.rateLimit) return { state:'cooldown', reason:sample.rateLimit };
     const ignoredPageNotice = /ChatGPT 使用额度或访问频率受限|达到使用上限|usage limit|rate limit|too many requests|请求过于频繁|达到.*限额/i.test(String(sample.blocker || ''));
     if (sample.blocker && !ignoredPageNotice) return { state:'blocked', reason:sample.blocker };
-    if (!sample.owned) return { state:'blocked', reason:'当前会话最后一条用户消息不属于这轮任务，已停止发送。' };
+    if (sample.routeOwned === false || !sample.owned) {
+      const reason = sample.foreignTaskId
+        ? '当前页面仍显示另一个任务的消息；已暂停本轮读取，等待当前任务会话完成交接。'
+        : '当前任务的发送消息尚未完成渲染；已暂停本轮读取，避免误读其他任务。';
+      // A foreign task's spinner is not a reason to hold the scheduler on
+      // this task. Keep the task resumable and let the next supervision slice
+      // inspect the other task while this route finishes its own handoff.
+      return { state: sample.loading && !sample.foreignTaskId ? 'loading' : 'waiting', reason };
+    }
     if (sample.cards) return { state:'approval' };
     if (sample.stop) return { state:'generating' };
     if (sample.loading) return { state:'loading', reason:'ChatGPT 页面正在加载，等待会话内容完全渲染。' };
@@ -3161,32 +3194,67 @@
     // turn state to detect an abnormal end and recover in a fresh Chat.
     if (!await navigate(task.url, signal, task, false)) return;
     check(signal);
-    if (connectionInterruptedNotice()) {
+    const liveURL = currentConversationURL();
+    const taskURL = canonicalConversationURL(task.url);
+    if (!liveURL || !taskURL || liveURL !== taskURL) {
+      observations.delete(task.id);
+      state(task, 'waiting', '正在等待切换到当前任务会话；不会读取其他任务的页面内容。');
+      return;
+    }
+    const begin = performance.now(), turn = latestTurn(task), pending = cards();
+    const routeOwned = Boolean(liveURL && taskURL && liveURL === taskURL);
+    const foreignTask = tabTasks().find(item => item.id !== task.id && item.token && hasTaskMarker(item));
+    const pageBelongsToTask = routeOwned && (turn.owned || !foreignTask);
+    // Page-level error notices are only actionable after the current route is
+    // confirmed and either this task's marker is present or no other task
+    // marker is visible. During a rotation the old document can briefly retain
+    // another task's error banner; handling it before that check would consume
+    // this task's retry budget.
+    if (pageBelongsToTask && connectionInterruptedNotice()) {
       refreshInterruptedConversation(task);
       return;
     }
-    if (sendTimeoutNotice()) {
+    if (pageBelongsToTask && sendTimeoutNotice()) {
       queueNoFinalReplyRetry(task, '检测到“消息发送超时，请重试”');
       return;
     }
-    const begin = performance.now(), turn = latestTurn(), pending = cards();
     const sample = {
-      stop:Boolean(stopButton()),
-      cards:pending.length,
+      stop:turn.owned ? Boolean(stopButton()) : false,
+      cards:turn.owned ? pending.length : 0,
       loading:Boolean(pageLoadingState()),
       blocker:blocker(),
       rateLimit:rateLimitNotice(),
-      // The exact /c/<id> route is the primary identity. The marker remains a
-      // useful send/completion signal, but an older task must still recover
-      // when its turn is not currently rendered in the DOM.
-      owned:Boolean(taskMatchesCurrentConversation(task) || hasTaskMarker(task)),
+      // A matching URL is only the route boundary. The task marker on the
+      // latest user turn is the message boundary; both are required before
+      // reading Stop, approval cards, or an assistant reply.
+      routeOwned,
+      owned:Boolean(routeOwned && turn.owned),
+      foreignTaskId:routeOwned && !turn.owned ? (foreignTask?.id || '') : '',
       text:turn.text,
       final:turn.final,
       sentAt:task.sentAt,
     };
     const previous = observations.get(task.id);
-    const result = classify(sample, previous, Date.now());
     const now = Date.now();
+    const identityMismatchSince = sample.routeOwned && !sample.owned
+      ? (previous?.identityMismatchSince || now)
+      : 0;
+    if (identityMismatchSince && now - identityMismatchSince >= ROUTE_HYDRATION_TIMEOUT_MS) {
+      let target;
+      try { target = safeURL(task.url); } catch { target = null; }
+      if (target && !task.rendererRecoveryExhausted) {
+        recoverStalledRoute(target, task);
+        observations.set(task.id, {
+          ...(previous || {}),
+          text:sample.text,
+          identityMismatchSince,
+          since:now,
+          clear:false,
+        });
+        return;
+      }
+    }
+    const result = classify(sample, previous, now);
     const clear = !sample.stop && !sample.cards && !sample.loading;
     const stable = previous?.text === sample.text && previous?.clear && clear;
     const endedAt = abnormalEndSince(sample, previous, now);
@@ -3203,6 +3271,7 @@
       stop:Boolean(sample.stop),
       loading:Boolean(sample.loading),
       clear,
+      identityMismatchSince,
     });
     measurements.scans++; measurements.totalScanMs += performance.now() - begin;
     if (sample.owned && task.preview !== sample.text) {
@@ -3986,7 +4055,11 @@ NaN
     if(['pause_queue','stop'].includes(tool)){pause();return{running:false};}
     if(['start_queue','resume_queue'].includes(tool))return start();
     if(tool==='enqueue_tasks'){for(const task of args.tasks||[])enqueue(task.prompt||task.goal||'',task.mode||'once',task.attachments||[]);return tabTasks();}
-    if(tool==='get_reply')return latestTurn().text;
+    if(tool==='get_reply'){
+      const task = data.tasks.find(item => item.id === current && taskBelongsToTab(item))
+        || data.tasks.find(item => item.id === selected && taskBelongsToTab(item));
+      return task ? latestTurn(task).text : '';
+    }
     throw new Error('请通过新版任务输入框使用此功能。');
   }});
   mount();
