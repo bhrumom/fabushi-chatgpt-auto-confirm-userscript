@@ -6,7 +6,7 @@ import { JSDOM } from 'jsdom';
 const source = await fs.readFile(new URL('../chatgpt-auto-confirm.user.js', import.meta.url), 'utf8');
 const instrumentedSource = source.replace(
   '  mount();',
-  `  window.__fabushiFinalReplyTestHooks = Object.freeze({ latestTurn, classify, abnormalEndSince, finish, workPrompt, plannerPrompt });
+  `  window.__fabushiFinalReplyTestHooks = Object.freeze({ latestTurn, classify, abnormalEndSince, finish, workPrompt, plannerPrompt, inspect, data, start, pause });
   mount();`,
 );
 
@@ -174,6 +174,71 @@ test('a portaled action row must explicitly identify the latest assistant turn',
     const turn = hooks.latestTurn();
     assert.equal(turn.responseActionsComplete, true);
     assert.equal(turn.final, true);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('parallel task markers scope the latest turn and reject a newer foreign user turn', async () => {
+  const { dom, hooks } = await createHarness(`
+    <main>
+      <article data-testid="conversation-turn-user-a">
+        <div data-message-author-role="user">任务 A [Fabushi:token-a]</div>
+      </article>
+      <article data-testid="conversation-turn-assistant-a">
+        <div data-message-author-role="assistant">
+          <div class="markdown" data-is-streaming="false">A 的最终回复</div>
+        </div>
+      </article>
+      <article data-testid="conversation-turn-user-b">
+        <div data-message-author-role="user">任务 B [Fabushi:token-b]</div>
+      </article>
+      <article data-testid="conversation-turn-assistant-b">
+        <div data-message-author-role="assistant">
+          <div class="markdown" data-is-streaming="false">B 的最终回复</div>
+        </div>
+      </article>
+    </main>
+  `);
+  try {
+    const taskA = { id: 'task-a', token: 'token-a' };
+    const taskB = { id: 'task-b', token: 'token-b' };
+    assert.equal(hooks.latestTurn(taskB).text, 'B 的最终回复');
+    assert.equal(hooks.latestTurn(taskB).owned, true);
+    const staleA = hooks.latestTurn(taskA);
+    assert.equal(staleA.owned, false);
+    assert.equal(staleA.text, '');
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('parallel inspection never completes task A from task B response', async () => {
+  const { dom, window, hooks } = await createHarness(`
+    <main>
+      <article data-testid="conversation-turn-user">
+        <div data-message-author-role="user">任务 B [Fabushi:token-b]</div>
+      </article>
+      <article data-testid="conversation-turn-assistant">
+        <div data-message-author-role="assistant">
+          <div class="markdown" data-is-streaming="false">B 已经完成</div>
+        </div>
+      </article>
+    </main>
+  `);
+  try {
+    window.history.pushState({}, '', '/c/task-a');
+    const taskA = {
+      id: 'task-a', goal: 'A', mode: 'once', phase: 'work', round: 1,
+      state: 'waiting', url: 'https://chatgpt.com/c/task-a', token: 'token-a', messages: [],
+    };
+    hooks.data.tasks.push(taskA);
+    await hooks.start();
+    await hooks.inspect(taskA, null);
+    assert.equal(taskA.state, 'waiting');
+    assert.equal(taskA.preview || '', '');
+    assert.equal(taskA.messages.some(item => item.role === 'assistant'), false);
+    hooks.pause();
   } finally {
     dom.window.close();
   }
