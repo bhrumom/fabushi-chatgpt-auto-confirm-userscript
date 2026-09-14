@@ -12,7 +12,7 @@ async function fixture(body='', setup=()=>{}) {
   const held = new Set();
   w.navigator.locks = {query:async()=>({held:[...held].map(name=>({name}))}),request:async(name,options,callback)=>{callback ||= options;if(held.has(name))return callback(null);held.add(name);try{return await callback({name});}finally{held.delete(name);}}};
   setup(w);
-  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, connectionInterruptedNotice, refreshInterruptedConversation, classify, abnormalEndSince, pageLoadingState, conversationLoading, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, adoptUnboundAttemptedConversation, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, nextSupervisionTask, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, connectionInterruptedNotice, refreshInterruptedConversation, classify, abnormalEndSince, pageLoadingState, conversationLoading, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, adoptUnboundAttemptedConversation, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, nextSupervisionTask, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('completion requires own final turn, stop absent, no approval and stable completion evidence',async()=>{
@@ -1032,13 +1032,13 @@ test('editing a queued review skips the unsent stale planner immediately',async(
   assert.match(task.messages.at(-1).text,/尚未发送的旧验收已跳过/);
   dom.window.close();
 });
-test('message history is not truncated after eighty entries',async()=>{
+test('message history is bounded after eighty entries',async()=>{
   const {h,dom}=await fixture();
   const task={id:'history',goal:'keep history',messages:[],messageVersion:0};
   h.data.tasks.push(task);
   for(let index=0;index<120;index++) h.log(task,`记录 ${index}`);
-  assert.equal(task.messages.length,120);
-  assert.equal(task.messages[0].text,'记录 0');
+  assert.equal(task.messages.length,80);
+  assert.equal(task.messages[0].text,'记录 40');
   assert.equal(task.messages.at(-1).text,'记录 119');
   dom.window.close();
 });
@@ -1440,6 +1440,72 @@ test('explicit recovery can bind the current unique route even when it was the d
   assert.equal(task.attempted,false);
   assert.equal(task.token,'same-send-token');
   h.pause();
+  dom.window.close();
+});
+
+test('memory diagnostics identify a bounded JS heap estimate and pressure level',async()=>{
+  const gib = 1024 * 1024 * 1024;
+  const {h,w,dom}=await fixture('',window=>{
+    Object.defineProperty(window.performance,'memory',{configurable:true,value:{
+      usedJSHeapSize:1.8 * gib,
+      totalJSHeapSize:2.1 * gib,
+      jsHeapSizeLimit:4 * gib,
+    }});
+  });
+  const snapshot=h.readMemorySnapshot();
+  assert.equal(snapshot.supported,true);
+  assert.equal(snapshot.usedBytes,1.8 * gib);
+  assert.equal(h.memoryPressureLevel(snapshot),'high');
+  assert.match(h.memoryStatusText(),/网页 JS 堆估算/);
+  assert.match(h.memoryStatusText(),/高/);
+  await h.shutdown?.();
+  dom.window.close();
+});
+
+test('local memory cleanup bounds task logs without deleting task identity or attachments',async()=>{
+  const {h,dom}=await fixture();
+  const task=h.enqueue('保留这个目标','once',[{id:'attachment-1',name:'证据.png',type:'image/png',size:10,lastModified:1}]);
+  for(let index=0;index<140;index+=1) h.log(task,`${'x'.repeat(10000)}-${index}`,'status');
+  assert.ok(task.messages.length<=80);
+  assert.ok(task.messages.reduce((sum,item)=>sum+item.text.length,0)<=320000);
+  assert.equal(task.goal,'保留这个目标');
+  assert.equal(task.attachments[0].id,'attachment-1');
+  assert.match(task.messages.at(-1).text,/139$/);
+  const result=h.cleanupLocalMemory({reason:'test'});
+  assert.equal(result.skipped,false);
+  assert.equal(h.data.tasks.some(item=>item.id===task.id),true);
+  await h.shutdown?.();
+  dom.window.close();
+});
+
+test('manual memory cleanup asks the host with redacted bounded diagnostics',async()=>{
+  const requests=[];
+  const {h,w,dom}=await fixture('',window=>{
+    window.addEventListener('message',event=>{
+      if(event.data?.source!=='fabushi-userscript'||event.data?.type!=='tab-memory.request') return;
+      requests.push(event.data);
+      window.setTimeout(()=>window.dispatchEvent(new window.MessageEvent('message',{data:{
+        source:'fabushi-extension',
+        type:'tab-memory.response',
+        requestId:event.data.requestId,
+        ok:true,
+        result:{ok:true,discarded:false,reason:'active-tab'},
+      },source:window})),0);
+    });
+  });
+  const result=await h.requestHostMemoryCleanup({reason:'test-manual',userInitiated:true});
+  const request=requests.at(-1);
+  assert.ok(request);
+  assert.equal(request.pluginId,'chatgpt-auto-confirm');
+  assert.equal(request.payload.capability,'tab-memory-discard');
+  assert.equal(request.payload.reason,'test-manual');
+  assert.equal(request.payload.goal,undefined);
+  assert.equal(request.payload.prompt,undefined);
+  assert.equal(request.payload.file,undefined);
+  assert.equal(request.payload.token,undefined);
+  assert.equal(result.reason,'active-tab');
+  assert.equal(result.discarded,false);
+  await h.shutdown?.();
   dom.window.close();
 });
 

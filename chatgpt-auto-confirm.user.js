@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.21
-// @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息与可中断调度。
+// @version      2.9.22
+// @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @updateURL    https://raw.githubusercontent.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/main/chatgpt-auto-confirm.user.js
 // @downloadURL  https://raw.githubusercontent.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/main/chatgpt-auto-confirm.user.js
 // @match        https://chatgpt.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.21';
+  const VERSION = '2.9.22';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -108,8 +108,99 @@
   const HOST_RECOVERY_DENIED_TYPE = 'recovery-capability.denied';
   const HOST_RECOVERY_RENEW_MS = 30000;
   const HOST_RECOVERY_RESPONSE_TTL_MS = 10000;
+  // A userscript cannot read the renderer's RSS or force V8 to collect the
+  // whole ChatGPT page. It can, however, bound its own retained state and ask
+  // the MV3 host to discard this tab when Chrome exposes a safe opportunity.
+  const HOST_MEMORY_CAPABILITY = 'tab-memory-discard';
+  const HOST_MEMORY_REQUEST_TYPE = 'tab-memory.request';
+  const HOST_MEMORY_RESPONSE_TYPE = 'tab-memory.response';
+  const HOST_MEMORY_PLUGIN_ID = 'chatgpt-auto-confirm';
+  const MEMORY_MONITOR_INTERVAL_MS = 30000;
+  const MEMORY_PRESSURE_SAMPLES = 2;
+  const MEMORY_LOCAL_CLEANUP_COOLDOWN_MS = 60000;
+  const MEMORY_HOST_REQUEST_COOLDOWN_MS = 5 * 60 * 1000;
+  const MEMORY_HOST_RESPONSE_TTL_MS = 10000;
+  const MEMORY_SOFT_LIMIT_BYTES = 768 * 1024 * 1024;
+  const MEMORY_HARD_LIMIT_BYTES = 1536 * 1024 * 1024;
+  const MEMORY_RATIO_MIN_BYTES = 256 * 1024 * 1024;
+  const MEMORY_SOFT_RATIO = 0.5;
+  const MEMORY_HARD_RATIO = 0.7;
+  // Keep the durable workbench small even when a task runs for days. The
+  // current goal/result/attachment metadata remain separate fields and are
+  // never removed by this log compaction.
+  const MAX_TASK_MESSAGES = 80;
+  const MAX_TASK_MESSAGE_TEXT = 12000;
+  const MAX_TASK_MESSAGE_CHARS = 320000;
   const AUTO_RECOVERABLE_STATE_NAMES = new Set(['queued', 'sending', 'uploading', 'waiting', 'loading', 'generating', 'approval', 'reviewing']);
   const read = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key)) || fallback; } catch { return fallback; } };
+  const lifecycleController = typeof AbortController === 'function' ? new AbortController() : null;
+  const listen = (target, type, handler, options = {}) => {
+    if (lifecycleController) target.addEventListener(type, handler, { ...options, signal: lifecycleController.signal });
+    else target.addEventListener(type, handler, options);
+  };
+  function readMemorySnapshot() {
+    let memory;
+    try { memory = window.performance?.memory; } catch { memory = null; }
+    if (!memory) return { supported:false, source:'performance.memory', at:Date.now(), reason:'not-exposed' };
+    const usedBytes = Number(memory.usedJSHeapSize);
+    const totalBytes = Number(memory.totalJSHeapSize);
+    const limitBytes = Number(memory.jsHeapSizeLimit);
+    if (![usedBytes, totalBytes, limitBytes].every(value => Number.isFinite(value) && value >= 0)) {
+      return { supported:false, source:'performance.memory', at:Date.now(), reason:'invalid-snapshot' };
+    }
+    const ratio = limitBytes > 0 ? usedBytes / limitBytes : 0;
+    return {
+      supported:true,
+      source:'performance.memory',
+      at:Date.now(),
+      usedBytes,
+      totalBytes,
+      limitBytes,
+      ratio:Number.isFinite(ratio) ? ratio : 0,
+    };
+  }
+  function memoryPressureLevel(snapshot) {
+    if (!snapshot?.supported) return 'unsupported';
+    const used = Number(snapshot.usedBytes || 0);
+    const ratio = Number(snapshot.ratio || 0);
+    const ratioEligible = used >= MEMORY_RATIO_MIN_BYTES;
+    if (used >= MEMORY_HARD_LIMIT_BYTES || (ratioEligible && ratio >= MEMORY_HARD_RATIO)) return 'high';
+    if (used >= MEMORY_SOFT_LIMIT_BYTES || (ratioEligible && ratio >= MEMORY_SOFT_RATIO)) return 'elevated';
+    return 'normal';
+  }
+  function formatMemoryBytes(value) {
+    const bytes = Number(value || 0);
+    if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+    if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+    return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
+  }
+  function compactTaskMessages(task) {
+    if (!task || !Array.isArray(task.messages) || !task.messages.length) return false;
+    const original = task.messages;
+    const normalized = original.map(item => {
+      if (!item || typeof item !== 'object') return { at:Date.now(), role:'status', text:'' };
+      const text = String(item.text || '');
+      return { ...item, at:Number(item.at || Date.now()), role:String(item.role || 'status'), text:text.slice(0, MAX_TASK_MESSAGE_TEXT) };
+    });
+    let next = normalized.slice(-MAX_TASK_MESSAGES);
+    let total = 0;
+    const bounded = [];
+    for (let index = next.length - 1; index >= 0; index -= 1) {
+      const item = next[index];
+      const length = item.text.length;
+      if (bounded.length && total + length > MAX_TASK_MESSAGE_CHARS) break;
+      bounded.unshift(item);
+      total += length;
+    }
+    next = bounded.length ? bounded : normalized.slice(-1);
+    const changed = next.length !== original.length || next.some((item, index) => {
+      const previous = original[original.length - next.length + index];
+      return !previous || previous.text !== item.text || previous.at !== item.at || previous.role !== item.role;
+    });
+    if (changed) task.messages = next;
+    return changed;
+  }
   function normalizeAttachmentMeta(value) {
     if (!value || typeof value !== 'object') return null;
     const name = String(value.name || '').trim().slice(0, 240);
@@ -253,6 +344,7 @@
     task.attachments = Array.isArray(task.attachments)
       ? task.attachments.map(normalizeAttachmentMeta).filter(Boolean)
       : [];
+    compactTaskMessages(task);
   }
   if (typeof data.globalAutoApprove !== 'boolean') data.globalAutoApprove = false;
   let legacyOwner = localStorage.getItem(LEGACY_OWNER_KEY);
@@ -328,6 +420,17 @@
   let hostRecoveryLastHeartbeatAt = 0;
   let hostRecoveryReleaseSent = false;
   const hostRecoveryPending = new Map();
+  const hostMemoryPending = new Map();
+  let memoryMonitorTimer = null;
+  let memoryMonitorBusy = false;
+  let memoryPressureStreak = 0;
+  let memoryLastCleanupAt = 0;
+  let memoryLastHostRequestAt = 0;
+  let memorySnapshot = { supported:false, source:'performance.memory', at:0, reason:'not-sampled' };
+  let memoryPressure = 'unsupported';
+  let memoryLastAction = '';
+  let readTransientUIState = () => ({ hasDraft:false, hasFiles:false });
+  let releaseTransientUIResources = () => false;
   let attachmentDBPromise = null;
   const taskAttachments = task => Array.isArray(task?.attachments)
     ? task.attachments.filter(item => item && typeof item === 'object' && String(item.name || '').trim())
@@ -409,11 +512,183 @@
     hostRecoveryCapability = { status:'released', granted:false, expiresAt:0 };
     hostRecoveryLastHeartbeatAt = 0;
   }
-  window.addEventListener('message', event => {
+  function hasUnsavedComposerInput() {
+    const candidates = [...document.querySelectorAll('#prompt-textarea, textarea[data-id="root"], textarea[placeholder*="Message" i], div[contenteditable="true"]')];
+    return candidates.some(node => {
+      if (node.closest?.(`#${ROOT}`)) return false;
+      const value = 'value' in node ? node.value : node.textContent;
+      return String(value || '').trim().length > 0;
+    });
+  }
+  function memoryDiscardSafety() {
+    const transient = readTransientUIState();
+    const activeTask = tabTasks().find(task => !terminal.has(task.state) && task.state !== 'paused');
+    const taskInFlight = tabTasks().some(task => taskHoldsScheduler(task)
+      || ['sending','uploading','loading','approval'].includes(String(task.state || '')));
+    const hasDraft = Boolean(transient.hasDraft || hasUnsavedComposerInput());
+    const hasPendingAttachment = Boolean(transient.hasFiles || tabTasks().some(task => task.attachmentUploadPending));
+    const safe = !busy && !navigating && !hasDraft && !hasPendingAttachment && !taskInFlight;
+    return {
+      safe,
+      hidden: document.visibilityState === 'hidden',
+      hasDraft,
+      hasPendingAttachment,
+      activeTaskId:activeTask?.id || '',
+    };
+  }
+  function cleanupLocalMemory({ reason = 'memory-pressure' } = {}) {
+    const now = Date.now();
+    if (now - memoryLastCleanupAt < MEMORY_LOCAL_CLEANUP_COOLDOWN_MS) {
+      return { changed:false, skipped:true, reason:'cooldown' };
+    }
+    let changed = false;
+    for (const task of data.tasks) if (compactTaskMessages(task)) changed = true;
+    for (const [taskId] of observations) {
+      const task = data.tasks.find(item => item.id === taskId);
+      if (!task || taskId !== current) {
+        observations.delete(taskId);
+        changed = true;
+      }
+    }
+    for (const [taskId, context] of attachmentDispatchContexts) {
+      const task = data.tasks.find(item => item.id === taskId);
+      const input = context?.inputRef?.deref?.() || null;
+      if (!task || terminal.has(task.state) || !input?.isConnected) {
+        attachmentDispatchContexts.delete(taskId);
+        changed = true;
+      }
+    }
+    // Do not discard a user-selected file or draft during automatic cleanup;
+    // the mounted workbench releases these only when it is empty or shutting
+    // down. This still revokes idle preview URLs and detached File references.
+    if (releaseTransientUIResources({ force:false })) changed = true;
+    memoryLastCleanupAt = now;
+    memoryLastAction = changed
+      ? `已完成脚本本地清理（${reason}），保留任务目标、附件元数据和恢复状态。`
+      : `脚本本地清理已检查（${reason}），没有可回收的闲置对象。`;
+    if (changed) save();
+    else paint?.();
+    return { changed, skipped:false, reason };
+  }
+  function memoryStatusText() {
+    if (!memorySnapshot?.supported) return '内存监测：网页 JS 堆指标不可用';
+    const ratio = Number(memorySnapshot.ratio || 0);
+    const level = memoryPressure === 'high' ? '高' : memoryPressure === 'elevated' ? '偏高' : '正常';
+    const action = memoryLastAction ? ` · ${memoryLastAction.slice(0, 96)}` : '';
+    return `网页 JS 堆估算 ${formatMemoryBytes(memorySnapshot.usedBytes)} / ${formatMemoryBytes(memorySnapshot.limitBytes)}（${Math.round(ratio * 100)}%，${level}）${action}`;
+  }
+  function settleHostMemoryRequest(requestId, result) {
+    const pending = hostMemoryPending.get(requestId);
+    if (!pending) return false;
+    hostMemoryPending.delete(requestId);
+    clearTimeout(pending.timeoutId);
+    pending.resolve(result);
+    return true;
+  }
+  async function requestHostMemoryCleanup({ reason = 'manual', userInitiated = false } = {}) {
+    const now = Date.now();
+    const snapshot = readMemorySnapshot();
+    memorySnapshot = snapshot;
+    memoryPressure = memoryPressureLevel(snapshot);
+    const safety = memoryDiscardSafety();
+    if (!userInitiated && memoryPressure !== 'high') {
+      return { ok:false, discarded:false, reason:'pressure-not-high', safety };
+    }
+    if (!userInitiated && now - memoryLastHostRequestAt < MEMORY_HOST_REQUEST_COOLDOWN_MS) {
+      return { ok:false, discarded:false, reason:'cooldown', safety };
+    }
+    cleanupLocalMemory({ reason });
+    if (hostMemoryPending.size) return { ok:false, discarded:false, reason:'request-pending', safety };
+    const requestId = `fabushi-memory-${id()}`;
+    const payload = {
+      capability:HOST_MEMORY_CAPABILITY,
+      version:VERSION,
+      pressure:memoryPressure,
+      usedBytes:snapshot.supported ? Math.min(Number(snapshot.usedBytes || 0), 16 * 1024 * 1024 * 1024) : 0,
+      totalBytes:snapshot.supported ? Math.min(Number(snapshot.totalBytes || 0), 16 * 1024 * 1024 * 1024) : 0,
+      limitBytes:snapshot.supported ? Math.min(Number(snapshot.limitBytes || 0), 16 * 1024 * 1024 * 1024) : 0,
+      ratio:snapshot.supported ? Math.min(Math.max(Number(snapshot.ratio || 0), 0), 4) : 0,
+      hidden:safety.hidden,
+      safeToDiscard:safety.safe,
+      hasDraft:safety.hasDraft,
+      hasPendingAttachment:safety.hasPendingAttachment,
+      userInitiated:Boolean(userInitiated),
+      reason:String(reason || 'manual').slice(0, 80),
+    };
+    memoryLastHostRequestAt = now;
+    const response = await new Promise(resolve => {
+      const timeoutId = window.setTimeout(() => {
+        settleHostMemoryRequest(requestId, { ok:false, discarded:false, reason:'host-timeout', safety });
+      }, MEMORY_HOST_RESPONSE_TTL_MS);
+      hostMemoryPending.set(requestId, { resolve, timeoutId });
+      try {
+        window.postMessage({
+          source:'fabushi-userscript',
+          type:HOST_MEMORY_REQUEST_TYPE,
+          requestId,
+          pluginId:HOST_MEMORY_PLUGIN_ID,
+          scriptId:'chatgpt-auto-confirm',
+          payload,
+        }, '*');
+      } catch {
+        settleHostMemoryRequest(requestId, { ok:false, discarded:false, reason:'post-message-failed', safety });
+      }
+    });
+    if (response?.discarded) memoryLastAction = '宿主已请求 Chrome 卸载此非活动标签页；再次打开时会自动恢复任务。';
+    else if (response?.reason === 'active-tab') memoryLastAction = '当前标签页正在使用中；请先切换到其他标签页，宿主才能安全回收它。';
+    else if (response?.reason === 'unsafe-state') memoryLastAction = '当前有发送、上传、审批、导航或未保存输入，暂不回收标签页。';
+    else if (response?.reason === 'host-unavailable' || response?.reason === 'host-timeout') memoryLastAction = '宿主回收能力暂不可用，已完成脚本本地清理。';
+    else if (response?.reason) memoryLastAction = `宿主未回收标签页：${String(response.reason).slice(0, 120)}。`;
+    paint?.();
+    return response;
+  }
+  async function inspectMemoryPressure() {
+    if (memoryMonitorBusy) return memorySnapshot;
+    memoryMonitorBusy = true;
+    try {
+      const snapshot = readMemorySnapshot();
+      memorySnapshot = snapshot;
+      memoryPressure = memoryPressureLevel(snapshot);
+      if (memoryPressure === 'high') memoryPressureStreak += 1;
+      else memoryPressureStreak = 0;
+      if (memoryPressure === 'elevated' || memoryPressure === 'high') cleanupLocalMemory({ reason:'memory-pressure' });
+      if (memoryPressure === 'high' && memoryPressureStreak >= MEMORY_PRESSURE_SAMPLES) {
+        await requestHostMemoryCleanup({ reason:'memory-pressure', userInitiated:false });
+      }
+      paint?.();
+      return snapshot;
+    } finally {
+      memoryMonitorBusy = false;
+    }
+  }
+  function scheduleMemoryMonitor(delayMs = MEMORY_MONITOR_INTERVAL_MS) {
+    clearTimeout(memoryMonitorTimer);
+    memoryMonitorTimer = window.setTimeout(() => {
+      memoryMonitorTimer = null;
+      void inspectMemoryPressure().finally(() => scheduleMemoryMonitor());
+    }, Math.max(1000, Number(delayMs) || MEMORY_MONITOR_INTERVAL_MS));
+  }
+  function stopMemoryMonitor() {
+    clearTimeout(memoryMonitorTimer);
+    memoryMonitorTimer = null;
+  }
+  function cancelHostMemoryRequests(reason = 'shutdown') {
+    for (const requestId of [...hostMemoryPending.keys()]) {
+      settleHostMemoryRequest(requestId, { ok:false, discarded:false, reason });
+    }
+  }
+  listen(window, 'message', event => {
     if (event.source !== window) return;
     const message = event.data;
     if (!message || message.source !== 'fabushi-extension' || !message.requestId) return;
     const requestId = String(message.requestId);
+    if (message.type === HOST_MEMORY_RESPONSE_TYPE && hostMemoryPending.has(requestId)) {
+      const result = message.ok === true && message.result && typeof message.result === 'object'
+        ? message.result
+        : { ok:false, discarded:false, reason:String(message.error || 'host-unavailable').slice(0, 160) };
+      settleHostMemoryRequest(requestId, result);
+      return;
+    }
     if (!hostRecoveryPending.has(requestId)) return;
     hostRecoveryPending.delete(requestId);
     if (message.type === HOST_RECOVERY_GRANTED_TYPE && message.granted === true) {
@@ -1118,7 +1393,8 @@
     if (!task) return;
     task.messages ||= [];
     if (role === 'status' && task.messages.at(-1)?.text === message) return;
-    task.messages.push({ at: Date.now(), role, text: String(message).slice(0, 24000) });
+    task.messages.push({ at: Date.now(), role, text: String(message).slice(0, MAX_TASK_MESSAGE_TEXT) });
+    compactTaskMessages(task);
     task.messageVersion = Number(task.messageVersion || 0) + 1;
     task.updatedAt = Date.now();
     save();
@@ -1458,7 +1734,8 @@
     const token = String(task.token || '');
     const route = `${location.pathname}${location.search}`;
     const previous = attachmentDispatchContexts.get(task.id);
-    if (previous && previous.token === token && previous.input === input && previous.route === route) return previous;
+    const previousInput = previous?.inputRef?.deref?.() || null;
+    if (previous && previous.token === token && previousInput === input && previous.route === route) return previous;
     // A document reload, SPA route change, or composer re-render invalidates
     // the old page-local upload attempt. Preserve retry/backoff and the
     // IndexedDB reference, but force the new composer to receive a fresh
@@ -1466,7 +1743,14 @@
     task.attachmentUploadPending = false;
     task.attachmentUploadStartedAt = 0;
     task.attachmentLastAttemptAt = 0;
-    const context = { token, input, route, confirmed: false };
+    // WeakRef prevents a SPA composer subtree from being retained solely by
+    // this retry map after ChatGPT replaces the input node.
+    const context = {
+      token,
+      inputRef:typeof WeakRef === 'function' ? new WeakRef(input) : null,
+      route,
+      confirmed:false,
+    };
     attachmentDispatchContexts.set(task.id, context);
     return context;
   }
@@ -3141,7 +3425,7 @@
       #${ROOT} aside .task-row-actions button.task-action{width:auto;padding:4px 6px;font-size:11px;white-space:nowrap}
       #${ROOT} aside .task-row-actions button.task-action.danger{color:#ffaaaa}
       #${ROOT} aside .task-row-actions button.task-action:disabled{color:#999}
-      #${ROOT} .pause-all{margin-top:10px}
+      #${ROOT} .pause-all{margin-top:10px} #${ROOT} .memory-cleanup{margin-top:8px} #${ROOT} .memory-status{margin-top:6px;line-height:1.4}
     `;
     const desk = element('section', '', 'desk'); desk.setAttribute('aria-label','Fabushi 任务工作台');
     const sidebar = element('aside'), list = element('div'); sidebar.append(element('h3','Fabushi'), list);
@@ -3154,8 +3438,10 @@
     const globalApprovalLabel = element('label');
     globalApprovalLabel.append(globalApproval,document.createTextNode('在当前标签页的会话中自动处理授权卡'));
     const globalPauseButton = element('button','暂停全部任务','pause-all'); globalPauseButton.type='button';
+    const memoryCleanupButton = element('button','清理当前标签页内存','memory-cleanup'); memoryCleanupButton.type='button';
+    const memoryStatusNode = element('small',memoryStatusText(),'memory-status');
     chat.append(head);
-    settings.append(globalApprovalLabel,globalPauseButton,element('small','仅展开“允许”旁的菜单并选择“允许本次会话”；不会选择永久授权。'));
+    settings.append(globalApprovalLabel,globalPauseButton,memoryCleanupButton,memoryStatusNode,element('small','内存数值仅是网页 JS 堆估算；真正卸载标签页由宿主在安全时机处理。'),element('small','仅展开“允许”旁的菜单并选择“允许本次会话”；不会选择永久授权。'));
     const feed = element('div','','feed'); feed.setAttribute('role','log'); feed.setAttribute('aria-live','polite');
     const notice = element('div','单标签页 · 已暂停','notice');
     const compose = element('form','','compose'), input = element('textarea'); input.placeholder = '输入任务目标，可直接粘贴图片或视频…'; input.setAttribute('aria-label','任务目标');
@@ -3180,6 +3466,20 @@
     const revokePreviewURLs = () => {
       previewURLs.forEach(url => { try { window.URL.revokeObjectURL(url); } catch {} });
       previewURLs = [];
+    };
+    readTransientUIState = () => ({
+      hasDraft:Boolean(String(input.value || '').trim()),
+      hasFiles:selectedFiles.length > 0,
+    });
+    releaseTransientUIResources = ({ force = false } = {}) => {
+      if (!force && (selectedFiles.length || String(input.value || '').trim())) return false;
+      revokePreviewURLs();
+      selectedFiles = [];
+      try { fileInput.value = ''; } catch {}
+      attachmentList.replaceChildren();
+      clearFiles.disabled = true;
+      if (!force) attachmentNote.textContent = attachmentNoteText;
+      return true;
     };
     const renderSelectedFiles = () => {
       revokePreviewURLs();
@@ -3233,7 +3533,7 @@
       renderSelectedFiles();
     };
     clearFiles.onclick = clearSelectedFiles;
-    compose.addEventListener('paste', event => {
+    listen(compose, 'paste', event => {
       const files = clipboardFilesFromEvent(event);
       if (!files.length) return;
       const pastedText = String(event.clipboardData?.getData?.('text/plain') || '').trim();
@@ -3254,8 +3554,10 @@
       const task=data.tasks.find(item=>item.id===selected && taskBelongsToTab(item));
       heading.textContent=task ? (task.mode==='goal'?'持续目标':'单次任务')+' · '+statusNames[task.state] : '任务工作台';
       editGoalButton.disabled=!task || task.state==='done';
+      memoryStatusNode.textContent=memoryStatusText();
+      memoryCleanupButton.disabled=memoryMonitorBusy || hostMemoryPending.size > 0;
       const runnableCount=tabTasks().filter(item=>!terminal.has(item.state)&&item.state!=='paused').length;
-      notice.textContent=`当前标签页工作区 · ${running?`监督中，${runnableCount>1?`多个本页任务每 ${Math.round(SUPERVISION_INTERVAL_MS / 1000)} 秒轮换`:'按当前任务推进'}；任务可单独暂停/继续`:'已暂停，自动操作已停止'} · 扫描 ${measurements.scans} 次，平均 ${(measurements.totalScanMs / Math.max(1, measurements.scans)).toFixed(1)} ms`;
+      notice.textContent=`当前标签页工作区 · ${running?`监督中，${runnableCount>1?`多个本页任务每 ${Math.round(SUPERVISION_INTERVAL_MS / 1000)} 秒轮换`:'按当前任务推进'}；任务可单独暂停/继续`:'已暂停，自动操作已停止'} · 扫描 ${measurements.scans} 次，平均 ${(measurements.totalScanMs / Math.max(1, measurements.scans)).toFixed(1)} ms · ${memoryStatusText()}`;
       pauseButton.textContent=task?.state==='paused'?'继续当前任务':(task?.state==='cancelled'||task?.state==='blocked')?'恢复任务':task&&!terminal.has(task.state)?(running?'暂停当前任务':'继续当前任务'):running?'暂停全部':'继续全部';
       globalPauseButton.textContent=running?'暂停全部任务':'继续全部任务';
       globalPauseButton.disabled=tabTasks().length===0;
@@ -3361,6 +3663,7 @@
     settingsButton.onclick=()=>settings.classList.toggle('open');
     pauseButton.onclick=()=>{const task=data.tasks.find(item=>item.id===selected&&taskBelongsToTab(item));if(task?.state==='paused'||task?.state==='cancelled'||task?.state==='blocked')resumeTask(task).catch(showError);else if(task&&!terminal.has(task.state)){if(running)pauseTask(task);else{current=task.id;lastSwitch=Date.now();start(false).catch(showError);}}else if(running)pause(true);else start(true).catch(showError);};
     globalPauseButton.onclick=()=>{if(running)pause(true);else start(true).catch(showError);};
+    memoryCleanupButton.onclick=()=>requestHostMemoryCleanup({reason:'manual',userInitiated:true}).catch(showError);
     globalApproval.onchange=()=>setGlobalAutoApprove(globalApproval.checked);
     auto.onchange=()=>{data.autoApprove=auto.checked;save();}; select.onchange=()=>{mode=select.value;};
     let submitting=false;
@@ -3390,9 +3693,11 @@
     };
     paint();
   }
-  window[INSTANCE]={active:true,version:VERSION,async shutdown(){stopWorkspaceHeartbeat('shutdown');suspendRunnerForPagehide();globalApprovalController?.abort();clearTimeout(globalApprovalTimer);globalApprovalTimer=null;clearTimeout(popupDismissTimer);popupDismissTimer=null;clearTimeout(automaticRecoveryTimer);automaticRecoveryTimer=null;this.active=false;document.querySelectorAll(`#${ROOT}`).forEach(node=>node.remove());document.querySelectorAll('#fabushi-auto-confirm-style').forEach(node=>node.remove());if(document.getElementById(BOOTSTRAP_MARKER)===bootstrap)bootstrap.remove();await releaseWorkspace();}};
+  window[INSTANCE]={active:true,version:VERSION,async shutdown(){stopMemoryMonitor();cancelHostMemoryRequests();stopWorkspaceHeartbeat('shutdown');suspendRunnerForPagehide();globalApprovalController?.abort();clearTimeout(globalApprovalTimer);globalApprovalTimer=null;clearTimeout(popupDismissTimer);popupDismissTimer=null;clearTimeout(automaticRecoveryTimer);automaticRecoveryTimer=null;releaseTransientUIResources({force:true});readTransientUIState=()=>({hasDraft:false,hasFiles:false});releaseTransientUIResources=()=>false;lifecycleController?.abort();this.active=false;document.querySelectorAll(`#${ROOT}`).forEach(node=>node.remove());document.querySelectorAll('#fabushi-auto-confirm-style').forEach(node=>node.remove());if(document.getElementById(BOOTSTRAP_MARKER)===bootstrap)bootstrap.remove();await releaseWorkspace();}};
   window.FabushiUserscript=Object.freeze({pluginId:'chatgpt-auto-confirm',getServer:()=> 'browser-local',call:async(tool,args={})=>{
-    if(['status','diagnose','queue_status','chat_status'].includes(tool))return{version:VERSION,running,tasks:tabTasks(),measurements,tabWorkspace:true,tabId};
+    if(['status','diagnose','queue_status','chat_status'].includes(tool))return{version:VERSION,running,tasks:tabTasks(),measurements,tabWorkspace:true,tabId,memory:{...memorySnapshot,pressure:memoryPressure,lastAction:memoryLastAction}};
+    if(tool==='memory_status')return{...memorySnapshot,pressure:memoryPressure,lastAction:memoryLastAction,hostCapability:HOST_MEMORY_CAPABILITY};
+    if(tool==='cleanup_memory')return requestHostMemoryCleanup({reason:'manual-tool',userInitiated:true});
     if(['pause_queue','stop'].includes(tool)){pause();return{running:false};}
     if(['start_queue','resume_queue'].includes(tool))return start();
     if(tool==='enqueue_tasks'){for(const task of args.tasks||[])enqueue(task.prompt||task.goal||'',task.mode||'once',task.attachments||[]);return tabTasks();}
@@ -3400,6 +3705,8 @@
     throw new Error('请通过新版任务输入框使用此功能。');
   }});
   mount();
+  void inspectMemoryPressure();
+  scheduleMemoryMonitor(2000);
   writeWorkspaceHeartbeat();
   scheduleWorkspaceHeartbeat(50);
   scheduleAutomaticWorkspaceRecovery(1000);
@@ -3438,10 +3745,10 @@
   }
   // Queue intent is persisted separately from a document lifetime. Manual
   // pause disables autoResume; an ordinary reload continues resumable tasks.
-  window.addEventListener('storage', event => {
+  listen(window, 'storage', event => {
     if (event.key !== KEY) return;
     syncRemoteControl();
   });
-  window.addEventListener('pagehide',()=>{writeWorkspaceHeartbeat('pagehide');if(!navigating)suspendRunnerForPagehide();releaseWorkspace();});
-  window.addEventListener('pageshow',event=>{if(event.persisted)location.reload();});
+  listen(window, 'pagehide',()=>{stopMemoryMonitor();writeWorkspaceHeartbeat('pagehide');if(!navigating)suspendRunnerForPagehide();releaseWorkspace();});
+  listen(window, 'pageshow',event=>{if(event.persisted)location.reload();else scheduleMemoryMonitor(1000);});
 })();
