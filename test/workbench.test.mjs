@@ -1531,6 +1531,7 @@ test('blocked ambiguous send remains resumable when no route is visible and keep
 
 test('host navigation guard grants one redacted route switch and then enforces a local cooldown',async()=>{
   const requests=[];
+  const navigationRequests=()=>requests.filter(message=>message?.type==='navigation-guard.request');
   const {h,w,dom}=await fixture('',window=>{
     const bridge=message=>{
       requests.push(message);
@@ -1552,16 +1553,16 @@ test('host navigation guard grants one redacted route switch and then enforces a
   try {
     const pending=h.requestHostNavigationPermit('https://chatgpt.com/c/next-route',task,{reason:'route-switch'});
     await new Promise(resolve=>w.setTimeout(resolve,0));
-    assert.equal(requests.length,1);
-    h.settleHostNavigationRequest(requests[0].requestId,{granted:true,reason:'granted'});
+    assert.equal(navigationRequests().length,1);
+    h.settleHostNavigationRequest(navigationRequests()[0].requestId,{granted:true,reason:'granted'});
     const granted=await pending;
     assert.equal(granted.granted,true);
-    assert.equal(requests[0].payload.capability,'tab-navigation-guard');
-    assert.equal(requests[0].payload.taskId,'guard-task');
-    assert.equal(requests[0].payload.phase,'review');
-    assert.equal(requests[0].payload.round,2);
-    assert.equal(requests[0].payload.goalRevision,7);
-    assert.equal(requests[0].payload.prompt,undefined);
+    assert.equal(navigationRequests()[0].payload.capability,'tab-navigation-guard');
+    assert.equal(navigationRequests()[0].payload.taskId,'guard-task');
+    assert.equal(navigationRequests()[0].payload.phase,'review');
+    assert.equal(navigationRequests()[0].payload.round,2);
+    assert.equal(navigationRequests()[0].payload.goalRevision,7);
+    assert.equal(navigationRequests()[0].payload.prompt,undefined);
     const denied=await h.requestHostNavigationPermit('https://chatgpt.com/c/another-route',task,{reason:'route-switch'});
     assert.equal(denied.granted,false);
     assert.equal(denied.reason,'local-cooldown');
