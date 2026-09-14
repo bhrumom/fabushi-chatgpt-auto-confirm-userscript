@@ -12,7 +12,7 @@ async function fixture(body='', setup=()=>{}) {
   const held = new Set();
   w.navigator.locks = {query:async()=>({held:[...held].map(name=>({name}))}),request:async(name,options,callback)=>{callback ||= options;if(held.has(name))return callback(null);held.add(name);try{return await callback({name});}finally{held.delete(name);}}};
   setup(w);
-  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, connectionInterruptedNotice, refreshInterruptedConversation, classify, abnormalEndSince, pageLoadingState, conversationLoading, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, nextSupervisionTask, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, connectionInterruptedNotice, refreshInterruptedConversation, classify, abnormalEndSince, pageLoadingState, conversationLoading, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, adoptUnboundAttemptedConversation, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, nextSupervisionTask, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('completion requires own final turn, stop absent, no approval and stable completion evidence',async()=>{
@@ -1231,4 +1231,148 @@ test('completed task records remain recoverable after their tab closes',async()=
   assert.equal(personal.h.tabTasks()[0].state,'done');
   assert.match(personal.h.tabTasks()[0].messages.at(-1).text,/任务已完成/);
   original.dom.window.close();personal.dom.window.close();
+});
+
+test('a fresh ChatGPT document automatically adopts the only stale running workspace',async()=>{
+  const owner='crashed-renderer-owner';
+  const task={id:'crashed-task',ownerTabId:owner,goal:'继续执行崩溃前目标',mode:'goal',phase:'work',round:2,state:'waiting',url:'https://chatgpt.com/c/crashed-conversation',token:'crashed-token',attempted:false,attachments:[{id:'crashed-file',name:'证据.png',type:'image/png',size:12,lastModified:1}],messages:[]};
+  const stored={tasks:[task],selectedByTab:{[owner]:task.id},tabControls:{[owner]:{autoResume:true,autoApprove:true,controlRevision:4}}};
+  const heartbeat={ownerTabId:owner,at:Date.now()-180000,autoResume:true,running:true,taskId:task.id,taskState:task.state,taskURL:task.url,recoveryURL:'https://chatgpt.com/c/crashed-conversation#fabushi-resume=crashed'};
+  const {h,w,dom}=await fixture('',window=>{
+    window.localStorage.setItem('fabushi-workbench-v2',JSON.stringify(stored));
+    window.localStorage.setItem('fabushi-workspace-heartbeat-v1:'+owner,JSON.stringify(heartbeat));
+  });
+  assert.equal(h.getTabId(),owner);
+  assert.equal(h.tabTasks().length,1);
+  assert.equal(h.tabTasks()[0].url,task.url);
+  assert.equal(h.tabTasks()[0].token,task.token);
+  assert.deepEqual(JSON.parse(JSON.stringify(h.tabTasks()[0].attachments)),task.attachments);
+  const persistedHeartbeat=JSON.parse(w.localStorage.getItem('fabushi-workspace-heartbeat-v1:'+owner));
+  assert.equal(persistedHeartbeat.taskId,task.id);
+  assert.deepEqual(persistedHeartbeat.attachmentIds,['crashed-file']);
+  assert.equal(persistedHeartbeat.goal,undefined,'heartbeat must not persist task text');
+  h.pause();
+  dom.window.close();
+});
+
+test('automatic recovery ignores healthy, paused and ambiguous workspaces',async()=>{
+  const makeTask=(owner,id,state='waiting')=>({id,ownerTabId:owner,goal:id,mode:'once',phase:'work',round:1,state,url:'https://chatgpt.com/c/'+id,token:id+'-token',attempted:false,attachments:[],messages:[]});
+  const healthyOwner='healthy-owner';
+  const healthyTask=makeTask(healthyOwner,'healthy-task');
+  const healthy=await fixture('',window=>{
+    window.localStorage.setItem('fabushi-workbench-v2',JSON.stringify({tasks:[healthyTask],tabControls:{[healthyOwner]:{autoResume:true}}}));
+    window.localStorage.setItem('fabushi-workspace-heartbeat-v1:'+healthyOwner,JSON.stringify({ownerTabId:healthyOwner,at:Date.now()-1000,autoResume:true,running:true,taskId:healthyTask.id,recoveryURL:'https://chatgpt.com/#fabushi-resume=healthy'}));
+  });
+  assert.notEqual(healthy.h.getTabId(),healthyOwner);
+  healthy.dom.window.close();
+
+  const pausedOwner='paused-owner';
+  const pausedTask=makeTask(pausedOwner,'paused-task','paused');
+  const paused=await fixture('',window=>{
+    window.localStorage.setItem('fabushi-workbench-v2',JSON.stringify({tasks:[pausedTask],tabControls:{[pausedOwner]:{autoResume:false}}}));
+    window.localStorage.setItem('fabushi-workspace-heartbeat-v1:'+pausedOwner,JSON.stringify({ownerTabId:pausedOwner,at:Date.now()-180000,autoResume:false,running:false,taskId:pausedTask.id,recoveryURL:'https://chatgpt.com/#fabushi-resume=paused'}));
+  });
+  assert.notEqual(paused.h.getTabId(),pausedOwner);
+  paused.dom.window.close();
+
+  const firstOwner='ambiguous-one';
+  const secondOwner='ambiguous-two';
+  const first=makeTask(firstOwner,'ambiguous-task-one');
+  const second=makeTask(secondOwner,'ambiguous-task-two');
+  const ambiguous=await fixture('',window=>{
+    window.localStorage.setItem('fabushi-workbench-v2',JSON.stringify({tasks:[first,second],tabControls:{[firstOwner]:{autoResume:true},[secondOwner]:{autoResume:true}}}));
+    for(const [owner,task] of [[firstOwner,first],[secondOwner,second]]) window.localStorage.setItem('fabushi-workspace-heartbeat-v1:'+owner,JSON.stringify({ownerTabId:owner,at:Date.now()-180000,autoResume:true,running:true,taskId:task.id,recoveryURL:'https://chatgpt.com/#fabushi-resume='+owner}));
+  });
+  assert.notEqual(ambiguous.h.getTabId(),firstOwner);
+  assert.notEqual(ambiguous.h.getTabId(),secondOwner);
+  ambiguous.dom.window.close();
+});
+
+test('stalled route hands off once through a fresh document without clearing attachments or dispatch identity',async()=>{
+  const {h,w,dom}=await fixture();
+  const task={id:'stalled-route',ownerTabId:h.getTabId(),goal:'恢复卡住页面',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/stalled-route',token:'stable-token',attempted:true,attachments:[{id:'clip',name:'卡住证据.png',type:'image/png',size:10,lastModified:1}],messages:[],routeRecoveryAttempts:2,rendererRecoveryExhausted:false};
+  h.data.tasks.push(task);
+  h.recoverStalledRoute(new w.URL(task.url),task);
+  assert.equal(task.workspaceDocumentRecoveryAttempts,1);
+  assert.equal(task.rendererRecoveryExhausted,true);
+  assert.equal(task.token,'stable-token');
+  assert.deepEqual(task.attachments,[{id:'clip',name:'卡住证据.png',type:'image/png',size:10,lastModified:1}]);
+  const ticket=JSON.parse(w.sessionStorage.getItem('fabushi-workbench-navigation-v2'));
+  assert.equal(ticket.documentRecovery,true);
+  assert.equal(ticket.path,'/');
+  assert.match(ticket.href,/^https:\/\/chatgpt\.com\/$/);
+  h.recoverStalledRoute(new w.URL(task.url),task);
+  assert.equal(task.workspaceDocumentRecoveryAttempts,1,'a stalled document cannot create repeated handoffs');
+  h.pause();
+  dom.window.close();
+});
+
+test('active work explicitly requests the host recovery capability without task text or file bytes',async()=>{
+  const requests=[];
+  const {h,w,dom}=await fixture('',window=>{
+    window.addEventListener('message',event=>{
+      if(event.data?.source==='fabushi-userscript'&&event.data?.type==='recovery-capability.request') requests.push(event.data);
+    });
+  });
+  const task=h.enqueue('恢复页面后继续处理','once',[{id:'proof',name:'证据.png',type:'image/png',size:12,lastModified:1}]);
+  await new Promise(resolve=>w.setTimeout(resolve,0));
+  const request=requests.at(-1);
+  assert.ok(request);
+  assert.equal(request.payload.capability,'tab-recovery');
+  assert.equal(request.payload.taskId,task.id);
+  assert.equal(request.payload.attachmentIds[0],'proof');
+  assert.equal(request.payload.goal,undefined);
+  assert.equal(request.payload.prompt,undefined);
+  assert.equal(request.payload.file,undefined);
+  assert.equal(request.payload.recoveryEligible,true);
+  h.releaseHostRecoveryCapability();
+  dom.window.close();
+});
+
+test('blocked ambiguous send can adopt the only new conversation and resume without a duplicate send',async()=>{
+  const {h,w,dom}=await fixture('',window=>window.history.replaceState({},'', '/c/recovered-after-timeout'));
+  const task={id:'blocked-ambiguous',ownerTabId:h.getTabId(),goal:'继续执行',mode:'once',phase:'work',round:1,state:'blocked',url:'',token:'same-send-token',attempted:true,sentAt:Date.now()-120000,attachments:[{id:'proof',name:'证据.png',type:'image/png',size:12,lastModified:1}],messages:[{text:'原消息发送结果超过 90 秒仍无法确认'}]};
+  h.data.tasks.push(task);
+  await h.resumeTask(task);
+  assert.equal(task.state,'waiting');
+  assert.equal(task.url,'https://chatgpt.com/c/recovered-after-timeout');
+  assert.equal(task.token,'same-send-token');
+  assert.equal(task.attempted,false);
+  assert.deepEqual(JSON.parse(JSON.stringify(task.attachments)),[{id:'proof',name:'证据.png',type:'image/png',size:12,lastModified:1}]);
+  h.pause();
+  dom.window.close();
+});
+
+test('explicit recovery can bind the current unique route even when it was the dispatch origin',async()=>{
+  const route='https://chatgpt.com/c/current-recovery-route';
+  const {h,w,dom}=await fixture('',window=>window.history.replaceState({},'', '/c/current-recovery-route'));
+  const task={id:'blocked-current-route',ownerTabId:h.getTabId(),goal:'继续当前会话',mode:'once',phase:'work',round:1,state:'blocked',url:'',token:'same-send-token',attempted:true,sentAt:Date.now()-120000,dispatchOriginURL:route,attachments:[],messages:[{text:'原消息发送结果超过 90 秒仍无法确认'}]};
+  h.data.tasks.push(task);
+  await h.resumeTask(task);
+  assert.equal(task.state,'waiting');
+  assert.equal(task.url,route);
+  assert.equal(task.attempted,false);
+  assert.equal(task.token,'same-send-token');
+  h.pause();
+  dom.window.close();
+});
+
+test('blocked ambiguous send remains resumable when no route is visible and keeps its recovery ticket',async()=>{
+  const {h,w,dom}=await fixture();
+  const task={id:'blocked-no-route',ownerTabId:h.getTabId(),goal:'等待页面恢复',mode:'once',phase:'work',round:1,state:'blocked',url:'',token:'same-send-token',attempted:true,sentAt:Date.now()-120000,attachments:[{id:'proof',name:'证据.png',type:'image/png',size:12,lastModified:1}],messages:[{text:'原消息发送结果超过 90 秒仍无法确认'}]};
+  h.data.tasks.push(task);
+  await h.resumeTask(task);
+  assert.equal(task.state,'sending');
+  assert.equal(task.attempted,true);
+  assert.equal(task.token,'same-send-token');
+  assert.ok(Number(task.recoveryConfirmationStartedAt)>0);
+  await h.tick();
+  assert.equal(task.state,'sending','the first post-recovery scan must not reuse the expired original send timeout');
+  assert.equal(task.attempted,true);
+  const heartbeat=JSON.parse(w.localStorage.getItem('fabushi-workspace-heartbeat-v1:'+h.getTabId()));
+  assert.equal(heartbeat.taskId,task.id);
+  assert.match(heartbeat.recoveryURL,/fabushi-resume=/);
+  assert.deepEqual(heartbeat.attachmentIds,['proof']);
+  h.pause();
+  dom.window.close();
 });
