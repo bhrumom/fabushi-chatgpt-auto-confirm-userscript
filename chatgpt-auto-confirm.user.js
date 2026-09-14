@@ -586,6 +586,7 @@
       targetURL:String(targetHref || '').slice(0, 2000),
       phase:String(task?.phase || 'work').slice(0, 40),
       round:Number(task?.round || 0),
+      goalRevision:Number(task?.goalRevision || 0),
       reason:String(reason || 'route-switch').slice(0, 80),
       force:force === true,
       recovery:recovery === true,
