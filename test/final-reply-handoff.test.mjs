@@ -68,6 +68,57 @@ test('semantic response actions recognize a completed reply when ChatGPT changes
   }
 });
 
+
+test('static completion markers survive renderer transitions without legacy turn ids', async () => {
+  const { dom, hooks } = await createHarness(`
+    <main>
+      <article data-testid="conversation-turn-user">
+        <div data-message-author-role="user">继续执行 [Fabushi:turn-token]</div>
+      </article>
+      <article data-testid="conversation-turn-assistant">
+        <div data-message-author-role="assistant">
+          <div class="markdown" data-is-streaming="false">页面轮换后已经完整结束。</div>
+        </div>
+      </article>
+    </main>
+  `);
+  try {
+    const turn = hooks.latestTurn();
+    assert.equal(turn.explicitFinal, true);
+    assert.equal(turn.final, true);
+
+    const sample = {
+      rateLimit: '',
+      blocker: '',
+      owned: true,
+      cards: 0,
+      stop: false,
+      loading: false,
+      final: turn.final,
+      text: turn.text,
+    };
+    assert.equal(hooks.classify(sample, {
+      clear: false,
+      final: false,
+      text: '',
+      since: 0,
+      finalSince: 0,
+    }, 1000).state, 'waiting');
+
+    assert.equal(hooks.classify(sample, {
+      clear: true,
+      final: true,
+      finalSince: 1000,
+      text: turn.text,
+      since: 1000,
+      idleSince: 1000,
+      endedAt: 0,
+    }, 5000).state, 'complete');
+  } finally {
+    dom.window.close();
+  }
+});
+
 test('an active or incomplete response is not promoted to a final reply by partial controls', async () => {
   const { dom, window, hooks } = await createHarness(`
     <main>
