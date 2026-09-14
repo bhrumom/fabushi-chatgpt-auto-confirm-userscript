@@ -1567,7 +1567,7 @@ test('host navigation guard grants one redacted route switch and then enforces a
     assert.equal(denied.granted,false);
     assert.equal(denied.reason,'local-cooldown');
     assert.ok(Number(denied.retryAfterMs)>=29000);
-    assert.equal(requests.length,1);
+    assert.equal(navigationRequests().length,1);
   } finally {
     dom.window.close();
   }
