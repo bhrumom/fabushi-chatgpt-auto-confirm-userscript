@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.28
+// @version      2.9.29
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -92,6 +92,8 @@
   const WORKSPACE_RECLAIM_TIMEOUT_MS = 5000;
   const WORKSPACE_RECLAIM_FAST_TIMEOUT_MS = 1000;
   const WORKSPACE_RECLAIM_POLL_MS = 50;
+  const RUNNER_RECLAIM_TIMEOUT_MS = 5000;
+  const RUNNER_RECLAIM_POLL_MS = 100;
   // A renderer crash stops this script before it can run pagehide. Persist a
   // small, content-free lease heartbeat so a newly loaded ChatGPT document
   // (or an optional page-external watcher) can distinguish a dead workspace
@@ -665,6 +667,10 @@
       return Boolean(target.pathname === '/'
         || (taskURL && targetURL && taskURL === targetURL));
     }
+    if (ticket.purpose === 'inspect') {
+      if (ticket.recovery || ticket.documentRecovery || !resumableStates.has(task.state)) return false;
+      return Boolean(taskURL && targetURL && taskURL === targetURL);
+    }
     return false;
   }
 
@@ -689,13 +695,13 @@
           const retryAfterMs = Math.max(1000, Number(result.retryAfterMs) || LOCAL_NAVIGATION_COOLDOWN_MS);
           if (now - Number(task.navigationGuardNoticeAt || 0) >= LOCAL_NAVIGATION_COOLDOWN_MS) {
             task.navigationGuardNoticeAt = now;
-            log(task, '宿主正在保护 ChatGPT 页面，已暂缓本次切页；任务会在冷却后继续检查，不会重复派发。');
+            log(task, `导航保护暂缓本次切页，约 ${Math.ceil(retryAfterMs / 1000)} 秒后可重试；调度器会先检查其他可运行任务。`);
           }
           task.navigationGuardRetryAt = now + retryAfterMs;
           task.updatedAt = now;
           save();
         }
-        schedule(Math.max(1000, Number(result.retryAfterMs) || LOCAL_NAVIGATION_COOLDOWN_MS));
+        schedule(100);
         return;
       }
       const latest = data.tasks.find(item => item.id === expected.taskId);
@@ -713,6 +719,7 @@
         navigating = false;
         return;
       }
+      latest.navigationGuardRetryAt = 0;
       if (new URL(targetHref, location.origin).pathname === location.pathname) {
         sessionStorage.removeItem(NAV);
         navigating = false;
@@ -1333,14 +1340,41 @@
     return Boolean(task && !terminal.has(task.state) && task.state !== 'paused'
       && (!task.url || task.attempted || ['sending', 'uploading', 'loading', 'approval'].includes(task.state)));
   }
+  function taskDeferredUntil(task, now = Date.now()) {
+    if (!task || terminal.has(task.state) || task.state === 'paused') return Number.POSITIVE_INFINITY;
+    const deadlines = [
+      Number(task.cooldownUntil || 0),
+      Number(task.noFinalReplyRecoveryUntil || 0),
+    ];
+    const navigationRetryAt = Number(task.navigationGuardRetryAt || 0);
+    if (navigationRetryAt > now && !taskMatchesCurrentConversation(task)) deadlines.push(navigationRetryAt);
+    const attachmentRetryAt = Number(task.attachmentUploadRetryAt || 0);
+    if (!task.url && task.attachmentUploadFailed && attachmentRetryAt > now) deadlines.push(attachmentRetryAt);
+    if (!task.url && !task.attempted) {
+      const dispatchWait = dispatchCooldownRemaining(now);
+      if (dispatchWait > 0) deadlines.push(now + dispatchWait);
+    }
+    return Math.max(now, ...deadlines.filter(value => Number.isFinite(value) && value > 0));
+  }
   function nextSupervisionTask(active, now = Date.now()) {
     if (!active.length) return null;
-    const focused = active.find(item => item.id === current);
-    const canRotate = active.length > 1 && focused && !taskHoldsScheduler(focused)
+    const runnable = active.filter(item => taskDeferredUntil(item, now) <= now);
+    if (!runnable.length) return null;
+    const focused = runnable.find(item => item.id === current);
+    const canRotate = runnable.length > 1 && focused && !taskHoldsScheduler(focused)
       && now - lastSwitch >= SUPERVISION_INTERVAL_MS;
     if (focused && !canRotate) return focused;
-    const index = focused ? active.findIndex(item => item.id === focused.id) : -1;
-    return active[(index + 1 + active.length) % active.length] || active[0];
+    const currentIndex = active.findIndex(item => item.id === current);
+    for (let offset = 1; offset <= active.length; offset++) {
+      const candidate = active[(currentIndex + offset + active.length) % active.length];
+      if (runnable.includes(candidate)) return candidate;
+    }
+    return runnable[0];
+  }
+  function nextTaskWakeDelay(active, now = Date.now()) {
+    const deadlines = active.map(item => taskDeferredUntil(item, now)).filter(Number.isFinite);
+    if (!deadlines.length) return 2000;
+    return Math.max(100, Math.min(...deadlines) - now);
   }
   const text = node => normalize(node?.textContent);
   const label = node => normalize(`${text(node)} ${node?.getAttribute('aria-label') || ''} ${node?.getAttribute('title') || ''}`);
@@ -3311,6 +3345,10 @@
       if (!active.length) { haltRunnerForPause(); paint(); return; }
       const focused = active.find(item => item.id === current);
       task = nextSupervisionTask(active);
+      if (!task) {
+        nextScheduleMs = nextTaskWakeDelay(active);
+        return;
+      }
       // Keep a queued send, an ambiguous send confirmation, or an approval
       // card on the foreground route. Once a task has a durable conversation
       // URL and is merely waiting/generating/reviewing, rotate to the next
@@ -3333,6 +3371,11 @@
         }
         task.cooldownUntil = 0;
         log(task, '休息等待结束，插件恢复自动检查；不会手动刷新页面。');
+        save();
+      }
+      if (task.navigationGuardRetryAt && (task.navigationGuardRetryAt <= Date.now() || taskMatchesCurrentConversation(task))) {
+        task.navigationGuardRetryAt = 0;
+        task.updatedAt = Date.now();
         save();
       }
       const recoveryUntil = Number(task.noFinalReplyRecoveryUntil || 0);
@@ -3422,22 +3465,30 @@
   async function start(restorePaused = true) {
     if (running || busy) return;
     if (!navigator.locks) throw new Error('浏览器不支持单标签互斥锁，无法安全启动。');
-    await new Promise((resolve, reject) => {
-      navigator.locks.request(`fabushi-tab-runner-v3:${tabId}`, { ifAvailable:true }, async lock => {
-        if (!lock) { reject(new Error('这个标签页的任务监督器已经在运行。')); return; }
-        const stored = read(KEY, null);
-        const nextRevision = Math.max(Number(data.controlRevision || 0), Number(stored?.tabControls?.[tabId]?.controlRevision || 0)) + 1;
-        data.controlRevision = nextRevision;
-        data.autoResume = true;
-        data.pausedAt = 0;
-        if (restorePaused) restorePausedTasks(nextRevision);
-        save();
-        if (data.autoResume === false) { haltRunnerForPause(); resolve(); return; }
-        running = true; controller = new AbortController();
-        const held = new Promise(done => { lockRelease = done; });
-        paint(); schedule(100); resolve(); await held;
-      }).catch(reject);
-    });
+    const deadline = Date.now() + RUNNER_RECLAIM_TIMEOUT_MS;
+    while (!running && Date.now() <= deadline) {
+      const acquired = await new Promise((resolveAttempt, rejectAttempt) => {
+        navigator.locks.request(`fabushi-tab-runner-v3:${tabId}`, { ifAvailable:true }, async lock => {
+          if (!lock) { resolveAttempt(false); return; }
+          const stored = read(KEY, null);
+          const nextRevision = Math.max(Number(data.controlRevision || 0), Number(stored?.tabControls?.[tabId]?.controlRevision || 0)) + 1;
+          data.controlRevision = nextRevision;
+          data.autoResume = true;
+          data.pausedAt = 0;
+          if (restorePaused) restorePausedTasks(nextRevision);
+          save();
+          if (data.autoResume === false) { haltRunnerForPause(); resolveAttempt(true); return; }
+          running = true; controller = new AbortController();
+          const held = new Promise(done => { lockRelease = done; });
+          paint(); schedule(100); resolveAttempt(true); await held;
+        }).catch(rejectAttempt);
+      });
+      if (acquired) return;
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      await new Promise(resolve => setTimeout(resolve, Math.min(RUNNER_RECLAIM_POLL_MS, remaining)));
+    }
+    throw new Error('旧页面的任务监督器仍在释放中；插件会继续自动接管，无需手动暂停或重开任务。');
   }
   function autoStart(taskId) {
     if (!taskId) return;
@@ -3651,10 +3702,26 @@ NaN
     selected = task.id;
     current = task.id;
     lastSwitch = Date.now();
-    // Opening a conversation is a manual inspection action. Pause only this
-    // task before the document changes; unrelated tasks must keep running.
-    pauseTask(task, '用户点击“打开已记录会话链接”，已暂停当前任务；其他任务继续运行。点击“继续此任务”可恢复。');
-    sessionStorage.removeItem(NAV);
+    // Viewing a task is not a pause command. Persist a generation-bound
+    // handoff ticket so the replacement document can reclaim the same runner
+    // and continue supervising this task without changing any task state.
+    sessionStorage.setItem(NAV, JSON.stringify({
+      path:new URL(target).pathname,
+      href:target,
+      at:Date.now(),
+      task:task.id,
+      attempts:1,
+      assigned:true,
+      direct:true,
+      purpose:'inspect',
+      phase:String(task.phase || 'work'),
+      round:Number(task.round || 0),
+      goalRevision:Number(task.goalRevision || 0),
+      resume:true,
+    }));
+    task.updatedAt = Date.now();
+    log(task, '正在查看已记录会话；任务保持运行，页面交接后会自动继续监督。');
+    if (running) schedule(100);
     return target;
   }
   function recoverableWorkspaces() {
