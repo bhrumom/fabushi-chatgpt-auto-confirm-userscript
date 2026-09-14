@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.26
+// @version      2.9.27
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -2626,8 +2626,16 @@
     }
     let previous = null;
     try { previous = JSON.parse(sessionStorage.getItem(NAV)); } catch {}
+    const isDispatchTarget = targetPath === '/' && Boolean(task);
+    const dispatchPhase = String(task?.phase || '');
+    const dispatchRound = Number.isFinite(Number(task?.round)) ? Number(task.round) : 0;
+    const dispatchGoalRevision = Number.isFinite(Number(task?.goalRevision)) ? Number(task.goalRevision) : 0;
     const sameTicket = Boolean(previous?.direct && previous?.task === (task?.id || current)
-      && previous?.path === targetPath && previous?.href === targetHref);
+      && previous?.path === targetPath && previous?.href === targetHref
+      && (!isDispatchTarget || (previous?.purpose === 'dispatch'
+        && String(previous?.phase || '') === dispatchPhase
+        && Number(previous?.round) === dispatchRound
+        && Number(previous?.goalRevision ?? 0) === dispatchGoalRevision)));
     if (!sameTicket) {
       const now = Date.now();
       sessionStorage.setItem(NAV, JSON.stringify({
