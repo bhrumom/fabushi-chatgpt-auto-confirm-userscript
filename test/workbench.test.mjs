@@ -1532,7 +1532,7 @@ test('blocked ambiguous send remains resumable when no route is visible and keep
 test('host navigation guard grants one redacted route switch and then enforces a local cooldown',async()=>{
   const requests=[];
   const {h,w,dom}=await fixture('',window=>{
-    window.postMessage=message=>{
+    const bridge=message=>{
       requests.push(message);
       window.setTimeout(()=>window.dispatchEvent(new window.MessageEvent('message',{
         source:window,
@@ -1545,6 +1545,8 @@ test('host navigation guard grants one redacted route switch and then enforces a
         },
       })),0);
     };
+    try { Object.defineProperty(window,'postMessage',{configurable:true,writable:true,value:bridge}); }
+    catch { window.postMessage=bridge; }
   });
   const task={id:'guard-task',phase:'review',round:2,goalRevision:7,state:'reviewing',url:'https://chatgpt.com/c/review-route',messages:[]};
   const granted=await h.requestHostNavigationPermit('https://chatgpt.com/c/next-route',task,{reason:'route-switch'});
@@ -1567,6 +1569,7 @@ test('host navigation guard grants one redacted route switch and then enforces a
 test('root dispatch navigation tickets are bound to the current review generation',async()=>{
   const {h,dom}=await fixture();
   const task={id:'review-dispatch',ownerTabId:h.getTabId(),phase:'review',round:3,goalRevision:9,state:'queued',url:'',attempted:false,messages:[]};
+  h.data.tasks.push(task);
   const ticket={task:task.id,path:'/',href:'https://chatgpt.com/',resume:true,direct:true,purpose:'dispatch',phase:'review',round:3,goalRevision:9};
   assert.equal(h.validNavigationTicket(ticket),true);
   assert.equal(h.validNavigationTicket({...ticket,goalRevision:8}),false);
