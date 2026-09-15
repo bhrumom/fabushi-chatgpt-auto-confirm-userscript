@@ -6,7 +6,7 @@ import { JSDOM } from 'jsdom';
 const source = await fs.readFile(new URL('../chatgpt-auto-confirm.user.js', import.meta.url), 'utf8');
 const instrumentedSource = source.replace(
   '  mount();',
-  `  window.__fabushiFinalReplyTestHooks = Object.freeze({ latestTurn, classify, abnormalEndSince, finish, workPrompt, plannerPrompt, inspect, data, start, pause });
+  `  window.__fabushiFinalReplyTestHooks = Object.freeze({ latestTurn, classify, abnormalEndSince, stalledProgressSignature, refreshStalledConversation, queueReviewRepair, parseReview, finish, workPrompt, plannerPrompt, inspect, data, start, pause });
   mount();`,
 );
 
@@ -68,6 +68,34 @@ test('semantic response actions recognize a completed reply when ChatGPT changes
   }
 });
 
+test('copy plus one visible feedback button is enough despite a stale streaming marker', async () => {
+  const { dom, hooks } = await createHarness(`
+    <main>
+      <article data-testid="conversation-turn-user">
+        <div data-message-author-role="user">继续执行 [Fabushi:buttons-only-token]</div>
+      </article>
+      <article data-testid="conversation-turn-assistant" data-is-streaming="true">
+        <div data-message-author-role="assistant" data-message-id="assistant-buttons-only">
+          <div class="markdown">最终回复已经显示。</div>
+        </div>
+        <div class="response-toolbar">
+          <button aria-label="复制"></button>
+          <button aria-label="赞"></button>
+        </div>
+      </article>
+    </main>
+  `);
+  try {
+    const turn = hooks.latestTurn();
+    assert.equal(turn.responseActionsComplete, true);
+    assert.equal(turn.final, true);
+    assert.equal(turn.responseActions.includes('copy'), true);
+    assert.equal(turn.responseActions.includes('like'), true);
+  } finally {
+    dom.window.close();
+  }
+});
+
 
 test('static completion markers survive renderer transitions without legacy turn ids', async () => {
   const { dom, hooks } = await createHarness(`
@@ -114,6 +142,95 @@ test('static completion markers survive renderer transitions without legacy turn
       idleSince: 1000,
       endedAt: 0,
     }, 5000).state, 'complete');
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('a stalled conversation refresh preserves the active task and stops at a bounded limit', async () => {
+  const { dom, window, hooks } = await createHarness('<main></main>');
+  try {
+    window.history.pushState({}, '', '/c/stalled-conversation');
+    const task = {
+      id: 'stalled-conversation',
+      goal: '等待停滞会话恢复',
+      mode: 'once',
+      phase: 'work',
+      round: 1,
+      state: 'generating',
+      url: 'https://chatgpt.com/c/stalled-conversation',
+      token: 'stalled-token',
+      attempted: false,
+      attachments: [{ id:'image-1', name:'画稿.png' }],
+      messages: [],
+    };
+    hooks.data.tasks.push(task);
+    assert.equal(hooks.refreshStalledConversation(task, false, 181_000), true);
+    assert.equal(task.stalledRefreshAttempts, 1);
+    assert.equal(task.url, 'https://chatgpt.com/c/stalled-conversation');
+    assert.equal(task.token, 'stalled-token');
+    assert.deepEqual(task.attachments, [{ id:'image-1', name:'画稿.png' }]);
+    assert.equal(task.phase, 'work');
+    assert.match(task.messages.at(-1).text, /连续 3 分钟没有可见变化/);
+
+    assert.equal(hooks.refreshStalledConversation(task, false, 181_001), false, 'the cooldown prevents an immediate second reload');
+    assert.equal(hooks.refreshStalledConversation(task, false, 197_000), true);
+    assert.equal(task.stalledRefreshAttempts, 2);
+    assert.equal(hooks.refreshStalledConversation(task, false, 213_000), false);
+    assert.equal(task.stalledRefreshExhausted, true);
+    assert.equal(task.result || '', '');
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('review parsing recovers a wrapped report with unescaped human quotes', async () => {
+  const { dom, hooks } = await createHarness('<main></main>');
+  try {
+    const task = { id:'review-json-recovery', round:2 };
+    const reply = '验收结果如下：\n```json\n{"taskId":"review-json-recovery","round":2,"status":"next","summary":"已检查“绘画”结果，发现 "尺寸" 需要继续处理","next":"重新绘画后复核"}\n```';
+    assert.deepEqual(JSON.parse(JSON.stringify(hooks.parseReview(reply, task))), {
+      taskId:'review-json-recovery',
+      round:2,
+      status:'next',
+      summary:'已检查“绘画”结果，发现 "尺寸" 需要继续处理',
+      next:'重新绘画后复核',
+    });
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('malformed review reports requeue only the review phase and never discard Work result', async () => {
+  const { dom, hooks } = await createHarness('<main></main>');
+  try {
+    const task = {
+      id:'review-repair',
+      goal:'修复验收回复',
+      mode:'continuous',
+      phase:'review',
+      round:1,
+      state:'reviewing',
+      url:'https://chatgpt.com/c/review-repair',
+      token:'review-token',
+      result:'Work 已完成，不能重复执行。',
+      attachments:[{ id:'clip', name:'clip.mp4' }],
+      messages:[],
+    };
+    hooks.data.tasks.push(task);
+    assert.equal(hooks.queueReviewRepair(task, '验收回复 JSON 无法解析'), 'queued');
+    assert.equal(task.phase, 'review');
+    assert.equal(task.state, 'queued');
+    assert.equal(task.url, '');
+    assert.equal(task.token, '');
+    assert.equal(task.result, 'Work 已完成，不能重复执行。');
+    assert.deepEqual(task.attachments, [{ id:'clip', name:'clip.mp4' }]);
+    assert.equal(task.reviewRepairAttempts, 1);
+    assert.equal(hooks.queueReviewRepair(task, '验收回复 JSON 无法解析'), 'queued');
+    assert.equal(task.reviewRepairAttempts, 2);
+    assert.equal(hooks.queueReviewRepair(task, '验收回复 JSON 无法解析'), 'blocked');
+    assert.equal(task.state, 'blocked');
+    assert.equal(task.result, 'Work 已完成，不能重复执行。');
   } finally {
     dom.window.close();
   }
