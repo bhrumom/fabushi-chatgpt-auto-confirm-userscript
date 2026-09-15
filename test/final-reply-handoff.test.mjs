@@ -153,6 +153,7 @@ test('a stalled conversation refresh preserves the active task and stops at a bo
     window.history.pushState({}, '', '/c/stalled-conversation');
     const task = {
       id: 'stalled-conversation',
+      goal: '等待停滞会话恢复',
       mode: 'once',
       phase: 'work',
       round: 1,
@@ -188,7 +189,7 @@ test('review parsing recovers a wrapped report with unescaped human quotes', asy
   try {
     const task = { id:'review-json-recovery', round:2 };
     const reply = '验收结果如下：\n```json\n{"taskId":"review-json-recovery","round":2,"status":"next","summary":"已检查“绘画”结果，发现 "尺寸" 需要继续处理","next":"重新绘画后复核"}\n```';
-    assert.deepEqual(hooks.parseReview(reply, task), {
+    assert.deepEqual(JSON.parse(JSON.stringify(hooks.parseReview(reply, task))), {
       taskId:'review-json-recovery',
       round:2,
       status:'next',
@@ -205,6 +206,7 @@ test('malformed review reports requeue only the review phase and never discard W
   try {
     const task = {
       id:'review-repair',
+      goal:'修复验收回复',
       mode:'continuous',
       phase:'review',
       round:1,
