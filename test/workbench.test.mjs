@@ -12,7 +12,7 @@ async function fixture(body='', setup=()=>{}) {
   const held = new Set();
   w.navigator.locks = {query:async()=>({held:[...held].map(name=>({name}))}),request:async(name,options,callback)=>{callback ||= options;if(held.has(name))return callback(null);held.add(name);try{return await callback({name});}finally{held.delete(name);}}};
   setup(w);
-  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, connectionInterruptedNotice, refreshInterruptedConversation, classify, abnormalEndSince, pageLoadingState, conversationLoading, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, adoptUnboundAttemptedConversation, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, connectionInterruptedNotice, refreshInterruptedConversation, classify, abnormalEndSince, pageLoadingState, conversationLoading, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, adoptUnboundAttemptedConversation, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('completion requires own final turn, stop absent, no approval and stable completion evidence',async()=>{
@@ -1579,7 +1579,7 @@ test('blocked ambiguous send remains resumable when no route is visible and keep
   dom.window.close();
 });
 
-test('host navigation guard grants one redacted route switch and then enforces a local cooldown',async()=>{
+test('a navigation permit consumes no local budget until the route change is committed',async()=>{
   const requests=[];
   const navigationRequests=()=>requests.filter(message=>message?.type==='navigation-guard.request');
   const {h,w,dom}=await fixture('',window=>{
@@ -1593,6 +1593,7 @@ test('host navigation guard grants one redacted route switch and then enforces a
           requestId:message.requestId,
           granted:true,
           reason:'granted',
+          leaseId:'lease-1',
         },
       })),0);
     };
@@ -1604,21 +1605,50 @@ test('host navigation guard grants one redacted route switch and then enforces a
     const pending=h.requestHostNavigationPermit('https://chatgpt.com/c/next-route',task,{reason:'route-switch'});
     await new Promise(resolve=>w.setTimeout(resolve,0));
     assert.equal(navigationRequests().length,1);
-    h.settleHostNavigationRequest(navigationRequests()[0].requestId,{granted:true,reason:'granted'});
+    h.settleHostNavigationRequest(navigationRequests()[0].requestId,{granted:true,reason:'granted',leaseId:'lease-1'});
     const granted=await pending;
     assert.equal(granted.granted,true);
+    assert.equal(granted.leaseId,'lease-1');
     assert.equal(navigationRequests()[0].payload.capability,'tab-navigation-guard');
     assert.equal(navigationRequests()[0].payload.taskId,'guard-task');
     assert.equal(navigationRequests()[0].payload.phase,'review');
     assert.equal(navigationRequests()[0].payload.round,2);
     assert.equal(navigationRequests()[0].payload.goalRevision,7);
+    assert.equal(navigationRequests()[0].pluginId,'chatgpt-auto-confirm');
+    assert.equal(navigationRequests()[0].scriptId,'chatgpt-auto-confirm');
     assert.equal(navigationRequests()[0].payload.prompt,undefined);
-    const denied=await h.requestHostNavigationPermit('https://chatgpt.com/c/another-route',task,{reason:'route-switch'});
+    const secondGrant=h.requestHostNavigationPermit('https://chatgpt.com/c/another-route',task,{reason:'route-switch'});
+    await new Promise(resolve=>w.setTimeout(resolve,0));
+    assert.equal(navigationRequests().length,2,'a grant alone must not start the local 30-second cooldown');
+    h.settleHostNavigationRequest(navigationRequests()[1].requestId,{granted:true,reason:'granted',leaseId:'lease-2'});
+    assert.equal((await secondGrant).granted,true);
+    h.rememberNavigationCommit();
+    const denied=await h.requestHostNavigationPermit('https://chatgpt.com/c/third-route',task,{reason:'route-switch'});
     assert.equal(denied.granted,false);
     assert.equal(denied.reason,'local-cooldown');
     assert.ok(Number(denied.retryAfterMs)>=29000);
-    assert.equal(navigationRequests().length,1);
+    assert.equal(navigationRequests().length,2);
   } finally {
+    dom.window.close();
+  }
+});
+
+test('stale navigation leases are cancelled with the canonical plugin identity',async()=>{
+  const messages=[];
+  const {h,w,dom}=await fixture('',window=>{
+    const bridge=message=>messages.push(message);
+    try { Object.defineProperty(window,'postMessage',{configurable:true,writable:true,value:bridge}); }
+    catch { window.postMessage=bridge; }
+  });
+  try {
+    assert.equal(h.cancelHostNavigationLease('lease-stale','stale-navigation-ticket'),true);
+    const cancel=messages.find(message=>message?.type==='navigation-guard.cancel');
+    assert.equal(cancel.pluginId,'chatgpt-auto-confirm');
+    assert.equal(cancel.scriptId,'chatgpt-auto-confirm');
+    assert.equal(cancel.payload.leaseId,'lease-stale');
+    assert.equal(cancel.payload.reason,'stale-navigation-ticket');
+  } finally {
+    w.close();
     dom.window.close();
   }
 });
@@ -1636,7 +1666,7 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript does not request remote user-manager updates',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.30$/m);
-  assert.match(source,/const VERSION = '2\.9\.30'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.31$/m);
+  assert.match(source,/const VERSION = '2\.9\.31'/);
   assert.doesNotMatch(source,/^\/\/ @(?:updateURL|downloadURL)\b/m);
 });
