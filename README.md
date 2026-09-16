@@ -1,8 +1,8 @@
-# Fabushi 独立油猴工作台 2.9.32
+# Fabushi 独立油猴工作台 2.9.33
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.32`.
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.33`.
 
 ## 使用
 
@@ -186,3 +186,9 @@
 - 最终回复识别以当前任务的 assistant turn 为边界；只要正文已显示并同时出现“复制”与“点赞/点踩”反馈按钮，即可作为最终回复证据。兼容图标按钮的 `aria-label`、`title`、tooltip、`data-testid` 和 SVG 语义属性；stale streaming 标记不会压过已经出现的完成操作栏，Stop、授权、限流和其他任务仍会优先阻断完成。
 - 绑定会话连续 180 秒没有正文、操作按钮、加载、授权或任务状态变化时，刷新同一 ChatGPT URL，最多两次。刷新保留当前 phase、round、会话 token、附件和不重复发送保证；刷新后重新扫描授权卡和回复操作，不把刷新变成新一轮 Work。
 - 验收回复严格 JSON 解析失败时，会有限恢复包裹文本、代码围栏和人类说明中的未转义引号；只在 taskId/round/status/summary/next 可验证时继续。恢复失败最多重新打开两次 review，会保留已完成的 Work 结果且不重复执行 Work，超过上限才显示需要处理。
+
+### 2.9.33 停滞会话持续刷新
+
+- 绑定会话连续 3 分钟没有可见变化时刷新当前页面；如果刷新后仍没有变化，之后每隔 3 分钟继续刷新，不再因为两次刷新而进入终态。
+- 刷新次数和最近刷新时间仍持久化，保留任务 URL、phase、round、会话 token、附件和不重复发送保证；暂停、取消、最终回复、限流、阻塞和发送歧义等安全边界不变。
+- 旧版本留下的 `stalledRefreshExhausted` 标记会自动迁移为可继续恢复状态，不会再阻断后续刷新。
