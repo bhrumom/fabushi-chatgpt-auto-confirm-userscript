@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.33
+// @version      2.9.34
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -14,7 +14,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.33';
+  const VERSION = '2.9.34';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -2440,6 +2440,7 @@
         item?.getAttribute?.('data-label'),
       ]).filter(Boolean).join(' ')).toLowerCase();
       if (/(?:copy|复制)(?:\s+(?:response|turn|message|content))?|复制(?:回复|回答|内容|消息)?/.test(value)) return 'copy';
+      if (/(?:share|分享|共享)(?:[\s_-]*(?:response|reply|turn|message|conversation|link|回答|回复|消息|对话|链接))?/.test(value)) return 'share';
       if (/(?:good[\s_-]*response|positive[\s_-]*feedback|upvote|like|thumbs?[\s_-]*up|赞|喜欢|好的回答|回复优秀)/.test(value)) return 'like';
       if (/(?:bad[\s_-]*response|negative[\s_-]*feedback|downvote|dislike|thumbs?[\s_-]*down|踩|不喜欢|不好的回答|回复不佳)/.test(value)) return 'dislike';
       if (/(?:regenerate|retry|try[\s_-]*again|重新生成|重试|再次生成)/.test(value)) return 'regenerate';
@@ -2473,7 +2474,8 @@
       const found = controlsIn(scope).filter(item => controlsBelongToResponse(item.node));
       if (!found.length) continue;
       const kinds = new Set(found.map(item => item.kind));
-      const complete = kinds.has('copy') && (kinds.has('like') || kinds.has('dislike'));
+      const complete = kinds.has('copy')
+        && (kinds.has('share') || kinds.has('like') || kinds.has('dislike'));
       if (!responseControls.length || complete) responseControls = found;
       if (complete) break;
     }
@@ -2507,7 +2509,7 @@
     }
     const responseActions = new Set(responseControls.map(item => item.kind));
     const responseActionsComplete = responseActions.has('copy')
-      && (responseActions.has('like') || responseActions.has('dislike'));
+      && (responseActions.has('share') || responseActions.has('like') || responseActions.has('dislike'));
     // ChatGPT has shipped renderer variants where the static marker lives on
     // the markdown node (or on a turn wrapper without a message/turn id).
     // The node is already scoped to the latest assistant turn, so requiring a
@@ -2534,9 +2536,10 @@
       user: text(user),
       text: content,
       // ChatGPT may leave a stale streaming attribute on the turn wrapper
-      // after it has mounted the completed reply toolbar. The copy + feedback
-      // pair is the strongest user-visible completion signal, so it wins over
-      // that stale attribute; an explicit static marker remains the fallback.
+      // after it has mounted the completed reply toolbar. The copy + share or
+      // feedback pair is the strongest user-visible completion signal, so it
+      // wins over that stale attribute; an explicit static marker remains the
+      // fallback.
       final: finalByActions || finalByMarker,
       owned,
       responseActions: [...responseActions],
