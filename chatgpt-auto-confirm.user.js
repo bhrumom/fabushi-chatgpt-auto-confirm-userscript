@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.32
+// @version      2.9.33
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -14,7 +14,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.32';
+  const VERSION = '2.9.33';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -71,11 +71,13 @@
   const FINAL_REPLY_STABILITY_MS = 4000;
   // A bound conversation can stop changing while ChatGPT is waiting for an
   // authorization card, a renderer update, or an image/tool result. Reload
-  // the same route after a bounded idle period so the page can rediscover
-  // those controls without creating a second Work/planner send.
+  // the same route after each three-minute idle period so the page can
+  // rediscover those controls without creating a second Work/planner send.
   const STALLED_REFRESH_MS = 3 * 60 * 1000;
-  const STALLED_REFRESH_LIMIT = 2;
-  const STALLED_REFRESH_COOLDOWN_MS = 15000;
+  // Keep the persisted reload interval aligned with the stall detector. A
+  // page that remains unchanged can therefore be retried forever, but never
+  // more than once per three minutes.
+  const STALLED_REFRESH_COOLDOWN_MS = STALLED_REFRESH_MS;
   const MAX_REVIEW_REPAIR_ATTEMPTS = 2;
   const ROUTE_HYDRATION_TIMEOUT_MS = 30000;
   const ROUTE_RECOVERY_LIMIT = 2;
@@ -2352,14 +2354,14 @@
       task.stalledRefreshExhausted = false;
     }
     const attempts = Number(task.stalledRefreshAttempts || 0);
-    if (task.stalledRefreshExhausted || attempts >= STALLED_REFRESH_LIMIT) {
-      if (!task.stalledRefreshExhausted) {
-        task.stalledRefreshExhausted = true;
-        task.state = 'waiting';
-        log(task, `当前会话连续无变化，已达到 ${STALLED_REFRESH_LIMIT} 次刷新上限；保留会话、发送标识和附件等待人工恢复。`);
-        save();
-      }
-      return false;
+    // Older builds persisted this terminal-looking flag after the second
+    // reload. It is now only a migration marker and must never block a later
+    // three-minute retry cycle.
+    if (task.stalledRefreshExhausted) {
+      task.stalledRefreshExhausted = false;
+      task.state = 'waiting';
+      log(task, '已解除历史停滞刷新次数上限；会话若继续无变化，将每 3 分钟自动刷新，直到任务完成或被暂停。');
+      save();
     }
     if (now - Number(task.stalledRefreshAt || 0) < STALLED_REFRESH_COOLDOWN_MS) return false;
     const nextAttempt = attempts + 1;
@@ -2368,15 +2370,14 @@
     task.stalledRefreshExhausted = false;
     task.state = 'waiting';
     observations.delete(task.id);
-    log(task, `当前会话连续 3 分钟没有可见变化；正在刷新当前页面（第 ${nextAttempt}/${STALLED_REFRESH_LIMIT} 次），保留会话、发送标识、附件和当前阶段，不会重复发送。`);
+    log(task, `当前会话连续 3 分钟没有可见变化；正在刷新当前页面（第 ${nextAttempt} 次，后续仍无变化时每 3 分钟继续刷新），保留会话、发送标识、附件和当前阶段，不会重复发送。`);
     save();
     if (!perform) return true;
     navigating = true;
     try { location.reload(); } catch (error) {
       navigating = false;
-      task.stalledRefreshExhausted = true;
       task.state = 'waiting';
-      log(task, `停滞会话刷新失败：${error.message}；已保留当前任务等待恢复。`);
+      log(task, `停滞会话刷新失败：${error.message}；已保留当前任务，3 分钟后继续尝试。`);
       save();
       return false;
     }

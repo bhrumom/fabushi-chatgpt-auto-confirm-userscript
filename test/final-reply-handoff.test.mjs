@@ -147,7 +147,7 @@ test('static completion markers survive renderer transitions without legacy turn
   }
 });
 
-test('a stalled conversation refresh preserves the active task and stops at a bounded limit', async () => {
+test('a stalled conversation refresh preserves the active task and continues every three minutes', async () => {
   const { dom, window, hooks } = await createHarness('<main></main>');
   try {
     window.history.pushState({}, '', '/c/stalled-conversation');
@@ -173,12 +173,48 @@ test('a stalled conversation refresh preserves the active task and stops at a bo
     assert.equal(task.phase, 'work');
     assert.match(task.messages.at(-1).text, /连续 3 分钟没有可见变化/);
 
-    assert.equal(hooks.refreshStalledConversation(task, false, 181_001), false, 'the cooldown prevents an immediate second reload');
-    assert.equal(hooks.refreshStalledConversation(task, false, 197_000), true);
+    assert.equal(hooks.refreshStalledConversation(task, false, 360_999), false, 'the three-minute interval prevents an immediate second reload');
+    assert.equal(hooks.refreshStalledConversation(task, false, 361_000), true);
     assert.equal(task.stalledRefreshAttempts, 2);
-    assert.equal(hooks.refreshStalledConversation(task, false, 213_000), false);
-    assert.equal(task.stalledRefreshExhausted, true);
+    assert.equal(hooks.refreshStalledConversation(task, false, 361_001), false, 'the next interval starts after the second reload');
+    assert.equal(hooks.refreshStalledConversation(task, false, 541_000), true);
+    assert.equal(task.stalledRefreshAttempts, 3);
+    assert.equal(hooks.refreshStalledConversation(task, false, 721_000), true, 'a fourth reload remains allowed');
+    assert.equal(task.stalledRefreshAttempts, 4);
+    assert.equal(task.stalledRefreshExhausted, false);
+    assert.ok(task.messages.every(message => !/刷新上限/u.test(message.text)));
     assert.equal(task.result || '', '');
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('a legacy stalled-refresh exhaustion flag is migrated without blocking recovery', async () => {
+  const { dom, window, hooks } = await createHarness('<main></main>');
+  try {
+    window.history.pushState({}, '', '/c/legacy-stalled-conversation');
+    const task = {
+      id: 'legacy-stalled-conversation',
+      goal: '恢复历史停滞会话',
+      mode: 'once',
+      phase: 'work',
+      round: 1,
+      state: 'waiting',
+      url: 'https://chatgpt.com/c/legacy-stalled-conversation',
+      token: 'legacy-stalled-token',
+      attempted: false,
+      stalledRefreshURL: 'https://chatgpt.com/c/legacy-stalled-conversation',
+      stalledRefreshAttempts: 2,
+      stalledRefreshExhausted: true,
+      stalledRefreshAt: 0,
+      messages: [],
+    };
+    hooks.data.tasks.push(task);
+
+    assert.equal(hooks.refreshStalledConversation(task, false, 181_000), true);
+    assert.equal(task.stalledRefreshAttempts, 3);
+    assert.equal(task.stalledRefreshExhausted, false);
+    assert.ok(task.messages.some(message => /已解除历史停滞刷新次数上限/u.test(message.text)));
   } finally {
     dom.window.close();
   }
