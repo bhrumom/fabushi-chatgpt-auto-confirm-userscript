@@ -127,6 +127,36 @@ test('copy plus a visible share button is enough despite a stale streaming marke
   }
 });
 
+test('copy plus ChatGPT’s localized rate-response control is enough', async () => {
+  const { dom, hooks } = await createHarness(`
+    <main>
+      <article data-testid="conversation-turn-user">
+        <div data-message-author-role="user">继续执行 [Fabushi:rate-token]</div>
+      </article>
+      <article data-testid="conversation-turn-assistant" data-is-streaming="true">
+        <div data-message-author-role="assistant" data-message-id="assistant-rate-turn">
+          <div class="markdown">实际页面的回复操作栏已经出现。</div>
+        </div>
+        <div class="response-toolbar">
+          <button data-testid="copy-turn-action-button" aria-label="复制回复"></button>
+          <button data-testid="rate-response-action-button" aria-label="评价回复"></button>
+          <button data-testid="regenerate-turn-action-button" aria-label="重新生成"></button>
+          <button data-testid="more-turn-action-button" aria-label="更多操作"></button>
+        </div>
+      </article>
+    </main>
+  `);
+  try {
+    const turn = hooks.latestTurn();
+    assert.equal(turn.responseActionsComplete, true);
+    assert.equal(turn.final, true);
+    assert.equal(turn.responseActions.includes('copy'), true);
+    assert.equal(turn.responseActions.includes('feedback'), true);
+  } finally {
+    dom.window.close();
+  }
+});
+
 test('a share button without copy, or a page-level share button, cannot complete a reply', async () => {
   const { dom, hooks } = await createHarness(`
     <main>
