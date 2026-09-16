@@ -96,6 +96,96 @@ test('copy plus one visible feedback button is enough despite a stale streaming 
   }
 });
 
+test('copy plus a visible share button is enough despite a stale streaming marker', async () => {
+  const { dom, hooks } = await createHarness(`
+    <main>
+      <article data-testid="conversation-turn-user">
+        <div data-message-author-role="user">继续执行 [Fabushi:share-token]</div>
+      </article>
+      <article data-testid="conversation-turn-assistant" data-is-streaming="true">
+        <div data-message-author-role="assistant" data-message-id="assistant-share-turn">
+          <div class="markdown">复制和分享按钮已经显示，回复正文完整。</div>
+        </div>
+        <div class="response-toolbar">
+          <button data-testid="copy-turn-action-button" aria-label="复制"></button>
+          <button data-testid="share-turn-action-button" aria-label="分享"></button>
+          <button data-testid="regenerate-turn-action-button" aria-label="重新生成"></button>
+        </div>
+      </article>
+    </main>
+  `);
+  try {
+    const turn = hooks.latestTurn();
+    assert.equal(turn.responseActionsComplete, true);
+    assert.equal(turn.final, true);
+    assert.equal(turn.responseActions.includes('copy'), true);
+    assert.equal(turn.responseActions.includes('share'), true);
+    assert.equal(turn.responseActions.includes('like'), false);
+    assert.equal(turn.responseActions.includes('dislike'), false);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('a share button without copy, or a page-level share button, cannot complete a reply', async () => {
+  const { dom, hooks } = await createHarness(`
+    <main>
+      <header><button aria-label="分享此对话"></button></header>
+      <article data-testid="conversation-turn-user">
+        <div data-message-author-role="user">继续工作 [Fabushi:share-incomplete-token]</div>
+      </article>
+      <article data-testid="conversation-turn-assistant" data-is-streaming="true">
+        <div data-message-author-role="assistant" data-message-id="assistant-share-incomplete">
+          <div class="markdown">只有分享按钮，不能证明回复已完成。</div>
+        </div>
+        <div class="response-toolbar">
+          <button data-testid="share-turn-action-button" aria-label="分享"></button>
+        </div>
+      </article>
+    </main>
+  `);
+  try {
+    const turn = hooks.latestTurn();
+    assert.equal(turn.responseActionsComplete, false);
+    assert.equal(turn.final, false);
+    assert.equal(turn.responseActions.includes('share'), true);
+    assert.equal(turn.responseActions.length, 1);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('a portaled copy and share row must explicitly identify the latest assistant turn', async () => {
+  const { dom, hooks } = await createHarness(`
+    <main>
+      <article data-testid="conversation-turn-user">
+        <div data-message-author-role="user">请检查当前结果 [Fabushi:share-portal-token]</div>
+      </article>
+      <article data-testid="conversation-turn-assistant">
+        <div data-message-author-role="assistant" data-message-id="assistant-share-portal">
+          <div class="markdown">当前回复已经显示完整。</div>
+        </div>
+      </article>
+      <div id="response-actions-portal" data-message-id="assistant-share-portal">
+        <button data-testid="copy-action-v4"></button>
+        <button data-testid="share-action-v4" aria-label="Share response"></button>
+      </div>
+      <div id="old-response-actions" data-message-id="assistant-old-share-portal">
+        <button data-testid="copy-old-response"></button>
+        <button data-testid="share-old-response" aria-label="分享"></button>
+      </div>
+    </main>
+  `);
+  try {
+    const turn = hooks.latestTurn();
+    assert.equal(turn.responseActionsComplete, true);
+    assert.equal(turn.final, true);
+    assert.deepEqual(new Set(turn.responseActions), new Set(['copy', 'share']));
+  } finally {
+    dom.window.close();
+  }
+});
+
 
 test('static completion markers survive renderer transitions without legacy turn ids', async () => {
   const { dom, hooks } = await createHarness(`
