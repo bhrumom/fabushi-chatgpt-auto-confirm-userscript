@@ -148,7 +148,8 @@ test('a share button without copy, or a page-level share button, cannot complete
     const turn = hooks.latestTurn();
     assert.equal(turn.responseActionsComplete, false);
     assert.equal(turn.final, false);
-    assert.deepEqual(turn.responseActions, ['share']);
+    assert.equal(turn.responseActions.includes('share'), true);
+    assert.equal(turn.responseActions.length, 1);
   } finally {
     dom.window.close();
   }
