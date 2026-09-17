@@ -1,0 +1,33 @@
+name: Apply v2.9.36 test version
+
+on:
+  push:
+    branches:
+      - fix/ambiguous-send-bound-conversation-recovery-20260917
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: fix/ambiguous-send-bound-conversation-recovery-20260917
+          fetch-depth: 0
+      - name: Update version assertions
+        shell: bash
+        run: |
+          python -c 'from pathlib import Path; p=Path("test/workbench.test.mjs"); s=p.read_text(); old="2\\.9\\.35"; assert s.count(old)==2, s.count(old); p.write_text(s.replace(old,"2\\.9\\.36"))'
+          rm .github/workflows/apply-v2936-test-version.yml
+          git diff --check
+      - name: Commit version assertion fix
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "test: expect userscript v2.9.36"
+          git push origin HEAD:fix/ambiguous-send-bound-conversation-recovery-20260917
