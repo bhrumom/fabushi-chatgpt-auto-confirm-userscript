@@ -1,0 +1,117 @@
+from pathlib import Path
+
+script_path=Path('chatgpt-auto-confirm.user.js')
+test_path=Path('test/workbench.test.mjs')
+script=script_path.read_text()
+tests=test_path.read_text()
+
+def once(text, old, new, label):
+    count=text.count(old)
+    if count != 1:
+        raise SystemExit(f'{label}: expected 1 match, got {count}')
+    return text.replace(old,new,1)
+
+script=once(script,
+  "  const AMBIGUOUS_SEND_REFRESH_LIMIT = NO_FINAL_REPLY_RETRY_LIMIT;\n  const MAX_REVIEW_REPAIR_ATTEMPTS = 2;",
+  "  const AMBIGUOUS_SEND_REFRESH_LIMIT = NO_FINAL_REPLY_RETRY_LIMIT;\n  // A permanent page error must not create a hot loop of new conversations.\n  // The first blocked recovery is immediate; repeated failures remain queued\n  // and retry automatically with a short exponential delay, never as a\n  // terminal manual-action state.\n  const BLOCKED_AUTO_RETRY_BASE_MS = 15 * 1000;\n  const BLOCKED_AUTO_RETRY_MAX_MS = 3 * 60 * 1000;\n  const MAX_REVIEW_REPAIR_ATTEMPTS = 2;",
+  'blocked retry constants')
+
+old_helper="""  function queueBlockedFreshRetry(task, reason = '任务进入需要处理状态') {
+    if (!task || ['done', 'cancelled'].includes(task.state)) return '';
+    const attempt = Number(task.blockedAutoRetryCount || 0) + 1;
+    const detail = String(reason || '任务进入需要处理状态').trim() || '任务进入需要处理状态';
+    task.blockedAutoRetryCount = attempt;
+    task.lastBlockedReason = detail.slice(0, 1000);
+    task.lastBlockedRecoveryAt = Date.now();
+    clearDispatchIntent(task);
+    task.noFinalReplyRecoveryUntil = 0;
+    task.state = 'queued';
+    delete task.pausedState;
+    resetAmbiguousSendRecovery(task);
+    resetAttachmentUploadState(task);
+    observations.delete(task.id);
+    log(task, `${detail}；已自动清理旧派发并切换到新的 ChatGPT 会话原样重发（自动恢复第 ${attempt} 次），不会停在“需要处理”。`);
+    save();
+    return 'queued';
+  }"""
+new_helper="""  function queueBlockedFreshRetry(task, reason = '任务进入需要处理状态') {
+    if (!task || ['done', 'cancelled'].includes(task.state)) return '';
+    const attempt = Number(task.blockedAutoRetryCount || 0) + 1;
+    const detail = String(reason || '任务进入需要处理状态').trim() || '任务进入需要处理状态';
+    const retryDelayMs = attempt <= 1 ? 0 : Math.min(
+      BLOCKED_AUTO_RETRY_BASE_MS * (2 ** Math.min(attempt - 2, 5)),
+      BLOCKED_AUTO_RETRY_MAX_MS,
+    );
+    task.blockedAutoRetryCount = attempt;
+    task.lastBlockedReason = detail.slice(0, 1000);
+    task.lastBlockedRecoveryAt = Date.now();
+    clearDispatchIntent(task);
+    task.noFinalReplyRecoveryUntil = 0;
+    task.cooldownUntil = retryDelayMs ? Date.now() + retryDelayMs : 0;
+    task.state = 'queued';
+    delete task.pausedState;
+    resetAmbiguousSendRecovery(task);
+    resetAttachmentUploadState(task);
+    observations.delete(task.id);
+    const cadence = retryDelayMs ? `，${Math.ceil(retryDelayMs / 1000)} 秒后自动重发` : '并立即自动重发';
+    log(task, `${detail}；已自动清理旧派发并切换到新的 ChatGPT 会话${cadence}（自动恢复第 ${attempt} 次），不会停在“需要处理”。`);
+    save();
+    return 'queued';
+  }"""
+script=once(script,old_helper,new_helper,'blocked retry helper')
+
+old_nav="""    if (task) {
+      state(task, 'blocked', `${reason}；没有可用的真实会话链接，已停止等待，不会刷新或重复派发。`);
+      log(task, '请在任务中保留有效的 https://chatgpt.com/c/<会话ID> 链接后再恢复。');
+    }
+    return false;"""
+new_nav="""    if (task) {
+      state(task, 'blocked', `${reason}；没有可用的真实会话链接，将自动切换到新的 ChatGPT 会话重发。`);
+    }
+    return false;"""
+script=once(script,old_nav,new_nav,'navigation recovery wording')
+
+old_attachment="""      state(task, 'blocked', `附件上传未确认，已停止发送纯文字目标。${message ? ` ${message}` : ''} 可点击重试；若文件已被浏览器清理，请重新选择文件。`);"""
+new_attachment="""      state(task, 'blocked', `附件上传未确认，未发送纯文字目标。${message ? ` ${message}` : ''} 将自动新开会话并重试附件；若浏览器已清理文件内容，任务保持自动重试而不会降级为纯文字发送。`);"""
+script=once(script,old_attachment,new_attachment,'attachment recovery wording')
+
+old_finish="""    task.noFinalReplyRecoveryUntil = 0;
+    task.sendPrepared = false;"""
+new_finish="""    task.noFinalReplyRecoveryUntil = 0;
+    task.blockedAutoRetryCount = 0;
+    task.lastBlockedReason = '';
+    task.lastBlockedRecoveryAt = 0;
+    task.cooldownUntil = 0;
+    task.sendPrepared = false;"""
+script=once(script,old_finish,new_finish,'success retry reset')
+
+old_nav_test="""  assert.equal(task.state,'queued');
+  assert.equal(task.url,'');
+  assert.equal(w.sessionStorage.getItem('fabushi-workbench-navigation-v2'),null);
+  assert.ok(task.messages.some(message=>/新的 ChatGPT 会话原样重发/.test(message.text)));
+  dom.window.close();"""
+new_nav_test="""  assert.equal(task.state,'queued');
+  assert.equal(task.url,'');
+  assert.equal(task.cooldownUntil,0,'first automatic recovery is immediate');
+  assert.equal(w.sessionStorage.getItem('fabushi-workbench-navigation-v2'),null);
+  assert.ok(task.messages.some(message=>/新的 ChatGPT 会话/.test(message.text) && /自动重发/.test(message.text)));
+  assert.ok(task.messages.every(message=>!/请在任务中保留有效/.test(message.text)),'manual recovery copy must never be emitted');
+  h.queueNavigation(target,task,'同一错误再次出现');
+  assert.equal(task.state,'queued');
+  assert.ok(task.cooldownUntil>Date.now(),'repeated permanent failures back off instead of hot-looping');
+  assert.equal(task.blockedAutoRetryCount,2);
+  dom.window.close();"""
+tests=once(tests,old_nav_test,new_nav_test,'navigation regression body')
+
+old_persist="""  assert.equal(task.attempted,false);
+  assert.match(task.messages.at(-1).text,/新的 ChatGPT 会话原样重发/);
+  assert.doesNotMatch(h.data.tasks.map(item=>item.state).join(','),/blocked/);"""
+new_persist="""  assert.equal(task.attempted,false);
+  assert.equal(task.cooldownUntil,0,'first persisted blocked recovery is immediate');
+  assert.match(task.messages.at(-1).text,/新的 ChatGPT 会话/);
+  assert.match(task.messages.at(-1).text,/自动重发/);
+  assert.doesNotMatch(h.data.tasks.map(item=>item.state).join(','),/blocked/);"""
+tests=once(tests,old_persist,new_persist,'persisted recovery assertion')
+
+script_path.write_text(script)
+test_path.write_text(tests)
