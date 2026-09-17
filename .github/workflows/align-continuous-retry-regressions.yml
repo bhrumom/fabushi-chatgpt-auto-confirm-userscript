@@ -24,13 +24,13 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          import re
 
-          attachment=Path('test/attachment-continuity.test.mjs')
-          s=attachment.read_text()
-          pattern=re.compile(r"test\('missing local attachment remains a manual-action blocker', async \(\) => \{.*?\n\}\);", re.S)
-          replacement="""test('missing local attachment stays automatic and never becomes a manual-action blocker', async () => {
-            const { dom, hooks } = await createHarness('<main><form><textarea id=\"prompt-textarea\"></textarea></form></main>');
+          attachment = Path('test/attachment-continuity.test.mjs')
+          s = attachment.read_text()
+          start = s.index("test('missing local attachment remains a manual-action blocker'")
+          end = s.index("\n});", start) + len("\n});")
+          replacement = '''test('missing local attachment stays automatic and never becomes a manual-action blocker', async () => {
+            const { dom, hooks } = await createHarness('<main><form><textarea id="prompt-textarea"></textarea></form></main>');
             try {
               const task = { id: 'blocked-task', state: 'uploading', attachments: [{ name: 'missing.pdf' }], messages: [] };
               assert.equal(hooks.failAttachmentUpload(task, '本地附件“missing.pdf”已不存在，请重新选择。'), false);
@@ -44,25 +44,28 @@ jobs:
             } finally {
               dom.window.close();
             }
-          });"""
-          s,count=pattern.subn(replacement,s,count=1)
-          if count != 1: raise SystemExit(f'attachment regression matches: {count}')
-          attachment.write_text(s)
+          });'''
+          attachment.write_text(s[:start] + replacement + s[end:])
 
-          review=Path('test/final-reply-handoff.test.mjs')
-          s=review.read_text()
-          old="""    assert.equal(hooks.queueReviewRepair(task, '验收回复 JSON 无法解析'), 'blocked');
-    assert.equal(task.state, 'blocked');
-    assert.equal(task.result, 'Work 已完成，不能重复执行。');"""
-          new="""    assert.equal(hooks.queueReviewRepair(task, '验收回复 JSON 无法解析'), 'queued');
-    assert.equal(task.state, 'queued');
-    assert.equal(task.url, '');
-    assert.equal(task.token, '');
-    assert.equal(task.result, 'Work 已完成，不能重复执行。');
-    assert.match(task.messages.at(-1).text, /新的 ChatGPT 会话/);
-    assert.match(task.messages.at(-1).text, /自动重发/);"""
-          if s.count(old) != 1: raise SystemExit(f'review regression matches: {s.count(old)}')
-          review.write_text(s.replace(old,new,1))
+          review = Path('test/final-reply-handoff.test.mjs')
+          s = review.read_text()
+          start = s.index("test('malformed review reports requeue only the review phase and never discard Work result'")
+          end = s.index("\ntest('an active or incomplete response", start)
+          block = s[start:end]
+          old = """    assert.equal(hooks.queueReviewRepair(task, '验收回复 JSON 无法解析'), 'blocked');
+              assert.equal(task.state, 'blocked');
+              assert.equal(task.result, 'Work 已完成，不能重复执行。');"""
+          if old not in block:
+              raise SystemExit('review terminal blocked assertions were not found in target test')
+          new = """    assert.equal(hooks.queueReviewRepair(task, '验收回复 JSON 无法解析'), 'queued');
+              assert.equal(task.state, 'queued');
+              assert.equal(task.url, '');
+              assert.equal(task.token, '');
+              assert.equal(task.result, 'Work 已完成，不能重复执行。');
+              assert.match(task.messages.at(-1).text, /新的 ChatGPT 会话/);
+              assert.match(task.messages.at(-1).text, /自动重发/);"""
+          block = block.replace(old, new, 1)
+          review.write_text(s[:start] + block + s[end:])
           PY
           git diff --check
       - name: Commit aligned tests
