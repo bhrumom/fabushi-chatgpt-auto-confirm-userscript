@@ -1,0 +1,29 @@
+name: Diagnose continuous auto-retry regression
+
+on:
+  push:
+    branches:
+      - codex/continuous-auto-retry-diagnostic-20260918
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Run regression with hard timeout and verbose reporter
+        shell: bash
+        run: |
+          set -o pipefail
+          timeout 90s node --test --test-reporter=spec test/workbench.test.mjs 2>&1 | tee /tmp/regression.log
+          code=${PIPESTATUS[0]}
+          echo "node test exit: $code"
+          exit "$code"
