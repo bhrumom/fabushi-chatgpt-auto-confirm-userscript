@@ -1,0 +1,56 @@
+name: Publish userscript v2.9.37
+
+on:
+  push:
+    branches:
+      - release/v2.9.37-publish-20260918
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET_SHA: c6cf4e3fce76c0e62ad2be4d409044d5b2486d0f
+      TAG: v2.9.37
+    steps:
+      - name: Check out release branch
+        uses: actions/checkout@v7
+        with:
+          ref: release/v2.9.37-publish-20260918
+          fetch-depth: 0
+
+      - name: Verify exact source and publish release
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e "$TARGET_SHA^{commit}"
+          git show "$TARGET_SHA:chatgpt-auto-confirm.user.js" > /tmp/chatgpt-auto-confirm.user.js
+          grep -Eq '^// @version[[:space:]]+2\.9\.37$' /tmp/chatgpt-auto-confirm.user.js
+          grep -Fq "const VERSION = '2.9.37';" /tmp/chatgpt-auto-confirm.user.js
+          node --check /tmp/chatgpt-auto-confirm.user.js
+          echo "asset_size=$(wc -c < /tmp/chatgpt-auto-confirm.user.js)"
+          sha256sum /tmp/chatgpt-auto-confirm.user.js
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; verifying target only."
+            test "$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json targetCommitish --jq .targetCommitish)" = "$TARGET_SHA"
+          else
+            gh release create "$TAG" /tmp/chatgpt-auto-confirm.user.js \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$TARGET_SHA" \
+              --title "v2.9.37 — continuous automatic recovery" \
+              --notes "自动运行开启时，不再让任务停留在“需要处理”/blocked：运行时进入 blocked 会立即清理旧派发身份并排队到新的 ChatGPT 会话重发；升级后历史 blocked 任务也会自动恢复；验收修复达到当前会话上限后改为 fresh-session retry。保留用户主动暂停、取消和已完成任务语义。为避免异常页面形成热循环，重复失败采用 15 秒起、最长 3 分钟的自动退避，并持续运行。"
+          fi
+
+      - name: Remove one-shot publisher from release branch
+        shell: bash
+        run: |
+          rm .github/workflows/publish-v2937.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "chore: remove v2.9.37 publisher"
+          git push origin HEAD:release/v2.9.37-publish-20260918
