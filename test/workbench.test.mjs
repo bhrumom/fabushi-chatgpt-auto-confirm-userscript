@@ -269,7 +269,9 @@ test('persisted needs-processing task automatically opens a fresh retry instead 
   assert.equal(task.url,'');
   assert.equal(task.token,'');
   assert.equal(task.attempted,false);
-  assert.match(task.messages.at(-1).text,/新的 ChatGPT 会话原样重发/);
+  assert.equal(task.cooldownUntil,0,'first persisted blocked recovery is immediate');
+  assert.match(task.messages.at(-1).text,/新的 ChatGPT 会话/);
+  assert.match(task.messages.at(-1).text,/自动重发/);
   assert.doesNotMatch(h.data.tasks.map(item=>item.state).join(','),/blocked/);
   dom.window.close();
 });
@@ -954,8 +956,14 @@ test('missing sidebar links automatically requeue in a fresh conversation',async
   assert.equal(h.queueNavigation(target,task),false);
   assert.equal(task.state,'queued');
   assert.equal(task.url,'');
+  assert.equal(task.cooldownUntil,0,'first automatic recovery is immediate');
   assert.equal(w.sessionStorage.getItem('fabushi-workbench-navigation-v2'),null);
-  assert.ok(task.messages.some(message=>/新的 ChatGPT 会话原样重发/.test(message.text)));
+  assert.ok(task.messages.some(message=>/新的 ChatGPT 会话/.test(message.text) && /自动重发/.test(message.text)));
+  assert.ok(task.messages.every(message=>!/请在任务中保留有效/.test(message.text)),'manual recovery copy must never be emitted');
+  h.queueNavigation(target,task,'同一错误再次出现');
+  assert.equal(task.state,'queued');
+  assert.ok(task.cooldownUntil>Date.now(),'repeated permanent failures back off instead of hot-looping');
+  assert.equal(task.blockedAutoRetryCount,2);
   dom.window.close();
 });
 test('live owned conversation canonicalizes a stale URL without navigation',async()=>{

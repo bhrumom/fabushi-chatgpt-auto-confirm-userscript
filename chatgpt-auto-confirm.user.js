@@ -83,6 +83,12 @@
   // may eventually be redispatched after several page recovery cycles.
   const AMBIGUOUS_SEND_REFRESH_MS = STALLED_REFRESH_MS;
   const AMBIGUOUS_SEND_REFRESH_LIMIT = NO_FINAL_REPLY_RETRY_LIMIT;
+  // A permanent page error must not create a hot loop of new conversations.
+  // The first blocked recovery is immediate; repeated failures remain queued
+  // and retry automatically with a short exponential delay, never as a
+  // terminal manual-action state.
+  const BLOCKED_AUTO_RETRY_BASE_MS = 15 * 1000;
+  const BLOCKED_AUTO_RETRY_MAX_MS = 3 * 60 * 1000;
   const MAX_REVIEW_REPAIR_ATTEMPTS = 2;
   const ROUTE_HYDRATION_TIMEOUT_MS = 30000;
   const ROUTE_RECOVERY_LIMIT = 2;
@@ -2093,7 +2099,7 @@
     task.attachmentLastAttemptAt = 0;
     if (attachmentFailureRequiresUserAction(message)) {
       task.attachmentUploadRetryAt = 0;
-      state(task, 'blocked', `附件上传未确认，已停止发送纯文字目标。${message ? ` ${message}` : ''} 可点击重试；若文件已被浏览器清理，请重新选择文件。`);
+      state(task, 'blocked', `附件上传未确认，未发送纯文字目标。${message ? ` ${message}` : ''} 将自动新开会话并重试附件；若浏览器已清理文件内容，任务保持自动重试而不会降级为纯文字发送。`);
     } else {
       const attempt = Number(task.attachmentUploadRetryCount || 0) + 1;
       const retryMs = attachmentRetryDelayMs(attempt);
@@ -2785,8 +2791,7 @@
     clearTimeout(navigationTimer); navigationTimer = null; navigating = false;
     sessionStorage.removeItem(NAV);
     if (task) {
-      state(task, 'blocked', `${reason}；没有可用的真实会话链接，已停止等待，不会刷新或重复派发。`);
-      log(task, '请在任务中保留有效的 https://chatgpt.com/c/<会话ID> 链接后再恢复。');
+      state(task, 'blocked', `${reason}；没有可用的真实会话链接，将自动切换到新的 ChatGPT 会话重发。`);
     }
     return false;
   }
@@ -3041,17 +3046,23 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     if (!task || ['done', 'cancelled'].includes(task.state)) return '';
     const attempt = Number(task.blockedAutoRetryCount || 0) + 1;
     const detail = String(reason || '任务进入需要处理状态').trim() || '任务进入需要处理状态';
+    const retryDelayMs = attempt <= 1 ? 0 : Math.min(
+      BLOCKED_AUTO_RETRY_BASE_MS * (2 ** Math.min(attempt - 2, 5)),
+      BLOCKED_AUTO_RETRY_MAX_MS,
+    );
     task.blockedAutoRetryCount = attempt;
     task.lastBlockedReason = detail.slice(0, 1000);
     task.lastBlockedRecoveryAt = Date.now();
     clearDispatchIntent(task);
     task.noFinalReplyRecoveryUntil = 0;
+    task.cooldownUntil = retryDelayMs ? Date.now() + retryDelayMs : 0;
     task.state = 'queued';
     delete task.pausedState;
     resetAmbiguousSendRecovery(task);
     resetAttachmentUploadState(task);
     observations.delete(task.id);
-    log(task, `${detail}；已自动清理旧派发并切换到新的 ChatGPT 会话原样重发（自动恢复第 ${attempt} 次），不会停在“需要处理”。`);
+    const cadence = retryDelayMs ? `，${Math.ceil(retryDelayMs / 1000)} 秒后自动重发` : '并立即自动重发';
+    log(task, `${detail}；已自动清理旧派发并切换到新的 ChatGPT 会话${cadence}（自动恢复第 ${attempt} 次），不会停在“需要处理”。`);
     save();
     return 'queued';
   }
@@ -3452,6 +3463,10 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.noFinalReplyAttempts = 0;
     task.noFinalReplyRecoveryCycles = 0;
     task.noFinalReplyRecoveryUntil = 0;
+    task.blockedAutoRetryCount = 0;
+    task.lastBlockedReason = '';
+    task.lastBlockedRecoveryAt = 0;
+    task.cooldownUntil = 0;
     task.sendPrepared = false;
     task.preparedPrompt = '';
     task.sendUiWaitSince = 0;
