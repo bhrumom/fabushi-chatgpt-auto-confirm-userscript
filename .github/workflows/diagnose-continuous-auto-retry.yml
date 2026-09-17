@@ -1,4 +1,4 @@
-name: Harden continuous retry
+name: Diagnose continuous retry candidate
 
 on:
   push:
@@ -6,27 +6,27 @@ on:
       - codex/continuous-auto-retry-diagnostic-20260918
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  patch:
+  diagnose:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 4
     steps:
       - uses: actions/checkout@v7
         with:
           ref: codex/continuous-auto-retry-20260918
-          fetch-depth: 0
-      - run: python3 tools/harden_continuous_retry.py
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
       - run: node --check chatgpt-auto-confirm.user.js
-      - shell: bash
+      - name: Verbose regression
+        shell: bash
         run: |
-          set -euo pipefail
-          git diff --check
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add chatgpt-auto-confirm.user.js test/workbench.test.mjs
-          git diff --cached --quiet && exit 0
-          git commit -m "fix: keep blocked recovery automatic and bounded"
-          git push origin HEAD:codex/continuous-auto-retry-20260918
-# rerun after staging the one-shot helper on the PR branch
+          set -o pipefail
+          timeout 90s node --test --test-reporter=spec test/workbench.test.mjs 2>&1 | tee /tmp/regression.log
+          code=${PIPESTATUS[0]}
+          echo "node test exit: $code"
+          exit "$code"
