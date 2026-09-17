@@ -10,7 +10,6 @@ permissions:
 
 jobs:
   patch:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -119,7 +118,7 @@ jobs:
             }
             return true;
           }
-'''
+          '''
           source = source[:start] + new_recovery + source[end:]
 
           def patch_section(text, start_marker, end_marker, old, new, label):
@@ -210,7 +209,7 @@ jobs:
           '''
           tests = tests[:test_start] + new_tests + tests[test_end:]
 
-          if '2.9.35' in source.splitlines()[:25]:
+          if any('2.9.35' in line for line in source.splitlines()[:25]):
               raise SystemExit('old version remains in header')
           source_path.write_text(source)
           test_path.write_text(tests)
