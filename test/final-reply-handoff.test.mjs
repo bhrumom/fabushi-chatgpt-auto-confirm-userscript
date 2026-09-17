@@ -384,9 +384,13 @@ test('malformed review reports requeue only the review phase and never discard W
     assert.equal(task.reviewRepairAttempts, 1);
     assert.equal(hooks.queueReviewRepair(task, '验收回复 JSON 无法解析'), 'queued');
     assert.equal(task.reviewRepairAttempts, 2);
-    assert.equal(hooks.queueReviewRepair(task, '验收回复 JSON 无法解析'), 'blocked');
-    assert.equal(task.state, 'blocked');
+    assert.equal(hooks.queueReviewRepair(task, '验收回复 JSON 无法解析'), 'queued');
+    assert.equal(task.state, 'queued');
+    assert.equal(task.url, '');
+    assert.equal(task.token, '');
     assert.equal(task.result, 'Work 已完成，不能重复执行。');
+    assert.match(task.messages.at(-1).text, /新的 ChatGPT 会话/);
+    assert.match(task.messages.at(-1).text, /自动重发/);
   } finally {
     dom.window.close();
   }

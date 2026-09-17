@@ -1,0 +1,18 @@
+project_id: CAR
+name: ChatGPT Auto Confirm Continuous Retry
+slug: continuous-auto-retry
+status: active
+repository: bhrumom/fabushi-chatgpt-auto-confirm-userscript
+authoritative_branch: main
+authoritative_path: projects/continuous-auto-retry
+owner: Fabushi
+reviewers: []
+current_stage: implementation-verification
+created_at: 2026-09-18
+updated_at: 2026-09-18
+risk_tier: tier-1
+security_classification: public
+related_projects:
+  - FAB-P0001/TFI
+source_systems:
+  - GitHub

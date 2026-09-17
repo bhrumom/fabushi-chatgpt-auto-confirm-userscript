@@ -159,14 +159,18 @@ test('ensureTaskAttachments keeps a backoff task on the scheduler path', async (
   }
 });
 
-test('missing local attachment remains a manual-action blocker', async () => {
+test('missing local attachment stays automatic and never becomes a manual-action blocker', async () => {
   const { dom, hooks } = await createHarness('<main><form><textarea id="prompt-textarea"></textarea></form></main>');
   try {
     const task = { id: 'blocked-task', state: 'uploading', attachments: [{ name: 'missing.pdf' }], messages: [] };
     assert.equal(hooks.failAttachmentUpload(task, '本地附件“missing.pdf”已不存在，请重新选择。'), false);
-    assert.equal(task.state, 'blocked');
+    assert.equal(task.state, 'queued');
     assert.equal(task.attachmentUploadRetryAt, 0);
-    assert.match(task.messages.at(-1).text, /停止发送纯文字目标/);
+    assert.equal(task.url || '', '');
+    assert.equal(task.token || '', '');
+    assert.match(task.messages.at(-1).text, /新的 ChatGPT 会话/);
+    assert.match(task.messages.at(-1).text, /自动重发/);
+    assert.doesNotMatch(task.messages.at(-1).text, /停止发送纯文字目标/);
   } finally {
     dom.window.close();
   }
