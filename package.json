@@ -1,1 +1,1 @@
-{"private":true,"type":"module","scripts":{"test":"node --test test/*.test.mjs"},"devDependencies":{"jsdom":"26.1.0"}}
+{"private":true,"type":"module","scripts":{"test":"node --test --test-force-exit test/*.test.mjs"},"devDependencies":{"jsdom":"26.1.0"}}
