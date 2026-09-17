@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.35
+// @version      2.9.36
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -14,7 +14,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.35';
+  const VERSION = '2.9.36';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -78,6 +78,11 @@
   // page that remains unchanged can therefore be retried forever, but never
   // more than once per three minutes.
   const STALLED_REFRESH_COOLDOWN_MS = STALLED_REFRESH_MS;
+  // An ambiguous Send click gets the same three-minute recovery cadence.
+  // Prefer a current-round bound conversation first; only an unbound send
+  // may eventually be redispatched after several page recovery cycles.
+  const AMBIGUOUS_SEND_REFRESH_MS = STALLED_REFRESH_MS;
+  const AMBIGUOUS_SEND_REFRESH_LIMIT = NO_FINAL_REPLY_RETRY_LIMIT;
   const MAX_REVIEW_REPAIR_ATTEMPTS = 2;
   const ROUTE_HYDRATION_TIMEOUT_MS = 30000;
   const ROUTE_RECOVERY_LIMIT = 2;
@@ -2944,29 +2949,71 @@
     });
   }
 
-  function stopAmbiguousSend(task) {
-    const adoptedURL = adoptUnboundAttemptedConversation(task);
-    if (adoptedURL) {
-      task.attempted = false;
-      task.dispatchOriginURL = '';
-      task.dispatchStartedAt = 0;
-      task.rendererRecoveryExhausted = false;
-      task.routeRecoveryAttempts = 0;
-      task.workspaceDocumentRecoveryAttempts = 0;
-      task.updatedAt = Date.now();
-      state(task, 'waiting', '已从当前唯一的新会话恢复本轮发送结果；沿用原发送标识和附件，开始检查最终回复，不会重复发送。');
-      save();
-      return true;
-    }
-    task.updatedAt = Date.now();
-    if (task.url && canonicalConversationURL(task.url)) {
-      task.attempted = false;
-      state(task, 'waiting', '已记录本轮会话链接；无法读取消息标识时仍按唯一链接继续监控，不会重复发送。');
-    } else {
-      state(task, 'blocked', '原消息发送结果超过 90 秒仍无法确认；当前页面链接未被绑定到本任务，已停止且保留派发标识，不会自动重发。请在 ChatGPT 中找到本轮会话后，把真实会话链接记录到任务再恢复。');
-    }
+  function resetAmbiguousSendRecovery(task) {
+  if (!task) return;
+  task.ambiguousSendRefreshAttempts = 0;
+  task.ambiguousSendRefreshAt = 0;
+}
+function stopAmbiguousSend(task, perform = true, now = Date.now()) {
+  const adoptedURL = adoptUnboundAttemptedConversation(task);
+  if (adoptedURL) {
+    task.attempted = false;
+    task.dispatchOriginURL = '';
+    task.dispatchStartedAt = 0;
+    task.recoveryConfirmationStartedAt = 0;
+    task.rendererRecoveryExhausted = false;
+    task.routeRecoveryAttempts = 0;
+    task.workspaceDocumentRecoveryAttempts = 0;
+    resetAmbiguousSendRecovery(task);
+    task.updatedAt = now;
+    state(task, 'waiting', '已从当前唯一的新会话恢复本轮发送结果；沿用原发送标识和附件，开始检查最终回复，不会重复发送。');
     save();
+    return true;
   }
+  task.updatedAt = now;
+  const boundURL = canonicalConversationURL(task.url);
+  if (boundURL) {
+    task.attempted = false;
+    task.dispatchOriginURL = '';
+    task.dispatchStartedAt = 0;
+    task.recoveryConfirmationStartedAt = 0;
+    task.rendererRecoveryExhausted = false;
+    task.routeRecoveryAttempts = 0;
+    task.workspaceDocumentRecoveryAttempts = 0;
+    resetAmbiguousSendRecovery(task);
+    task.state = 'waiting';
+    log(task, '原消息发送确认超过 90 秒；已找到本轮绑定会话，优先回到该会话检查是否已结束或已有最终回复，再按回复结果继续下一步，不会重复发送。');
+    save();
+    if (perform && currentConversationURL() !== boundURL) directNavigate(new URL(boundURL), task);
+    return true;
+  }
+  const attempts = Number(task.ambiguousSendRefreshAttempts || 0);
+  const lastRefreshAt = Number(task.ambiguousSendRefreshAt || 0);
+  if (lastRefreshAt && now - lastRefreshAt < AMBIGUOUS_SEND_REFRESH_MS) {
+    task.state = 'sending';
+    return false;
+  }
+  if (attempts >= AMBIGUOUS_SEND_REFRESH_LIMIT) {
+    resetAmbiguousSendRecovery(task);
+    return queueNoFinalReplyRetry(task, `原消息发送结果持续无法绑定本轮会话；已按每 3 分钟一次的间隔恢复 ${AMBIGUOUS_SEND_REFRESH_LIMIT} 次仍无法确认`);
+  }
+  const nextAttempt = attempts + 1;
+  task.ambiguousSendRefreshAttempts = nextAttempt;
+  task.ambiguousSendRefreshAt = now;
+  task.state = 'sending';
+  log(task, `原消息发送结果超过 90 秒仍无法确认，且尚无本轮绑定会话；正在刷新当前页面（第 ${nextAttempt}/${AMBIGUOUS_SEND_REFRESH_LIMIT} 次）。刷新后会重新判断当前页面和会话状态；若仍无法绑定，将每 3 分钟继续恢复，持续失败后自动新开会话原样重发。`);
+  save();
+  if (!perform) return true;
+  navigating = true;
+  try { location.reload(); } catch (error) {
+    navigating = false;
+    task.state = 'sending';
+    log(task, `发送确认恢复刷新失败：${error.message}；已保留原发送标识，3 分钟后继续尝试。`);
+    save();
+    return false;
+  }
+  return true;
+}
   function noFinalReplyBackoffMs(cycle) {
     const round = Math.max(1, Number(cycle || 1));
     return Math.min(NO_FINAL_REPLY_BACKOFF_BASE_MS * (2 ** Math.min(round - 1, 4)), NO_FINAL_REPLY_BACKOFF_MAX_MS);
@@ -2984,6 +3031,7 @@
     task.rendererRecoveryExhausted = false;
     task.routeRecoveryAttempts = 0;
     task.workspaceDocumentRecoveryAttempts = 0;
+    resetAmbiguousSendRecovery(task);
     resetAttachmentUploadState(task);
     observations.delete(task.id);
   }
@@ -3226,6 +3274,7 @@
     task.routeRecoveryAttempts = 0;
     task.workspaceDocumentRecoveryAttempts = 0;
     task.recoveryConfirmationStartedAt = 0;
+    resetAmbiguousSendRecovery(task);
     task.sentAt = Date.now();
     // The send always starts from `/`. Keep the origin only as diagnostic
     // context; it is never promoted to the task's conversation identity.
@@ -3394,6 +3443,7 @@
     task.rendererRecoveryExhausted = false;
     task.routeRecoveryAttempts = 0;
     task.workspaceDocumentRecoveryAttempts = 0;
+    resetAmbiguousSendRecovery(task);
     resetAttachmentUploadState(task);
     observations.delete(task.id);
     log(task, reply, 'assistant');
@@ -3821,6 +3871,7 @@ NaN
       task.rendererRecoveryExhausted = false;
       task.routeRecoveryAttempts = 0;
       task.workspaceDocumentRecoveryAttempts = 0;
+      resetAmbiguousSendRecovery(task);
       task.noFinalReplyRecoveryUntil = 0;
       delete task.pausedState;
       log(task, automatic
