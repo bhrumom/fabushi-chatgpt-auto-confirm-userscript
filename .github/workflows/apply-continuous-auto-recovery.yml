@@ -1,0 +1,209 @@
+name: Apply continuous auto recovery
+
+on:
+  push:
+    branches:
+      - codex/continuous-auto-recovery-20260918
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v7
+        with:
+          ref: codex/continuous-auto-recovery-20260918
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Apply continuous recovery patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          source_path = Path('chatgpt-auto-confirm.user.js')
+          test_path = Path('test/workbench.test.mjs')
+          final_test_path = Path('test/final-reply-handoff.test.mjs')
+          attachment_test_path = Path('test/attachment-continuity.test.mjs')
+          source = source_path.read_text()
+          workbench = test_path.read_text()
+          final_test = final_test_path.read_text()
+          attachment_test = attachment_test_path.read_text()
+
+          def replace_once(text, old, new, label):
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected 1 occurrence, found {count}')
+              return text.replace(old, new, 1)
+
+          source = source.replace('// @version      2.9.36', '// @version      2.9.37', 1)
+          source = source.replace("  const VERSION = '2.9.36';", "  const VERSION = '2.9.37';", 1)
+
+          source = replace_once(
+              source,
+              "  const AMBIGUOUS_SEND_REFRESH_LIMIT = NO_FINAL_REPLY_RETRY_LIMIT;\n  const MAX_REVIEW_REPAIR_ATTEMPTS = 2;",
+              "  const AMBIGUOUS_SEND_REFRESH_LIMIT = NO_FINAL_REPLY_RETRY_LIMIT;\n  // Any condition that previously became a terminal manual-attention state\n  // now enters a bounded automatic retry delay and then opens a fresh chat.\n  // This keeps the runner alive without creating a hot loop when the page is\n  // globally blocked or the renderer repeatedly fails before a send.\n  const AUTO_RECOVERY_RETRY_BASE_MS = 15 * 1000;\n  const AUTO_RECOVERY_RETRY_MAX_MS = 3 * 60 * 1000;\n  const MAX_REVIEW_REPAIR_ATTEMPTS = 2;",
+              'auto recovery constants',
+          )
+
+          source = source.replace("blocked:'需要处理'", "blocked:'自动恢复中'", 1)
+
+          source = replace_once(
+              source,
+              "  function taskCanBeRecoveredByHost(task) {\n    return Boolean(task && (\n      AUTO_RECOVERABLE_STATE_NAMES.has(String(task.state || ''))\n      || (task.state === 'blocked' && (\n        (task.attempted && task.token)\n        || task.rendererRecoveryExhausted\n        || task.attachmentUploadPending\n      ))\n    ));\n  }",
+              "  function taskCanBeRecoveredByHost(task) {\n    return Boolean(task && (\n      AUTO_RECOVERABLE_STATE_NAMES.has(String(task.state || ''))\n      || task.state === 'blocked'\n    ));\n  }",
+              'recoverable blocked task predicate',
+          )
+
+          source = replace_once(
+              source,
+              "  function queueNavigation(target, task, reason = '会话切换未确认') {\n    clearTimeout(navigationTimer); navigationTimer = null; navigating = false;\n    sessionStorage.removeItem(NAV);\n    if (task) {\n      state(task, 'blocked', `${reason}；没有可用的真实会话链接，已停止等待，不会刷新或重复派发。`);\n      log(task, '请在任务中保留有效的 https://chatgpt.com/c/<会话ID> 链接后再恢复。');\n    }\n    return false;\n  }",
+              "  function queueNavigation(target, task, reason = '会话切换未确认') {\n    clearTimeout(navigationTimer); navigationTimer = null; navigating = false;\n    sessionStorage.removeItem(NAV);\n    if (task) queueAutomaticFreshRetry(task, `${reason}；没有可用的真实会话链接`);\n    return false;\n  }",
+              'navigation auto recovery',
+          )
+
+          marker = "  function noFinalReplyBackoffMs(cycle) {\n    const round = Math.max(1, Number(cycle || 1));\n    return Math.min(NO_FINAL_REPLY_BACKOFF_BASE_MS * (2 ** Math.min(round - 1, 4)), NO_FINAL_REPLY_BACKOFF_MAX_MS);\n  }\n"
+          replacement = marker + "  function automaticRecoveryDelayMs(attempt) {\n    const round = Math.max(1, Number(attempt || 1));\n    return Math.min(AUTO_RECOVERY_RETRY_BASE_MS * (2 ** Math.min(round - 1, 4)), AUTO_RECOVERY_RETRY_MAX_MS);\n  }\n  function resetAutomaticRecovery(task) {\n    if (!task) return;\n    task.autoRecoveryAttempts = 0;\n    task.autoRecoveryUntil = 0;\n  }\n  function queueAutomaticFreshRetry(task, reason = '任务遇到可恢复异常') {\n    if (!task) return '';\n    const attempt = Number(task.autoRecoveryAttempts || 0) + 1;\n    const delayMs = automaticRecoveryDelayMs(attempt);\n    clearDispatchIntent(task);\n    task.autoRecoveryAttempts = attempt;\n    task.autoRecoveryUntil = Date.now() + delayMs;\n    task.state = 'waiting';\n    log(task, `${reason}；已自动退出当前异常会话，将在约 ${Math.ceil(delayMs / 1000)} 秒后新开会话原样重发（连续恢复第 ${attempt} 次）。任务不会进入“需要处理”，脚本会持续运行。`);\n    save();\n    return 'backoff';\n  }\n"
+          source = replace_once(source, marker, replacement, 'automatic recovery helper')
+
+          source = replace_once(
+              source,
+              "    if (attachmentFailureRequiresUserAction(message)) {\n      task.attachmentUploadRetryAt = 0;\n      state(task, 'blocked', `附件上传未确认，已停止发送纯文字目标。${message ? ` ${message}` : ''} 可点击重试；若文件已被浏览器清理，请重新选择文件。`);\n    } else {",
+              "    if (attachmentFailureRequiresUserAction(message)) {\n      task.attachmentUploadRetryAt = 0;\n      queueAutomaticFreshRetry(task, `附件上传未确认，且不会降级为纯文字发送。${message ? ` ${message}` : ''}`);\n    } else {",
+              'attachment manual blocker removal',
+          )
+
+          source = replace_once(
+              source,
+              "    if (attempts >= MAX_REVIEW_REPAIR_ATTEMPTS) {\n      task.state = 'blocked';\n      log(task, `${reason}；已达到 ${MAX_REVIEW_REPAIR_ATTEMPTS} 次有限恢复上限。请检查验收会话后再恢复，已保留 Work 结果且不会重复执行。`);\n      save();\n      return 'blocked';\n    }",
+              "    if (attempts >= MAX_REVIEW_REPAIR_ATTEMPTS) {\n      task.reviewRepairAttempts = 0;\n      return queueAutomaticFreshRetry(task, `${reason}；连续 ${MAX_REVIEW_REPAIR_ATTEMPTS} 次快速验收重开仍未得到可解析报告，已保留 Work 结果且不会重复执行 Work`);\n    }",
+              'review repair infinite recovery',
+          )
+
+          source = replace_once(
+              source,
+              "    if (result.state === 'blocked') throw new Error(result.reason);",
+              "    if (result.state === 'blocked') { queueAutomaticFreshRetry(task, result.reason); return; }",
+              'classified blocker recovery',
+          )
+
+          source = replace_once(
+              source,
+              "        const reviewRecovery = error.code === 'invalid-review-json' ? queueReviewRepair(task, error.message) : '';\n        if (reviewRecovery === 'queued') nextScheduleMs = 100;\n        else if (reviewRecovery !== 'blocked') state(task, 'blocked', error.message);",
+              "        const reviewRecovery = error.code === 'invalid-review-json' ? queueReviewRepair(task, error.message) : '';\n        if (reviewRecovery === 'queued') nextScheduleMs = 100;\n        else if (reviewRecovery === 'backoff') nextScheduleMs = Math.max(1000, Number(task.autoRecoveryUntil || 0) - Date.now());\n        else {\n          queueAutomaticFreshRetry(task, error.message);\n          nextScheduleMs = Math.max(1000, Number(task.autoRecoveryUntil || 0) - Date.now());\n        }",
+              'generic error recovery',
+          )
+
+          source = replace_once(
+              source,
+              "      const recoveryUntil = Number(task.noFinalReplyRecoveryUntil || 0);",
+              "      const automaticRecoveryUntil = Number(task.autoRecoveryUntil || 0);\n      if (automaticRecoveryUntil > Date.now()) {\n        nextScheduleMs = Math.max(500, automaticRecoveryUntil - Date.now());\n        if (task.state !== 'waiting') task.state = 'waiting';\n        return;\n      }\n      if (task.autoRecoveryUntil) {\n        task.autoRecoveryUntil = 0;\n        task.state = 'queued';\n        task.updatedAt = Date.now();\n        log(task, '自动恢复等待结束，正在新开会话原样重发；脚本继续持续运行。');\n        save();\n      }\n      const recoveryUntil = Number(task.noFinalReplyRecoveryUntil || 0);",
+              'scheduler automatic recovery delay',
+          )
+
+          source = replace_once(
+              source,
+              "        task.attempted = false;\n        task.dispatchOriginURL = '';\n        task.dispatchStartedAt = 0;\n        navigating = false;",
+              "        task.attempted = false;\n        task.dispatchOriginURL = '';\n        task.dispatchStartedAt = 0;\n        resetAutomaticRecovery(task);\n        navigating = false;",
+              'reset recovery after confirmed send',
+          )
+
+          source = replace_once(
+              source,
+              "    task.noFinalReplyRecoveryUntil = 0;\n    task.sendPrepared = false;",
+              "    task.noFinalReplyRecoveryUntil = 0;\n    resetAutomaticRecovery(task);\n    task.sendPrepared = false;",
+              'reset recovery on finish',
+          )
+
+          source = replace_once(
+              source,
+              "  function recoverPersistedBlockedTasks() {\n    if (data.autoResume === false) return '';\n    const task = tabTasks().find(item => item.state === 'blocked' && taskCanBeRecoveredByHost(item));\n    if (!task || !prepareTaskForRecovery(task, { automatic:true })) return '';\n    save();\n    return task.id;\n  }",
+              "  function recoverPersistedBlockedTasks() {\n    if (data.autoResume === false) return '';\n    const recovered = [];\n    for (const task of tabTasks().filter(item => item.state === 'blocked' && taskCanBeRecoveredByHost(item))) {\n      if (prepareTaskForRecovery(task, { automatic:true })) recovered.push(task.id);\n    }\n    if (!recovered.length) return '';\n    save();\n    return recovered[0];\n  }",
+              'recover all persisted blocked tasks',
+          )
+
+          source = source.replace(
+              "      // No active work means the runner is idle, not that every task should be\n      // rewritten as manually paused. In particular, a terminal error from an\n      // older build must remain visible as \\\"需要处理\\\" instead of being\n      // silently changed to \\\"已暂停\\\" on the next scan.\n",
+              "      // No active work means the runner is idle. Legacy blocked records are\n      // migrated into automatic recovery before the runner starts, so no task\n      // should remain waiting for a manual \\\"需要处理\\\" action.\n",
+              1,
+          )
+
+          # Workbench tests: legacy blocked items auto recover and invalid navigation never becomes manual attention.
+          workbench = re.sub(
+              r"test\('idle runner does not rewrite terminal error records into paused tasks',[\s\S]*?\n\}\);\n",
+              "test('persisted blocked records are automatically recovered instead of remaining pending',async()=>{\n  const {h,dom}=await fixture();\n  const task={id:'old-error',goal:'keep running',mode:'goal',phase:'work',round:1,state:'blocked',url:'https://chatgpt.com/c/old-error',token:'old-token',messages:[]};\n  h.data.tasks.push(task);\n  assert.equal(h.recoverPersistedBlockedTasks(),task.id);\n  assert.equal(task.state,'waiting');\n  assert.notEqual(task.state,'blocked');\n  dom.window.close();\n});\n",
+              workbench,
+              count=1,
+          )
+          workbench = replace_once(
+              workbench,
+              "test('missing sidebar links never create a four-attempt wait loop',async()=>{\n  const {h,w,dom}=await fixture();\n  const task={id:'nav',state:'queued',messages:[]};\n  const target=new w.URL('https://chatgpt.com/c/WEB:not-a-browser-session');\n  assert.equal(h.queueNavigation(target,task),false);\n  assert.equal(task.state,'blocked');\n  assert.equal(w.sessionStorage.getItem('fabushi-workbench-navigation-v2'),null);\n  assert.ok(task.messages.some(message=>/没有可用的真实会话链接/.test(message.text)));\n  dom.window.close();\n});",
+              "test('missing sidebar links automatically schedule a fresh conversation retry',async()=>{\n  const {h,w,dom}=await fixture();\n  const task={id:'nav',state:'queued',messages:[]};\n  const target=new w.URL('https://chatgpt.com/c/WEB:not-a-browser-session');\n  const before=Date.now();\n  assert.equal(h.queueNavigation(target,task),false);\n  assert.equal(task.state,'waiting');\n  assert.ok(task.autoRecoveryUntil>before);\n  assert.equal(w.sessionStorage.getItem('fabushi-workbench-navigation-v2'),null);\n  assert.ok(task.messages.some(message=>/自动退出当前异常会话/.test(message.text)));\n  assert.ok(task.messages.every(message=>!/需要处理/.test(message.text)));\n  dom.window.close();\n});",
+              'missing sidebar auto retry test',
+          )
+
+          final_test = replace_once(
+              final_test,
+              "    assert.equal(hooks.queueReviewRepair(task, '验收回复 JSON 无法解析'), 'queued');\n    assert.equal(task.reviewRepairAttempts, 2);\n    assert.equal(hooks.queueReviewRepair(task, '验收回复 JSON 无法解析'), 'blocked');\n    assert.equal(task.state, 'blocked');\n    assert.equal(task.result, 'Work 已完成，不能重复执行。');",
+              "    assert.equal(hooks.queueReviewRepair(task, '验收回复 JSON 无法解析'), 'queued');\n    assert.equal(task.reviewRepairAttempts, 2);\n    const before = Date.now();\n    assert.equal(hooks.queueReviewRepair(task, '验收回复 JSON 无法解析'), 'backoff');\n    assert.equal(task.state, 'waiting');\n    assert.equal(task.reviewRepairAttempts, 0);\n    assert.ok(task.autoRecoveryUntil > before);\n    assert.equal(task.result, 'Work 已完成，不能重复执行.');".replace('执行.', '执行。'),
+              'review repair auto recovery test',
+          )
+
+          attachment_test = replace_once(
+              attachment_test,
+              "test('missing local attachment remains a manual-action blocker', async () => {\n  const { dom, hooks } = await createHarness('<main><form><textarea id=\"prompt-textarea\"></textarea></form></main>');\n  try {\n    const task = { id: 'blocked-task', state: 'uploading', attachments: [{ name: 'missing.pdf' }], messages: [] };\n    assert.equal(hooks.failAttachmentUpload(task, '本地附件“missing.pdf”已不存在，请重新选择。'), false);\n    assert.equal(task.state, 'blocked');\n    assert.equal(task.attachmentUploadRetryAt, 0);\n    assert.match(task.messages.at(-1).text, /停止发送纯文字目标/);\n  } finally {\n    dom.window.close();\n  }\n});",
+              "test('missing local attachment stays on the automatic recovery path without sending plain text', async () => {\n  const { dom, hooks } = await createHarness('<main><form><textarea id=\"prompt-textarea\"></textarea></form></main>');\n  try {\n    const task = { id: 'blocked-task', state: 'uploading', attachments: [{ name: 'missing.pdf' }], messages: [] };\n    const before = Date.now();\n    assert.equal(hooks.failAttachmentUpload(task, '本地附件“missing.pdf”已不存在，请重新选择。'), false);\n    assert.equal(task.state, 'waiting');\n    assert.ok(task.autoRecoveryUntil > before);\n    assert.match(task.messages.at(-1).text, /不会降级为纯文字发送/);\n    assert.doesNotMatch(task.messages.at(-1).text, /需要处理/);\n  } finally {\n    dom.window.close();\n  }\n});",
+              'attachment auto recovery test',
+          )
+
+          source_path.write_text(source)
+          test_path.write_text(workbench)
+          final_test_path.write_text(final_test)
+          attachment_test_path.write_text(attachment_test)
+          PY
+
+      - name: Install test dependencies
+        run: npm ci
+
+      - name: Check userscript syntax
+        run: node --check chatgpt-auto-confirm.user.js
+
+      - name: Run full regression suite
+        run: npm test
+
+      - name: Verify no runtime path creates manual blocked state
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          source = Path('chatgpt-auto-confirm.user.js').read_text()
+          forbidden = ["state(task, 'blocked'", "task.state = 'blocked'"]
+          for token in forbidden:
+              if token in source:
+                  raise SystemExit(f'forbidden manual blocked transition remains: {token}')
+          if "blocked:'自动恢复中'" not in source:
+              raise SystemExit('legacy blocked display is not mapped to automatic recovery')
+          print('continuous recovery gate passed')
+          PY
+
+      - name: Commit generated patch and remove one-shot workflow
+        shell: bash
+        run: |
+          rm -f .github/workflows/apply-continuous-auto-recovery.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add chatgpt-auto-confirm.user.js test/workbench.test.mjs test/final-reply-handoff.test.mjs test/attachment-continuity.test.mjs .github/workflows/apply-continuous-auto-recovery.yml
+          git diff --cached --check
+          git commit -m "fix: keep userscript tasks on automatic recovery"
+          git push origin HEAD:codex/continuous-auto-recovery-20260918
