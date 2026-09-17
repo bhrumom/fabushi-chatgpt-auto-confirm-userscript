@@ -1031,17 +1031,45 @@ test('synthetic conversation URL stays on the current page without retrying',asy
   h.pause();
   dom.window.close();
 });
-test('ambiguous send timeout preserves token and stops instead of creating another planner',async()=>{
+test('ambiguous send timeout prioritizes the current-round bound conversation before any resend',async()=>{
+  const {h,w,dom}=await fixture();
+  w.history.pushState({},'', '/c/other-conversation');
+  const task={id:'sent-bound',goal:'review once',mode:'goal',round:1,state:'sending',phase:'review',url:'https://chatgpt.com/c/bound-conversation',token:'one-dispatch',attempted:true,sentAt:Date.now(),messages:[]};
+  h.data.tasks.push(task);
+  h.stopAmbiguousSend(task,false,1_000_000);
+  assert.equal(task.state,'waiting');
+  assert.equal(task.url,'https://chatgpt.com/c/bound-conversation');
+  assert.equal(task.token,'one-dispatch');
+  assert.equal(task.attempted,false);
+  assert.match(task.messages.at(-1).text,/绑定会话/);
+  assert.match(task.messages.at(-1).text,/最终回复/);
+  dom.window.close();
+});
+test('unbound ambiguous send refreshes every three minutes and only then opens a fresh retry',async()=>{
   const {h,w,dom}=await fixture();
   w.history.pushState({},'', '/c/old-conversation');
-  const task={id:'sent',goal:'review once',mode:'goal',round:1,state:'sending',phase:'review',url:'',token:'one-dispatch',attempted:true,messages:[]};
+  const task={id:'sent-unbound',goal:'review once',mode:'goal',round:1,state:'sending',phase:'review',url:'',token:'one-dispatch',attempted:true,dispatchOriginURL:'https://chatgpt.com/c/old-conversation',sentAt:1,messages:[]};
   h.data.tasks.push(task);
-  h.stopAmbiguousSend(task);
-  assert.equal(task.state,'blocked');
-  assert.equal(task.url,'','the visible old route must never be adopted after an ambiguous send');
+  h.stopAmbiguousSend(task,false,1_000_000);
+  assert.equal(task.state,'sending');
+  assert.equal(task.url,'');
   assert.equal(task.token,'one-dispatch');
   assert.equal(task.attempted,true);
-  assert.match(task.messages.at(-1).text,/不会自动重发/);
+  assert.equal(task.ambiguousSendRefreshAttempts,1);
+  assert.equal(task.ambiguousSendRefreshAt,1_000_000);
+  assert.match(task.messages.at(-1).text,/每 3 分钟/);
+  h.stopAmbiguousSend(task,false,1_060_000);
+  assert.equal(task.ambiguousSendRefreshAttempts,1,'cooldown prevents a rapid refresh loop');
+  task.ambiguousSendRefreshAttempts=4;
+  task.ambiguousSendRefreshAt=1_000_000;
+  h.stopAmbiguousSend(task,false,1_180_001);
+  assert.equal(task.state,'queued');
+  assert.equal(task.url,'');
+  assert.equal(task.token,'','a fresh retry gets a new dispatch token');
+  assert.equal(task.attempted,false);
+  assert.equal(task.noFinalReplyAttempts,1);
+  assert.equal(task.ambiguousSendRefreshAttempts,0);
+  assert.match(task.messages.at(-1).text,/新开 Work\/规划会话原样重发/);
   dom.window.close();
 });
 test('edited goal is persisted and replaces stale next-round instructions',async()=>{
@@ -1666,7 +1694,7 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript does not request remote user-manager updates',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.35$/m);
-  assert.match(source,/const VERSION = '2\.9\.35'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.36$/m);
+  assert.match(source,/const VERSION = '2\.9\.36'/);
   assert.doesNotMatch(source,/^\/\/ @(?:updateURL|downloadURL)\b/m);
 });
