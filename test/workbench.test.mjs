@@ -1046,13 +1046,19 @@ test('a conversation URL cannot be adopted by two active tasks',async()=>{
   assert.equal(h.conversationURLOwner(first.url),first);
   dom.window.close();
 });
-test('synthetic conversation URL stays on the current page without retrying',async()=>{
+test('synthetic conversation URL automatically becomes a fresh resend',async()=>{
   const {h,w,dom}=await fixture();
-  const task={id:'unverified',goal:'wait',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/WEB:not-in-sidebar',token:'owner',attempted:false,messages:[]};
+  const task={id:'unverified',ownerTabId:h.getTabId(),goal:'wait',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/WEB:not-in-sidebar',token:'owner',attempted:false,messages:[]};
   h.data.tasks.push(task);
   assert.equal(h.queueNavigation(new w.URL(task.url),task,'会话地址无效'),false);
   assert.equal(w.location.pathname,'/');
-  assert.match(task.messages.at(-1).text,/请在任务中保留有效/);
+  assert.equal(task.state,'queued');
+  assert.equal(task.url,'');
+  assert.equal(task.token,'');
+  assert.equal(task.cooldownUntil,0);
+  assert.match(task.messages.at(-1).text,/新的 ChatGPT 会话/);
+  assert.match(task.messages.at(-1).text,/自动重发/);
+  assert.doesNotMatch(task.messages.at(-1).text,/请在任务中保留有效/);
   h.pause();
   dom.window.close();
 });
