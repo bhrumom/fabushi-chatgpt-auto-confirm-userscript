@@ -15,6 +15,19 @@ async function fixture(body='', setup=()=>{}) {
   await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, connectionInterruptedNotice, refreshInterruptedConversation, classify, abnormalEndSince, pageLoadingState, conversationLoading, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, adoptUnboundAttemptedConversation, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
+test('runtime blocked transition immediately becomes a fresh queued resend',async()=>{
+  const {h,w,dom}=await fixture();
+  const task={id:'runtime-blocked',ownerTabId:h.getTabId(),goal:'continue forever',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/stuck',token:'dispatch-token',attempted:true,messages:[]};
+  h.data.tasks.push(task);
+  h.queueNavigation(new w.URL('https://chatgpt.com/c/WEB:missing'),task,'当前会话无法恢复');
+  assert.equal(task.state,'queued');
+  assert.equal(task.url,'');
+  assert.equal(task.token,'');
+  assert.equal(task.attempted,false);
+  assert.match(task.messages.at(-1).text,/不会停在“需要处理”/);
+  dom.window.close();
+});
+
 test('completion requires own final turn, stop absent, no approval and stable completion evidence',async()=>{
   const {h,dom}=await fixture();
   const sample={owned:true,final:true,text:'result',sentAt:0,cards:0,stop:false};
@@ -247,14 +260,17 @@ test('legacy exhausted abnormal records are revived after upgrading',async()=>{
   assert.match(task.messages.at(-1).text,/持续延迟恢复/);
   dom.window.close();
 });
-test('idle runner does not rewrite terminal error records into paused tasks',async()=>{
-  const {h,w,dom}=await fixture();
-  const task={id:'old-error',goal:'keep visible',mode:'goal',phase:'work',round:1,state:'blocked',url:'https://chatgpt.com/c/old-error',token:'old-token',messages:[]};
+test('persisted needs-processing task automatically opens a fresh retry instead of stopping',async()=>{
+  const {h,dom}=await fixture();
+  const task={id:'old-error',ownerTabId:h.getTabId(),goal:'keep running',mode:'goal',phase:'work',round:1,state:'blocked',url:'https://chatgpt.com/c/old-error',token:'old-token',attempted:true,messages:[]};
   h.data.tasks.push(task);
-  await h.start();
-  await h.tick();
-  assert.equal(task.state,'blocked');
-  assert.equal((await w.FabushiUserscript.call('status')).running,false);
+  assert.equal(h.recoverPersistedBlockedTasks(),task.id);
+  assert.equal(task.state,'queued');
+  assert.equal(task.url,'');
+  assert.equal(task.token,'');
+  assert.equal(task.attempted,false);
+  assert.match(task.messages.at(-1).text,/新的 ChatGPT 会话原样重发/);
+  assert.doesNotMatch(h.data.tasks.map(item=>item.state).join(','),/blocked/);
   dom.window.close();
 });
 test('connection interruption refresh is bounded per conversation and preserves identity',async()=>{
@@ -931,14 +947,15 @@ test('transient navigation warning cannot redispatch an already generating conve
   assert.equal(task.attempted,true);
   dom.window.close();
 });
-test('missing sidebar links never create a four-attempt wait loop',async()=>{
+test('missing sidebar links automatically requeue in a fresh conversation',async()=>{
   const {h,w,dom}=await fixture();
-  const task={id:'nav',state:'queued',messages:[]};
+  const task={id:'nav',ownerTabId:h.getTabId(),state:'queued',messages:[]};
   const target=new w.URL('https://chatgpt.com/c/WEB:not-a-browser-session');
   assert.equal(h.queueNavigation(target,task),false);
-  assert.equal(task.state,'blocked');
+  assert.equal(task.state,'queued');
+  assert.equal(task.url,'');
   assert.equal(w.sessionStorage.getItem('fabushi-workbench-navigation-v2'),null);
-  assert.ok(task.messages.some(message=>/没有可用的真实会话链接/.test(message.text)));
+  assert.ok(task.messages.some(message=>/新的 ChatGPT 会话原样重发/.test(message.text)));
   dom.window.close();
 });
 test('live owned conversation canonicalizes a stale URL without navigation',async()=>{

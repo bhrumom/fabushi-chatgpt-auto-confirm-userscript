@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.36
+// @version      2.9.37
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -14,7 +14,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.36';
+  const VERSION = '2.9.37';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -1166,11 +1166,7 @@
   function taskCanBeRecoveredByHost(task) {
     return Boolean(task && (
       AUTO_RECOVERABLE_STATE_NAMES.has(String(task.state || ''))
-      || (task.state === 'blocked' && (
-        (task.attempted && task.token)
-        || task.rendererRecoveryExhausted
-        || task.attachmentUploadPending
-      ))
+      || task.state === 'blocked'
     ));
   }
   function heartbeatTask() {
@@ -1717,6 +1713,12 @@
     save();
   }
   function state(task, value, message) {
+    if (value === 'blocked' && data.autoResume !== false) {
+      const reason = message || statusNames[value];
+      if (task.state !== 'blocked') { task.state = 'blocked'; log(task, reason); }
+      queueBlockedFreshRetry(task, reason);
+      return;
+    }
     if (task.state !== value) { task.state = value; log(task, message || statusNames[value]); }
   }
   function legacyNavigationFailureFor(task) {
@@ -3035,6 +3037,25 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     resetAttachmentUploadState(task);
     observations.delete(task.id);
   }
+  function queueBlockedFreshRetry(task, reason = '任务进入需要处理状态') {
+    if (!task || ['done', 'cancelled'].includes(task.state)) return '';
+    const attempt = Number(task.blockedAutoRetryCount || 0) + 1;
+    const detail = String(reason || '任务进入需要处理状态').trim() || '任务进入需要处理状态';
+    task.blockedAutoRetryCount = attempt;
+    task.lastBlockedReason = detail.slice(0, 1000);
+    task.lastBlockedRecoveryAt = Date.now();
+    clearDispatchIntent(task);
+    task.noFinalReplyRecoveryUntil = 0;
+    task.state = 'queued';
+    delete task.pausedState;
+    resetAmbiguousSendRecovery(task);
+    resetAttachmentUploadState(task);
+    observations.delete(task.id);
+    log(task, `${detail}；已自动清理旧派发并切换到新的 ChatGPT 会话原样重发（自动恢复第 ${attempt} 次），不会停在“需要处理”。`);
+    save();
+    return 'queued';
+  }
+
   function queueNoFinalReplyRetry(task, reason = '会话已结束但没有最终回复') {
     if (!task) return '';
     const attempts = Number(task.noFinalReplyAttempts || 0);
@@ -3417,10 +3438,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     if (!task || task.phase !== 'review') return '';
     const attempts = Number(task.reviewRepairAttempts || 0);
     if (attempts >= MAX_REVIEW_REPAIR_ATTEMPTS) {
-      task.state = 'blocked';
-      log(task, `${reason}；已达到 ${MAX_REVIEW_REPAIR_ATTEMPTS} 次有限恢复上限。请检查验收会话后再恢复，已保留 Work 结果且不会重复执行。`);
-      save();
-      return 'blocked';
+      return queueBlockedFreshRetry(task, `${reason}；已达到 ${MAX_REVIEW_REPAIR_ATTEMPTS} 次当前会话修复上限`);
     }
     task.reviewRepairAttempts = attempts + 1;
     clearDispatchIntent(task);
@@ -3918,9 +3936,9 @@ NaN
   }
   function recoverPersistedBlockedTasks() {
     if (data.autoResume === false) return '';
-    const task = tabTasks().find(item => item.state === 'blocked' && taskCanBeRecoveredByHost(item));
-    if (!task || !prepareTaskForRecovery(task, { automatic:true })) return '';
-    save();
+    const task = tabTasks().find(item => item.state === 'blocked');
+    if (!task) return '';
+    queueBlockedFreshRetry(task, '检测到历史“需要处理”任务');
     return task.id;
   }
   function resumeTask(task) {
