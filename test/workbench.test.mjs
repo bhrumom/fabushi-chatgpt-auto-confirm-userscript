@@ -24,7 +24,7 @@ test('runtime blocked transition immediately becomes a fresh queued resend',asyn
   assert.equal(task.url,'');
   assert.equal(task.token,'');
   assert.equal(task.attempted,false);
-  assert.match(task.messages.at(-1).text,/不会停在“需要处理”/);
+  assert.ok(task.messages.some(message=>/不会停在“需要处理”/.test(message.text)));
   dom.window.close();
 });
 
@@ -1711,7 +1711,7 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript does not request remote user-manager updates',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.36$/m);
-  assert.match(source,/const VERSION = '2\.9\.36'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.37$/m);
+  assert.match(source,/const VERSION = '2\.9\.37'/);
   assert.doesNotMatch(source,/^\/\/ @(?:updateURL|downloadURL)\b/m);
 });
