@@ -6,7 +6,7 @@ import { JSDOM } from 'jsdom';
 const source = await fs.readFile(new URL('../chatgpt-auto-confirm.user.js', import.meta.url), 'utf8');
 const instrumentedSource = source.replace(
   '  mount();',
-  `  window.__fabushiFinalReplyTestHooks = Object.freeze({ latestTurn, classify, abnormalEndSince, stalledProgressSignature, refreshStalledConversation, queueReviewRepair, parseReview, finish, workPrompt, plannerPrompt, inspect, data, start, pause });
+  `  window.__fabushiFinalReplyTestHooks = Object.freeze({ latestTurn, classify, stalledProgressSignature, refreshStalledConversation, queueReviewRepair, parseReview, finish, workPrompt, plannerPrompt, inspect, data, start, pause });
   mount();`,
 );
 
@@ -56,9 +56,8 @@ test('semantic response actions recognize a completed reply when ChatGPT changes
     assert.equal(turn.responseActionsComplete, true);
     assert.equal(turn.final, true);
     const sample = { rateLimit: '', blocker: '', owned: true, cards: 0, stop: false, loading: false, final: turn.final, text: turn.text };
-    const previous = { clear: true, text: turn.text, since: 0, idleSince: 0, endedAt: 0 };
+    const previous = { clear: true, text: turn.text, since: 0, idleSince: 0, final: true, finalSince: 0 };
     assert.equal(hooks.classify(sample, previous, 5000).state, 'complete');
-    assert.equal(hooks.abnormalEndSince(sample, previous, 5000), 0);
     assert.equal(hooks.classify({ ...sample, stop: true }, previous, 5000).state, 'generating');
     assert.equal(hooks.classify({ ...sample, loading: true }, previous, 5000).state, 'loading');
     assert.equal(hooks.classify({ ...sample, cards: 1 }, previous, 5000).state, 'approval');
@@ -217,7 +216,7 @@ test('a portaled copy and share row must explicitly identify the latest assistan
 });
 
 
-test('static completion markers survive renderer transitions without legacy turn ids', async () => {
+test('static completion markers are diagnostic only and never replace the final reply toolbar', async () => {
   const { dom, hooks } = await createHarness(`
     <main>
       <article data-testid="conversation-turn-user">
@@ -225,7 +224,7 @@ test('static completion markers survive renderer transitions without legacy turn
       </article>
       <article data-testid="conversation-turn-assistant">
         <div data-message-author-role="assistant">
-          <div class="markdown" data-is-streaming="false">页面轮换后已经完整结束。</div>
+          <div class="markdown" data-is-streaming="false">工具阶段暂时静止，但操作栏还没出现。</div>
         </div>
       </article>
     </main>
@@ -233,7 +232,8 @@ test('static completion markers survive renderer transitions without legacy turn
   try {
     const turn = hooks.latestTurn();
     assert.equal(turn.explicitFinal, true);
-    assert.equal(turn.final, true);
+    assert.equal(turn.responseActionsComplete, false);
+    assert.equal(turn.final, false);
 
     const sample = {
       rateLimit: '',
@@ -246,22 +246,13 @@ test('static completion markers survive renderer transitions without legacy turn
       text: turn.text,
     };
     assert.equal(hooks.classify(sample, {
-      clear: false,
-      final: false,
-      text: '',
-      since: 0,
-      finalSince: 0,
-    }, 1000).state, 'waiting');
-
-    assert.equal(hooks.classify(sample, {
       clear: true,
-      final: true,
-      finalSince: 1000,
+      final: false,
       text: turn.text,
       since: 1000,
       idleSince: 1000,
-      endedAt: 0,
-    }, 5000).state, 'complete');
+      endedAt: 1000,
+    }, 901000).state, 'waiting');
   } finally {
     dom.window.close();
   }
