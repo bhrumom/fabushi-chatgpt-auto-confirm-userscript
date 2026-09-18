@@ -1725,7 +1725,7 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript does not request remote user-manager updates',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.37$/m);
-  assert.match(source,/const VERSION = '2\.9\.37'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.38$/m);
+  assert.match(source,/const VERSION = '2\.9\.38'/);
   assert.doesNotMatch(source,/^\/\/ @(?:updateURL|downloadURL)\b/m);
 });
