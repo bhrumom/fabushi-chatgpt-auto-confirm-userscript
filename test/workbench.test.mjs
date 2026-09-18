@@ -306,27 +306,28 @@ test('persisted needs-processing task automatically opens a fresh retry instead 
   assert.doesNotMatch(h.data.tasks.map(item=>item.state).join(','),/blocked/);
   dom.window.close();
 });
-test('connection interruption refresh is bounded per conversation and preserves identity',async()=>{
+test('connection interruption preserves identity, refreshes the same URL, then continues in-chat after 30 minutes',async()=>{
   const {h,w,dom}=await fixture();
   const task=h.enqueue('keep this exact task','goal');
   Object.assign(task,{state:'generating',url:'https://chatgpt.com/c/disconnected',token:'owner-token',attempted:false});
   w.history.pushState({},'', '/c/disconnected');
   const first=h.refreshInterruptedConversation(task,false,20_000);
-  assert.equal(first,true);
+  assert.equal(first,'refresh');
   assert.equal(task.state,'waiting');
   assert.equal(task.url,'https://chatgpt.com/c/disconnected');
   assert.equal(task.token,'owner-token');
   assert.equal(task.attempted,false);
   assert.equal(task.connectionInterruptedRefreshAttempts,1);
-  assert.equal(h.refreshInterruptedConversation(task,false,25_000),false,'cooldown prevents a reload loop');
-  assert.equal(h.refreshInterruptedConversation(task,false,40_000),true);
+  assert.equal(h.refreshInterruptedConversation(task,false,25_000),'wait','three-minute cooldown prevents a reload loop');
+  assert.equal(h.refreshInterruptedConversation(task,false,200_000),'refresh');
   assert.equal(task.connectionInterruptedRefreshAttempts,2);
-  assert.equal(h.refreshInterruptedConversation(task,false,60_000),false);
-  assert.equal(task.connectionInterruptedRefreshExhausted,true);
-  assert.match(task.messages.at(-1).text,/已停止重复刷新/);
+  assert.equal(h.refreshInterruptedConversation(task,false,1_819_999),'refresh');
+  assert.equal(h.refreshInterruptedConversation(task,false,1_820_000),'continue','30 minutes of the same interruption switches to same-chat continuation');
+  assert.equal(task.connectionInterruptedRefreshExhausted,false);
+  assert.match(task.messages.at(-1).text,/不会新建会话/);
   w.history.pushState({},'', '/c/next-conversation');
   task.url='https://chatgpt.com/c/next-conversation';
-  assert.equal(h.refreshInterruptedConversation(task,false,80_000),true,'a new durable conversation gets its own bounded recovery budget');
+  assert.equal(h.refreshInterruptedConversation(task,false,1_900_000),'refresh','a new durable conversation gets its own interruption timer');
   assert.equal(task.connectionInterruptedRefreshAttempts,1);
   dom.window.close();
 });
