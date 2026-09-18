@@ -268,7 +268,7 @@ test('exhausted abnormal retries enter persisted backoff and reset after success
   assert.equal(task.noFinalReplyRecoveryUntil,0);
   dom.window.close();
 });
-test('fast abnormal retry still queues one fresh conversation before backoff',async()=>{
+test('a bound abnormal retry remains in the same conversation',async()=>{
   const {h,dom}=await fixture();
   const task=h.enqueue('retry once','once');
   Object.assign(task,{state:'waiting',phase:'work',url:'https://chatgpt.com/c/ended',token:'old-token',noFinalReplyAttempts:0});
