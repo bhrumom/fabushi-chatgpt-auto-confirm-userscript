@@ -12,7 +12,7 @@ async function fixture(body='', setup=()=>{}) {
   const held = new Set();
   w.navigator.locks = {query:async()=>({held:[...held].map(name=>({name}))}),request:async(name,options,callback)=>{callback ||= options;if(held.has(name))return callback(null);held.add(name);try{return await callback({name});}finally{held.delete(name);}}};
   setup(w);
-  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, connectionInterruptedNotice, refreshInterruptedConversation, classify, abnormalEndSince, pageLoadingState, conversationLoading, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, adoptUnboundAttemptedConversation, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, connectionInterruptedNotice, refreshInterruptedConversation, classify, pageLoadingState, conversationLoading, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, adoptUnboundAttemptedConversation, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('runtime blocked transition immediately becomes a fresh queued resend',async()=>{
@@ -28,20 +28,19 @@ test('runtime blocked transition immediately becomes a fresh queued resend',asyn
   dom.window.close();
 });
 
-test('completion requires own final turn, stop absent, no approval and stable completion evidence',async()=>{
+test('completion requires own final toolbar, stop absent, no approval and stable evidence',async()=>{
   const {h,dom}=await fixture();
   const sample={owned:true,final:true,text:'result',sentAt:0,cards:0,stop:false};
-  const previous={text:'result',since:1000,idleSince:1000,clear:true};
+  const previous={text:'result',since:1000,idleSince:1000,clear:true,final:true,finalSince:1000};
   assert.equal(h.classify(sample,previous,6000).state,'complete');
   assert.equal(h.classify({...sample,stop:true},previous,6000).state,'generating');
   assert.equal(h.classify({...sample,cards:1},previous,6000).state,'approval');
   assert.equal(h.classify({...sample,final:false},previous,6000).state,'waiting');
   assert.equal(h.classify({...sample,owned:false},previous,6000).state,'waiting');
   assert.equal(h.classify({...sample,owned:false,cards:1},previous,6000).state,'waiting','approval from another task must not cross the task boundary');
-  assert.equal(h.classify(sample,{...previous,clear:false},6000).state,'waiting');
-  assert.equal(h.classify({...sample,final:false},previous,96000).state,'waiting');
-  assert.equal(h.classify({...sample,final:false},previous,301000).state,'no-final-reply');
-  assert.equal(h.classify({...sample,final:false},{...previous,clear:false},301000).state,'waiting','generation stopping gets a fresh grace period');
+  assert.equal(h.classify(sample,{...previous,final:false,clear:false},6000).state,'waiting');
+  assert.equal(h.classify({...sample,final:false},previous,96_000).state,'waiting');
+  assert.equal(h.classify({...sample,final:false},previous,301_000).state,'waiting','Stop absence never becomes a fresh-session retry signal');
   dom.window.close();
 });
 test('a visible conversation spinner is loading, not an abnormal end',async()=>{
@@ -52,7 +51,6 @@ test('a visible conversation spinner is loading, not an abnormal end',async()=>{
   const sample={owned:true,final:false,text:'',sentAt:1,cards:0,stop:false,loading:true,blocker:'',rateLimit:''};
   const previous={text:'',since:1_000,idleSince:1_000,endedAt:1_000,clear:true};
   assert.equal(h.classify(sample,previous,301_000).state,'loading');
-  assert.equal(h.abnormalEndSince(sample,previous,301_000),0);
   const task={id:'loading-page',goal:'wait for page',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/loading-page',token:'owner-token',attempted:false,messages:[]};
   h.data.tasks.push(task);
   await h.start();
@@ -80,20 +78,19 @@ test('loading detection ignores transcript, composer, sidebar and workbench indi
   assert.equal(h.pageLoadingState(),'');
   dom.window.close();
 });
-test('clearing the loading signal starts a fresh abnormal-end observation',async()=>{
+test('clearing the loading signal stays bound until final reply controls appear',async()=>{
   const {h,w,dom}=await fixture('<main><div id="loader" aria-busy="true"></div></main>');
   w.history.pushState({},'', '/c/loading-transition');
   const loading={owned:true,final:false,text:'',sentAt:1,cards:0,stop:false,loading:true,blocker:'',rateLimit:''};
-  const previous={text:'',since:1_000,idleSince:1_000,endedAt:1_000,clear:true};
+  const previous={text:'',since:1_000,idleSince:1_000,clear:true};
   assert.equal(h.pageLoadingState(),'ChatGPT 页面正在加载，等待会话内容完全渲染。');
   assert.equal(h.classify(loading,previous,301_000).state,'loading');
-  assert.equal(h.abnormalEndSince(loading,previous,301_000),0);
   w.document.querySelector('#loader').remove();
   const loaded={...loading,loading:false,text:'partial answer'};
-  const loadingObservation={text:'',since:1_000,idleSince:1_000,endedAt:0,clear:false,loading:true};
+  const loadingObservation={text:'',since:1_000,idleSince:1_000,clear:false,loading:true};
   assert.equal(h.pageLoadingState(),'');
   assert.equal(h.classify(loaded,loadingObservation,301_000).state,'waiting');
-  assert.equal(h.abnormalEndSince(loaded,loadingObservation,301_000),301_000);
+  assert.equal(h.classify(loaded,{...loadingObservation,clear:true,text:'partial answer'},901_000).state,'waiting');
   dom.window.close();
 });
 test('task prompts carry attachment names without embedding file contents',async()=>{
@@ -144,30 +141,27 @@ test('old attachment upload timeout records return to a safe queued retry',async
   assert.match(task.messages.at(-1).text,/重新上传/);
   dom.window.close();
 });
-test('a lost Stop control with no final answer becomes a recoverable abnormal end',async()=>{
+test('a lost Stop control stays in the same conversation until the final toolbar appears',async()=>{
   const {h,dom}=await fixture();
-  const previous={text:'partial reply',since:1000,idleSince:1000,clear:true,stop:false,endedAt:1000};
-  const sample={owned:true,final:false,text:'partial reply',sentAt:0,cards:0,stop:false};
-  assert.equal(h.classify(sample,previous,16_001).state,'no-final-reply');
-  assert.equal(h.classify({...sample,cards:1},previous,16_001).state,'approval');
-  assert.equal(h.classify({...sample,stop:true},previous,16_001).state,'generating');
+  const previous={text:'partial reply',since:1_000,idleSince:1_000,clear:true,stop:false,final:false};
+  const sample={owned:true,final:false,text:'partial reply',sentAt:0,cards:0,stop:false,loading:false,blocker:'',rateLimit:''};
+  assert.equal(h.classify(sample,previous,16_001).state,'waiting');
+  assert.equal(h.classify(sample,previous,301_000).state,'waiting');
+  assert.equal(h.classify(sample,previous,901_000).state,'waiting');
+  assert.equal(h.classify({...sample,cards:1},previous,901_000).state,'approval');
+  assert.equal(h.classify({...sample,stop:true},previous,901_000).state,'generating');
   dom.window.close();
 });
-test('late observation starts the short abnormal-end timer even when Stop already disappeared',async()=>{
+test('an authorization-card transition cannot become a duplicate fresh-session send',async()=>{
   const {h,dom}=await fixture();
-  const sample={owned:true,final:false,text:'tool calls only',sentAt:0,cards:0,stop:false,blocker:'',rateLimit:''};
-  const started=h.abnormalEndSince(sample,null,1_000);
-  assert.equal(started,1_000,'the first clear observation starts the grace period');
-  const stable={text:sample.text,idleSince:1_000,endedAt:started,clear:true,stop:false};
-  assert.equal(h.abnormalEndSince(sample,stable,3_000),1_000,'stable absence keeps the original timer');
-  assert.equal(h.classify(sample,stable,16_001).state,'no-final-reply');
-  assert.equal(h.abnormalEndSince({...sample,text:'new partial output'},stable,3_000),3_000,'new text resets the timer');
-  assert.equal(h.abnormalEndSince({...sample,stop:true},stable,3_000),0);
-  assert.equal(h.abnormalEndSince({...sample,cards:1},stable,3_000),0);
-  assert.equal(h.abnormalEndSince({...sample,final:true},stable,3_000),0);
-  assert.equal(h.abnormalEndSince({...sample,owned:false},stable,3_000),0);
-  assert.equal(h.abnormalEndSince({...sample,blocker:'security verification'},stable,3_000),0);
-  assert.equal(h.abnormalEndSince({...sample,rateLimit:'rate limit'},stable,3_000),0);
+  const sample={owned:true,final:false,text:'tool calls only',sentAt:0,cards:1,stop:false,loading:false,blocker:'',rateLimit:''};
+  const previous={text:sample.text,since:1_000,idleSince:1_000,clear:true,final:false,endedAt:1_000};
+  assert.equal(h.classify(sample,previous,16_001).state,'approval');
+  assert.equal(h.classify({...sample,cards:0},previous,16_001).state,'waiting','a transient card scan miss must fail closed');
+  assert.equal(h.classify({...sample,cards:0},previous,901_000).state,'waiting','old persisted endedAt data cannot resurrect the removed Stop-loss retry');
+  const firstFinal={...sample,cards:0,final:true};
+  assert.equal(h.classify(firstFinal,previous,902_000).state,'waiting','the toolbar must be observed stably');
+  assert.equal(h.classify(firstFinal,{...previous,final:true,finalSince:902_000},906_000).state,'complete');
   dom.window.close();
 });
 test('connection interruption recovery only recognizes visible ChatGPT page notices',async()=>{
@@ -1725,8 +1719,8 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.38$/m);
-  assert.match(source,/const VERSION = '2\.9\.38'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.39$/m);
+  assert.match(source,/const VERSION = '2\.9\.39'/);
   assert.match(source,/^\/\/ @updateURL\s+https:\/\/raw\.githubusercontent\.com\/bhrumom\/fabushi-chatgpt-auto-confirm-userscript\/main\/chatgpt-auto-confirm\.user\.js$/m);
   assert.match(source,/^\/\/ @downloadURL\s+https:\/\/raw\.githubusercontent\.com\/bhrumom\/fabushi-chatgpt-auto-confirm-userscript\/main\/chatgpt-auto-confirm\.user\.js$/m);
 });
