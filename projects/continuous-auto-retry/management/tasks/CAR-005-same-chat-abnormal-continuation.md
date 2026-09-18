@@ -23,4 +23,9 @@ IN_PROGRESS — branch fix/same-chat-abnormal-continuation-2.9.40-20260919.
 
 ## Evidence
 
-待补：implementation commit / PR / exact-head CI / merge SHA / canonical main / Release v2.9.40 / asset digest。
+- PR: #34
+- Exact-head CI: run 35374393013, head 174fb954ad76e5aa81da6f8f1cc7ba9c04f8bb42, success (syntax + 135/135 regression tests).
+- Merge/canonical release SHA: 9d34b1da774cdc5f4c4746b0ea39b26911f0f48c.
+- Post-merge main CI: run 35374506805, success.
+- Release: v2.9.40, published and non-prerelease.
+- Asset: chatgpt-auto-confirm.user.js, sha256:95447daec0d0a8eaa8a71b810dfb9725d501cf17a5decef73bddf722b5c5298c.
