@@ -1724,8 +1724,9 @@ test('root dispatch navigation tickets are bound to the current review generatio
   dom.window.close();
 });
 
-test('the packaged userscript does not request remote user-manager updates',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.37$/m);
-  assert.match(source,/const VERSION = '2\.9\.37'/);
-  assert.doesNotMatch(source,/^\/\/ @(?:updateURL|downloadURL)\b/m);
+test('the packaged userscript declares its stable remote update and download URLs',()=>{
+  assert.match(source,/^\/\/ @version\s+2\.9\.38$/m);
+  assert.match(source,/const VERSION = '2\.9\.38'/);
+  assert.match(source,/^\/\/ @updateURL\s+https:\/\/raw\.githubusercontent\.com\/bhrumom\/fabushi-chatgpt-auto-confirm-userscript\/main\/chatgpt-auto-confirm\.user\.js$/m);
+  assert.match(source,/^\/\/ @downloadURL\s+https:\/\/raw\.githubusercontent\.com\/bhrumom\/fabushi-chatgpt-auto-confirm-userscript\/main\/chatgpt-auto-confirm\.user\.js$/m);
 });

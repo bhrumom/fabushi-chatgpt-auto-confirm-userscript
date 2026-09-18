@@ -1,8 +1,12 @@
-# Fabushi 独立油猴工作台 2.9.35
+# Fabushi 独立油猴工作台 2.9.38
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.35`.
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.38`。
+
+脚本头部固定声明 `@updateURL` 和 `@downloadURL`。油猴脚本管理器以及 Fabushi
+宿主会直接检查该地址的 `@version`；发布新版本时只需更新脚本本身和版本号，不需要
+同步修改 Marketplace 目录。
 
 ## 使用
 
@@ -200,3 +204,8 @@
 ### 2.9.35 真实回复操作栏兼容
 
 - 根据真实 ChatGPT 页面当前暴露的回复操作栏，补充识别“复制回复”与“评价回复/Rate response”组合；页面顶部的无关“分享”按钮不会单独完成任意回复。分享、评价、点赞/点踩共用同一个当前 assistant turn 归属校验。
+
+### 2.9.38 油猴式自更新地址
+
+- 在脚本元数据中固定 `@updateURL` / `@downloadURL`，由脚本管理器和 Fabushi 宿主直接读取远端 `@version`。
+- 后续脚本发布不再依赖 Marketplace 目录同步版本；目录只作为首次安装和兼容发现入口。
