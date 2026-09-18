@@ -51,9 +51,9 @@
   const TAB_SESSION_KEY = 'fabushi-workbench-tab-session-v1';
   const LEGACY_OWNER_KEY = 'fabushi-workbench-legacy-owner-v1';
   const ROOT = 'fabushi-auto-confirm-root';
-  // This limit is only for a conversation that ended without a final reply.
-  // Session navigation itself is keyed by the persisted ChatGPT URL and never
-  // waits for a sidebar retry loop.
+  // This limit is only for unbound ambiguous sends that still have no durable
+  // conversation identity after recovery. Once a real /c/<id> URL is bound,
+  // abnormal reply recovery stays in that conversation until a true final reply.
   const NO_FINAL_REPLY_RETRY_LIMIT = 4;
   // Explicit send failures and unbound ambiguous sends can still use bounded
   // fresh-session recovery. A bound conversation never becomes a retry
@@ -3595,7 +3595,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
   async function inspect(task, signal) {
     // Existing conversation inspection must not depend on the composer. A
     // stuck/partial renderer can hide the input while still exposing enough
-    // turn state to detect an abnormal end and recover in a fresh Chat.
+    // turn state to detect an abnormal end and keep recovering the bound chat.
     if (!await navigate(task.url, signal, task, false)) return;
     check(signal);
     const liveURL = currentConversationURL();
