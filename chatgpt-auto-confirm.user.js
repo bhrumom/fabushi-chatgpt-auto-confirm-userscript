@@ -2254,7 +2254,7 @@
     }
     return '';
   }
-  function sendTimeoutNotice() {
+  function sendTimeoutNotice(turn = null) {
     const pattern = /消息(?:发送)?(?:超时|错误|失败)\s*[，,。.!]?\s*请重试|message (?:send|sending) timed out|message (?:error|failed)[\s,:-]*(?:please )?(?:retry|try again)|failed to send/i;
     const retryPattern = /^(?:重试|再次尝试|再试一次|retry|try again|again)(?:\b|$)/i;
     const retryControls = 'button,a,[role="button"]';
@@ -2278,7 +2278,9 @@
       if (!parent || own(parent)) continue;
       if (!pattern.test(normalize(currentNode.nodeValue)) || !visible(parent)) continue;
       const message = parent.closest('[data-message-author-role]');
-      if (!message || hasRetryControl(parent)) return true;
+      if (!message) return true;
+      if (turn?.article && !(turn.article === message || turn.article.contains?.(message))) continue;
+      if (hasRetryControl(parent)) return true;
     }
     return false;
   }
@@ -3042,6 +3044,15 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.rendererRecoveryExhausted = false;
     task.routeRecoveryAttempts = 0;
     task.workspaceDocumentRecoveryAttempts = 0;
+    task.continuationSentAt = 0;
+    task.continuationCount = 0;
+    task.connectionInterruptedSince = 0;
+    task.connectionInterruptedURL = '';
+    task.connectionInterruptedRefreshAttempts = 0;
+    task.connectionInterruptedRefreshAt = 0;
+    task.connectionInterruptedRefreshExhausted = false;
+    task.abnormalNoFinalSince = 0;
+    task.abnormalNoFinalSignature = '';
     resetAmbiguousSendRecovery(task);
     resetAttachmentUploadState(task);
     observations.delete(task.id);
@@ -3537,6 +3548,15 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.rendererRecoveryExhausted = false;
     task.routeRecoveryAttempts = 0;
     task.workspaceDocumentRecoveryAttempts = 0;
+    task.continuationSentAt = 0;
+    task.continuationCount = 0;
+    task.connectionInterruptedSince = 0;
+    task.connectionInterruptedURL = '';
+    task.connectionInterruptedRefreshAttempts = 0;
+    task.connectionInterruptedRefreshAt = 0;
+    task.connectionInterruptedRefreshExhausted = false;
+    task.abnormalNoFinalSince = 0;
+    task.abnormalNoFinalSignature = '';
     resetAmbiguousSendRecovery(task);
     resetAttachmentUploadState(task);
     observations.delete(task.id);
@@ -3594,14 +3614,14 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     // marker is visible. During a rotation the old document can briefly retain
     // another task's error banner; handling it before that check would consume
     // this task's retry budget.
-    if (pageBelongsToTask && connectionInterruptedNotice()) {
+    if (pageBelongsToTask && !turn.final && !pending.length && connectionInterruptedNotice()) {
       const action = refreshInterruptedConversation(task, true, Date.now());
       if (action === 'continue') {
         await sendContinuation(task, signal, '“连接已中断，正在等待完整回复”已持续超过 30 分钟');
       }
       return;
     }
-    if (pageBelongsToTask && sendTimeoutNotice()) {
+    if (pageBelongsToTask && !turn.final && !pending.length && sendTimeoutNotice(turn)) {
       await sendContinuation(task, signal, '检测到“消息错误/发送超时，请重试”');
       return;
     }
