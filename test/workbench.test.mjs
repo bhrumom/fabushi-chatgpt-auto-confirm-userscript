@@ -177,6 +177,16 @@ test('connection interruption recovery only recognizes visible ChatGPT page noti
   assert.equal(quoted.h.connectionInterruptedNotice(),false,'workbench logs must not self-trigger');
   quoted.dom.window.close();
 });
+test('a stale earlier retry error cannot override a newer final reply',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">goal [Fabushi:stale-error-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div>消息错误，请重试。</div><button aria-label="重试"></button></div></article><article data-testid="conversation-turn-user"><div data-message-author-role="user">继续完成所有</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">final result</div><button aria-label="复制回复"></button><button aria-label="评价回复"></button></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
+  w.history.pushState({},'', '/c/stale-error-final');
+  const task={id:'stale-error-final',ownerTabId:h.getTabId(),goal:'goal',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/stale-error-final',token:'stale-error-token',continuationCount:1,messages:[]};
+  h.data.tasks.push(task);
+  const turn=h.latestTurn(task);
+  assert.equal(turn.final,true);
+  assert.equal(h.sendTimeoutNotice(turn),false,'the earlier error card is not the latest task reply');
+  dom.window.close();
+});
 test('connection interruption waits 30 minutes then requests same-chat continuation',async()=>{
   const {h,w,dom}=await fixture('<div role="status">连接已中断。正在等待完整回复。</div><main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:interrupt-token]</div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   const task={id:'interrupt',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/interrupt',token:'interrupt-token',attempted:false,messages:[]};
