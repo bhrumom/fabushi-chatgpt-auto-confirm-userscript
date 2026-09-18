@@ -12,7 +12,7 @@ async function fixture(body='', setup=()=>{}) {
   const held = new Set();
   w.navigator.locks = {query:async()=>({held:[...held].map(name=>({name}))}),request:async(name,options,callback)=>{callback ||= options;if(held.has(name))return callback(null);held.add(name);try{return await callback({name});}finally{held.delete(name);}}};
   setup(w);
-  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, connectionInterruptedNotice, refreshInterruptedConversation, classify, pageLoadingState, conversationLoading, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, adoptUnboundAttemptedConversation, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, connectionInterruptedNotice, refreshInterruptedConversation, sendContinuation, classify, pageLoadingState, conversationLoading, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, adoptUnboundAttemptedConversation, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('runtime blocked transition immediately becomes a fresh queued resend',async()=>{
@@ -177,6 +177,28 @@ test('connection interruption recovery only recognizes visible ChatGPT page noti
   assert.equal(quoted.h.connectionInterruptedNotice(),false,'workbench logs must not self-trigger');
   quoted.dom.window.close();
 });
+test('connection interruption waits 30 minutes then requests same-chat continuation',async()=>{
+  const {h,w,dom}=await fixture('<div role="status">连接已中断。正在等待完整回复。</div><main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:interrupt-token]</div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
+  const task={id:'interrupt',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/interrupt',token:'interrupt-token',attempted:false,messages:[]};
+  h.data.tasks.push(task);
+  w.history.pushState({},'', '/c/interrupt');
+  assert.equal(h.refreshInterruptedConversation(task,false,1_000),'refresh');
+  assert.equal(task.url,'https://chatgpt.com/c/interrupt');
+  assert.equal(h.refreshInterruptedConversation(task,false,1_000+29*60*1000),'refresh');
+  assert.equal(h.refreshInterruptedConversation(task,false,1_000+30*60*1000),'continue');
+  dom.window.close();
+});
+test('verified continuation user turn remains owned by the original task until final toolbar',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">goal [Fabushi:continuation-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">partial</div></article><article data-testid="conversation-turn-user"><div data-message-author-role="user">继续完成所有</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">final result</div><button aria-label="复制回复"></button><button aria-label="评价回复"></button></article></main>');
+  w.history.pushState({},'', '/c/continuation-owned');
+  const task={id:'continuation-owned',ownerTabId:h.getTabId(),goal:'goal',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/continuation-owned',token:'continuation-token',continuationCount:1,messages:[]};
+  h.data.tasks.push(task);
+  const turn=h.latestTurn(task);
+  assert.equal(turn.owned,true);
+  assert.equal(turn.text,'final result');
+  assert.equal(turn.final,true);
+  dom.window.close();
+});
 test('send timeout recovery recognizes a retryable assistant error card without matching quoted text',async()=>{
   const page=await fixture('<div role="alert">消息发送超时，请重试。</div>');
   assert.equal(page.h.sendTimeoutNotice(),true);
@@ -194,17 +216,23 @@ test('send timeout recovery recognizes a retryable assistant error card without 
   assert.equal(quoted.h.sendTimeoutNotice(),false,'workbench logs must not self-trigger');
   quoted.dom.window.close();
 });
-test('inspect turns a page send timeout into a fresh dispatch without waiting for a sidebar',async()=>{
-  const {h,w,dom}=await fixture('<div role="alert">消息发送超时，请重试。</div>');
-  const task={id:'timeout-inspect',goal:'recover timeout',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/timeout-inspect',token:'old-token',attempted:false,noFinalReplyAttempts:0,messages:[]};
+test('inspect appends continuation in the same bound chat after a retryable message error',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">recover timeout [Fabushi:old-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div>消息错误，请重试。</div><button aria-label="重试"></button></div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
+  const task={id:'timeout-inspect',ownerTabId:h.getTabId(),goal:'recover timeout',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/timeout-inspect',token:'old-token',attempted:false,noFinalReplyAttempts:0,messages:[]};
   h.data.tasks.push(task);
   w.history.pushState({},'', '/c/timeout-inspect');
+  let clicks=0;
+  w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>clicks++);
   await h.start();
   await h.inspect(task,null);
-  assert.equal(task.state,'queued');
-  assert.equal(task.noFinalReplyAttempts,1);
-  assert.equal(task.url,'');
-  assert.match(task.messages.at(-1).text,/正在新开 Work\/规划会话原样重发/);
+  assert.equal(task.state,'waiting');
+  assert.equal(task.url,'https://chatgpt.com/c/timeout-inspect');
+  assert.equal(task.token,'old-token');
+  assert.equal(task.noFinalReplyAttempts,0);
+  assert.equal(task.continuationCount,1);
+  assert.equal(w.document.querySelector('#prompt-textarea').value,'继续完成所有');
+  assert.equal(clicks,1);
+  assert.match(task.messages.at(-1).text,/原会话输入并发送“继续完成所有”/);
   h.pause();
   dom.window.close();
 });
@@ -216,13 +244,13 @@ test('exhausted abnormal retries enter persisted backoff and reset after success
   assert.equal(h.noFinalReplyBackoffMs(1),5*60*1000);
   assert.equal(h.noFinalReplyBackoffMs(2),10*60*1000);
   assert.equal(h.noFinalReplyBackoffMs(5),30*60*1000);
-  assert.equal(h.queueNoFinalReplyRetry(task,'检测到“消息发送超时，请重试”'),'backoff');
+  assert.equal(h.queueNoFinalReplyRetry(task,'检测到“消息发送超时，请重试”'),'waiting');
   assert.equal(task.state,'waiting');
-  assert.equal(task.noFinalReplyAttempts,0);
-  assert.equal(task.noFinalReplyRecoveryCycles,1);
-  assert.ok(task.noFinalReplyRecoveryUntil>=before+5*60*1000);
-  assert.equal(task.url,'');
-  assert.match(task.messages.at(-1).text,/不会自动暂停/);
+  assert.equal(task.noFinalReplyAttempts,4);
+  assert.equal(task.noFinalReplyRecoveryCycles,undefined);
+  assert.equal(task.noFinalReplyRecoveryUntil,undefined);
+  assert.equal(task.url,'https://chatgpt.com/c/exhausted');
+  assert.match(task.messages.at(-1).text,/保留当前会话/);
   h.finish(task,'final answer');
   assert.equal(task.state,'done');
   assert.equal(task.noFinalReplyAttempts,0);
@@ -234,12 +262,11 @@ test('fast abnormal retry still queues one fresh conversation before backoff',as
   const {h,dom}=await fixture();
   const task=h.enqueue('retry once','once');
   Object.assign(task,{state:'waiting',phase:'work',url:'https://chatgpt.com/c/ended',token:'old-token',noFinalReplyAttempts:0});
-  assert.equal(h.queueNoFinalReplyRetry(task),'queued');
-  assert.equal(task.state,'queued');
-  assert.equal(task.noFinalReplyAttempts,1);
-  assert.equal(task.noFinalReplyRecoveryUntil,0);
-  assert.equal(task.url,'');
-  assert.match(task.messages.at(-1).text,/正在新开 Work\/规划会话原样重发/);
+  assert.equal(h.queueNoFinalReplyRetry(task),'waiting');
+  assert.equal(task.state,'waiting');
+  assert.equal(task.noFinalReplyAttempts,0);
+  assert.equal(task.url,'https://chatgpt.com/c/ended');
+  assert.match(task.messages.at(-1).text,/同一会话追加“继续完成所有”/);
   dom.window.close();
 });
 test('legacy exhausted abnormal records are revived after upgrading',async()=>{
