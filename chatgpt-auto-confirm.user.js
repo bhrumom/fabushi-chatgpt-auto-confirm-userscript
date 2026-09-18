@@ -3246,7 +3246,8 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.abnormalNoFinalSignature = '';
     task.updatedAt = sentAt;
     observations.delete(task.id);
-    state(task, 'waiting', `${reason}；已在原会话输入并发送“${CONTINUATION_PROMPT}”（第 ${task.continuationCount} 次）。继续等待真正最终回复；在最终回复操作栏出现并稳定前绝不新开下一会话。`);
+    task.state = 'waiting';
+    log(task, `${reason}；已在原会话输入并发送“${CONTINUATION_PROMPT}”（第 ${task.continuationCount} 次）。继续等待真正最终回复；在最终回复操作栏出现并稳定前绝不新开下一会话。`);
     save();
     check(signal);
     button.click();
