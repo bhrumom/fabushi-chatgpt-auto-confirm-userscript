@@ -1,6 +1,6 @@
 # CAR-007 — Conversation length-limit handoff
 
-Status: in-progress
+Status: complete
 Started: 2026-09-19
 Updated: 2026-09-19
 
@@ -16,4 +16,11 @@ Acceptance:
 - D7: Version advances from 2.9.41, exact-head CI passes, protected merge/main CI passes, GitHub Release is published, and the Fabushi Chrome host bundles the exact released source in a new extension release.
 
 Branch: `fix/conversation-length-handoff-2.9.42-20260919`
-PR/CI/Release/evidence: pending.
+Delivery:
+- PR #38 final head `44793655e8b905a5ae4164a62fa5fce480cffc14`.
+- Exact-head Test workflow `35419989279`: syntax + full regression SUCCESS.
+- Squash merge/release target `85973a96f1e5a4c254096c31a7272eedec711d65`.
+- Post-merge main Test workflow `35420022221`: SUCCESS.
+- Release `v2.9.42`, non-draft/non-prerelease; asset `chatgpt-auto-confirm.user.js`, 255320 bytes, sha256 `1f5a84fd8ffc569703ec3fffda1ea65adb5e24d94900bb7bb1c17ae358aaf7a9`.
+- Paired Fabushi Chrome host PR #5 / Release `v0.6.16`; package digest `sha256:26d43533ab24594e8d84748c932af54d9d003da250d92fa9c79a5271ab41a8da`.
+- Host bundled userscript blob is byte-identical to canonical v2.9.42 blob `7257e92d69d8b09474e8e6fabd87100b8e838c9c`.
