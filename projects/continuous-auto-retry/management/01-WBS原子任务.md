@@ -8,3 +8,4 @@
 | CAR-004 | 发布 v2.9.39 独立 userscript | A6-A7 | canonical main + GitHub Release | done |
 | CAR-005 | 已绑定异常会话持续在原会话发送“继续完成所有”，直到最终回复 | B1-B6 | source regression + CI + Release | done (PR #34 / v2.9.40) |
 | CAR-006 | 三次连接中断刷新后同会话续发、第四次限流 fresh-session、修正伪 loading | C1-C6 | source regression + CI + Release | done (PR #36 / v2.9.41) |
+| CAR-007 | 对话长度上限触发 fresh-chat 上下文接力，直到真正最终回复 | D1-D7 | source regression + CI + userscript/host Releases | in-progress |
