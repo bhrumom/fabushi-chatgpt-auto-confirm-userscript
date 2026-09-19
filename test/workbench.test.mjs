@@ -290,18 +290,32 @@ test('a true final reply clears temporary length-limit carry state',async()=>{
   dom.window.close();
 });
 
-test('connection interruption recovery only recognizes visible ChatGPT page notices',async()=>{
+test('connection interruption recovery recognizes current live assistant status and page chrome without quote false positives',async()=>{
   const page=await fixture('<div role="status">连接已中断。正在等待完整回复。</div>');
   assert.equal(page.h.connectionInterruptedNotice(),true);
   page.dom.window.close();
 
+  const live=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:interrupt-live]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">连接已中断。正在等待完整回复。</div></article></main>');
+  live.w.history.pushState({},'', '/c/interrupt-live');
+  const liveTask={id:'interrupt-live',ownerTabId:live.h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/interrupt-live',token:'interrupt-live',messages:[]};
+  live.h.data.tasks.push(liveTask);
+  const liveTurn=live.h.latestTurn(liveTask);
+  assert.equal(liveTurn.owned,true);
+  assert.equal(live.h.connectionInterruptedNotice(liveTurn),true,'standalone current assistant status is the real renderer path');
+  live.dom.window.close();
+
   const quoted=await fixture('<div data-message-author-role="user">连接已中断。正在等待完整回复。</div>');
-  assert.equal(quoted.h.connectionInterruptedNotice(),false,'task transcript must not trigger a refresh');
+  assert.equal(quoted.h.connectionInterruptedNotice(),false,'user transcript must not trigger a refresh');
   const ownNotice=quoted.w.document.createElement('div');
   ownNotice.textContent='连接已中断。正在等待完整回复。';
   quoted.w.document.querySelector('#fabushi-auto-confirm-root').append(ownNotice);
   assert.equal(quoted.h.connectionInterruptedNotice(),false,'workbench logs must not self-trigger');
   quoted.dom.window.close();
+
+  const discussed=await fixture('<article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><p>如果页面显示“连接已中断。正在等待完整回复。”，我们需要继续判断下一步。</p><blockquote>连接已中断。正在等待完整回复。</blockquote></div></article>');
+  const article=discussed.w.document.querySelector('article');
+  assert.equal(discussed.h.connectionInterruptedNotice({owned:true,article}),false,'long assistant discussion and blockquotes are not product-status detections');
+  discussed.dom.window.close();
 });
 test('a stale earlier retry error cannot override a newer final reply',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">goal [Fabushi:stale-error-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div>消息错误，请重试。</div><button aria-label="重试"></button></div></article><article data-testid="conversation-turn-user"><div data-message-author-role="user">继续完成所有</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">final result</div><button aria-label="复制回复"></button><button aria-label="评价回复"></button></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
@@ -313,21 +327,25 @@ test('a stale earlier retry error cannot override a newer final reply',async()=>
   assert.equal(h.sendTimeoutNotice(turn),false,'the earlier error card is not the latest task reply');
   dom.window.close();
 });
-test('connection interruption requests same-chat continuation after three recovery refreshes',async()=>{
+test('connection interruption requests same-chat continuation after three short-cadence recovery refreshes',async()=>{
   const {h,w,dom}=await fixture('<div role="status">连接已中断。正在等待完整回复。</div><main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:interrupt-token]</div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   const task={id:'interrupt',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/interrupt',token:'interrupt-token',attempted:false,messages:[]};
   h.data.tasks.push(task);
   w.history.pushState({},'', '/c/interrupt');
   assert.equal(h.refreshInterruptedConversation(task,false,1_000),'refresh');
-  assert.equal(h.refreshInterruptedConversation(task,false,181_001),'refresh');
-  assert.equal(h.refreshInterruptedConversation(task,false,361_002),'refresh');
+  assert.equal(h.refreshInterruptedConversation(task,false,5_000),'wait','dedicated short cooldown prevents an immediate reload loop');
+  assert.equal(h.refreshInterruptedConversation(task,false,11_001),'refresh');
+  assert.equal(h.refreshInterruptedConversation(task,false,21_002),'refresh');
   assert.equal(task.connectionInterruptedRefreshAttempts,3);
-  assert.equal(h.refreshInterruptedConversation(task,false,361_003),'continue');
+  assert.equal(h.refreshInterruptedConversation(task,false,21_003),'continue');
   assert.equal(task.connectionInterruptedRefreshExhausted,true);
   assert.equal(task.url,'https://chatgpt.com/c/interrupt');
+  assert.ok(task.messages.some(message=>/第 1\/3 次/.test(message.text)));
+  assert.ok(task.messages.some(message=>/第 2\/3 次/.test(message.text)));
+  assert.ok(task.messages.some(message=>/第 3\/3 次/.test(message.text)));
   dom.window.close();
 });
-test('a cleared interruption banner resets the three-refresh budget while Stop keeps the task generating',async()=>{
+test('reload hydration and transient generating state do not erase the interruption refresh budget',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:interrupt-reset-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">still generating</div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="stop-button" type="button">停止回答</button></form></main>');
   const task={id:'interrupt-reset',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/interrupt-reset',token:'interrupt-reset-token',attempted:false,messages:[]};
   h.data.tasks.push(task);
@@ -336,9 +354,27 @@ test('a cleared interruption banner resets the three-refresh budget while Stop k
   assert.equal(task.connectionInterruptedRefreshAttempts,1);
   await h.start();
   await h.inspect(task,null);
-  assert.equal(task.connectionInterruptedRefreshAttempts,0,'clearing the interruption notice resets the consecutive budget');
-  assert.equal(task.connectionInterruptedURL,'');
+  assert.equal(task.connectionInterruptedRefreshAttempts,1,'temporary no-banner hydration must preserve the persisted count');
+  assert.equal(task.connectionInterruptedURL,'https://chatgpt.com/c/interrupt-reset');
   assert.equal(task.state,'generating');
+  h.pause();
+  dom.window.close();
+});
+test('inspect sends 继续完成所有 when the current assistant interruption persists after three refreshes',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:interrupt-live-send]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">连接已中断。正在等待完整回复。</div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
+  w.history.pushState({},'', '/c/interrupt-live-send');
+  const task={id:'interrupt-live-send',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/interrupt-live-send',token:'interrupt-live-send',attempted:false,connectionInterruptedURL:'https://chatgpt.com/c/interrupt-live-send',connectionInterruptedRefreshAttempts:3,connectionInterruptedRefreshAt:1,connectionInterruptedSince:1,messages:[]};
+  h.data.tasks.push(task);
+  let clicks=0;
+  w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>clicks++);
+  await h.start();
+  await h.inspect(task,null);
+  assert.equal(task.url,'https://chatgpt.com/c/interrupt-live-send');
+  assert.equal(task.continuationCount,1);
+  assert.equal(task.connectionInterruptedRefreshAttempts,0,'actual same-chat continuation resets the interruption budget');
+  assert.equal(w.document.querySelector('#prompt-textarea').value,'继续完成所有');
+  assert.equal(clicks,1);
+  assert.match(task.messages.at(-1).text,/连续刷新 3 次后仍存在/);
   h.pause();
   dom.window.close();
 });
@@ -460,16 +496,16 @@ test('connection interruption preserves identity and exhausts refresh recovery a
   assert.equal(task.url,'https://chatgpt.com/c/disconnected');
   assert.equal(task.token,'owner-token');
   assert.equal(task.connectionInterruptedRefreshAttempts,1);
-  assert.equal(h.refreshInterruptedConversation(task,false,25_000),'wait','three-minute cooldown prevents a reload loop');
-  assert.equal(h.refreshInterruptedConversation(task,false,200_000),'refresh');
-  assert.equal(h.refreshInterruptedConversation(task,false,380_000),'refresh');
+  assert.equal(h.refreshInterruptedConversation(task,false,25_000),'wait','10-second interruption cooldown prevents a reload loop');
+  assert.equal(h.refreshInterruptedConversation(task,false,30_001),'refresh');
+  assert.equal(h.refreshInterruptedConversation(task,false,40_002),'refresh');
   assert.equal(task.connectionInterruptedRefreshAttempts,3);
-  assert.equal(h.refreshInterruptedConversation(task,false,380_001),'continue');
+  assert.equal(h.refreshInterruptedConversation(task,false,40_003),'continue');
   assert.equal(task.connectionInterruptedRefreshExhausted,true);
   assert.match(task.messages.at(-1).text,/连续刷新 3 次后仍存在/);
   w.history.pushState({},'', '/c/next-conversation');
   task.url='https://chatgpt.com/c/next-conversation';
-  assert.equal(h.refreshInterruptedConversation(task,false,400_000),'refresh','a new durable conversation gets a fresh three-refresh budget');
+  assert.equal(h.refreshInterruptedConversation(task,false,50_000),'refresh','a new durable conversation gets a fresh three-refresh budget');
   assert.equal(task.connectionInterruptedRefreshAttempts,1);
   dom.window.close();
 });
@@ -1923,8 +1959,8 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.42$/m);
-  assert.match(source,/const VERSION = '2\.9\.42'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.43$/m);
+  assert.match(source,/const VERSION = '2\.9\.43'/);
   assert.match(source,/^\/\/ @updateURL\s+https:\/\/raw\.githubusercontent\.com\/bhrumom\/fabushi-chatgpt-auto-confirm-userscript\/main\/chatgpt-auto-confirm\.user\.js$/m);
   assert.match(source,/^\/\/ @downloadURL\s+https:\/\/raw\.githubusercontent\.com\/bhrumom\/fabushi-chatgpt-auto-confirm-userscript\/main\/chatgpt-auto-confirm\.user\.js$/m);
 });
