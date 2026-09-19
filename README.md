@@ -1,8 +1,8 @@
-# Fabushi 独立油猴工作台 2.9.42
+# Fabushi 独立油猴工作台 2.9.43
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.42`。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.43`。
 
 脚本头部固定声明 `@updateURL` 和 `@downloadURL`。油猴脚本管理器以及 Fabushi
 宿主会直接检查该地址的 `@version`；发布新版本时只需更新脚本本身和版本号，不需要
@@ -239,3 +239,10 @@
 - Work 与规划/验收都支持接力；Review 会继续保留 Work 自然结果和 MAHAYANA_TASK_REPORT_V1 输出契约。
 - 若新会话再次达到长度上限，继续重复 fresh-chat 接力；每次只携带最新页面回复，避免无限累积。只有真正最终回复操作栏确认后才结束接力并清除临时 carry 状态。
 - 检测排除用户引用、blockquote/code 引用和 Fabushi 自己的日志，避免脚本讨论这段提示时自触发。
+
+### 2.9.43 连接中断计数保持
+
+- `连接已中断。正在等待完整回复。` 现在既支持页面状态栏，也支持当前 owned assistant 实时回复区域的独立错误文本。
+- 同一 `/c/<id>` 的中断刷新计数不会因为 reload 后短暂出现“正在加载/正在生成”或 banner 暂时消失而归零。
+- 中断恢复使用独立 10 秒节流：第 1/3、2/3、3/3 次刷新都会保留计数；第三次刷新后仍检测到中断时，在原会话发送 `继续完成所有`。
+- 只有 conversation URL 改变、真正发送 continuation、或收到真正最终回复时才清空本次中断预算。
