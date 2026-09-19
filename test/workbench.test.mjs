@@ -1616,6 +1616,7 @@ test('loading recovery progresses from second route attempt into one fresh-docum
   h.recoverStalledRoute(new w.URL(task.url),task);
   assert.equal(task.workspaceDocumentRecoveryAttempts,1,'after 2/2 the next recovery is the bounded fresh-document handoff');
   assert.equal(task.rendererRecoveryExhausted,true);
+  h.pause();
   dom.window.close();
 });
 
