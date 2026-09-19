@@ -1,6 +1,6 @@
 # CAR-012 — Connection interruption refresh cadence = 15 minutes
 
-Status: in-progress
+Status: complete
 Started: 2026-09-19
 Updated: 2026-09-19
 
@@ -19,4 +19,11 @@ Acceptance:
 - I10: exact-head CI passes, protected merge completes, and canonical main readback proves v2.9.47 / 15-minute interruption constant.
 
 Branch: `fix/interruption-refresh-15m-2.9.47-20260919`
-PR/CI/main evidence: pending.
+Delivery:
+- PR #47 exact head `a1bef9405ae2489117425a3e9c3f90908e887a2f`.
+- Exact-head Test run `35442566038`: SUCCESS.
+- Squash merge `d3b15050cd6d09e07680804f41d8b9c9c4226175`.
+- Post-merge main Test run `35442627151`: SUCCESS.
+- Canonical main readback confirms `@version 2.9.47`, `CONNECTION_INTERRUPTED_REFRESH_COOLDOWN_MS = 15 * 60 * 1000`, generic stall = 15 minutes, ambiguous-send = 3 minutes.
+- Evidence: `projects/continuous-auto-retry/evidence/CAR-012/README.md`.
+- No additional live-site/E2E behavioral test was requested.
