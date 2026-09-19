@@ -348,6 +348,42 @@ test('review parsing recovers a wrapped report with unescaped human quotes', asy
   }
 });
 
+test('review recovery selects the exact current task and round when quoted evidence contains an older report', async () => {
+  const { dom, hooks } = await createHarness('<main></main>');
+  try {
+    const task = { id:'current-review-task', round:4 };
+    const reply = '验收说明：旧记录 {"taskId":"old-task","round":1,"status":"next","summary":"旧轮次","next":"旧下一步"}；当前报告如下： {"taskId":"current-review-task","round":4,"status":"next","summary":"当前轮仍缺少真实安装验收证据","next":"只补当前轮人工验收证据"}';
+    assert.deepEqual(JSON.parse(JSON.stringify(hooks.parseReview(reply, task))), {
+      taskId:'current-review-task',
+      round:4,
+      status:'next',
+      summary:'当前轮仍缺少真实安装验收证据',
+      next:'只补当前轮人工验收证据',
+    });
+    assert.match(hooks.plannerPrompt({
+      ...task,
+      goal:'完成当前目标',
+      result:'历史材料里包含 {"taskId":"old-task","round":1}',
+      token:'review-token',
+    }), /本次验收身份固定为 taskId="current-review-task"、round=4/);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('a mismatched review identity is a repairable review error, not a terminal task error', async () => {
+  const { dom, hooks } = await createHarness('<main></main>');
+  try {
+    const task = { id:'expected-task', round:3 };
+    assert.throws(
+      () => hooks.parseReview('{"taskId":"wrong-task","round":2,"status":"next","summary":"需要继续","next":"下一步"}', task),
+      error => error?.code === 'invalid-review-json' && /期望 taskId=expected-task、round=3/.test(error.message),
+    );
+  } finally {
+    dom.window.close();
+  }
+});
+
 test('malformed review reports requeue only the review phase and never discard Work result', async () => {
   const { dom, hooks } = await createHarness('<main></main>');
   try {
@@ -409,6 +445,61 @@ test('an active or incomplete response is not promoted to a final reply by parti
     assert.equal(turn.final, false);
     window.document.querySelector('.markdown').textContent = '';
     assert.equal(hooks.latestTurn().final, false);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('a live streaming marker keeps a no-Stop reply generating instead of triggering abnormal recovery', async () => {
+  const { dom, hooks } = await createHarness(`
+    <main>
+      <article data-testid="conversation-turn-user">
+        <div data-message-author-role="user">继续工作 [Fabushi:streaming-token]</div>
+      </article>
+      <article data-testid="conversation-turn-assistant" data-is-streaming="true">
+        <div data-message-author-role="assistant" data-message-id="assistant-streaming">
+          <div class="markdown">文字仍在流式输出中</div>
+        </div>
+      </article>
+    </main>
+  `);
+  try {
+    const turn = hooks.latestTurn();
+    assert.equal(turn.streaming, true);
+    assert.equal(turn.final, false);
+    const sample = {
+      rateLimit: '', blocker: '', owned: true, cards: 0, stop: false,
+      streaming: turn.streaming, loading: false, final: false, text: turn.text,
+    };
+    assert.equal(hooks.classify(sample, null, 60_000).state, 'generating');
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('non-streaming completion marker plus response-local Copy is enough when secondary actions mount late', async () => {
+  const { dom, hooks } = await createHarness(`
+    <main>
+      <article data-testid="conversation-turn-user">
+        <div data-message-author-role="user">验收当前结果 [Fabushi:static-copy-token]</div>
+      </article>
+      <article data-testid="conversation-turn-assistant">
+        <div data-message-author-role="assistant" data-message-id="assistant-static-copy">
+          <div class="markdown" data-is-streaming="false">最终回复已完整显示。</div>
+        </div>
+        <div class="response-toolbar">
+          <button data-testid="copy-turn-action-button" aria-label="复制回复"></button>
+        </div>
+      </article>
+    </main>
+  `);
+  try {
+    const turn = hooks.latestTurn();
+    assert.equal(turn.explicitFinal, true);
+    assert.equal(turn.streaming, false);
+    assert.equal(turn.responseActions.includes('copy'), true);
+    assert.equal(turn.responseActionsComplete, false);
+    assert.equal(turn.final, true);
   } finally {
     dom.window.close();
   }

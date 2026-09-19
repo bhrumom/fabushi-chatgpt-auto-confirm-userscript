@@ -1,8 +1,8 @@
-# Fabushi 独立油猴工作台 2.9.48
+# Fabushi 独立油猴工作台 2.9.49
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.48`。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.49`。
 
 脚本头部固定声明 `@updateURL` 和 `@downloadURL`。油猴脚本管理器以及 Fabushi
 宿主会直接检查该地址的 `@version`；发布新版本时只需更新脚本本身和版本号，不需要
@@ -44,7 +44,7 @@
 
 ## 完成识别
 
-本轮初始用户消息必须包含随机任务标识；脚本因异常恢复自动追加的“继续完成所有”可作为该标识之后的受控续发 turn 继续归属于同一任务。当前 assistant 回复只有在**同一个最新回复 turn** 已出现可见的“复制回复/Copy”并同时出现分享、评价回复/Rate response、点赞或点踩之一，且 `停止回答` 按钮不存在、没有待授权卡，并连续稳定至少 4 秒时，才判定为正常完成。`data-is-streaming=false`、`aria-busy=false`、`data-complete=true` 等 renderer 静态标记只用于诊断，不能单独证明会话结束。Stop 消失但最终回复操作栏尚未出现时一律保持当前会话等待；即使授权卡扫描在某一瞬间漏检，也不会因此新建会话。绑定会话连续 15 分钟没有可见进展时只刷新同一 URL，不重发目标。Work 真正完成后才把自然语言结果写入同一任务的 `result`，再由新的规划/验收会话依据原目标、附件和该结果判断是否进入下一轮。
+本轮初始用户消息必须包含随机任务标识；脚本因异常恢复自动追加的“继续完成所有”可作为该标识之后的受控续发 turn 继续归属于同一任务。当前 assistant 回复在**同一个最新回复 turn** 满足以下任一完成证据且 `停止回答` 不存在、没有待授权卡、连续稳定至少 4 秒时才判定完成：①“复制回复/Copy” + 分享、评价回复/Rate response、点赞或点踩之一；② renderer 明确为非流式完成（如 `data-is-streaming=false` / `aria-busy=false` / `data-complete=true`）且当前回复本身已经出现“复制回复/Copy”。静态完成标记单独存在仍不能证明结束。反过来，若当前 assistant turn 仍有 `data-is-streaming=true` 或 `aria-busy=true`，即使 Stop 暂时消失，也保持“正在生成”，不会触发异常续发或加载恢复。任何加载恢复在真正提交刷新前都会重新检查一次最终回复；若最终回复已经出现，立即取消刷新。绑定会话连续 15 分钟没有可见进展时只刷新同一 URL，不重发目标。Work 真正完成后才把自然语言结果写入同一任务的 `result`，再由新的规划/验收会话依据原目标、附件和该结果判断是否进入下一轮。规划/验收提示还会固定当前 `taskId` 与 `round`，历史 Work 文本里出现的旧报告身份只作为材料，不能覆盖当前验收身份。
 
 授权限定为匹配卡片内的箭头菜单及“允许本次会话”，选择后验证卡片解除。ChatGPT 的 Radix 分裂按钮使用 `pointerdown` 展开，插件会先发送指针动作再点击，兼容菜单项为 `div[role=menuitem]` 的真实结构。没有匹配到菜单就保持等待。授权作用于用户启用自动授权的任务。
 
@@ -285,3 +285,10 @@
 - 旧版本遗留的 pending interruption continuation 也会迁移到 fresh-chat，而不会在旧会话继续发送“继续完成所有”。
 - 普通 generic stall 仍为 15 分钟；ambiguous-send、限流、授权、loading renderer recovery、消息错误/发送超时的同会话恢复以及真正最终回复判定保持不变。
 - 本节覆盖 v2.9.41–v2.9.47 中所有“连接中断刷新/原会话续发”历史策略。
+
+### 2.9.49 流式最终回复与验收身份恢复
+
+- 当前 assistant turn 的 `data-is-streaming=true` / `aria-busy=true` 现在直接保持生成态；Stop 临时消失不再触发 15 秒异常续发或“页面长时间没有恢复”加载恢复。
+- 已完成回复除了“复制 + 分享/评价/点赞/点踩”外，也接受“明确非流式完成标记 + 当前回复 Copy”作为完成证据，兼容 ChatGPT 二级操作按钮延迟挂载的 UI。
+- 加载恢复在计数/日志前以及真正提交 reload 前都会重新读取当前 owned turn；若最终回复已经出现，取消刷新并继续进入完成处理，避免“最终回复已经显示却被刷新”。
+- 规划/验收提示固定当前 `taskId` 与 `round`，解析器在混杂旧报告/引用材料时优先选择与当前任务和轮次精确匹配的报告；身份不匹配按可修复验收错误处理，只重开验收，不重复 Work。
