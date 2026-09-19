@@ -3146,7 +3146,9 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
   }
   const attempts = Number(task.ambiguousSendRefreshAttempts || 0);
   const lastRefreshAt = Number(task.ambiguousSendRefreshAt || 0);
-  if (lastRefreshAt && now - lastRefreshAt < AMBIGUOUS_SEND_REFRESH_MS) {
+  const firstRecoveryAnchor = Number(task.sentAt || task.dispatchStartedAt || 0);
+  const cadenceAnchor = lastRefreshAt || firstRecoveryAnchor;
+  if (cadenceAnchor && now - cadenceAnchor < AMBIGUOUS_SEND_REFRESH_MS) {
     task.state = 'sending';
     return false;
   }
