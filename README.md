@@ -1,8 +1,8 @@
-# Fabushi 独立油猴工作台 2.9.45
+# Fabushi 独立油猴工作台 2.9.46
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.45`。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.46`。
 
 脚本头部固定声明 `@updateURL` 和 `@downloadURL`。油猴脚本管理器以及 Fabushi
 宿主会直接检查该地址的 `@version`；发布新版本时只需更新脚本本身和版本号，不需要
@@ -261,3 +261,8 @@
 - same-route recovery 现在执行真实 document reload；普通 same-route 导航仍保持 no-op。
 - 导航被拒绝、ticket 过期或取消后会重新唤醒 scheduler；已提交的 reload/replace 若 8 秒内文档没有卸载，也会由 watchdog 自动解除 `navigating` 并继续检查。
 - `routeRecoveryAttempts` / document recovery budget 只有在 loading 真正消失后才清零，因此能稳定推进 1/2 -> 2/2 -> 一次 fresh-document recovery，而不是反复回到 1/2。
+
+### 2.9.46 通用停滞刷新改为 15 分钟
+
+- 普通已绑定 ChatGPT 会话只有连续 15 分钟没有可见进展时才执行 generic stall refresh；后续重复 generic refresh 也至少间隔 15 分钟。
+- 未绑定的 ambiguous send 恢复仍保持独立 3 分钟节奏；连接中断、限流、loading renderer recovery、授权和最终回复边界不受此次调整影响。

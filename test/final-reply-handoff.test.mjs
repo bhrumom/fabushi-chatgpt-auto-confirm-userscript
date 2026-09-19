@@ -258,7 +258,7 @@ test('static completion markers are diagnostic only and never replace the final 
   }
 });
 
-test('a stalled conversation refresh preserves the active task and continues every three minutes', async () => {
+test('a stalled conversation refresh preserves the active task and continues every fifteen minutes', async () => {
   const { dom, window, hooks } = await createHarness('<main></main>');
   try {
     window.history.pushState({}, '', '/c/stalled-conversation');
@@ -276,21 +276,21 @@ test('a stalled conversation refresh preserves the active task and continues eve
       messages: [],
     };
     hooks.data.tasks.push(task);
-    assert.equal(hooks.refreshStalledConversation(task, false, 181_000), true);
+    assert.equal(hooks.refreshStalledConversation(task, false, 901_000), true);
     assert.equal(task.stalledRefreshAttempts, 1);
     assert.equal(task.url, 'https://chatgpt.com/c/stalled-conversation');
     assert.equal(task.token, 'stalled-token');
     assert.deepEqual(task.attachments, [{ id:'image-1', name:'画稿.png' }]);
     assert.equal(task.phase, 'work');
-    assert.match(task.messages.at(-1).text, /连续 3 分钟没有可见变化/);
+    assert.match(task.messages.at(-1).text, /连续 15 分钟没有可见变化/);
 
-    assert.equal(hooks.refreshStalledConversation(task, false, 360_999), false, 'the three-minute interval prevents an immediate second reload');
-    assert.equal(hooks.refreshStalledConversation(task, false, 361_000), true);
+    assert.equal(hooks.refreshStalledConversation(task, false, 1_800_999), false, 'the fifteen-minute interval prevents an immediate second reload');
+    assert.equal(hooks.refreshStalledConversation(task, false, 1_801_000), true);
     assert.equal(task.stalledRefreshAttempts, 2);
-    assert.equal(hooks.refreshStalledConversation(task, false, 361_001), false, 'the next interval starts after the second reload');
-    assert.equal(hooks.refreshStalledConversation(task, false, 541_000), true);
+    assert.equal(hooks.refreshStalledConversation(task, false, 1_801_001), false, 'the next interval starts after the second reload');
+    assert.equal(hooks.refreshStalledConversation(task, false, 2_701_000), true);
     assert.equal(task.stalledRefreshAttempts, 3);
-    assert.equal(hooks.refreshStalledConversation(task, false, 721_000), true, 'a fourth reload remains allowed');
+    assert.equal(hooks.refreshStalledConversation(task, false, 3_601_000), true, 'a fourth reload remains allowed');
     assert.equal(task.stalledRefreshAttempts, 4);
     assert.equal(task.stalledRefreshExhausted, false);
     assert.ok(task.messages.every(message => !/刷新上限/u.test(message.text)));
@@ -322,7 +322,7 @@ test('a legacy stalled-refresh exhaustion flag is migrated without blocking reco
     };
     hooks.data.tasks.push(task);
 
-    assert.equal(hooks.refreshStalledConversation(task, false, 181_000), true);
+    assert.equal(hooks.refreshStalledConversation(task, false, 901_000), true);
     assert.equal(task.stalledRefreshAttempts, 3);
     assert.equal(task.stalledRefreshExhausted, false);
     assert.ok(task.messages.some(message => /已解除历史停滞刷新次数上限/u.test(message.text)));
