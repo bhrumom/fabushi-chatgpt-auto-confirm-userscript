@@ -14,4 +14,4 @@
 | CAR-010 | 修复 same-route 加载恢复导致 scheduler 静默停止并保持 1/2->2/2 计数 | G1-G8 | source regression + CI + userscript/host Releases | in-progress |
 | CAR-011 | 通用会话无变化刷新间隔由 3 分钟改为 15 分钟，显式错误恢复保持原节奏 | H1-H7 | source regression + CI + userscript/host Releases | in-progress |
 | CAR-012 | 连接中断首次及后续 3 次刷新统一为 15 分钟，3/3 后仍原会话续发 | I1-I10 | source regression + CI + main readback | done (PR #47 / v2.9.47) |
-| CAR-013 | 连接中断立即放弃旧会话并新开 ChatGPT 会话原样重发当前阶段消息 | J1-J11 | source regression + CI + main readback | in-progress |
+| CAR-013 | 连接中断立即放弃旧会话并新开 ChatGPT 会话原样重发当前阶段消息 | J1-J11 | source regression + CI + main readback | done (PR #51 / v2.9.48) |
