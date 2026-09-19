@@ -1365,6 +1365,19 @@ test('ambiguous send timeout prioritizes the current-round bound conversation be
   assert.match(task.messages.at(-1).text,/最终回复/);
   dom.window.close();
 });
+test('loading recovery never refreshes an owned conversation after its final reply is already visible',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">验收 [Fabushi:final-no-refresh-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown" data-is-streaming="false">验收最终回复已经完成。</div></div><button aria-label="复制回复"></button><button aria-label="评价回复"></button></article><form><textarea id="prompt-textarea"></textarea></form></main>');
+  w.history.pushState({},'', '/c/final-no-refresh');
+  const task={id:'final-no-refresh',ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'review',round:4,state:'waiting',url:'https://chatgpt.com/c/final-no-refresh',token:'final-no-refresh-token',attempted:false,messages:[],routeRecoveryAttempts:0,workspaceDocumentRecoveryAttempts:0};
+  h.data.tasks.push(task);
+  assert.equal(h.latestTurn(task).final,true);
+  assert.equal(h.recoverStalledRoute(new URL(task.url),task),false);
+  assert.equal(task.routeRecoveryAttempts,0);
+  assert.equal(task.workspaceDocumentRecoveryAttempts,0);
+  assert.equal(task.messages.some(item=>/页面长时间没有恢复/.test(item.text||'')),false);
+  dom.window.close();
+});
+
 test('generic stalled conversation refresh cooldown is fifteen minutes while ambiguous-send recovery stays separate',async()=>{
   const {h,w,dom}=await fixture();
   w.history.pushState({},'', '/c/stall-fifteen');
@@ -2148,8 +2161,8 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.48$/m);
-  assert.match(source,/const VERSION = '2\.9\.48'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.49$/m);
+  assert.match(source,/const VERSION = '2\.9\.49'/);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const AMBIGUOUS_SEND_REFRESH_MS = 3 \* 60 \* 1000/);
   assert.doesNotMatch(source,/CONNECTION_INTERRUPTED_REFRESH_COOLDOWN_MS/);
