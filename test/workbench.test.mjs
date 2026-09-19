@@ -12,7 +12,7 @@ async function fixture(body='', setup=()=>{}) {
   const held = new Set();
   w.navigator.locks = {query:async()=>({held:[...held].map(name=>({name}))}),request:async(name,options,callback)=>{callback ||= options;if(held.has(name))return callback(null);held.add(name);try{return await callback({name});}finally{held.delete(name);}}};
   setup(w);
-  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, refreshInterruptedConversation, queuePendingContinuation, attemptPendingContinuation, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, adoptUnboundAttemptedConversation, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, refreshInterruptedConversation, queuePendingContinuation, attemptPendingContinuation, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, stopAmbiguousSend, adoptUnboundAttemptedConversation, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('runtime blocked transition immediately becomes a fresh queued resend',async()=>{
@@ -1534,6 +1534,100 @@ test('header pause targets the selected task and settings owns the global pause'
     dom.window.close();
   }
 });
+test('same-route recovery is a committed reload path and watchdog re-arms a scheduler that would otherwise go silent',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-message-author-role="user">goal [Fabushi:deadlock-recovery]</article><div class="animate-spin"></div></main>');
+  try {
+    w.history.replaceState({},'', '/c/deadlock-recovery');
+    const task={id:'deadlock-recovery',ownerTabId:h.getTabId(),goal:'goal',mode:'once',phase:'work',round:1,goalRevision:0,state:'loading',url:'https://chatgpt.com/c/deadlock-recovery',token:'deadlock-recovery',messages:[],routeRecoveryAttempts:1};
+    h.data.tasks.push(task);
+    w.sessionStorage.setItem('fabushi-workbench-navigation-v2',JSON.stringify({
+      path:'/c/deadlock-recovery',
+      href:task.url,
+      at:Date.now(),
+      task:task.id,
+      attempts:2,
+      assigned:true,
+      direct:true,
+      purpose:'recovery',
+      phase:'work',
+      round:1,
+      goalRevision:0,
+      recovery:true,
+      resume:true,
+    }));
+    await h.start(false);
+    h.beginGuardedNavigation(task.url,task,{replace:true,force:true,recovery:true,ticketPath:'/c/deadlock-recovery',ticketHref:task.url,reason:'route-recovery'});
+    await new Promise(resolve=>w.setTimeout(resolve,0));
+    assert.equal(h.getNavigationState().navigating,true,'same-route recovery must remain a committed navigation rather than being cancelled as a no-op');
+    assert.match(source,/if \(sameRoute && recovery\) location\.reload\(\);/,'same-route recovery commits a real reload');
+    h.armNavigationCommitWatchdog(task,'test-recovery',10);
+    await new Promise(resolve=>w.setTimeout(resolve,130));
+    assert.equal(h.getNavigationState().navigating,false,'watchdog releases a committed navigation when the document does not unload');
+    assert.equal(h.getNavigationState().timer,true,'scheduler is re-armed after the failed navigation commit');
+  } finally {
+    h.pause();
+    dom.window.close();
+  }
+});
+
+test('ordinary same-route navigation remains a no-op but asynchronous cancellation re-arms the scheduler',async()=>{
+  const {h,w,dom}=await fixture();
+  try {
+    w.history.replaceState({},'', '/c/same-route-noop');
+    const task={id:'same-route-noop',ownerTabId:h.getTabId(),goal:'goal',mode:'once',phase:'work',round:1,goalRevision:0,state:'waiting',url:'https://chatgpt.com/c/same-route-noop',token:'same-route-noop',messages:[]};
+    h.data.tasks.push(task);
+    w.sessionStorage.setItem('fabushi-workbench-navigation-v2',JSON.stringify({
+      path:'/c/same-route-noop',href:task.url,at:Date.now(),task:task.id,attempts:1,assigned:true,direct:true,purpose:'inspect',phase:'work',round:1,goalRevision:0,resume:true,
+    }));
+    await h.start(false);
+    h.beginGuardedNavigation(task.url,task,{replace:true,force:true,recovery:false,ticketPath:'/c/same-route-noop',ticketHref:task.url,reason:'inspect'});
+    await new Promise(resolve=>w.setTimeout(resolve,10));
+    assert.equal(h.getNavigationState().navigating,false);
+    assert.equal(h.getNavigationState().timer,true,'same-route cancellation must not strand tick.finally without a timer');
+  } finally {
+    h.pause();
+    dom.window.close();
+  }
+});
+
+test('owned route inspection preserves loading recovery counters until loading truly clears',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-message-author-role="user">goal [Fabushi:loading-counter]</article><div id="loader" class="animate-spin"></div></main>');
+  try {
+    w.history.replaceState({},'', '/c/loading-counter');
+    const task={id:'loading-counter',ownerTabId:h.getTabId(),goal:'goal',mode:'once',phase:'work',round:1,state:'loading',url:'https://chatgpt.com/c/loading-counter',token:'loading-counter',messages:[],routeRecoveryAttempts:1,workspaceDocumentRecoveryAttempts:1,rendererRecoveryExhausted:true,sendUiWaitSince:123};
+    h.data.tasks.push(task);
+    assert.equal(await h.navigate(task.url,null,task,false),true);
+    assert.equal(task.routeRecoveryAttempts,1,'loading route must keep the recovery count');
+    assert.equal(task.workspaceDocumentRecoveryAttempts,1);
+    assert.equal(task.rendererRecoveryExhausted,true);
+    w.document.querySelector('#loader').remove();
+    assert.equal(await h.navigate(task.url,null,task,false),true);
+    assert.equal(task.routeRecoveryAttempts,0,'counter resets only after loading signal disappears');
+    assert.equal(task.workspaceDocumentRecoveryAttempts,0);
+    assert.equal(task.rendererRecoveryExhausted,false);
+    assert.equal(task.sendUiWaitSince,0);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('loading recovery progresses from second route attempt into one fresh-document handoff',async()=>{
+  const {h,w,dom}=await fixture();
+  try {
+    const task={id:'loading-budget',ownerTabId:h.getTabId(),goal:'goal',mode:'once',phase:'work',round:1,goalRevision:0,state:'loading',url:'https://chatgpt.com/c/loading-budget',token:'loading-budget',messages:[],routeRecoveryAttempts:1,workspaceDocumentRecoveryAttempts:0,rendererRecoveryExhausted:false};
+    h.data.tasks.push(task);
+    h.recoverStalledRoute(new w.URL(task.url),task);
+    assert.equal(task.routeRecoveryAttempts,2);
+    assert.ok(task.messages.some(message=>/第 2\/2 次/.test(message.text)));
+    h.recoverStalledRoute(new w.URL(task.url),task);
+    assert.equal(task.workspaceDocumentRecoveryAttempts,1,'after 2/2 the next recovery is the bounded fresh-document handoff');
+    assert.equal(task.rendererRecoveryExhausted,true);
+  } finally {
+    h.pause();
+    dom.window.close();
+  }
+});
+
 test('same-route hydration waits without creating a navigation ticket',async()=>{
   const {h,w,dom}=await fixture('<main>ChatGPT is loading</main>');
   const result=await h.navigate('/',undefined,{id:'task'});
@@ -2032,8 +2126,8 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.44$/m);
-  assert.match(source,/const VERSION = '2\.9\.44'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.45$/m);
+  assert.match(source,/const VERSION = '2\.9\.45'/);
   assert.match(source,/^\/\/ @updateURL\s+https:\/\/raw\.githubusercontent\.com\/bhrumom\/fabushi-chatgpt-auto-confirm-userscript\/main\/chatgpt-auto-confirm\.user\.js$/m);
   assert.match(source,/^\/\/ @downloadURL\s+https:\/\/raw\.githubusercontent\.com\/bhrumom\/fabushi-chatgpt-auto-confirm-userscript\/main\/chatgpt-auto-confirm\.user\.js$/m);
 });
