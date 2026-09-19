@@ -365,14 +365,16 @@ test('connection interruption immediately requeues the same task for a fresh cha
   dom.window.close();
 });
 
-test('inspect turns a live connection interruption into a fresh-chat resend of the current phase message',async()=>{
+test('scheduler turns a live connection interruption into a fresh-chat resend of the current phase message',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue current work [Fabushi:interrupt-live-send]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">连接已中断。正在等待完整回复。</div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   w.history.pushState({},'', '/c/interrupt-live-send');
   const task={id:'interrupt-live-send',ownerTabId:h.getTabId(),goal:'original goal',next:'continue current work',mode:'goal',phase:'work',round:3,state:'waiting',url:'https://chatgpt.com/c/interrupt-live-send',token:'interrupt-live-send',attempted:false,attachments:[],messages:[]};
   h.data.tasks.push(task);
   let oldConversationSends=0;
   w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>oldConversationSends++);
-  await h.inspect(task,null);
+
+  await h.start();
+  await h.tick();
   assert.equal(oldConversationSends,0,'the interrupted conversation must never receive a continuation send');
   assert.equal(task.state,'queued');
   assert.equal(task.url,'');
@@ -383,7 +385,7 @@ test('inspect turns a live connection interruption into a fresh-chat resend of t
 
   // Simulate the fresh root route. A very recent previous dispatch normally
   // activates the global send cooldown; the interruption recovery bypass is
-  // one-shot so this fresh resend can be issued immediately.
+  // one-shot so the scheduler can issue this fresh resend immediately.
   w.history.pushState({},'', '/');
   const main=w.document.querySelector('main');
   main.innerHTML='<form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form>';
@@ -402,7 +404,8 @@ test('inspect turns a live connection interruption into a fresh-chat resend of t
     main.prepend(article);
     w.history.pushState({},'', '/c/interrupt-fresh');
   });
-  await h.send(task,null);
+
+  await h.tick();
   assert.equal(freshSends,1);
   assert.equal(task.url,'https://chatgpt.com/c/interrupt-fresh');
   assert.equal(task.state,'waiting');
@@ -412,6 +415,7 @@ test('inspect turns a live connection interruption into a fresh-chat resend of t
   assert.match(input.value,/continue current work/);
   assert.match(input.value,/原始目标：original goal/);
   assert.match(input.value,new RegExp('\\[Fabushi:'+task.token+'\\]'));
+  h.pause();
   dom.window.close();
 });
 
@@ -422,7 +426,8 @@ test('legacy pending interruption state is migrated to fresh-chat recovery inste
   h.data.tasks.push(task);
   let sends=0;
   w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>sends++);
-  await h.inspect(task,null);
+  await h.start();
+  await h.tick();
   assert.equal(sends,0);
   assert.equal(task.state,'queued');
   assert.equal(task.url,'');
@@ -431,6 +436,7 @@ test('legacy pending interruption state is migrated to fresh-chat recovery inste
   assert.equal(task.pendingContinuationURL,'');
   assert.equal(task.connectionInterruptedFreshDispatch,true);
   assert.match(task.messages.at(-1).text,/旧版本遗留的连接中断强制续发状态/);
+  h.pause();
   dom.window.close();
 });
 
