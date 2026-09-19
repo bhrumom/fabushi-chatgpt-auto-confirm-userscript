@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.47
+// @version      2.9.48
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.47';
+  const VERSION = '2.9.48';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -91,13 +91,8 @@
   const CONTINUATION_SEND_COOLDOWN_MS = 60 * 1000;
   const PENDING_CONTINUATION_STOP_CLICK_COOLDOWN_MS = 3000;
   const PENDING_CONTINUATION_WAIT_LOG_MS = 10000;
-  const CONNECTION_INTERRUPTED_REFRESH_LIMIT = 3;
   const ABNORMAL_NO_FINAL_CONTINUE_AFTER_MS = 30 * 60 * 1000;
   const STOP_MISSING_CONTINUE_GRACE_MS = 15 * 1000;
-  // Connection interruption keeps its existing three-refresh budget, but the
-  // first and subsequent refreshes now follow the user-requested fifteen-minute
-  // cadence. The counter remains persisted across reloads.
-  const CONNECTION_INTERRUPTED_REFRESH_COOLDOWN_MS = 15 * 60 * 1000;
   const RATE_LIMIT_FRESH_RETRY_AFTER = 3;
   // The carry is normally much smaller than this. Keep a generous bound so a
   // long assistant reply can survive a conversation-length handoff without
@@ -1442,7 +1437,7 @@
     if (navigationRetryAt > now && !taskMatchesCurrentConversation(task)) deadlines.push(navigationRetryAt);
     const attachmentRetryAt = Number(task.attachmentUploadRetryAt || 0);
     if (!task.url && task.attachmentUploadFailed && attachmentRetryAt > now) deadlines.push(attachmentRetryAt);
-    if (!task.url && !task.attempted) {
+    if (!task.url && !task.attempted && !task.connectionInterruptedFreshDispatch) {
       const dispatchWait = dispatchCooldownRemaining(now);
       if (dispatchWait > 0) deadlines.push(now + dispatchWait);
     }
@@ -2412,54 +2407,36 @@
     }
     return false;
   }
-  function refreshInterruptedConversation(task, perform = true, now = Date.now()) {
-    const conversationURL = currentConversationURL() || canonicalConversationURL(task?.url);
-    if (!task || !conversationURL) return 'wait';
-    let changed = false;
-    if (task.connectionInterruptedURL !== conversationURL) {
-      task.connectionInterruptedURL = conversationURL;
-      task.connectionInterruptedRefreshAttempts = 0;
-      task.connectionInterruptedRefreshAt = 0;
-      task.connectionInterruptedSince = now;
-      task.connectionInterruptedRefreshExhausted = false;
-      changed = true;
-    } else if (!Number(task.connectionInterruptedSince || 0)) {
-      task.connectionInterruptedSince = now;
-      changed = true;
+  function queueInterruptedFreshRetry(task, reason = '检测到“连接已中断，正在等待完整回复”', now = Date.now()) {
+    if (!task || terminal.has(task.state) || task.state === 'paused') return false;
+    const sessionURL = currentConversationURL() || canonicalConversationURL(task.url);
+    if (sessionURL) {
+      recordConversationURL(task, sessionURL);
+      task.history ||= [];
+      task.history.push({
+        url:sessionURL,
+        phase:task.phase,
+        round:task.round,
+        reason:'connection-interrupted-fresh-chat',
+      });
+      task.history = task.history.slice(-40);
     }
-    task.state = 'waiting';
-    const attempts = Number(task.connectionInterruptedRefreshAttempts || 0);
-    if (attempts >= CONNECTION_INTERRUPTED_REFRESH_LIMIT) {
-      task.connectionInterruptedRefreshExhausted = true;
-      log(task, `“连接已中断，正在等待完整回复”连续刷新 ${CONNECTION_INTERRUPTED_REFRESH_LIMIT} 次后仍存在；停止继续刷新，改为在当前会话追加“${CONTINUATION_PROMPT}”。`);
-      save();
-      return 'continue';
-    }
-    const lastRefreshAt = Number(task.connectionInterruptedRefreshAt || 0);
-    const cadenceAnchor = lastRefreshAt || Number(task.connectionInterruptedSince || 0);
-    if (cadenceAnchor && now - cadenceAnchor < CONNECTION_INTERRUPTED_REFRESH_COOLDOWN_MS) {
-      if (changed) {
-        log(task, `检测到“连接已中断，正在等待完整回复”；将保留当前会话，连续 15 分钟仍未恢复后再进行第 ${attempts + 1}/${CONNECTION_INTERRUPTED_REFRESH_LIMIT} 次刷新，不会立即刷新。`);
-        save();
-      }
-      return 'wait';
-    }
-    const nextAttempt = attempts + 1;
-    task.connectionInterruptedRefreshAttempts = nextAttempt;
-    task.connectionInterruptedRefreshAt = now;
-    task.connectionInterruptedRefreshExhausted = false;
-    log(task, `检测到“连接已中断，正在等待完整回复”已持续至少 15 分钟；正在刷新当前会话（第 ${nextAttempt}/${CONNECTION_INTERRUPTED_REFRESH_LIMIT} 次）。若刷新后仍存在，将至少等待 15 分钟再进行下一次恢复；第 ${CONNECTION_INTERRUPTED_REFRESH_LIMIT} 次刷新后仍存在时，将直接在本会话追加“${CONTINUATION_PROMPT}”，不会新建会话。`);
+    const recoveryCount = Number(task.connectionInterruptedFreshRetryCount || 0) + 1;
+    clearDispatchIntent(task);
+    task.connectionInterruptedFreshRetryCount = recoveryCount;
+    task.connectionInterruptedFreshDispatch = true;
+    task.noFinalReplyRecoveryUntil = 0;
+    task.cooldownUntil = 0;
+    task.navigationGuardRetryAt = 0;
+    task.state = 'queued';
+    task.updatedAt = now;
+    delete task.pausedState;
+    sameRouteWaitUntil = 0;
+    sameRouteWaitSince = 0;
+    observations.delete(task.id);
+    log(task, `${reason}；已立即结束旧会话派发并切换到新的 ChatGPT 会话原样重发当前${task.phase === 'review' ? '规划/验收' : 'Work'}消息（连接中断自动恢复第 ${recoveryCount} 次）。保留任务、phase、round、目标/next 和附件；新会话会生成新的发送标识与会话链接，不再等待 15 分钟、不刷新旧会话，也不在旧会话发送“${CONTINUATION_PROMPT}”。`);
     save();
-    if (!perform) return 'refresh';
-    navigating = true;
-    try { location.reload(); } catch (error) {
-      navigating = false;
-      task.state = 'waiting';
-      log(task, `连接中断后的页面刷新失败：${error.message}；已保留当前会话，15 分钟后继续尝试。`);
-      save();
-      return 'wait';
-    }
-    return 'refresh';
+    return true;
   }
   function stalledProgressSignature(sample) {
     return JSON.stringify({
@@ -3581,7 +3558,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     dismissUnexpectedModals(task);
     if (stopButton() || cards().length) throw new Error('当前页面仍在生成或等待授权，禁止发送。');
     if (blocker()) throw new Error(blocker());
-    const dispatchWait = dispatchCooldownRemaining();
+    const dispatchWait = task.connectionInterruptedFreshDispatch ? 0 : dispatchCooldownRemaining();
     if (dispatchWait > 0) {
       state(task, 'queued', `上一会话刚结束，插件正在休息 ${Math.ceil(dispatchWait / 1000)} 秒后再派发；不会连续发送会话。`);
       save();
@@ -3632,6 +3609,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     // specific transition before clicking so pagehide does not interfere with
     // the handoff to the new page.
     task.attempted = true;
+    task.connectionInterruptedFreshDispatch = false;
     task.sendPrepared = false;
     task.sendUiWaitSince = 0;
     task.rendererRecoveryExhausted = false;
@@ -3891,29 +3869,14 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     // marker is visible. During a rotation the old document can briefly retain
     // another task's error banner; handling it before that check would consume
     // this task's retry budget.
-    if (task.pendingContinuationReason) {
-      const pendingAction = await attemptPendingContinuation(task, signal, turn, Date.now());
-      if (pendingAction === 'sent' || pendingAction === 'stopping' || pendingAction === 'waiting') return;
-      // 'defer' intentionally falls through so approval/rate-limit/blocker
-      // handlers below retain their existing authority.
-    }
-    const interrupted = Boolean(!task.pendingContinuationReason && pageBelongsToTask && !pending.length && connectionInterruptedNotice(turn));
-    if (interrupted) {
-      const action = refreshInterruptedConversation(task, true, Date.now());
-      if (action === 'continue') {
-        const reason = `“连接已中断，正在等待完整回复”连续刷新 ${CONNECTION_INTERRUPTED_REFRESH_LIMIT} 次后仍存在`;
-        if (queuePendingContinuation(task, reason, Date.now())) {
-          await attemptPendingContinuation(task, signal, turn, Date.now());
-        }
-      }
+    const interrupted = Boolean(pageBelongsToTask && !pending.length && connectionInterruptedNotice(turn));
+    if (interrupted || task.pendingContinuationReason) {
+      const reason = interrupted
+        ? '检测到“连接已中断，正在等待完整回复”'
+        : '检测到旧版本遗留的连接中断强制续发状态';
+      queueInterruptedFreshRetry(task, reason, Date.now());
       return;
     }
-    // Do not clear the interruption budget merely because a reload is between
-    // DOM states. ChatGPT commonly shows loading/generating for a few seconds
-    // before repainting the same interruption notice. The budget is scoped to
-    // the durable conversation URL and is reset by refreshInterruptedConversation
-    // when the URL changes, by sendContinuation after a real continuation send,
-    // or by finish after a true final reply.
     if (pageBelongsToTask && !turn.final && !pending.length && sendTimeoutNotice(turn)) {
       await sendContinuation(task, signal, '检测到“消息错误/发送超时，请重试”');
       return;
@@ -4199,7 +4162,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
           nextScheduleMs = sameRouteWaitUntil - Date.now();
           return;
         }
-        const dispatchWait = dispatchCooldownRemaining();
+        const dispatchWait = task.connectionInterruptedFreshDispatch ? 0 : dispatchCooldownRemaining();
         if (dispatchWait > 0) {
           nextScheduleMs = dispatchWait;
           state(task, 'queued', `上一会话刚结束，插件正在休息 ${Math.ceil(dispatchWait / 1000)} 秒后再派发；不会连续发送会话。`);
