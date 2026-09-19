@@ -257,6 +257,9 @@
 
 ### 2.9.45 加载恢复不再静默停机
 
+- 通用“无变化”刷新阈值改为 15 分钟：只有同一会话连续 15 分钟没有可见进展才刷新，后续重复刷新也至少间隔 15 分钟。
+- `AMBIGUOUS_SEND_REFRESH_MS` 与通用停滞阈值解耦，未绑定的发送确认恢复仍保持 3 分钟；连接中断、限流和 loading 专项恢复节奏不受影响。
+
 - 修复同一 `/c/<id>` 页面长时间加载时只打印“第 1/2 次单次加载恢复”却没有真正刷新、随后 scheduler 完全停止的问题。
 - same-route recovery 现在执行真实 document reload；普通 same-route 导航仍保持 no-op。
 - 导航被拒绝、ticket 过期或取消后会重新唤醒 scheduler；已提交的 reload/replace 若 8 秒内文档没有卸载，也会由 watchdog 自动解除 `navigating` 并继续检查。
