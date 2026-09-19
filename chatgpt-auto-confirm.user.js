@@ -3651,12 +3651,25 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     // marker is visible. During a rotation the old document can briefly retain
     // another task's error banner; handling it before that check would consume
     // this task's retry budget.
-    if (pageBelongsToTask && !turn.final && !pending.length && connectionInterruptedNotice()) {
+    const interrupted = Boolean(pageBelongsToTask && !turn.final && !pending.length && connectionInterruptedNotice());
+    if (interrupted) {
       const action = refreshInterruptedConversation(task, true, Date.now());
       if (action === 'continue') {
         await sendContinuation(task, signal, `“连接已中断，正在等待完整回复”连续刷新 ${CONNECTION_INTERRUPTED_REFRESH_LIMIT} 次后仍存在`);
       }
       return;
+    }
+    // "Three refreshes" is a consecutive budget. If the interruption banner
+    // actually disappears on this owned route, a later unrelated interruption
+    // starts from attempt one instead of inheriting the old incident.
+    if (pageBelongsToTask && task.connectionInterruptedURL === liveURL
+      && Number(task.connectionInterruptedRefreshAttempts || 0) > 0) {
+      task.connectionInterruptedSince = 0;
+      task.connectionInterruptedURL = '';
+      task.connectionInterruptedRefreshAttempts = 0;
+      task.connectionInterruptedRefreshAt = 0;
+      task.connectionInterruptedRefreshExhausted = false;
+      save();
     }
     if (pageBelongsToTask && !turn.final && !pending.length && sendTimeoutNotice(turn)) {
       await sendContinuation(task, signal, '检测到“消息错误/发送超时，请重试”');
