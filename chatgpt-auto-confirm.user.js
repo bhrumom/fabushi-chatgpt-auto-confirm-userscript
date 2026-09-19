@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.45
+// @version      2.9.46
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.45';
+  const VERSION = '2.9.46';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -66,17 +66,17 @@
   const FINAL_REPLY_STABILITY_MS = 4000;
   // A bound conversation can stop changing while ChatGPT is waiting for an
   // authorization card, a renderer update, or an image/tool result. Reload
-  // the same route after each three-minute idle period so the page can
-  // rediscover those controls without creating a second Work/planner send.
-  const STALLED_REFRESH_MS = 3 * 60 * 1000;
-  // Keep the persisted reload interval aligned with the stall detector. A
-  // page that remains unchanged can therefore be retried forever, but never
-  // more than once per three minutes.
+  // the same route only after a full fifteen-minute idle period so long-running
+  // tool/agent work is not disturbed by an aggressive generic stall refresh.
+  const STALLED_REFRESH_MS = 15 * 60 * 1000;
+  // Keep the persisted generic-stall reload interval aligned with the detector.
+  // A page that remains unchanged can therefore be retried forever, but never
+  // more than once per fifteen minutes.
   const STALLED_REFRESH_COOLDOWN_MS = STALLED_REFRESH_MS;
-  // An ambiguous Send click gets the same three-minute recovery cadence.
-  // Prefer a current-round bound conversation first; only an unbound send
-  // may eventually be redispatched after several page recovery cycles.
-  const AMBIGUOUS_SEND_REFRESH_MS = STALLED_REFRESH_MS;
+  // Ambiguous Send confirmation is a separate recovery path. Keep its existing
+  // three-minute cadence instead of inheriting the much longer generic stall
+  // threshold, so an unbound click can still be resolved in bounded time.
+  const AMBIGUOUS_SEND_REFRESH_MS = 3 * 60 * 1000;
   const AMBIGUOUS_SEND_REFRESH_LIMIT = NO_FINAL_REPLY_RETRY_LIMIT;
   // A permanent page error must not create a hot loop of new conversations.
   // The first blocked recovery is immediate; repeated failures remain queued
@@ -2490,11 +2490,11 @@
     const attempts = Number(task.stalledRefreshAttempts || 0);
     // Older builds persisted this terminal-looking flag after the second
     // reload. It is now only a migration marker and must never block a later
-    // three-minute retry cycle.
+    // fifteen-minute retry cycle.
     if (task.stalledRefreshExhausted) {
       task.stalledRefreshExhausted = false;
       task.state = 'waiting';
-      log(task, '已解除历史停滞刷新次数上限；会话若继续无变化，将每 3 分钟自动刷新，直到任务完成或被暂停。');
+      log(task, '已解除历史停滞刷新次数上限；会话若继续无变化，将每 15 分钟自动刷新，直到任务完成或被暂停。');
       save();
     }
     if (now - Number(task.stalledRefreshAt || 0) < STALLED_REFRESH_COOLDOWN_MS) return false;
@@ -2504,14 +2504,14 @@
     task.stalledRefreshExhausted = false;
     task.state = 'waiting';
     observations.delete(task.id);
-    log(task, `当前会话连续 3 分钟没有可见变化；正在刷新当前页面（第 ${nextAttempt} 次，后续仍无变化时每 3 分钟继续刷新），保留会话、发送标识、附件和当前阶段，不会重复发送。`);
+    log(task, `当前会话连续 15 分钟没有可见变化；正在刷新当前页面（第 ${nextAttempt} 次，后续仍无变化时每 15 分钟继续刷新），保留会话、发送标识、附件和当前阶段，不会重复发送。`);
     save();
     if (!perform) return true;
     navigating = true;
     try { location.reload(); } catch (error) {
       navigating = false;
       task.state = 'waiting';
-      log(task, `停滞会话刷新失败：${error.message}；已保留当前任务，3 分钟后继续尝试。`);
+      log(task, `停滞会话刷新失败：${error.message}；已保留当前任务，15 分钟后继续尝试。`);
       save();
       return false;
     }
