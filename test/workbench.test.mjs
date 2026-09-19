@@ -2146,8 +2146,10 @@ test('the packaged userscript declares its stable remote update and download URL
   assert.match(source,/const VERSION = '2\.9\.48'/);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const AMBIGUOUS_SEND_REFRESH_MS = 3 \* 60 \* 1000/);
-  assert.match(source,/const CONNECTION_INTERRUPTED_REFRESH_COOLDOWN_MS = 15 \* 60 \* 1000/);
-  assert.doesNotMatch(source,/CONNECTION_INTERRUPTED_REFRESH_COOLDOWN_MS = 10 \* 1000/);
+  assert.doesNotMatch(source,/CONNECTION_INTERRUPTED_REFRESH_COOLDOWN_MS/);
+  assert.doesNotMatch(source,/function refreshInterruptedConversation/);
+  assert.match(source,/function queueInterruptedFreshRetry/);
+  assert.match(source,/connection-interrupted-fresh-chat/);
   assert.match(source,/^\/\/ @updateURL\s+https:\/\/raw\.githubusercontent\.com\/bhrumom\/fabushi-chatgpt-auto-confirm-userscript\/main\/chatgpt-auto-confirm\.user\.js$/m);
   assert.match(source,/^\/\/ @downloadURL\s+https:\/\/raw\.githubusercontent\.com\/bhrumom\/fabushi-chatgpt-auto-confirm-userscript\/main\/chatgpt-auto-confirm\.user\.js$/m);
 });
