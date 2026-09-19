@@ -12,7 +12,7 @@ async function fixture(body='', setup=()=>{}) {
   const held = new Set();
   w.navigator.locks = {query:async()=>({held:[...held].map(name=>({name}))}),request:async(name,options,callback)=>{callback ||= options;if(held.has(name))return callback(null);held.add(name);try{return await callback({name});}finally{held.delete(name);}}};
   setup(w);
-  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, connectionInterruptedNotice, refreshInterruptedConversation, sendContinuation, classify, pageLoadingState, conversationLoading, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, adoptUnboundAttemptedConversation, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, refreshInterruptedConversation, sendContinuation, classify, pageLoadingState, conversationLoading, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, recoverStalledRoute, stopAmbiguousSend, adoptUnboundAttemptedConversation, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('runtime blocked transition immediately becomes a fresh queued resend',async()=>{
@@ -184,6 +184,112 @@ test('an authorization-card transition cannot become a duplicate fresh-session s
   assert.equal(h.classify(firstFinal,{...previous,final:true,finalSince:902_000},906_000).state,'complete');
   dom.window.close();
 });
+test('conversation length-limit detection is scoped to the current response and ignores quotes/logs',async()=>{
+  const zh=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">do work [Fabushi:length-zh]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><p>已完成前半段工作。</p><p>你已达到此对话的长度上限，你可以开始新聊天以继续对话。</p></div></article></main>');
+  zh.w.history.pushState({},'', '/c/length-zh');
+  const task={id:'length-zh',ownerTabId:zh.h.getTabId(),goal:'do work',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/length-zh',token:'length-zh',messages:[]};
+  zh.h.data.tasks.push(task);
+  const turn=zh.h.latestTurn(task);
+  assert.match(zh.h.conversationLengthLimitNotice(turn),/长度上限/);
+  zh.dom.window.close();
+
+  const en=await fixture('<div role="status">You\'ve reached the maximum length for this conversation, but you can keep talking by starting a new chat.</div>');
+  assert.match(en.h.conversationLengthLimitNotice(),/maximum length/i);
+  en.dom.window.close();
+
+  const quoted=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">测试文本：你已达到此对话的长度上限，你可以开始新聊天以继续对话。</div></article></main>');
+  assert.equal(quoted.h.conversationLengthLimitNotice(),'', 'user quotation must not trigger a handoff');
+  const ownNotice=quoted.w.document.createElement('div');
+  ownNotice.textContent='你已达到此对话的长度上限，你可以开始新聊天以继续对话。';
+  quoted.w.document.querySelector('#fabushi-auto-confirm-root').append(ownNotice);
+  assert.equal(quoted.h.conversationLengthLimitNotice(),'', 'Fabushi logs must not self-trigger');
+  quoted.dom.window.close();
+
+  const assistantQuote=await fixture('<main><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><blockquote>你已达到此对话的长度上限，你可以开始新聊天以继续对话。</blockquote></div></article></main>');
+  assert.equal(assistantQuote.h.conversationLengthLimitNotice({owned:true,article:assistantQuote.w.document.querySelector('article')}),'','quoted assistant discussion is not a product boundary');
+  assistantQuote.dom.window.close();
+});
+
+test('conversation length-limit handoff preserves phase/round/attachments and replaces carry on repeated hops',async()=>{
+  const {h,w,dom}=await fixture();
+  const attachments=[{id:'proof',name:'proof.png',type:'image/png',size:12}];
+  const task={id:'length-hop',ownerTabId:h.getTabId(),goal:'finish everything',mode:'goal',phase:'work',round:2,state:'waiting',url:'https://chatgpt.com/c/length-one',token:'old-token',attempted:false,attachments,messages:[]};
+  h.data.tasks.push(task);
+  w.history.pushState({},'', '/c/length-one');
+  assert.equal(h.queueConversationLengthHandoff(task,{text:'第一会话已经完成 A/B；你已达到此对话的长度上限，你可以开始新聊天以继续对话。'},'notice',1_000),true);
+  assert.equal(task.state,'queued');
+  assert.equal(task.url,'');
+  assert.equal(task.token,'');
+  assert.equal(task.phase,'work');
+  assert.equal(task.round,2);
+  assert.deepEqual(task.attachments,attachments);
+  assert.match(task.lengthLimitCarry,/已经完成 A\/B/);
+  assert.equal(task.lengthLimitHopCount,1);
+  assert.equal(task.lengthLimitCarrySourceURL,'https://chatgpt.com/c/length-one');
+  assert.equal(task.history.at(-1).reason,'conversation-length-limit');
+
+  task.url='https://chatgpt.com/c/length-two';
+  task.token='second-token';
+  task.state='waiting';
+  w.history.pushState({},'', '/c/length-two');
+  assert.equal(h.queueConversationLengthHandoff(task,{text:'第二会话又完成 C；你已达到此对话的长度上限，你可以开始新聊天以继续对话。'},'notice',2_000),true);
+  assert.equal(task.phase,'work');
+  assert.equal(task.round,2);
+  assert.equal(task.lengthLimitHopCount,2);
+  assert.match(task.lengthLimitCarry,/第二会话又完成 C/);
+  assert.doesNotMatch(task.lengthLimitCarry,/已经完成 A\/B/,'each hop carries the latest page reply instead of growing without bound');
+  dom.window.close();
+});
+
+test('fresh Work and Review prompts include the previous length-limited reply without changing their contracts',async()=>{
+  const {h,dom}=await fixture();
+  const base={id:'length-prompt',round:4,goal:'original goal',next:'continue implementation',token:'new-token',lengthLimitCarry:'上一会话已经修改 foo.rs，下一步需要完成 bar.rs。',lengthLimitHopCount:2,attachments:[{id:'a',name:'proof.png',type:'image/png',size:10}]};
+  const work=h.workPrompt({...base,phase:'work'});
+  assert.match(work,/continue implementation/);
+  assert.match(work,/上一会话已经修改 foo\.rs/);
+  assert.match(work,/从停止处继续/);
+  assert.match(work,/不要重新从头执行/);
+  assert.doesNotMatch(work,/MAHAYANA_TASK_REPORT_V1/);
+
+  const review=h.plannerPrompt({...base,phase:'review',result:'Work 已完成主要实现'});
+  assert.match(review,/Work 已完成主要实现/);
+  assert.match(review,/上一会话已经修改 foo\.rs/);
+  assert.match(review,/MAHAYANA_TASK_REPORT_V1/);
+  assert.match(review,/"round":4/);
+  dom.window.close();
+});
+
+test('a length-limit notice wins over a final-looking toolbar and queues a fresh continuation chat',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish [Fabushi:length-final]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><p>已经完成一部分。</p><p>你已达到此对话的长度上限，你可以开始新聊天以继续对话。</p></div><button aria-label="复制回复"></button><button aria-label="评价回复"></button></article><form><textarea id="prompt-textarea"></textarea></form></main>');
+  w.history.pushState({},'', '/c/length-final');
+  const task={id:'length-final',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/length-final',token:'length-final',attempted:false,messages:[]};
+  h.data.tasks.push(task);
+  const turn=h.latestTurn(task);
+  assert.equal(turn.final,true,'the UI can expose a normal-looking final toolbar on the length-limit turn');
+  await h.start();
+  await h.inspect(task,null);
+  assert.equal(task.state,'queued');
+  assert.equal(task.url,'');
+  assert.equal(task.phase,'work');
+  assert.match(task.lengthLimitCarry,/已经完成一部分/);
+  assert.equal(task.lengthLimitHopCount,1);
+  h.pause();
+  dom.window.close();
+});
+
+test('a true final reply clears temporary length-limit carry state',async()=>{
+  const {h,dom}=await fixture();
+  const task={id:'length-done',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/final',token:'final-token',lengthLimitCarry:'old partial reply',lengthLimitCarrySourceURL:'https://chatgpt.com/c/old',lengthLimitHopCount:3,lengthLimitLastAt:123,messages:[]};
+  h.data.tasks.push(task);
+  h.finish(task,'真正最终回复');
+  assert.equal(task.state,'done');
+  assert.equal(task.lengthLimitCarry,'');
+  assert.equal(task.lengthLimitCarrySourceURL,'');
+  assert.equal(task.lengthLimitHopCount,0);
+  assert.equal(task.lengthLimitLastAt,0);
+  dom.window.close();
+});
+
 test('connection interruption recovery only recognizes visible ChatGPT page notices',async()=>{
   const page=await fixture('<div role="status">连接已中断。正在等待完整回复。</div>');
   assert.equal(page.h.connectionInterruptedNotice(),true);
@@ -1817,8 +1923,8 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.41$/m);
-  assert.match(source,/const VERSION = '2\.9\.41'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.42$/m);
+  assert.match(source,/const VERSION = '2\.9\.42'/);
   assert.match(source,/^\/\/ @updateURL\s+https:\/\/raw\.githubusercontent\.com\/bhrumom\/fabushi-chatgpt-auto-confirm-userscript\/main\/chatgpt-auto-confirm\.user\.js$/m);
   assert.match(source,/^\/\/ @downloadURL\s+https:\/\/raw\.githubusercontent\.com\/bhrumom\/fabushi-chatgpt-auto-confirm-userscript\/main\/chatgpt-auto-confirm\.user\.js$/m);
 });

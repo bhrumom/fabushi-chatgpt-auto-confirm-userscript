@@ -1,8 +1,8 @@
-# Fabushi 独立油猴工作台 2.9.41
+# Fabushi 独立油猴工作台 2.9.42
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.41`。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.42`。
 
 脚本头部固定声明 `@updateURL` 和 `@downloadURL`。油猴脚本管理器以及 Fabushi
 宿主会直接检查该地址的 `@version`；发布新版本时只需更新脚本本身和版本号，不需要
@@ -231,3 +231,11 @@
 - 同一任务第 4 个独立“请求过于频繁” cooldown episode 会切换 fresh Chat 并重发当前任务，保留目标、phase、round 和附件。
 - 已绑定且属于当前任务的会话不再仅凭 spinner 判定生成中；Stop 缺失 + 无授权卡 + 无最终操作栏 + composer 可用稳定 15 秒即视为异常停止并原会话续发。
 - Stop 存在仍是生成中，授权卡仍优先处理，最终回复操作栏仍是唯一正常完成边界。
+
+### 2.9.42 对话长度上限自动接力
+
+- 当前任务会话出现“你已达到此对话的长度上限，你可以开始新聊天以继续对话。”或等价英文提示时，不把它当作最终回复；先保存当前页面最新 assistant 回复，再清理当前 conversation/token 并新开 ChatGPT 会话。
+- 新会话继续使用原任务、当前 phase/round 和附件，同时把上一会话最后回复作为接力上下文明确放入 prompt，要求从停止处继续、不要重做已完成步骤。
+- Work 与规划/验收都支持接力；Review 会继续保留 Work 自然结果和 MAHAYANA_TASK_REPORT_V1 输出契约。
+- 若新会话再次达到长度上限，继续重复 fresh-chat 接力；每次只携带最新页面回复，避免无限累积。只有真正最终回复操作栏确认后才结束接力并清除临时 carry 状态。
+- 检测排除用户引用、blockquote/code 引用和 Fabushi 自己的日志，避免脚本讨论这段提示时自触发。
