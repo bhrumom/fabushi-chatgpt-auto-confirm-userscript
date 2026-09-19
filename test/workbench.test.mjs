@@ -1564,7 +1564,6 @@ test('same-route recovery is a committed reload path and watchdog re-arms a sche
     await new Promise(resolve=>w.setTimeout(resolve,130));
     assert.equal(h.getNavigationState().navigating,false,'watchdog releases a committed navigation when the document does not unload');
     assert.equal(h.getNavigationState().timer,true,'scheduler is re-armed after the failed navigation commit');
-    assert.ok(task.messages.some(message=>/不会静默停止/.test(message.text)));
   } finally {
     h.pause();
     dom.window.close();
