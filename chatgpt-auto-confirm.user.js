@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.47
+// @version      2.9.48
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.47';
+  const VERSION = '2.9.48';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -94,10 +94,11 @@
   const CONNECTION_INTERRUPTED_REFRESH_LIMIT = 3;
   const ABNORMAL_NO_FINAL_CONTINUE_AFTER_MS = 30 * 60 * 1000;
   const STOP_MISSING_CONTINUE_GRACE_MS = 15 * 1000;
-  // Connection interruption keeps its existing three-refresh budget, but the
-  // first and subsequent refreshes now follow the user-requested fifteen-minute
-  // cadence. The counter remains persisted across reloads.
-  const CONNECTION_INTERRUPTED_REFRESH_COOLDOWN_MS = 15 * 60 * 1000;
+  // Connection interruption is an explicit recoverable error, not a generic
+  // idle page. Keep this dedicated recovery fast; only the generic no-change
+  // stall refresh uses the user-requested 15-minute threshold. The counter
+  // remains persisted across reloads.
+  const CONNECTION_INTERRUPTED_REFRESH_COOLDOWN_MS = 10 * 1000;
   const RATE_LIMIT_FRESH_RETRY_AFTER = 3;
   // The carry is normally much smaller than this. Keep a generous bound so a
   // long assistant reply can survive a conversation-length handoff without
@@ -2436,26 +2437,22 @@
       return 'continue';
     }
     const lastRefreshAt = Number(task.connectionInterruptedRefreshAt || 0);
-    const cadenceAnchor = lastRefreshAt || Number(task.connectionInterruptedSince || 0);
-    if (cadenceAnchor && now - cadenceAnchor < CONNECTION_INTERRUPTED_REFRESH_COOLDOWN_MS) {
-      if (changed) {
-        log(task, `检测到“连接已中断，正在等待完整回复”；将保留当前会话，连续 15 分钟仍未恢复后再进行第 ${attempts + 1}/${CONNECTION_INTERRUPTED_REFRESH_LIMIT} 次刷新，不会立即刷新。`);
-        save();
-      }
+    if (lastRefreshAt && now - lastRefreshAt < CONNECTION_INTERRUPTED_REFRESH_COOLDOWN_MS) {
+      if (changed) save();
       return 'wait';
     }
     const nextAttempt = attempts + 1;
     task.connectionInterruptedRefreshAttempts = nextAttempt;
     task.connectionInterruptedRefreshAt = now;
     task.connectionInterruptedRefreshExhausted = false;
-    log(task, `检测到“连接已中断，正在等待完整回复”已持续至少 15 分钟；正在刷新当前会话（第 ${nextAttempt}/${CONNECTION_INTERRUPTED_REFRESH_LIMIT} 次）。若刷新后仍存在，将至少等待 15 分钟再进行下一次恢复；第 ${CONNECTION_INTERRUPTED_REFRESH_LIMIT} 次刷新后仍存在时，将直接在本会话追加“${CONTINUATION_PROMPT}”，不会新建会话。`);
+    log(task, `检测到“连接已中断，正在等待完整回复”；正在刷新当前会话（第 ${nextAttempt}/${CONNECTION_INTERRUPTED_REFRESH_LIMIT} 次）。若第 ${CONNECTION_INTERRUPTED_REFRESH_LIMIT} 次刷新后仍存在，将直接在本会话追加“${CONTINUATION_PROMPT}”，不会新建会话。`);
     save();
     if (!perform) return 'refresh';
     navigating = true;
     try { location.reload(); } catch (error) {
       navigating = false;
       task.state = 'waiting';
-      log(task, `连接中断后的页面刷新失败：${error.message}；已保留当前会话，15 分钟后继续尝试。`);
+      log(task, `连接中断后的页面刷新失败：${error.message}；已保留当前会话，后续仍会继续恢复。`);
       save();
       return 'wait';
     }
