@@ -1,6 +1,6 @@
 # CAR-012 — Connection interruption refresh cadence = 15 minutes
 
-Status: in-progress
+Status: cancelled / superseded
 Started: 2026-09-19
 Updated: 2026-09-19
 
@@ -19,4 +19,8 @@ Acceptance:
 - I10: exact-head CI passes, protected merge completes, and canonical main readback proves v2.9.47 / 15-minute interruption constant.
 
 Branch: `fix/interruption-refresh-15m-2.9.47-20260919`
-PR/CI/main evidence: pending.
+Outcome:
+- PR #47 was merged to main as `d3b15050cd6d09e07680804f41d8b9c9c4226175` after its exact-head CI passed, but its premise broadened the user's generic 15-minute page-stall request to the explicit connection-interruption recovery path.
+- No v2.9.47 GitHub Release was published.
+- CAR-013 supersedes this task and restores the connection-interruption recovery to its dedicated 10-second cadence while preserving the requested generic 15-minute stall refresh.
+- This task is intentionally cancelled rather than marked complete.
