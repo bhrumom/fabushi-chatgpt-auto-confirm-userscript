@@ -18,7 +18,7 @@
 
 ## Delivery evidence
 
-- Exact-head standard CI: pending.
-- Merge/canonical main: pending.
-- Release v2.9.41: pending.
-- Release asset digest: pending.
+- Exact-head standard CI: run `35411328349` on `6e9729f32ec8933957e5c1e2b6ea00c73c9c9027` — SUCCESS.
+- Merge/release source SHA: `84d0d8e7c6703ad399e3f0da0639942f41c8f738`; post-merge main Test run `35411367398` — SUCCESS.
+- Release `v2.9.41`: published, latest, non-draft, non-prerelease, target `84d0d8e7c6703ad399e3f0da0639942f41c8f738`.
+- Release asset: `chatgpt-auto-confirm.user.js`, 248490 bytes, `sha256:681d50730566bd5f302f3c8b4e5d0ca1e4317951d7c018db565ccb8abf559218`.
