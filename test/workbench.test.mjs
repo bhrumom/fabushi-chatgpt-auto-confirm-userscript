@@ -418,12 +418,13 @@ test('3-of-3 interruption with Stop creates durable pending continuation, stops 
 });
 
 test('pending interruption continuation survives banner disappearance and defers to approval/rate-limit controls',async()=>{
-  const approval=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:pending-approval]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">partial stopped response</div></article><div><button>允许</button><button>拒绝</button></div><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
+  const approval=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:pending-approval]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">partial stopped response</div><div><p>任意内容</p><button>拒绝</button><button>允许</button><button aria-haspopup="menu">⌄</button></div><div role="menu"><button role="menuitem">允许本次会话</button></div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   approval.w.history.pushState({},'', '/c/pending-approval');
   const task={id:'pending-approval',ownerTabId:approval.h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/pending-approval',token:'pending-approval',pendingContinuationReason:'interrupted',pendingContinuationURL:'https://chatgpt.com/c/pending-approval',pendingContinuationSince:1,messages:[]};
   approval.h.data.tasks.push(task);
   let sends=0;
   approval.w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>sends++);
+  assert.ok(approval.h.cards().length>0,'fixture must expose a real authorization card');
   assert.equal(await approval.h.attemptPendingContinuation(task,null,approval.h.latestTurn(task),10_000),'defer');
   assert.equal(task.pendingContinuationReason,'interrupted');
   assert.equal(sends,0);
