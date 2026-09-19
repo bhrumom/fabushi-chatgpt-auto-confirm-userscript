@@ -554,31 +554,32 @@ test('persisted needs-processing task automatically opens a fresh retry instead 
   assert.doesNotMatch(h.data.tasks.map(item=>item.state).join(','),/blocked/);
   dom.window.close();
 });
-test('connection interruption preserves identity and exhausts the three-refresh budget on a 15-minute cadence',async()=>{
+test('repeated connection interruptions create fresh dispatches while preserving task identity and phase',async()=>{
   const {h,w,dom}=await fixture();
   const task=h.enqueue('keep this exact task','goal');
-  Object.assign(task,{state:'generating',url:'https://chatgpt.com/c/disconnected',token:'owner-token',attempted:false});
-  w.history.pushState({},'', '/c/disconnected');
-  assert.equal(h.refreshInterruptedConversation(task,false,20_000),'wait');
-  assert.equal(task.state,'waiting');
-  assert.equal(task.url,'https://chatgpt.com/c/disconnected');
-  assert.equal(task.token,'owner-token');
-  assert.equal(task.connectionInterruptedRefreshAttempts,0);
-  assert.equal(h.refreshInterruptedConversation(task,false,919_999),'wait','15-minute interruption cooldown prevents an early reload');
-  assert.equal(h.refreshInterruptedConversation(task,false,920_000),'refresh');
-  assert.equal(task.connectionInterruptedRefreshAttempts,1);
-  assert.equal(h.refreshInterruptedConversation(task,false,1_819_999),'wait');
-  assert.equal(h.refreshInterruptedConversation(task,false,1_820_000),'refresh');
-  assert.equal(h.refreshInterruptedConversation(task,false,2_720_000),'refresh');
-  assert.equal(task.connectionInterruptedRefreshAttempts,3);
-  assert.equal(h.refreshInterruptedConversation(task,false,2_720_001),'continue');
-  assert.equal(task.connectionInterruptedRefreshExhausted,true);
-  assert.match(task.messages.at(-1).text,/连续刷新 3 次后仍存在/);
-  w.history.pushState({},'', '/c/next-conversation');
-  task.url='https://chatgpt.com/c/next-conversation';
-  assert.equal(h.refreshInterruptedConversation(task,false,3_000_000),'wait','a new conversation restarts the 15-minute clock before attempt 1');
-  assert.equal(h.refreshInterruptedConversation(task,false,3_900_000),'refresh');
-  assert.equal(task.connectionInterruptedRefreshAttempts,1);
+  Object.assign(task,{state:'waiting',phase:'work',round:5,next:'resume exact step',url:'https://chatgpt.com/c/disconnected-1',token:'owner-token-1',attempted:false});
+  w.history.pushState({},'', '/c/disconnected-1');
+  assert.equal(h.queueInterruptedFreshRetry(task,'first interruption',20_000),true);
+  assert.equal(task.id,h.data.tasks[0].id);
+  assert.equal(task.phase,'work');
+  assert.equal(task.round,5);
+  assert.equal(task.next,'resume exact step');
+  assert.equal(task.connectionInterruptedFreshRetryCount,1);
+  assert.equal(task.history.at(-1).url,'https://chatgpt.com/c/disconnected-1');
+
+  // Simulate a successfully bound fresh chat that later gets interrupted too.
+  Object.assign(task,{state:'waiting',url:'https://chatgpt.com/c/disconnected-2',token:'owner-token-2',attempted:false,connectionInterruptedFreshDispatch:false});
+  w.history.pushState({},'', '/c/disconnected-2');
+  assert.equal(h.queueInterruptedFreshRetry(task,'second interruption',30_000),true);
+  assert.equal(task.state,'queued');
+  assert.equal(task.url,'');
+  assert.equal(task.token,'');
+  assert.equal(task.phase,'work');
+  assert.equal(task.round,5);
+  assert.equal(task.next,'resume exact step');
+  assert.equal(task.connectionInterruptedFreshRetryCount,2);
+  assert.equal(task.history.at(-1).url,'https://chatgpt.com/c/disconnected-2');
+  assert.equal(task.history.at(-1).reason,'connection-interrupted-fresh-chat');
   dom.window.close();
 });
 test('work prompt stays natural while the fresh planner alone receives the report contract',async()=>{
@@ -2141,8 +2142,8 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.47$/m);
-  assert.match(source,/const VERSION = '2\.9\.47'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.48$/m);
+  assert.match(source,/const VERSION = '2\.9\.48'/);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const AMBIGUOUS_SEND_REFRESH_MS = 3 \* 60 \* 1000/);
   assert.match(source,/const CONNECTION_INTERRUPTED_REFRESH_COOLDOWN_MS = 15 \* 60 \* 1000/);
