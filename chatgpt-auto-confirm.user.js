@@ -2418,8 +2418,14 @@
       task.cooldownUntil = 0;
       task.state = 'queued';
       delete task.pausedState;
-      log(task, `检测到 ChatGPT 请求过于频繁已超过 ${RATE_LIMIT_FRESH_RETRY_AFTER} 次（第 ${episodes} 次）；已结束当前会话目标并新开 ChatGPT 会话原样重发当前任务，保留目标、阶段、轮次和附件。`);
+      log(task, `检测到 ChatGPT 请求过于频繁已超过 ${RATE_LIMIT_FRESH_RETRY_AFTER} 次（第 ${episodes} 次）；已结束当前会话目标并切换到新的 ChatGPT 会话原样重发当前任务，保留目标、阶段、轮次和附件。`);
       save();
+      // Move off the rate-limited conversation immediately. If ChatGPT still
+      // exposes a global rate-limit banner on the fresh root, the next scan
+      // will safely wait there rather than hammering another request.
+      if (location.pathname !== '/') {
+        try { directNavigate(new URL('/', location.origin), task); } catch {}
+      }
       return 100;
     }
     const cooldownUntil = Math.max(previousCooldownUntil, now + RATE_LIMIT_COOLDOWN_MS);
