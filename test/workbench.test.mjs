@@ -159,6 +159,7 @@ test('an owned conversation with a stale spinner but no Stop is treated as abnor
   h.data.tasks.push(task);
   let clicks=0;
   w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>clicks++);
+  await h.start();
   await h.inspect(task,null);
   assert.notEqual(task.state,'loading','owned conversation without Stop must not be masked by a stale spinner');
   assert.ok(task.stopMissingSince>0);
@@ -168,6 +169,7 @@ test('an owned conversation with a stale spinner but no Stop is treated as abnor
   assert.equal(w.document.querySelector('#prompt-textarea').value,'继续完成所有');
   assert.equal(clicks,1);
   assert.match(task.messages.at(-1).text,/异常停止/);
+  h.pause();
   dom.window.close();
 });
 test('an authorization-card transition cannot become a duplicate fresh-session send',async()=>{
@@ -1344,7 +1346,7 @@ test('the fourth distinct rate-limit episode abandons the old conversation and q
   assert.equal(task.goal,'finish it');
   assert.deepEqual(task.attachments,attachments);
   assert.match(task.messages.at(-1).text,/超过 3 次/);
-  assert.match(task.messages.at(-1).text,/新开 ChatGPT 会话原样重发/);
+  assert.match(task.messages.at(-1).text,/新的 ChatGPT 会话原样重发/);
   dom.window.close();
 });
 test('a new round rejects historical routes even when its new marker is already rendered',async()=>{
