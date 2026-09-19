@@ -352,7 +352,7 @@ test('review recovery selects the exact current task and round when quoted evide
   const { dom, hooks } = await createHarness('<main></main>');
   try {
     const task = { id:'current-review-task', round:4 };
-    const reply = '验收说明：旧记录 {"taskId":"old-task","round":1,"status":"next","summary":"旧轮次","next":"旧下一步"}；当前报告如下： {"taskId":"current-review-task","round":4,"status":"next","summary":"当前轮仍缺少真实安装验收","next":"只补当前轮人工验收证据"}';
+    const reply = '验收说明：旧记录 {"taskId":"old-task","round":1,"status":"next","summary":"旧轮次","next":"旧下一步"}；当前报告如下： {"taskId":"current-review-task","round":4,"status":"next","summary":"当前轮仍缺少真实安装验收证据","next":"只补当前轮人工验收证据"}';
     assert.deepEqual(JSON.parse(JSON.stringify(hooks.parseReview(reply, task))), {
       taskId:'current-review-task',
       round:4,
