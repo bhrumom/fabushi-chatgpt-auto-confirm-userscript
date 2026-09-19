@@ -3131,10 +3131,6 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.connectionInterruptedRefreshExhausted = false;
     task.abnormalNoFinalSince = 0;
     task.abnormalNoFinalSignature = '';
-    task.lengthLimitCarry = '';
-    task.lengthLimitCarrySourceURL = '';
-    task.lengthLimitHopCount = 0;
-    task.lengthLimitLastAt = 0;
     resetAmbiguousSendRecovery(task);
     resetAttachmentUploadState(task);
     observations.delete(task.id);
@@ -3155,12 +3151,13 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       reason:'conversation-length-limit',
     });
     task.history = task.history.slice(-40);
-    task.lengthLimitCarry = carry;
-    task.lengthLimitCarrySourceURL = sessionURL;
-    task.lengthLimitHopCount = Number(task.lengthLimitHopCount || 0) + 1;
-    task.lengthLimitLastAt = now;
+    const nextHop = Number(task.lengthLimitHopCount || 0) + 1;
     task.preview = '';
     clearDispatchIntent(task);
+    task.lengthLimitCarry = carry;
+    task.lengthLimitCarrySourceURL = sessionURL;
+    task.lengthLimitHopCount = nextHop;
+    task.lengthLimitLastAt = now;
     task.noFinalReplyRecoveryUntil = 0;
     task.cooldownUntil = 0;
     task.state = 'queued';
@@ -3666,6 +3663,12 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
   }
   function finish(task, reply) {
     task.preview = '';
+    // A real final reply ends the temporary cross-conversation continuation
+    // chain. The next phase/round must not inherit the previous session text.
+    task.lengthLimitCarry = '';
+    task.lengthLimitCarrySourceURL = '';
+    task.lengthLimitHopCount = 0;
+    task.lengthLimitLastAt = 0;
     task.noFinalReplyAttempts = 0;
     task.noFinalReplyRecoveryCycles = 0;
     task.noFinalReplyRecoveryUntil = 0;
