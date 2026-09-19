@@ -10,3 +10,4 @@
 | CAR-006 | 三次连接中断刷新后同会话续发、第四次限流 fresh-session、修正伪 loading | C1-C6 | source regression + CI + Release | done (PR #36 / v2.9.41) |
 | CAR-007 | 对话长度上限触发 fresh-chat 上下文接力，直到真正最终回复 | D1-D7 | source regression + CI + userscript/host Releases | done (PR #38 / v2.9.42 / host v0.6.16) |
 | CAR-008 | 连接中断计数跨刷新/加载保持并在三次后同会话续发 | E1-E7 | source regression + CI + userscript/host Releases | done (PR #40 / v2.9.43 / host v0.6.17) |
+| CAR-009 | 连接中断 3/3 后持久化强制续发，Stop 存在时先停止再真正发送 | F1-F8 | source regression + CI + userscript/host Releases | in-progress |

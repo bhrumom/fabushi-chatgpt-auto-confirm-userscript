@@ -1,8 +1,8 @@
-# Fabushi 独立油猴工作台 2.9.43
+# Fabushi 独立油猴工作台 2.9.44
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.43`。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.44`。
 
 脚本头部固定声明 `@updateURL` 和 `@downloadURL`。油猴脚本管理器以及 Fabushi
 宿主会直接检查该地址的 `@version`；发布新版本时只需更新脚本本身和版本号，不需要
@@ -246,3 +246,11 @@
 - 同一 `/c/<id>` 的中断刷新计数不会因为 reload 后短暂出现“正在加载/正在生成”或 banner 暂时消失而归零。
 - 中断恢复使用独立 10 秒节流：第 1/3、2/3、3/3 次刷新都会保留计数；第三次刷新后仍检测到中断时，在原会话发送 `继续完成所有`。
 - 只有 conversation URL 改变、真正发送 continuation、或收到真正最终回复时才清空本次中断预算。
+
+### 2.9.44 3/3 后强制续发保证真实提交
+
+- 连接中断达到 3/3 后不再只做一次 `sendContinuation()` 尝试，而是先持久化同会话 `pending continuation`。
+- 若此时 ChatGPT 仍显示“停止回答”，脚本会先点击 Stop 结束已经失败的生成，并保留 pending；输入框/发送按钮恢复后继续重试，直到真的点击发送 `继续完成所有`。
+- pending 不依赖“连接已中断”提示继续存在，因此 Stop 后 banner 消失也不会丢失续发。
+- 强制续发绕过普通 60 秒 continuation cooldown；重复保护由单一 pending intent 和实际 Send click 后立即清理负责。
+- 授权卡、限流、安全 blocker 仍优先处理；这些状态消失后 pending 自动继续。
