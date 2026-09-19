@@ -15,3 +15,4 @@
 | CAR-011 | 通用会话无变化刷新间隔由 3 分钟改为 15 分钟，显式错误恢复保持原节奏 | H1-H7 | source regression + CI + userscript/host Releases | in-progress |
 | CAR-012 | 连接中断首次及后续 3 次刷新统一为 15 分钟，3/3 后仍原会话续发 | I1-I10 | source regression + CI + main readback | done (PR #47 / v2.9.47) |
 | CAR-013 | 连接中断立即放弃旧会话并新开 ChatGPT 会话原样重发当前阶段消息 | J1-J11 | source regression + CI + main readback | done (PR #51 / v2.9.48) |
+| CAR-014 | 流式回复保持生成态、最终回复阻止加载恢复刷新、验收 taskId/round 强绑定 | K1-K11 | source regression + CI + Release | in-progress |
