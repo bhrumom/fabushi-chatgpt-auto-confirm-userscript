@@ -1,6 +1,6 @@
 # CAR-013 — Connection interruption -> immediate fresh chat resend
 
-Status: in-progress
+Status: complete
 Started: 2026-09-19
 Updated: 2026-09-19
 
@@ -20,7 +20,14 @@ Acceptance:
 - J11: exact-head CI passes, protected squash merge completes, post-merge main CI passes, and canonical main readback proves the fresh-chat interruption behavior.
 
 Branch: `fix/interruption-fresh-chat-2.9.48-20260919`
-PR/CI/main evidence: pending.
+Delivery:
+- PR #51 final head `b99fc339066dfc4c97492094e1d41e76f97d6b01`.
+- Exact-head Test run `35447029840`: SUCCESS.
+- Squash merge `446698b4523beaf20a67c1889099fe75f7bc473b`.
+- Post-merge main Test run `35447062729`: SUCCESS.
+- Canonical main readback confirms `@version 2.9.48`, immediate `queueInterruptedFreshRetry`, one-shot `connectionInterruptedFreshDispatch`, generic stall = 15 minutes, ambiguous-send = 3 minutes, and removal of the old interruption refresh/pending-continuation runtime.
+- Evidence: `projects/continuous-auto-retry/evidence/CAR-013/README.md`.
+- No additional live-site/E2E behavioral test was requested.
 
 Implementation candidate:
 - userscript version: v2.9.48
@@ -30,4 +37,4 @@ Implementation candidate:
 - fresh resend preserves task/phase/round/goal/next/attachments and records the old conversation in history
 - one-shot `connectionInterruptedFreshDispatch` bypasses the normal inter-conversation send cooldown only for this recovery
 - regression coverage added for immediate requeue, live interruption -> fresh send, legacy pending migration, repeated interruptions, and source guards
-- current branch head evidence will be finalized at PR creation; CI pending.
+- implementation and delivery evidence finalized above.
