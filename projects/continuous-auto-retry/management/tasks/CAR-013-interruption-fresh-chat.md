@@ -21,3 +21,13 @@ Acceptance:
 
 Branch: `fix/interruption-fresh-chat-2.9.48-20260919`
 PR/CI/main evidence: pending.
+
+Implementation candidate:
+- userscript version: v2.9.48
+- connection interruption handler: `queueInterruptedFreshRetry`
+- old same-chat interruption refresh function removed
+- old interruption pending-continuation runtime removed
+- fresh resend preserves task/phase/round/goal/next/attachments and records the old conversation in history
+- one-shot `connectionInterruptedFreshDispatch` bypasses the normal inter-conversation send cooldown only for this recovery
+- regression coverage added for immediate requeue, live interruption -> fresh send, legacy pending migration, repeated interruptions, and source guards
+- current branch head evidence will be finalized at PR creation; CI pending.
