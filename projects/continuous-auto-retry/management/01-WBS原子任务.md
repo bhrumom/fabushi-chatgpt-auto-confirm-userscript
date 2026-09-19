@@ -13,4 +13,5 @@
 | CAR-009 | 连接中断 3/3 后持久化强制续发，Stop 存在时先停止再真正发送 | F1-F8 | source regression + CI + userscript/host Releases | done (PR #42 / v2.9.44 / host v0.6.18) |
 | CAR-010 | 修复 same-route 加载恢复导致 scheduler 静默停止并保持 1/2->2/2 计数 | G1-G8 | source regression + CI + userscript/host Releases | in-progress |
 | CAR-011 | 通用会话无变化刷新间隔由 3 分钟改为 15 分钟，显式错误恢复保持原节奏 | H1-H7 | source regression + CI + userscript/host Releases | in-progress |
-| CAR-012 | 连接中断首次及后续 3 次刷新统一为 15 分钟，3/3 后仍原会话续发 | I1-I10 | source regression + CI + main readback | in-progress |
+| CAR-012 | 连接中断首次及后续 3 次刷新统一为 15 分钟，3/3 后仍原会话续发 | I1-I10 | source regression + CI + main readback | cancelled / superseded by CAR-013 |
+| CAR-013 | 更正 15 分钟范围：generic stall 保持 15 分钟，连接中断恢复恢复 10 秒节流 | J1-J8 | source regression + CI + userscript/host Releases | in-progress |
