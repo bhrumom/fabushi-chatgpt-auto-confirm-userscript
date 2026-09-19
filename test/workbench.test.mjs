@@ -221,6 +221,21 @@ test('connection interruption requests same-chat continuation after three recove
   assert.equal(task.url,'https://chatgpt.com/c/interrupt');
   dom.window.close();
 });
+test('a cleared interruption banner resets the three-refresh budget while Stop keeps the task generating',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:interrupt-reset-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">still generating</div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="stop-button" type="button">停止回答</button></form></main>');
+  const task={id:'interrupt-reset',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/interrupt-reset',token:'interrupt-reset-token',attempted:false,messages:[]};
+  h.data.tasks.push(task);
+  w.history.pushState({},'', '/c/interrupt-reset');
+  assert.equal(h.refreshInterruptedConversation(task,false,1_000),'refresh');
+  assert.equal(task.connectionInterruptedRefreshAttempts,1);
+  await h.start();
+  await h.inspect(task,null);
+  assert.equal(task.connectionInterruptedRefreshAttempts,0,'clearing the interruption notice resets the consecutive budget');
+  assert.equal(task.connectionInterruptedURL,'');
+  assert.equal(task.state,'generating');
+  h.pause();
+  dom.window.close();
+});
 test('verified continuation user turn remains owned by the original task until final toolbar',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">goal [Fabushi:continuation-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">partial</div></article><article data-testid="conversation-turn-user"><div data-message-author-role="user">继续完成所有</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">final result</div><button aria-label="复制回复"></button><button aria-label="评价回复"></button></article></main>');
   w.history.pushState({},'', '/c/continuation-owned');
