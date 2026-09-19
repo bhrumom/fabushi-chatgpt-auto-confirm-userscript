@@ -3391,8 +3391,8 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       return false;
     }
     check(signal);
-    // Commit the UI action first. Pending forced-continuation state is cleared
-    // only after the Send click has actually been issued.
+    // Commit the UI action first. Any legacy pending-continuation state is
+    // cleared only after the Send click has actually been issued.
     button.click();
     measurements.sends++;
     const sentAt = Date.now();
@@ -3802,12 +3802,11 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     if (lengthLimitNotice) {
       if (queueConversationLengthHandoff(task, turn, lengthLimitNotice, Date.now())) return;
     }
-    // Page-level error notices are only actionable after the current route is
-    // confirmed and either this task's marker is present or no other task
-    // marker is visible. During a rotation the old document can briefly retain
-    // another task's error banner; handling it before that check would consume
-    // this task's retry budget.
-    const interrupted = Boolean(pageBelongsToTask && !pending.length && connectionInterruptedNotice(turn));
+    // Connection interruption is a hard session boundary for the owned route.
+    // Once confirmed, abandon this conversation immediately even if an old
+    // approval card is still painted; the fresh chat will resend the current
+    // phase message with a new dispatch identity.
+    const interrupted = Boolean(pageBelongsToTask && connectionInterruptedNotice(turn));
     if (interrupted || task.pendingContinuationReason) {
       const reason = interrupted
         ? '检测到“连接已中断，正在等待完整回复”'
