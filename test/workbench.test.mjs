@@ -327,19 +327,24 @@ test('a stale earlier retry error cannot override a newer final reply',async()=>
   assert.equal(h.sendTimeoutNotice(turn),false,'the earlier error card is not the latest task reply');
   dom.window.close();
 });
-test('connection interruption requests same-chat continuation after three short-cadence recovery refreshes',async()=>{
+test('connection interruption waits 15 minutes before each of three recovery refreshes, then continues in the same chat',async()=>{
   const {h,w,dom}=await fixture('<div role="status">连接已中断。正在等待完整回复。</div><main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:interrupt-token]</div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   const task={id:'interrupt',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/interrupt',token:'interrupt-token',attempted:false,messages:[]};
   h.data.tasks.push(task);
   w.history.pushState({},'', '/c/interrupt');
-  assert.equal(h.refreshInterruptedConversation(task,false,1_000),'refresh');
-  assert.equal(h.refreshInterruptedConversation(task,false,5_000),'wait','dedicated short cooldown prevents an immediate reload loop');
-  assert.equal(h.refreshInterruptedConversation(task,false,11_001),'refresh');
-  assert.equal(h.refreshInterruptedConversation(task,false,21_002),'refresh');
+  assert.equal(h.refreshInterruptedConversation(task,false,1_000),'wait','first detection must not reload immediately');
+  assert.equal(task.connectionInterruptedRefreshAttempts,0);
+  assert.equal(h.refreshInterruptedConversation(task,false,900_999),'wait','nothing refreshes before a full 15 minutes');
+  assert.equal(h.refreshInterruptedConversation(task,false,901_000),'refresh');
+  assert.equal(h.refreshInterruptedConversation(task,false,1_800_999),'wait','second refresh also waits another 15 minutes');
+  assert.equal(h.refreshInterruptedConversation(task,false,1_801_000),'refresh');
+  assert.equal(h.refreshInterruptedConversation(task,false,2_700_999),'wait','third refresh also waits another 15 minutes');
+  assert.equal(h.refreshInterruptedConversation(task,false,2_701_000),'refresh');
   assert.equal(task.connectionInterruptedRefreshAttempts,3);
-  assert.equal(h.refreshInterruptedConversation(task,false,21_003),'continue');
+  assert.equal(h.refreshInterruptedConversation(task,false,2_701_001),'continue');
   assert.equal(task.connectionInterruptedRefreshExhausted,true);
   assert.equal(task.url,'https://chatgpt.com/c/interrupt');
+  assert.ok(task.messages.some(message=>/15 分钟/.test(message.text)));
   assert.ok(task.messages.some(message=>/第 1\/3 次/.test(message.text)));
   assert.ok(task.messages.some(message=>/第 2\/3 次/.test(message.text)));
   assert.ok(task.messages.some(message=>/第 3\/3 次/.test(message.text)));
@@ -350,7 +355,8 @@ test('reload hydration and transient generating state do not erase the interrupt
   const task={id:'interrupt-reset',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/interrupt-reset',token:'interrupt-reset-token',attempted:false,messages:[]};
   h.data.tasks.push(task);
   w.history.pushState({},'', '/c/interrupt-reset');
-  assert.equal(h.refreshInterruptedConversation(task,false,1_000),'refresh');
+  assert.equal(h.refreshInterruptedConversation(task,false,1_000),'wait');
+  assert.equal(h.refreshInterruptedConversation(task,false,901_000),'refresh');
   assert.equal(task.connectionInterruptedRefreshAttempts,1);
   await h.start();
   await h.inspect(task,null);
@@ -559,26 +565,30 @@ test('persisted needs-processing task automatically opens a fresh retry instead 
   assert.doesNotMatch(h.data.tasks.map(item=>item.state).join(','),/blocked/);
   dom.window.close();
 });
-test('connection interruption preserves identity and exhausts refresh recovery after exactly three attempts',async()=>{
+test('connection interruption preserves identity and exhausts the three-refresh budget on a 15-minute cadence',async()=>{
   const {h,w,dom}=await fixture();
   const task=h.enqueue('keep this exact task','goal');
   Object.assign(task,{state:'generating',url:'https://chatgpt.com/c/disconnected',token:'owner-token',attempted:false});
   w.history.pushState({},'', '/c/disconnected');
-  assert.equal(h.refreshInterruptedConversation(task,false,20_000),'refresh');
+  assert.equal(h.refreshInterruptedConversation(task,false,20_000),'wait');
   assert.equal(task.state,'waiting');
   assert.equal(task.url,'https://chatgpt.com/c/disconnected');
   assert.equal(task.token,'owner-token');
+  assert.equal(task.connectionInterruptedRefreshAttempts,0);
+  assert.equal(h.refreshInterruptedConversation(task,false,919_999),'wait','15-minute interruption cooldown prevents an early reload');
+  assert.equal(h.refreshInterruptedConversation(task,false,920_000),'refresh');
   assert.equal(task.connectionInterruptedRefreshAttempts,1);
-  assert.equal(h.refreshInterruptedConversation(task,false,25_000),'wait','10-second interruption cooldown prevents a reload loop');
-  assert.equal(h.refreshInterruptedConversation(task,false,30_001),'refresh');
-  assert.equal(h.refreshInterruptedConversation(task,false,40_002),'refresh');
+  assert.equal(h.refreshInterruptedConversation(task,false,1_819_999),'wait');
+  assert.equal(h.refreshInterruptedConversation(task,false,1_820_000),'refresh');
+  assert.equal(h.refreshInterruptedConversation(task,false,2_720_000),'refresh');
   assert.equal(task.connectionInterruptedRefreshAttempts,3);
-  assert.equal(h.refreshInterruptedConversation(task,false,40_003),'continue');
+  assert.equal(h.refreshInterruptedConversation(task,false,2_720_001),'continue');
   assert.equal(task.connectionInterruptedRefreshExhausted,true);
   assert.match(task.messages.at(-1).text,/连续刷新 3 次后仍存在/);
   w.history.pushState({},'', '/c/next-conversation');
   task.url='https://chatgpt.com/c/next-conversation';
-  assert.equal(h.refreshInterruptedConversation(task,false,50_000),'refresh','a new durable conversation gets a fresh three-refresh budget');
+  assert.equal(h.refreshInterruptedConversation(task,false,3_000_000),'wait','a new conversation restarts the 15-minute clock before attempt 1');
+  assert.equal(h.refreshInterruptedConversation(task,false,3_900_000),'refresh');
   assert.equal(task.connectionInterruptedRefreshAttempts,1);
   dom.window.close();
 });
@@ -2142,10 +2152,12 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.46$/m);
-  assert.match(source,/const VERSION = '2\.9\.46'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.47$/m);
+  assert.match(source,/const VERSION = '2\.9\.47'/);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const AMBIGUOUS_SEND_REFRESH_MS = 3 \* 60 \* 1000/);
+  assert.match(source,/const CONNECTION_INTERRUPTED_REFRESH_COOLDOWN_MS = 15 \* 60 \* 1000/);
+  assert.doesNotMatch(source,/CONNECTION_INTERRUPTED_REFRESH_COOLDOWN_MS = 10 \* 1000/);
   assert.match(source,/^\/\/ @updateURL\s+https:\/\/raw\.githubusercontent\.com\/bhrumom\/fabushi-chatgpt-auto-confirm-userscript\/main\/chatgpt-auto-confirm\.user\.js$/m);
   assert.match(source,/^\/\/ @downloadURL\s+https:\/\/raw\.githubusercontent\.com\/bhrumom\/fabushi-chatgpt-auto-confirm-userscript\/main\/chatgpt-auto-confirm\.user\.js$/m);
 });
