@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.40
+// @version      2.9.41
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.40';
+  const VERSION = '2.9.41';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -89,9 +89,11 @@
   const ROUTE_RECOVERY_LIMIT = 2;
   const CONTINUATION_PROMPT = '继续完成所有';
   const CONTINUATION_SEND_COOLDOWN_MS = 60 * 1000;
-  const CONNECTION_INTERRUPTED_CONTINUE_AFTER_MS = 30 * 60 * 1000;
+  const CONNECTION_INTERRUPTED_REFRESH_LIMIT = 3;
   const ABNORMAL_NO_FINAL_CONTINUE_AFTER_MS = 30 * 60 * 1000;
+  const STOP_MISSING_CONTINUE_GRACE_MS = 15 * 1000;
   const CONNECTION_INTERRUPTED_REFRESH_COOLDOWN_MS = STALLED_REFRESH_MS;
+  const RATE_LIMIT_FRESH_RETRY_AFTER = 3;
   const SEND_UI_WAIT_MS = 45000;
   // A single browser tab can only render one ChatGPT route at a time, but
   // independent conversations continue server-side. Rotate inspection of
@@ -2313,11 +2315,12 @@
       task.connectionInterruptedSince = now;
       changed = true;
     }
-    const interruptedSince = Number(task.connectionInterruptedSince || now);
-    const interruptedFor = Math.max(0, now - interruptedSince);
     task.state = 'waiting';
-    if (interruptedFor >= CONNECTION_INTERRUPTED_CONTINUE_AFTER_MS) {
-      if (changed) save();
+    const attempts = Number(task.connectionInterruptedRefreshAttempts || 0);
+    if (attempts >= CONNECTION_INTERRUPTED_REFRESH_LIMIT) {
+      task.connectionInterruptedRefreshExhausted = true;
+      log(task, `“连接已中断，正在等待完整回复”连续刷新 ${CONNECTION_INTERRUPTED_REFRESH_LIMIT} 次后仍存在；停止继续刷新，改为在当前会话追加“${CONTINUATION_PROMPT}”。`);
+      save();
       return 'continue';
     }
     const lastRefreshAt = Number(task.connectionInterruptedRefreshAt || 0);
@@ -2325,12 +2328,11 @@
       if (changed) save();
       return 'wait';
     }
-    const nextAttempt = Number(task.connectionInterruptedRefreshAttempts || 0) + 1;
+    const nextAttempt = attempts + 1;
     task.connectionInterruptedRefreshAttempts = nextAttempt;
     task.connectionInterruptedRefreshAt = now;
     task.connectionInterruptedRefreshExhausted = false;
-    const remainingMinutes = Math.max(1, Math.ceil((CONNECTION_INTERRUPTED_CONTINUE_AFTER_MS - interruptedFor) / 60000));
-    log(task, `检测到“连接已中断，正在等待完整回复”；正在刷新当前会话（第 ${nextAttempt} 次）。若连续 30 分钟仍没有最终回复，将在本会话追加“${CONTINUATION_PROMPT}”；当前约剩 ${remainingMinutes} 分钟，不会新建会话。`);
+    log(task, `检测到“连接已中断，正在等待完整回复”；正在刷新当前会话（第 ${nextAttempt}/${CONNECTION_INTERRUPTED_REFRESH_LIMIT} 次）。若第 ${CONNECTION_INTERRUPTED_REFRESH_LIMIT} 次刷新后仍存在，将直接在本会话追加“${CONTINUATION_PROMPT}”，不会新建会话。`);
     save();
     if (!perform) return 'refresh';
     navigating = true;
@@ -2405,12 +2407,29 @@
   function dispatchCooldownRemaining(now = Date.now()) {
     return Math.max(0, Number(data.lastDispatchAt || 0) + MIN_SEND_INTERVAL_MS - now);
   }
-  function restForRateLimit(task) {
-    const cooldownUntil = Math.max(Number(task.cooldownUntil || 0), Date.now() + RATE_LIMIT_COOLDOWN_MS);
+  function restForRateLimit(task, now = Date.now()) {
+    const previousCooldownUntil = Number(task.cooldownUntil || 0);
+    const newEpisode = previousCooldownUntil <= now;
+    if (newEpisode) task.rateLimitEpisodes = Number(task.rateLimitEpisodes || 0) + 1;
+    if (newEpisode && Number(task.rateLimitEpisodes || 0) > RATE_LIMIT_FRESH_RETRY_AFTER) {
+      const episodes = Number(task.rateLimitEpisodes || 0);
+      clearDispatchIntent(task);
+      task.rateLimitEpisodes = 0;
+      task.cooldownUntil = 0;
+      task.state = 'queued';
+      delete task.pausedState;
+      log(task, `检测到 ChatGPT 请求过于频繁已超过 ${RATE_LIMIT_FRESH_RETRY_AFTER} 次（第 ${episodes} 次）；已结束当前会话目标并新开 ChatGPT 会话原样重发当前任务，保留目标、阶段、轮次和附件。`);
+      save();
+      return 100;
+    }
+    const cooldownUntil = Math.max(previousCooldownUntil, now + RATE_LIMIT_COOLDOWN_MS);
     task.cooldownUntil = cooldownUntil;
-    state(task, 'waiting', `检测到 ChatGPT 请求过于频繁；插件暂停发送、导航和刷新，预计 ${Math.ceil((cooldownUntil - Date.now()) / 60000)} 分钟后自动恢复。`);
+    task.state = 'waiting';
+    if (newEpisode) {
+      log(task, `检测到 ChatGPT 请求过于频繁（第 ${task.rateLimitEpisodes}/${RATE_LIMIT_FRESH_RETRY_AFTER} 次）；插件暂停发送、导航和刷新，预计 ${Math.ceil((cooldownUntil - now) / 60000)} 分钟后自动恢复。若超过 ${RATE_LIMIT_FRESH_RETRY_AFTER} 次将自动新开会话重发。`);
+    }
     save();
-    return Math.max(1, cooldownUntil - Date.now());
+    return Math.max(1, cooldownUntil - now);
   }
   function latestTurn(task = null) {
     const users = nodes('[data-message-author-role=user]');
@@ -2977,6 +2996,8 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.connectionInterruptedRefreshExhausted = false;
     task.abnormalNoFinalSince = 0;
     task.abnormalNoFinalSignature = '';
+    task.stopMissingSince = 0;
+    task.stopMissingSignature = '';
     resetAmbiguousSendRecovery(task);
     task.updatedAt = now;
     state(task, 'waiting', '已从当前唯一的新会话恢复本轮发送结果；沿用原发送标识和附件，开始检查最终回复，不会重复发送。');
@@ -3211,7 +3232,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const taskURL = canonicalConversationURL(task.url);
     if (!liveURL || !taskURL || liveURL !== taskURL) return false;
     if (now - Number(task.continuationSentAt || 0) < CONTINUATION_SEND_COOLDOWN_MS) return false;
-    if (stopButton() || cards().length || pageLoadingState() || blocker() || rateLimitNotice()) {
+    if (stopButton() || cards().length || blocker() || rateLimitNotice()) {
       task.state = 'waiting';
       return false;
     }
@@ -3242,8 +3263,14 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.continuationSentAt = sentAt;
     task.continuationCount = Number(task.continuationCount || 0) + 1;
     task.connectionInterruptedSince = 0;
+    task.connectionInterruptedURL = '';
+    task.connectionInterruptedRefreshAttempts = 0;
+    task.connectionInterruptedRefreshAt = 0;
+    task.connectionInterruptedRefreshExhausted = false;
     task.abnormalNoFinalSince = 0;
     task.abnormalNoFinalSignature = '';
+    task.stopMissingSince = 0;
+    task.stopMissingSignature = '';
     task.updatedAt = sentAt;
     observations.delete(task.id);
     task.state = 'waiting';
@@ -3540,6 +3567,9 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.lastBlockedReason = '';
     task.lastBlockedRecoveryAt = 0;
     task.cooldownUntil = 0;
+    task.rateLimitEpisodes = 0;
+    task.stopMissingSince = 0;
+    task.stopMissingSignature = '';
     task.sendPrepared = false;
     task.preparedPrompt = '';
     task.sendUiWaitSince = 0;
@@ -3618,7 +3648,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     if (pageBelongsToTask && !turn.final && !pending.length && connectionInterruptedNotice()) {
       const action = refreshInterruptedConversation(task, true, Date.now());
       if (action === 'continue') {
-        await sendContinuation(task, signal, '“连接已中断，正在等待完整回复”已持续超过 30 分钟');
+        await sendContinuation(task, signal, `“连接已中断，正在等待完整回复”连续刷新 ${CONNECTION_INTERRUPTED_REFRESH_LIMIT} 次后仍存在`);
       }
       return;
     }
@@ -3626,10 +3656,15 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       await sendContinuation(task, signal, '检测到“消息错误/发送超时，请重试”');
       return;
     }
+    const stopPresent = turn.owned ? Boolean(stopButton()) : false;
+    const rawLoading = Boolean(pageLoadingState());
+    // In a bound owned conversation, active generation exposes Stop. A
+    // decorative/stale spinner without Stop must not mask an abnormal stop.
+    const effectiveLoading = Boolean(rawLoading && (!turn.owned || stopPresent));
     const sample = {
-      stop:turn.owned ? Boolean(stopButton()) : false,
+      stop:stopPresent,
       cards:turn.owned ? pending.length : 0,
-      loading:Boolean(pageLoadingState()),
+      loading:effectiveLoading,
       blocker:blocker(),
       rateLimit:rateLimitNotice(),
       // A matching URL is only the route boundary. The task marker on the
@@ -3683,6 +3718,36 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const abnormalNoFinalFor = abnormalNoFinalEligible
       ? Math.max(0, now - Number(task.abnormalNoFinalSince || now))
       : 0;
+    const stopMissingEligible = Boolean(
+      sample.routeOwned
+      && sample.owned
+      && !sample.final
+      && !sample.stop
+      && !sample.cards
+      && !sample.rateLimit
+      && !sample.blocker
+      && !task.attempted
+      && composer(),
+    );
+    let stopMissingChanged = false;
+    if (!stopMissingEligible) {
+      if (task.stopMissingSince || task.stopMissingSignature) {
+        task.stopMissingSince = 0;
+        task.stopMissingSignature = '';
+        stopMissingChanged = true;
+      }
+    } else if (task.stopMissingSignature !== progressSignature) {
+      task.stopMissingSignature = progressSignature;
+      task.stopMissingSince = now;
+      stopMissingChanged = true;
+    } else if (!Number(task.stopMissingSince || 0)) {
+      task.stopMissingSince = now;
+      stopMissingChanged = true;
+    }
+    if (stopMissingChanged) save();
+    const stopMissingFor = stopMissingEligible
+      ? Math.max(0, now - Number(task.stopMissingSince || now))
+      : 0;
     const stallEligible = Boolean(
       sample.routeOwned
       && pageBelongsToTask
@@ -3733,6 +3798,11 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     if (sample.owned && task.preview !== sample.text) {
       task.preview = sample.text.slice(-6000);
       paint(); // Live preview is transient; streaming does not write localStorage.
+    }
+    if (stopMissingEligible
+      && stopMissingFor >= STOP_MISSING_CONTINUE_GRACE_MS
+      && now - Number(task.continuationSentAt || 0) >= CONTINUATION_SEND_COOLDOWN_MS) {
+      if (await sendContinuation(task, signal, '检测到当前会话 Stop 已消失且没有授权卡或最终回复，判定为异常停止', now)) return;
     }
     if (abnormalNoFinalEligible
       && abnormalNoFinalFor >= ABNORMAL_NO_FINAL_CONTINUE_AFTER_MS
