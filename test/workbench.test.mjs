@@ -355,7 +355,8 @@ test('reload hydration and transient generating state do not erase the interrupt
   const task={id:'interrupt-reset',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/interrupt-reset',token:'interrupt-reset-token',attempted:false,messages:[]};
   h.data.tasks.push(task);
   w.history.pushState({},'', '/c/interrupt-reset');
-  assert.equal(h.refreshInterruptedConversation(task,false,1_000),'refresh');
+  assert.equal(h.refreshInterruptedConversation(task,false,1_000),'wait');
+  assert.equal(h.refreshInterruptedConversation(task,false,901_000),'refresh');
   assert.equal(task.connectionInterruptedRefreshAttempts,1);
   await h.start();
   await h.inspect(task,null);
