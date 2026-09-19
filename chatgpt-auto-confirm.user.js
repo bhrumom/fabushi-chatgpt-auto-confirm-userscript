@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.45
+// @version      2.9.46
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.45';
+  const VERSION = '2.9.46';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -66,14 +66,14 @@
   const FINAL_REPLY_STABILITY_MS = 4000;
   // A bound conversation can stop changing while ChatGPT is waiting for an
   // authorization card, a renderer update, or an image/tool result. Reload
-  // the same route after each three-minute idle period so the page can
-  // rediscover those controls without creating a second Work/planner send.
-  const STALLED_REFRESH_MS = 3 * 60 * 1000;
+  // the same route only after a full fifteen-minute idle period so the page
+  // can rediscover those controls without creating a second Work/planner send.
+  const STALLED_REFRESH_MS = 15 * 60 * 1000;
   // Keep the persisted reload interval aligned with the stall detector. A
   // page that remains unchanged can therefore be retried forever, but never
-  // more than once per three minutes.
+  // more than once per fifteen minutes.
   const STALLED_REFRESH_COOLDOWN_MS = STALLED_REFRESH_MS;
-  // An ambiguous Send click gets the same three-minute recovery cadence.
+  // An ambiguous Send click gets the same fifteen-minute recovery cadence.
   // Prefer a current-round bound conversation first; only an unbound send
   // may eventually be redispatched after several page recovery cycles.
   const AMBIGUOUS_SEND_REFRESH_MS = STALLED_REFRESH_MS;
@@ -94,11 +94,11 @@
   const CONNECTION_INTERRUPTED_REFRESH_LIMIT = 3;
   const ABNORMAL_NO_FINAL_CONTINUE_AFTER_MS = 30 * 60 * 1000;
   const STOP_MISSING_CONTINUE_GRACE_MS = 15 * 1000;
-  // Connection interruption is an explicit recoverable error, not a generic
-  // idle page. Retry it on a short cadence after each completed reload so
-  // three persistent failures converge quickly instead of waiting 3 minutes
-  // between attempts. The counter itself remains persisted across reloads.
-  const CONNECTION_INTERRUPTED_REFRESH_COOLDOWN_MS = 10 * 1000;
+  // Connection interruption keeps its three-refresh budget, but it follows
+  // the same user-requested fifteen-minute recovery cadence. The first refresh
+  // also waits fifteen minutes from initial detection instead of firing
+  // immediately; the counter remains persisted across reloads.
+  const CONNECTION_INTERRUPTED_REFRESH_COOLDOWN_MS = 15 * 60 * 1000;
   const RATE_LIMIT_FRESH_RETRY_AFTER = 3;
   // The carry is normally much smaller than this. Keep a generous bound so a
   // long assistant reply can survive a conversation-length handoff without
@@ -2437,22 +2437,26 @@
       return 'continue';
     }
     const lastRefreshAt = Number(task.connectionInterruptedRefreshAt || 0);
-    if (lastRefreshAt && now - lastRefreshAt < CONNECTION_INTERRUPTED_REFRESH_COOLDOWN_MS) {
-      if (changed) save();
+    const cadenceAnchor = lastRefreshAt || Number(task.connectionInterruptedSince || 0);
+    if (cadenceAnchor && now - cadenceAnchor < CONNECTION_INTERRUPTED_REFRESH_COOLDOWN_MS) {
+      if (changed) {
+        log(task, `检测到“连接已中断，正在等待完整回复”；将保留当前会话，连续 15 分钟仍未恢复后再进行第 ${attempts + 1}/${CONNECTION_INTERRUPTED_REFRESH_LIMIT} 次刷新，不会立即刷新。`);
+        save();
+      }
       return 'wait';
     }
     const nextAttempt = attempts + 1;
     task.connectionInterruptedRefreshAttempts = nextAttempt;
     task.connectionInterruptedRefreshAt = now;
     task.connectionInterruptedRefreshExhausted = false;
-    log(task, `检测到“连接已中断，正在等待完整回复”；正在刷新当前会话（第 ${nextAttempt}/${CONNECTION_INTERRUPTED_REFRESH_LIMIT} 次）。若第 ${CONNECTION_INTERRUPTED_REFRESH_LIMIT} 次刷新后仍存在，将直接在本会话追加“${CONTINUATION_PROMPT}”，不会新建会话。`);
+    log(task, `检测到“连接已中断，正在等待完整回复”已持续至少 15 分钟；正在刷新当前会话（第 ${nextAttempt}/${CONNECTION_INTERRUPTED_REFRESH_LIMIT} 次）。若刷新后仍存在，将至少等待 15 分钟再进行下一次恢复；第 ${CONNECTION_INTERRUPTED_REFRESH_LIMIT} 次刷新后仍存在时，将直接在本会话追加“${CONTINUATION_PROMPT}”，不会新建会话。`);
     save();
     if (!perform) return 'refresh';
     navigating = true;
     try { location.reload(); } catch (error) {
       navigating = false;
       task.state = 'waiting';
-      log(task, `连接中断后的页面刷新失败：${error.message}；已保留当前会话，后续仍会继续恢复。`);
+      log(task, `连接中断后的页面刷新失败：${error.message}；已保留当前会话，15 分钟后继续尝试。`);
       save();
       return 'wait';
     }
@@ -2490,11 +2494,11 @@
     const attempts = Number(task.stalledRefreshAttempts || 0);
     // Older builds persisted this terminal-looking flag after the second
     // reload. It is now only a migration marker and must never block a later
-    // three-minute retry cycle.
+    // fifteen-minute retry cycle.
     if (task.stalledRefreshExhausted) {
       task.stalledRefreshExhausted = false;
       task.state = 'waiting';
-      log(task, '已解除历史停滞刷新次数上限；会话若继续无变化，将每 3 分钟自动刷新，直到任务完成或被暂停。');
+      log(task, '已解除历史停滞刷新次数上限；会话若继续无变化，将每 15 分钟自动刷新，直到任务完成或被暂停。');
       save();
     }
     if (now - Number(task.stalledRefreshAt || 0) < STALLED_REFRESH_COOLDOWN_MS) return false;
@@ -2504,14 +2508,14 @@
     task.stalledRefreshExhausted = false;
     task.state = 'waiting';
     observations.delete(task.id);
-    log(task, `当前会话连续 3 分钟没有可见变化；正在刷新当前页面（第 ${nextAttempt} 次，后续仍无变化时每 3 分钟继续刷新），保留会话、发送标识、附件和当前阶段，不会重复发送。`);
+    log(task, `当前会话连续 15 分钟没有可见变化；正在刷新当前页面（第 ${nextAttempt} 次，后续仍无变化时每 15 分钟继续刷新），保留会话、发送标识、附件和当前阶段，不会重复发送。`);
     save();
     if (!perform) return true;
     navigating = true;
     try { location.reload(); } catch (error) {
       navigating = false;
       task.state = 'waiting';
-      log(task, `停滞会话刷新失败：${error.message}；已保留当前任务，3 分钟后继续尝试。`);
+      log(task, `停滞会话刷新失败：${error.message}；已保留当前任务，15 分钟后继续尝试。`);
       save();
       return false;
     }
@@ -2908,7 +2912,7 @@
     // No Stop button is only an intermediate observation. Connector approval,
     // tool execution and renderer transitions all legitimately hide Stop.
     // Without the current reply toolbar, stay bound to this conversation. The
-    // independent three-minute stall watchdog may refresh this same URL, but
+    // independent fifteen-minute stall watchdog may refresh this same URL, but
     // classification must never create a fresh chat from Stop disappearance.
     return { state:'waiting' };
   }
@@ -3148,20 +3152,20 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
   }
   if (attempts >= AMBIGUOUS_SEND_REFRESH_LIMIT) {
     resetAmbiguousSendRecovery(task);
-    return queueNoFinalReplyRetry(task, `原消息发送结果持续无法绑定本轮会话；已按每 3 分钟一次的间隔恢复 ${AMBIGUOUS_SEND_REFRESH_LIMIT} 次仍无法确认`);
+    return queueNoFinalReplyRetry(task, `原消息发送结果持续无法绑定本轮会话；已按每 15 分钟一次的间隔恢复 ${AMBIGUOUS_SEND_REFRESH_LIMIT} 次仍无法确认`);
   }
   const nextAttempt = attempts + 1;
   task.ambiguousSendRefreshAttempts = nextAttempt;
   task.ambiguousSendRefreshAt = now;
   task.state = 'sending';
-  log(task, `原消息发送结果超过 90 秒仍无法确认，且尚无本轮绑定会话；正在刷新当前页面（第 ${nextAttempt}/${AMBIGUOUS_SEND_REFRESH_LIMIT} 次）。刷新后会重新判断当前页面和会话状态；若仍无法绑定，将每 3 分钟继续恢复，持续失败后自动新开会话原样重发。`);
+  log(task, `原消息发送结果超过 90 秒仍无法确认，且尚无本轮绑定会话；正在刷新当前页面（第 ${nextAttempt}/${AMBIGUOUS_SEND_REFRESH_LIMIT} 次）。刷新后会重新判断当前页面和会话状态；若仍无法绑定，将每 15 分钟继续恢复，持续失败后自动新开会话原样重发。`);
   save();
   if (!perform) return true;
   navigating = true;
   try { location.reload(); } catch (error) {
     navigating = false;
     task.state = 'sending';
-    log(task, `发送确认恢复刷新失败：${error.message}；已保留原发送标识，3 分钟后继续尝试。`);
+    log(task, `发送确认恢复刷新失败：${error.message}；已保留原发送标识，15 分钟后继续尝试。`);
     save();
     return false;
   }
