@@ -1748,7 +1748,7 @@ test('the fourth distinct rate-limit episode abandons the old conversation and q
   assert.equal(task.goal,'finish it');
   assert.deepEqual(task.attachments,attachments);
   assert.match(task.messages.at(-1).text,/超过 3 次/);
-  assert.match(task.messages.at(-1).text,/新的 ChatGPT 会话原样重发/);
+  assert.match(task.messages.at(-1).text,/新的 ChatGPT 会话恢复当前任务/);
   dom.window.close();
 });
 test('a new round rejects historical routes even when its new marker is already rendered',async()=>{
