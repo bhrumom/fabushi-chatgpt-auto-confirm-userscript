@@ -1,0 +1,61 @@
+name: Release
+
+on:
+  workflow_run:
+    workflows:
+      - Test
+    types:
+      - completed
+
+permissions:
+  contents: write
+
+jobs:
+  userscript-release:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out tested canonical main
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Validate release identity
+        id: identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          metadata_version="$(sed -n 's#^// @version[[:space:]][[:space:]]*\([^[:space:]]*\)[[:space:]]*$#\1#p' chatgpt-auto-confirm.user.js | head -n1)"
+          runtime_version="$(sed -n "s/^  const VERSION = '\([^']*\)';$/\1/p" chatgpt-auto-confirm.user.js | head -n1)"
+          test -n "$metadata_version"
+          test "$metadata_version" = "$runtime_version"
+          tag="v$metadata_version"
+          source_sha="$(git log -1 --format=%H -- chatgpt-auto-confirm.user.js)"
+          test -n "$source_sha"
+          git diff --quiet "$source_sha" HEAD -- chatgpt-auto-confirm.user.js
+          {
+            echo "version=$metadata_version"
+            echo "tag=$tag"
+            echo "source_sha=$source_sha"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create missing GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.identity.outputs.tag }}
+          SOURCE_SHA: ${{ steps.identity.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "$TAG already exists; leaving the published release unchanged."
+            exit 0
+          fi
+          gh release create "$TAG" chatgpt-auto-confirm.user.js \
+            --target "$SOURCE_SHA" \
+            --title "$TAG" \
+            --generate-notes
