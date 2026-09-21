@@ -279,7 +279,7 @@ test('a length-limit notice wins over a final-looking toolbar and queues a fresh
 
 test('a true final reply clears temporary length-limit carry state',async()=>{
   const {h,dom}=await fixture();
-  const task={id:'length-done',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/final',token:'final-token',lengthLimitCarry:'old partial reply',lengthLimitCarrySourceURL:'https://chatgpt.com/c/old',lengthLimitHopCount:3,lengthLimitLastAt:123,messages:[]};
+  const task={id:'length-done',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/final',token:'final-token',lengthLimitCarry:'old partial reply',lengthLimitCarrySourceURL:'https://chatgpt.com/c/old',lengthLimitHopCount:3,lengthLimitLastAt:123,abnormalFreshCarry:'old abnormal partial',abnormalFreshCarrySourceURL:'https://chatgpt.com/c/abnormal',abnormalFreshCarryReason:'connection interrupted',abnormalFreshCarryPhase:'work',abnormalFreshCarryRound:1,abnormalFreshCarryAt:456,messages:[]};
   h.data.tasks.push(task);
   h.finish(task,'真正最终回复');
   assert.equal(task.state,'done');
@@ -287,6 +287,12 @@ test('a true final reply clears temporary length-limit carry state',async()=>{
   assert.equal(task.lengthLimitCarrySourceURL,'');
   assert.equal(task.lengthLimitHopCount,0);
   assert.equal(task.lengthLimitLastAt,0);
+  assert.equal(task.abnormalFreshCarry,'');
+  assert.equal(task.abnormalFreshCarrySourceURL,'');
+  assert.equal(task.abnormalFreshCarryReason,'');
+  assert.equal(task.abnormalFreshCarryPhase,'');
+  assert.equal(task.abnormalFreshCarryRound,0);
+  assert.equal(task.abnormalFreshCarryAt,0);
   dom.window.close();
 });
 
@@ -365,8 +371,8 @@ test('connection interruption immediately requeues the same task for a fresh cha
   dom.window.close();
 });
 
-test('scheduler turns a live connection interruption into a fresh-chat resend of the current phase message',async()=>{
-  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue current work [Fabushi:interrupt-live-send]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">连接已中断。正在等待完整回复。</div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
+test('scheduler carries the interrupted live assistant work into the fresh-chat three-part Work prompt',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue current work [Fabushi:interrupt-live-send]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><p>已完成 legacy shell 拆分，并正在修复 packaged acceptance TypeScript 错误。</p><p>连接已中断。正在等待完整回复。</p></div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   w.history.pushState({},'', '/c/interrupt-live-send');
   const task={id:'interrupt-live-send',ownerTabId:h.getTabId(),goal:'original goal',next:'continue current work',mode:'goal',phase:'work',round:3,state:'waiting',url:'https://chatgpt.com/c/interrupt-live-send',token:'interrupt-live-send',attempted:false,attachments:[],messages:[]};
   h.data.tasks.push(task);
@@ -382,6 +388,12 @@ test('scheduler turns a live connection interruption into a fresh-chat resend of
   assert.equal(task.connectionInterruptedFreshDispatch,true);
   assert.equal(task.continuationCount||0,0);
   assert.equal(task.pendingContinuationReason||'','');
+  assert.match(task.abnormalFreshCarry,/已完成 legacy shell 拆分/);
+  assert.match(task.abnormalFreshCarry,/packaged acceptance TypeScript/);
+  assert.doesNotMatch(task.abnormalFreshCarry,/连接已中断/);
+  assert.equal(task.abnormalFreshCarryPhase,'work');
+  assert.equal(task.abnormalFreshCarryRound,3);
+  assert.equal(task.abnormalFreshCarrySourceURL,'https://chatgpt.com/c/interrupt-live-send');
 
   // Simulate the fresh root route. A very recent previous dispatch normally
   // activates the global send cooldown; the interruption recovery bypass is
@@ -412,8 +424,15 @@ test('scheduler turns a live connection interruption into a fresh-chat resend of
   assert.notEqual(task.token,'');
   assert.notEqual(task.token,'interrupt-live-send');
   assert.equal(task.connectionInterruptedFreshDispatch,false);
+  assert.match(input.value,/一、验收会话最终给出的本轮提示词/);
   assert.match(input.value,/continue current work/);
-  assert.match(input.value,/原始目标：original goal/);
+  assert.match(input.value,/二、异常会话里 ChatGPT 已经工作的实时回复/);
+  assert.match(input.value,/已完成 legacy shell 拆分/);
+  assert.match(input.value,/三、原始目标/);
+  assert.match(input.value,/original goal/);
+  assert.ok(input.value.indexOf('一、验收会话最终给出的本轮提示词') < input.value.indexOf('二、异常会话里 ChatGPT 已经工作的实时回复'));
+  assert.ok(input.value.indexOf('二、异常会话里 ChatGPT 已经工作的实时回复') < input.value.indexOf('三、原始目标'));
+  assert.match(input.value,/从中断处继续/);
   assert.match(input.value,new RegExp('\\[Fabushi:'+task.token+'\\]'));
   h.pause();
   dom.window.close();
@@ -565,18 +584,19 @@ test('repeated connection interruptions create fresh dispatches while preserving
   const task=h.enqueue('keep this exact task','goal');
   Object.assign(task,{state:'waiting',phase:'work',round:5,next:'resume exact step',url:'https://chatgpt.com/c/disconnected-1',token:'owner-token-1',attempted:false});
   w.history.pushState({},'', '/c/disconnected-1');
-  assert.equal(h.queueInterruptedFreshRetry(task,'first interruption',20_000),true);
+  assert.equal(h.queueInterruptedFreshRetry(task,'first interruption',20_000,{owned:true,text:'第一异常会话已经完成 A，并开始 B。'}),true);
   assert.equal(task.id,h.data.tasks[0].id);
   assert.equal(task.phase,'work');
   assert.equal(task.round,5);
   assert.equal(task.next,'resume exact step');
   assert.equal(task.connectionInterruptedFreshRetryCount,1);
   assert.equal(task.history.at(-1).url,'https://chatgpt.com/c/disconnected-1');
+  assert.match(task.abnormalFreshCarry,/已经完成 A/);
 
   // Simulate a successfully bound fresh chat that later gets interrupted too.
   Object.assign(task,{state:'waiting',url:'https://chatgpt.com/c/disconnected-2',token:'owner-token-2',attempted:false,connectionInterruptedFreshDispatch:false});
   w.history.pushState({},'', '/c/disconnected-2');
-  assert.equal(h.queueInterruptedFreshRetry(task,'second interruption',30_000),true);
+  assert.equal(h.queueInterruptedFreshRetry(task,'second interruption',30_000,{owned:true,text:'第二异常会话已经完成 B，并正在处理 C。'}),true);
   assert.equal(task.state,'queued');
   assert.equal(task.url,'');
   assert.equal(task.token,'');
@@ -586,8 +606,31 @@ test('repeated connection interruptions create fresh dispatches while preserving
   assert.equal(task.connectionInterruptedFreshRetryCount,2);
   assert.equal(task.history.at(-1).url,'https://chatgpt.com/c/disconnected-2');
   assert.equal(task.history.at(-1).reason,'connection-interrupted-fresh-chat');
+  assert.match(task.abnormalFreshCarry,/第二异常会话已经完成 B/);
+  assert.doesNotMatch(task.abnormalFreshCarry,/第一异常会话/,'each abnormal fresh-chat hop keeps the newest live assistant work instead of growing without bound');
   dom.window.close();
 });
+test('abnormal fresh-chat Work prompt has the required three parts and ignores stale carry from another phase or round',async()=>{
+  const {h,dom}=await fixture();
+  const task={id:'carry-prompt',round:6,goal:'original target',next:'planner final next instruction',phase:'work',token:'carry-token',abnormalFreshCarry:'partial assistant progress from failed chat',abnormalFreshCarryPhase:'work',abnormalFreshCarryRound:6};
+  const prompt=h.workPrompt(task);
+  assert.match(prompt,/一、验收会话最终给出的本轮提示词/);
+  assert.match(prompt,/planner final next instruction/);
+  assert.match(prompt,/二、异常会话里 ChatGPT 已经工作的实时回复/);
+  assert.match(prompt,/partial assistant progress from failed chat/);
+  assert.match(prompt,/三、原始目标/);
+  assert.match(prompt,/original target/);
+  assert.ok(prompt.indexOf('planner final next instruction') < prompt.indexOf('partial assistant progress from failed chat'));
+  assert.ok(prompt.indexOf('partial assistant progress from failed chat') < prompt.lastIndexOf('original target'));
+  assert.doesNotMatch(h.workPrompt({...task,round:7}),/partial assistant progress from failed chat/,'carry is generation-bound to the interrupted phase and round');
+
+  const review=h.plannerPrompt({...task,phase:'review',abnormalFreshCarryPhase:'review',result:'Work natural result'});
+  assert.match(review,/异常会话中 ChatGPT 已经输出的实时回复/);
+  assert.match(review,/partial assistant progress from failed chat/);
+  assert.match(review,/MAHAYANA_TASK_REPORT_V1/);
+  dom.window.close();
+});
+
 test('work prompt stays natural while the fresh planner alone receives the report contract',async()=>{
   const {h,dom}=await fixture();
   const task={id:'a',round:1,goal:'do work',next:'',result:'natural result',token:'t'};
@@ -2161,8 +2204,8 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.49$/m);
-  assert.match(source,/const VERSION = '2\.9\.49'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.50$/m);
+  assert.match(source,/const VERSION = '2\.9\.50'/);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const AMBIGUOUS_SEND_REFRESH_MS = 3 \* 60 \* 1000/);
   assert.doesNotMatch(source,/CONNECTION_INTERRUPTED_REFRESH_COOLDOWN_MS/);
