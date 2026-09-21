@@ -1,6 +1,6 @@
 # Recovered final-reply identity — Specification
 
-Status: active
+Status: completed
 Owner: ChatGPT auto-confirm userscript
 Last updated: 2026-09-21
 Related issue/task/PR: user incident 2026-09-21 / v2.9.52
@@ -79,7 +79,7 @@ Internal helper contract:
 - Another task marker is visible: refuse fallback.
 - Another task owns the same URL: refuse fallback.
 - Human/foreign user turn is visible after marker virtualization: refuse fallback.
-- Assistant still streaming / Stop visible / approval card pending: refuse completion.
+- Active streaming without strong final evidence, Stop visible, or approval pending: refuse completion. A stale streaming marker may be ignored only under the pre-existing complete-toolbar rule.
 - Toolbar appears before stability window: remain waiting until existing stability rule passes.
 - Final reply becomes visible while route recovery is about to start: recovery must abort before counter increment/navigation.
 
@@ -136,5 +136,7 @@ Record branch/head SHA, PR, exact-head workflow run, merge SHA, main workflow ru
 
 | Requirement / AC | Status | Evidence / reason |
 | --- | --- | --- |
-| R1–R10 | pending | implementation not yet committed |
-| AC-1–AC-7 | pending | verification not yet run |
+| R1–R10 | passed | PR #57 implements the recovery identity and final-only exact-route fallback; exact-head `3016107855e5abe43358dbea1967966cda54583f` passed Test run `35611381263`; squash merge `c99e662a78540f61684af07296e70dbe98e7f0d4` published v2.9.52 to canonical main. |
+| AC-1–AC-5 | passed | Focused JSDOM regressions in `test/final-reply-handoff.test.mjs` passed in exact-head run `35611381263`; they cover marker virtualization completion, route-recovery suppression, recovery identity, foreign marker rejection, and visible foreign user-turn rejection. |
+| AC-6 | passed | Exact-head Test run `35611381263` succeeded; canonical-main push Test run `35611473160` succeeded for merge SHA `c99e662a78540f61684af07296e70dbe98e7f0d4`. |
+| AC-7 | passed | Canonical `main` readback after merge reports userscript metadata `@version 2.9.52` and runtime `VERSION = '2.9.52'`. |
