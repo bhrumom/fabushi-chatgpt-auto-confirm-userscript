@@ -30,7 +30,7 @@ Publish the fix as userscript v2.9.52 after CI verifies it.
 - R2: If marker ownership is unavailable, allow a final-only exact-route fallback only when the live conversation URL exactly equals the task URL.
 - R3: The fallback must refuse the result when another persisted task owns that URL or any other task marker is visibly mounted.
 - R4: The fallback must refuse a visible non-task user turn. A visible exact Fabushi continuation prompt may be accepted only when this task recorded a continuation send.
-- R5: The fallback must require strong final evidence from the latest assistant turn: non-empty content plus the existing final toolbar/static-copy rules, no Stop, and no pending authorization card.
+- R5: The fallback must require strong final evidence from the latest assistant turn: non-empty content plus the existing final toolbar/static-copy rules, no Stop, and no pending authorization card. Existing behavior that accepts a stale renderer streaming marker when the complete final toolbar is already present remains unchanged.
 - R6: Completion must still satisfy the existing stable-across-scans final timing before `finish()`.
 - R7: Once the exact-route final fallback is ready, loading recovery must not increment a recovery counter or navigate/reload the completed conversation.
 - R8: Existing cross-task and foreign-marker fail-closed behavior must remain intact.
@@ -106,7 +106,7 @@ Internal helper contract:
 - AC-2: The same scenario does not enter `recoverStalledRoute()` or increment route-recovery attempts.
 - AC-3: A foreign task marker or another URL owner prevents fallback ownership.
 - AC-4: A visible non-task user turn prevents fallback ownership.
-- AC-5: Streaming/Stop/approval states do not complete.
+- AC-5: Active streaming without strong final evidence, Stop-visible, or approval-pending states do not complete; a stale streaming marker may still be ignored when the existing complete final-toolbar rule proves completion.
 - AC-6: Exact-head CI and canonical-main CI pass.
 - AC-7: Canonical main reports userscript version 2.9.52.
 
