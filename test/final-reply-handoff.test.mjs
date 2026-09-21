@@ -6,7 +6,7 @@ import { JSDOM } from 'jsdom';
 const source = await fs.readFile(new URL('../chatgpt-auto-confirm.user.js', import.meta.url), 'utf8');
 const instrumentedSource = source.replace(
   '  mount();',
-  `  window.__fabushiFinalReplyTestHooks = Object.freeze({ latestTurn, taskTurnForInspection, armRecoveredFinalIdentity, ownedFinalReplyReady, recoverStalledRoute, prepareTaskForRecovery, classify, stalledProgressSignature, refreshStalledConversation, queueReviewRepair, parseReview, finish, workPrompt, plannerPrompt, inspect, data, start, pause });
+  `  window.__fabushiFinalReplyTestHooks = Object.freeze({ latestTurn, taskTurnForInspection, armRecoveredFinalIdentity, ownedFinalReplyReady, recoverStalledRoute, prepareTaskForRecovery, classify, stalledProgressSignature, refreshStalledConversation, queueReviewRepair, parseReview, finish, workPrompt, plannerPrompt, inspect, data, tabId, start, pause });
   mount();`,
 );
 
@@ -621,6 +621,7 @@ test('recovered exact-route final reply survives marker virtualization and suppr
     window.history.pushState({}, '', '/c/recovered-final');
     const task = {
       id:'recovered-final',
+      ownerTabId:hooks.tabId,
       goal:'继续完成恢复任务',
       goalRevision:2,
       mode:'once',
@@ -668,6 +669,7 @@ test('manual task recovery arms the final-reply fallback identity for the exact 
     window.history.pushState({}, '', '/c/manual-recovery');
     const task = {
       id:'manual-recovery',
+      ownerTabId:hooks.tabId,
       goal:'恢复当前任务',
       goalRevision:4,
       mode:'once',
@@ -710,6 +712,7 @@ test('recovered final fallback refuses a foreign task marker on the same route',
     window.history.pushState({}, '', '/c/recovered-foreign-marker');
     const target = {
       id:'target-final',
+      ownerTabId:hooks.tabId,
       goal:'目标任务',
       goalRevision:1,
       mode:'once',
@@ -723,6 +726,7 @@ test('recovered final fallback refuses a foreign task marker on the same route',
     };
     const foreign = {
       id:'foreign-final',
+      ownerTabId:hooks.tabId,
       goal:'其他任务',
       mode:'once',
       phase:'work',
@@ -761,6 +765,7 @@ test('recovered final fallback refuses a visible non-task user turn even on the 
     window.history.pushState({}, '', '/c/recovered-manual-turn');
     const task = {
       id:'recovered-manual-turn',
+      ownerTabId:hooks.tabId,
       goal:'自动任务',
       goalRevision:1,
       mode:'once',
