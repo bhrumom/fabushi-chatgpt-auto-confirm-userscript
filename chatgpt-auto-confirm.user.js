@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.51
+// @version      2.9.52
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.51';
+  const VERSION = '2.9.52';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -1382,6 +1382,33 @@
     if (!urls.includes(canonical)) urls.push(canonical);
     task.sessionUrls = urls.slice(-40);
     return canonical;
+  }
+  function armRecoveredFinalIdentity(task) {
+    const url = canonicalConversationURL(task?.url);
+    const token = String(task?.token || '');
+    if (!task || !url || !token) return false;
+    task.recoveredFinalIdentity = {
+      url,
+      token,
+      phase:String(task.phase || 'work'),
+      round:Number(task.round || 0),
+      goalRevision:Number(task.goalRevision || 0),
+    };
+    return true;
+  }
+  function clearRecoveredFinalIdentity(task) {
+    if (task?.recoveredFinalIdentity) delete task.recoveredFinalIdentity;
+  }
+  function recoveredFinalIdentityMatches(task, liveURL) {
+    const identity = task?.recoveredFinalIdentity;
+    const canonical = canonicalConversationURL(liveURL);
+    return Boolean(identity
+      && canonical
+      && canonicalConversationURL(identity.url) === canonical
+      && String(identity.token || '') === String(task.token || '')
+      && String(identity.phase || '') === String(task.phase || 'work')
+      && Number(identity.round || 0) === Number(task.round || 0)
+      && Number(identity.goalRevision || 0) === Number(task.goalRevision || 0));
   }
   function conversationURLOwner(value, exceptTaskId = '') {
     const canonical = canonicalConversationURL(value);
@@ -2814,6 +2841,41 @@
       article,
     };
   }
+  function taskTurnForInspection(task) {
+    const scoped = latestTurn(task);
+    if (!task || scoped.owned || task.attempted) return scoped;
+    const liveURL = currentConversationURL();
+    const taskURL = canonicalConversationURL(task.url);
+    if (!liveURL || !taskURL || liveURL !== taskURL) return scoped;
+    if (!recoveredFinalIdentityMatches(task, liveURL)) return scoped;
+    // If the original marker is still mounted, latestTurn(task) already made
+    // the authoritative ownership decision. An unowned result in that state
+    // means a newer user turn exists, so recovery must remain fail-closed.
+    if (taskMarkerUser(task)) return scoped;
+    if (conversationURLOwner(liveURL, task.id)) return scoped;
+    const foreignTask = tabTasks().find(item => item.id !== task.id && item.token && hasTaskMarker(item));
+    if (foreignTask) return scoped;
+    const mountedUsers = nodes('[data-message-author-role=user]');
+    const latestMountedUser = mountedUsers.at(-1);
+    const recoveredContinuation = Boolean(
+      latestMountedUser
+      && Number(task.continuationCount || 0) > 0
+      && normalize(text(latestMountedUser)) === CONTINUATION_PROMPT,
+    );
+    if (latestMountedUser && !recoveredContinuation) return scoped;
+
+    // The fallback is final-only. It never adopts partial assistant text or a
+    // quiet page merely because the exact route matches. The existing strong
+    // toolbar/static-copy rule still determines whether this is a true final
+    // reply, and approval/Stop states remain authoritative blockers.
+    const candidate = latestTurn();
+    if (!candidate.text || !candidate.final || stopButton() || cards().length) return scoped;
+    return {
+      ...candidate,
+      owned:true,
+      recoveredRouteOwned:true,
+    };
+  }
   const allowLabel = /^(?:允许|allow|approve|批准)$/i;
   const denyLabel = /^(?:拒绝|不允许|deny|decline|reject)$/i;
   function approvalArrow(node, allowButton) {
@@ -3011,7 +3073,7 @@
     const liveURL = currentConversationURL();
     const taskURL = canonicalConversationURL(task.url);
     if (!liveURL || !taskURL || liveURL !== taskURL) return false;
-    const turn = latestTurn(task);
+    const turn = taskTurnForInspection(task);
     return Boolean(turn.owned && turn.final && turn.text && !stopButton() && !cards().length);
   }
   function safeURL(url) {
@@ -3138,6 +3200,11 @@
   }
 
   function recoverStalledRoute(target, task) {
+    // Entering route recovery is itself a persisted recovery boundary. Arm a
+    // phase/round/token identity before inspecting the live DOM so a completed
+    // reply is not refreshed merely because ChatGPT virtualized the marker
+    // user turn during hydration.
+    if (task) armRecoveredFinalIdentity(task);
     // Never start a loading-recovery refresh after the current owned turn has
     // already become final. This is intentionally checked before incrementing
     // the 1/2 counter or writing the "page has not recovered" log.
@@ -3284,6 +3351,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     return Math.min(NO_FINAL_REPLY_BACKOFF_BASE_MS * (2 ** Math.min(round - 1, 4)), NO_FINAL_REPLY_BACKOFF_MAX_MS);
   }
   function clearDispatchIntent(task) {
+    clearRecoveredFinalIdentity(task);
     task.preview = '';
     task.previewSourceURL = '';
     task.previewPhase = '';
@@ -3884,6 +3952,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.lengthLimitHopCount = 0;
     task.lengthLimitLastAt = 0;
     clearAbnormalFreshCarry(task);
+    clearRecoveredFinalIdentity(task);
     task.noFinalReplyAttempts = 0;
     task.noFinalReplyRecoveryCycles = 0;
     task.noFinalReplyRecoveryUntil = 0;
@@ -3961,7 +4030,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       state(task, 'waiting', '正在等待切换到当前任务会话；不会读取其他任务的页面内容。');
       return;
     }
-    const begin = performance.now(), turn = latestTurn(task), pending = cards();
+    const begin = performance.now(), turn = taskTurnForInspection(task), pending = cards();
     const routeOwned = Boolean(liveURL && taskURL && liveURL === taskURL);
     const foreignTask = tabTasks().find(item => item.id !== task.id && item.token && hasTaskMarker(item));
     const pageBelongsToTask = routeOwned && (turn.owned || !foreignTask);
@@ -4432,6 +4501,7 @@ NaN
       task.dispatchStartedAt = 0;
       task.recoveryConfirmationStartedAt = 0;
       task.url = canonicalConversationURL(task.url) || adoptedURL;
+      armRecoveredFinalIdentity(task);
       task.state = 'waiting';
       task.rendererRecoveryExhausted = false;
       task.routeRecoveryAttempts = 0;
