@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.50
+// @version      2.9.51
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.50';
+  const VERSION = '2.9.51';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -2426,6 +2426,7 @@
     task.abnormalFreshCarryPhase = '';
     task.abnormalFreshCarryRound = 0;
     task.abnormalFreshCarryAt = 0;
+    task.abnormalFreshCarrySourceKind = '';
   }
   function abnormalFreshCarryForCurrentPhase(task) {
     const carry = String(task?.abnormalFreshCarry || '').trim();
@@ -2441,14 +2442,49 @@
       .trim();
     return boundedConversationLengthCarry(source);
   }
-  function captureOwnedAbnormalFreshCarry(task, turn = null, reason = '', sessionURL = '', now = Date.now()) {
+  function captureOwnedAbnormalFreshCarry(task, turn = null, reason = '', sessionURL = '', now = Date.now(), { allowExactRouteFallback = false } = {}) {
     if (!task) return '';
     const liveURL = canonicalConversationURL(sessionURL || currentConversationURL());
     const taskURL = canonicalConversationURL(task.url);
     if (!liveURL || !taskURL || liveURL !== taskURL) return '';
+
+    // Preferred source: the normal marker-owned turn. ChatGPT can virtualize
+    // or temporarily unmount the user turn containing [Fabushi:token] while a
+    // long assistant response remains visible. In that renderer state,
+    // latestTurn(task) deliberately fails closed even though inspect() already
+    // trusts this exact task URL enough to handle a page-level interruption.
     const ownedTurn = turn?.owned ? turn : latestTurn(task);
-    if (!ownedTurn?.owned) return '';
-    const carry = cleanAbnormalFreshReply(ownedTurn.text);
+    let sourceText = ownedTurn?.owned ? String(ownedTurn.text || '') : '';
+    let sourceKind = sourceText ? 'owned-turn' : '';
+
+    // A preview is only safe when it was produced by a previously owned scan
+    // of this exact route and the same phase/round.
+    if (!sourceText
+      && String(task.preview || '').trim()
+      && canonicalConversationURL(task.previewSourceURL) === liveURL
+      && String(task.previewPhase || '') === String(task.phase || '')
+      && Number(task.previewRound || 0) === Number(task.round || 0)) {
+      sourceText = String(task.preview || '');
+      sourceKind = 'owned-preview';
+    }
+
+    // Connection interruption can be rendered as page chrome after the marker
+    // user turn has been virtualized out of the DOM. When inspect() explicitly
+    // confirms that this exact route belongs to the task and no foreign task
+    // marker is present, read the latest visible assistant turn without the
+    // marker requirement. This mirrors the route trust already used to decide
+    // that the interrupted conversation may be abandoned.
+    if (!sourceText && allowExactRouteFallback) {
+      const foreignTask = tabTasks().find(item => item.id !== task.id && item.token && hasTaskMarker(item));
+      const otherOwner = conversationURLOwner(liveURL, task.id);
+      if (!foreignTask && !otherOwner) {
+        const routeTurn = latestTurn();
+        sourceText = String(routeTurn?.text || '');
+        if (sourceText) sourceKind = 'exact-route-latest-assistant';
+      }
+    }
+
+    const carry = cleanAbnormalFreshReply(sourceText);
     if (!carry) return '';
     task.abnormalFreshCarry = carry;
     task.abnormalFreshCarrySourceURL = liveURL;
@@ -2456,9 +2492,10 @@
     task.abnormalFreshCarryPhase = String(task.phase || 'work');
     task.abnormalFreshCarryRound = Number(task.round || 0);
     task.abnormalFreshCarryAt = now;
+    task.abnormalFreshCarrySourceKind = sourceKind;
     return carry;
   }
-  function queueInterruptedFreshRetry(task, reason = '检测到“连接已中断，正在等待完整回复”', now = Date.now(), turn = null) {
+  function queueInterruptedFreshRetry(task, reason = '检测到“连接已中断，正在等待完整回复”', now = Date.now(), turn = null, options = {}) {
     if (!task || terminal.has(task.state) || task.state === 'paused') return false;
     const sessionURL = currentConversationURL() || canonicalConversationURL(task.url);
     if (sessionURL) {
@@ -2473,7 +2510,7 @@
       task.history = task.history.slice(-40);
     }
     const recoveryCount = Number(task.connectionInterruptedFreshRetryCount || 0) + 1;
-    const carry = captureOwnedAbnormalFreshCarry(task, turn, reason, sessionURL, now);
+    const carry = captureOwnedAbnormalFreshCarry(task, turn, reason, sessionURL, now, options);
     clearDispatchIntent(task);
     task.connectionInterruptedFreshRetryCount = recoveryCount;
     task.connectionInterruptedFreshDispatch = true;
@@ -2486,7 +2523,14 @@
     sameRouteWaitUntil = 0;
     sameRouteWaitSince = 0;
     observations.delete(task.id);
-    log(task, `${reason}；已立即结束旧会话派发并切换到新的 ChatGPT 会话恢复当前${task.phase === 'review' ? '规划/验收' : 'Work'}阶段（连接中断自动恢复第 ${recoveryCount} 次）。${carry ? '已保存异常会话当前可见的 ChatGPT 实时回复，并将在新会话提示词中作为已完成工作现场继续承接；' : '当前异常会话没有可安全提取的 assistant 工作内容；'}保留任务、phase、round、目标/next 和附件；新会话会生成新的发送标识与会话链接，不再等待 15 分钟、不刷新旧会话，也不在旧会话发送“${CONTINUATION_PROMPT}”。`);
+    const carrySourceNote = task.abnormalFreshCarrySourceKind === 'exact-route-latest-assistant'
+      ? '已在任务标识被页面虚拟化后，通过当前任务精确 conversation URL 回退读取最新 assistant 工作内容；'
+      : task.abnormalFreshCarrySourceKind === 'owned-preview'
+        ? '已从本任务此前确认归属的实时预览恢复 assistant 工作内容；'
+        : carry
+          ? '已保存异常会话当前可见的 ChatGPT 实时回复；'
+          : '当前异常会话没有可安全提取的 assistant 工作内容；';
+    log(task, `${reason}；已立即结束旧会话派发并切换到新的 ChatGPT 会话恢复当前${task.phase === 'review' ? '规划/验收' : 'Work'}阶段（连接中断自动恢复第 ${recoveryCount} 次）。${carrySourceNote}${carry ? '新会话提示词会把它作为已完成工作现场继续承接；' : ''}保留任务、phase、round、目标/next 和附件；新会话会生成新的发送标识与会话链接，不再等待 15 分钟、不刷新旧会话，也不在旧会话发送“${CONTINUATION_PROMPT}”。`);
     save();
     return true;
   }
@@ -3240,6 +3284,10 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     return Math.min(NO_FINAL_REPLY_BACKOFF_BASE_MS * (2 ** Math.min(round - 1, 4)), NO_FINAL_REPLY_BACKOFF_MAX_MS);
   }
   function clearDispatchIntent(task) {
+    task.preview = '';
+    task.previewSourceURL = '';
+    task.previewPhase = '';
+    task.previewRound = 0;
     task.url = '';
     task.attempted = false;
     task.token = '';
@@ -3826,6 +3874,9 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
   }
   function finish(task, reply) {
     task.preview = '';
+    task.previewSourceURL = '';
+    task.previewPhase = '';
+    task.previewRound = 0;
     // A real final reply ends the temporary cross-conversation continuation
     // chain. The next phase/round must not inherit the previous session text.
     task.lengthLimitCarry = '';
@@ -3930,7 +3981,9 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       const reason = interrupted
         ? '检测到“连接已中断，正在等待完整回复”'
         : '检测到旧版本遗留的连接中断强制续发状态';
-      queueInterruptedFreshRetry(task, reason, Date.now(), turn);
+      queueInterruptedFreshRetry(task, reason, Date.now(), turn, {
+        allowExactRouteFallback: Boolean(routeOwned && !foreignTask),
+      });
       return;
     }
     if (pageBelongsToTask && !turn.final && !pending.length && sendTimeoutNotice(turn)) {
@@ -4085,6 +4138,9 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     measurements.scans++; measurements.totalScanMs += performance.now() - begin;
     if (sample.owned && task.preview !== sample.text) {
       task.preview = sample.text.slice(-6000);
+      task.previewSourceURL = liveURL;
+      task.previewPhase = String(task.phase || 'work');
+      task.previewRound = Number(task.round || 0);
       paint(); // Live preview is transient; streaming does not write localStorage.
     }
     if (stopMissingEligible

@@ -17,3 +17,4 @@
 | CAR-013 | 连接中断立即放弃旧会话并新开 ChatGPT 会话原样重发当前阶段消息 | J1-J11 | source regression + CI + main readback | done (PR #51 / v2.9.48) |
 | CAR-014 | 流式回复保持生成态、最终回复阻止加载恢复刷新、验收 taskId/round 强绑定 | K1-K11 | source regression + CI + Release | in-progress |
 | CAR-015 | fresh-chat 异常恢复先保存当前 assistant 实时回复，并按“本轮提示词 / 已完成工作 / 原始目标”三段接力 | L1-L10 | source regression + CI + Release | in-progress |
+| CAR-016 | ChatGPT 虚拟化任务 user turn 时，异常 fresh-chat 仍从精确任务 URL 安全提取当前 assistant 工作内容 | M1-M9 | regression + CI + Release | in-progress |
