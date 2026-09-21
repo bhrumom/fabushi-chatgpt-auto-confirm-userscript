@@ -1,8 +1,8 @@
-# Fabushi 独立油猴工作台 2.9.50
+# Fabushi 独立油猴工作台 2.9.51
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.50`。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.51`。
 
 脚本头部固定声明 `@updateURL` 和 `@downloadURL`。油猴脚本管理器以及 Fabushi
 宿主会直接检查该地址的 `@version`；发布新版本时只需更新脚本本身和版本号，不需要
@@ -301,3 +301,11 @@
 - 异常接力内容与当前 phase/round 绑定；若连续多个异常会话接力，只保存最新异常会话的实时回复而不无限累积。人工编辑目标或当前阶段取得真正最终回复后会清空接力内容，避免污染后续轮次。
 - 连接中断之外，限流升级和其他需要清理旧派发并 fresh-chat 自动恢复的异常路径也会在能够证明当前页面属于该任务时保存 owned assistant 回复；无法证明归属时 fail closed，不带入其他会话内容。
 - 规划/验收阶段若自身异常 fresh-chat，也会携带该异常验收会话已经输出的实时回复，同时仍强制当前 taskId/round 为唯一报告身份，历史文本只能作为验收材料。
+
+
+### 2.9.51 虚拟化任务标识时仍可提取异常会话工作内容
+
+- 修复 v2.9.50 的安全归属条件过严问题：ChatGPT 长回复期间可能把包含 `[Fabushi:token]` 的 user turn 从当前 DOM 虚拟化/卸载，但当前 assistant 回复和页面级“连接已中断”状态仍然可见。旧逻辑因此能确认会话需要 fresh-chat，却因 `turn.owned=false` 拒绝提取明明可见的工作内容。
+- 新逻辑仍优先使用正常 marker-owned assistant turn；若 marker 暂时不在 DOM，则先使用同一 URL、同一 phase/round 下此前已确认归属的实时 preview；仍没有时，只在 inspect 已确认“当前精确 conversation URL 属于该任务且页面没有任何 foreign task marker/其他 URL owner”时，回退读取当前页面最新 assistant turn。
+- exact-route 回退只服务于已经决定要丢弃该异常会话的安全边界，不会放宽正常任务完成/验收的 ownership 判定；出现其他任务标识时继续 fail closed。
+- fresh-chat 前会清理 preview 的 URL/phase/round 元数据，防止下一异常会话误用上一跳的预览；真正 final 和人工改目标也继续清理异常 carry。
