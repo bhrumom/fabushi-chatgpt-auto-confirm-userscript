@@ -1,6 +1,6 @@
 # Tested GitHub Release delivery — Specification
 
-Status: active
+Status: completed
 Owner: ChatGPT auto-confirm userscript
 Last updated: 2026-09-21
 Related issue/task/PR: v2.9.52 release delivery
@@ -112,5 +112,8 @@ Record PR, exact-head Test run, merge SHA, canonical-main Test run, Release work
 
 | Requirement / AC | Status | Evidence / reason |
 | --- | --- | --- |
-| R1–R9 | pending | workflow not yet implemented |
-| AC-1–AC-6 | pending | verification not yet run |
+| R1–R9 | passed | PR #59 added the guarded `workflow_run` release path; exact-head `beda5316d8c387cdbaf5b5287de9ed7c26c877ba` passed Test run `35612148223`; merge `2f2f04ccc10ed32ad91d0831b2ff6a32e7b75922` reached canonical main. |
+| AC-1–AC-3 | passed | Workflow conditions require successful `Test`, same-repository `main`, version parity, and an existing-release check before any write. |
+| AC-4 | passed | Release workflow run `35612276537` published `v2.9.52` with asset `chatgpt-auto-confirm.user.js`, size 271138 bytes, digest `sha256:bec0b1ed113c786fbd8399400a22bfaae363fa5dd33535a04deb64040768aa5a`. |
+| AC-5 | passed | GitHub Releases readback reports `v2.9.52` target `c99e662a78540f61684af07296e70dbe98e7f0d4`, the last commit that changed the userscript. |
+| AC-6 | passed | PR Test run `35612148223` and canonical-main Test run `35612223777` both succeeded before Release run `35612276537` completed successfully. |
