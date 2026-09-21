@@ -335,6 +335,7 @@ test('connection interruption route fallback carries visible assistant work when
     const unscoped=h.latestTurn();
     assert.match(unscoped.text,/已经完成 architecture checker/);
 
+    await h.start();
     await h.inspect(task,null);
     assert.equal(task.state,'queued');
     assert.equal(task.url,'');
@@ -359,6 +360,7 @@ test('connection interruption route fallback refuses a foreign task marker on th
     const task={id:'target-task',ownerTabId:h.getTabId(),goal:'target',mode:'goal',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/route-owned-but-foreign-marker',token:'missing-target-token',attempted:false,attachments:[],messages:[]};
     const foreign={id:'foreign-task',ownerTabId:h.getTabId(),goal:'foreign',mode:'goal',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/foreign',token:'foreign-token',attempted:false,attachments:[],messages:[]};
     h.data.tasks.push(task,foreign);
+    await h.start();
     await h.inspect(task,null);
     assert.equal(task.url,'https://chatgpt.com/c/route-owned-but-foreign-marker');
     assert.equal(task.connectionInterruptedFreshDispatch||false,false);
