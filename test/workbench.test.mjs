@@ -325,40 +325,48 @@ test('connection interruption recovery recognizes current live assistant status 
 });
 test('connection interruption route fallback carries visible assistant work when the marker user turn is virtualized out of the DOM',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><p>已经完成 architecture checker 的第一轮修复，并把 legacy adapter 的 Agent 依赖移出。</p><p>下一步正在修 packaged acceptance 的 TypeScript 错误。</p></div></article><div role="status">连接已中断。正在等待完整回复。</div><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
-  w.history.pushState({},'', '/c/virtualized-marker');
-  const task={id:'virtualized-marker',ownerTabId:h.getTabId(),goal:'original architecture goal',next:'continue exact refactor',mode:'goal',phase:'work',round:2,state:'waiting',url:'https://chatgpt.com/c/virtualized-marker',token:'marker-no-longer-mounted',attempted:false,attachments:[],messages:[]};
-  h.data.tasks.push(task);
-  const scoped=h.latestTurn(task);
-  assert.equal(scoped.owned,false,'the task marker is intentionally absent to model ChatGPT turn virtualization');
-  assert.equal(scoped.text,'');
-  const unscoped=h.latestTurn();
-  assert.match(unscoped.text,/已经完成 architecture checker/);
+  try {
+    w.history.pushState({},'', '/c/virtualized-marker');
+    const task={id:'virtualized-marker',ownerTabId:h.getTabId(),goal:'original architecture goal',next:'continue exact refactor',mode:'goal',phase:'work',round:2,state:'waiting',url:'https://chatgpt.com/c/virtualized-marker',token:'marker-no-longer-mounted',attempted:false,attachments:[],messages:[]};
+    h.data.tasks.push(task);
+    const scoped=h.latestTurn(task);
+    assert.equal(scoped.owned,false,'the task marker is intentionally absent to model ChatGPT turn virtualization');
+    assert.equal(scoped.text,'');
+    const unscoped=h.latestTurn();
+    assert.match(unscoped.text,/已经完成 architecture checker/);
 
-  await h.inspect(task,null);
-  assert.equal(task.state,'queued');
-  assert.equal(task.url,'');
-  assert.equal(task.token,'');
-  assert.equal(task.connectionInterruptedFreshDispatch,true);
-  assert.match(task.abnormalFreshCarry,/已经完成 architecture checker/);
-  assert.match(task.abnormalFreshCarry,/packaged acceptance/);
-  assert.equal(task.abnormalFreshCarrySourceURL,'https://chatgpt.com/c/virtualized-marker');
-  assert.equal(task.abnormalFreshCarrySourceKind,'exact-route-latest-assistant');
-  assert.match(task.messages.at(-1).text,/任务标识被页面虚拟化/);
-  assert.match(task.messages.at(-1).text,/精确 conversation URL 回退读取/);
-  dom.window.close();
+    await h.inspect(task,null);
+    assert.equal(task.state,'queued');
+    assert.equal(task.url,'');
+    assert.equal(task.token,'');
+    assert.equal(task.connectionInterruptedFreshDispatch,true);
+    assert.match(task.abnormalFreshCarry,/已经完成 architecture checker/);
+    assert.match(task.abnormalFreshCarry,/packaged acceptance/);
+    assert.equal(task.abnormalFreshCarrySourceURL,'https://chatgpt.com/c/virtualized-marker');
+    assert.equal(task.abnormalFreshCarrySourceKind,'exact-route-latest-assistant');
+    assert.match(task.messages.at(-1).text,/任务标识被页面虚拟化/);
+    assert.match(task.messages.at(-1).text,/精确 conversation URL 回退读取/);
+  } finally {
+    h.pause();
+    dom.window.close();
+  }
 });
 
 test('connection interruption route fallback refuses a foreign task marker on the same rendered page',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">other task [Fabushi:foreign-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">foreign assistant work</div></article><div role="status">连接已中断。正在等待完整回复。</div></main>');
-  w.history.pushState({},'', '/c/route-owned-but-foreign-marker');
-  const task={id:'target-task',ownerTabId:h.getTabId(),goal:'target',mode:'goal',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/route-owned-but-foreign-marker',token:'missing-target-token',attempted:false,attachments:[],messages:[]};
-  const foreign={id:'foreign-task',ownerTabId:h.getTabId(),goal:'foreign',mode:'goal',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/foreign',token:'foreign-token',attempted:false,attachments:[],messages:[]};
-  h.data.tasks.push(task,foreign);
-  await h.inspect(task,null);
-  assert.equal(task.url,'https://chatgpt.com/c/route-owned-but-foreign-marker');
-  assert.equal(task.connectionInterruptedFreshDispatch||false,false);
-  assert.equal(task.abnormalFreshCarry||'','');
-  dom.window.close();
+  try {
+    w.history.pushState({},'', '/c/route-owned-but-foreign-marker');
+    const task={id:'target-task',ownerTabId:h.getTabId(),goal:'target',mode:'goal',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/route-owned-but-foreign-marker',token:'missing-target-token',attempted:false,attachments:[],messages:[]};
+    const foreign={id:'foreign-task',ownerTabId:h.getTabId(),goal:'foreign',mode:'goal',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/foreign',token:'foreign-token',attempted:false,attachments:[],messages:[]};
+    h.data.tasks.push(task,foreign);
+    await h.inspect(task,null);
+    assert.equal(task.url,'https://chatgpt.com/c/route-owned-but-foreign-marker');
+    assert.equal(task.connectionInterruptedFreshDispatch||false,false);
+    assert.equal(task.abnormalFreshCarry||'','');
+  } finally {
+    h.pause();
+    dom.window.close();
+  }
 });
 
 test('a stale earlier retry error cannot override a newer final reply',async()=>{
