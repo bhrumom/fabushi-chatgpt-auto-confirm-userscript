@@ -6,7 +6,7 @@ import { JSDOM } from 'jsdom';
 const source = await fs.readFile(new URL('../chatgpt-auto-confirm.user.js', import.meta.url), 'utf8');
 const instrumentedSource = source.replace(
   '  mount();',
-  `  window.__fabushiFinalReplyTestHooks = Object.freeze({ latestTurn, classify, stalledProgressSignature, refreshStalledConversation, queueReviewRepair, parseReview, finish, workPrompt, plannerPrompt, inspect, data, start, pause });
+  `  window.__fabushiFinalReplyTestHooks = Object.freeze({ latestTurn, taskTurnForInspection, armRecoveredFinalIdentity, ownedFinalReplyReady, recoverStalledRoute, prepareTaskForRecovery, classify, stalledProgressSignature, refreshStalledConversation, queueReviewRepair, parseReview, finish, workPrompt, plannerPrompt, inspect, data, start, pause });
   mount();`,
 );
 
@@ -598,6 +598,186 @@ test('parallel inspection never completes task A from task B response', async ()
     assert.equal(taskA.preview || '', '');
     assert.equal(taskA.messages.some(item => item.role === 'assistant'), false);
     hooks.pause();
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('recovered exact-route final reply survives marker virtualization and suppresses route recovery', async () => {
+  const { dom, window, hooks } = await createHarness(`
+    <main>
+      <article data-testid="conversation-turn-assistant">
+        <div data-message-author-role="assistant" data-message-id="assistant-recovered-final">
+          <div class="markdown">恢复后的最终回复已经完整显示。</div>
+        </div>
+        <div class="response-toolbar">
+          <button aria-label="复制回复"></button>
+          <button aria-label="评价回复"></button>
+        </div>
+      </article>
+    </main>
+  `);
+  try {
+    window.history.pushState({}, '', '/c/recovered-final');
+    const task = {
+      id:'recovered-final',
+      goal:'继续完成恢复任务',
+      goalRevision:2,
+      mode:'once',
+      phase:'work',
+      round:3,
+      state:'waiting',
+      url:'https://chatgpt.com/c/recovered-final',
+      token:'recovered-final-token',
+      attempted:false,
+      messages:[],
+    };
+    hooks.data.tasks.push(task);
+    assert.equal(hooks.latestTurn(task).owned, false, 'the marker-bearing user turn is intentionally virtualized');
+    assert.equal(hooks.armRecoveredFinalIdentity(task), true);
+
+    const recovered = hooks.taskTurnForInspection(task);
+    assert.equal(recovered.owned, true);
+    assert.equal(recovered.recoveredRouteOwned, true);
+    assert.equal(recovered.final, true);
+    assert.equal(recovered.text, '恢复后的最终回复已经完整显示。');
+    assert.equal(hooks.ownedFinalReplyReady(task), true);
+
+    const sample = {
+      rateLimit:'', blocker:'', routeOwned:true, owned:true, cards:0, stop:false,
+      streaming:false, loading:false, final:true, text:recovered.text,
+    };
+    assert.equal(hooks.classify(sample, {
+      final:true,
+      text:recovered.text,
+      finalSince:1_000,
+      since:1_000,
+    }, 5_000).state, 'complete', 'the existing four-second stability gate still decides completion');
+
+    task.routeRecoveryAttempts = 0;
+    assert.equal(hooks.recoverStalledRoute(new window.URL(task.url), task), false);
+    assert.equal(task.routeRecoveryAttempts, 0, 'a completed recovered reply must not increment route recovery');
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('manual task recovery arms the final-reply fallback identity for the exact phase and round', async () => {
+  const { dom, window, hooks } = await createHarness('<main></main>');
+  try {
+    window.history.pushState({}, '', '/c/manual-recovery');
+    const task = {
+      id:'manual-recovery',
+      goal:'恢复当前任务',
+      goalRevision:4,
+      mode:'once',
+      phase:'review',
+      round:2,
+      state:'blocked',
+      url:'https://chatgpt.com/c/manual-recovery',
+      token:'manual-recovery-token',
+      attempted:false,
+      messages:[],
+    };
+    hooks.data.tasks.push(task);
+    assert.equal(hooks.prepareTaskForRecovery(task), true);
+    assert.deepEqual(JSON.parse(JSON.stringify(task.recoveredFinalIdentity)), {
+      url:'https://chatgpt.com/c/manual-recovery',
+      token:'manual-recovery-token',
+      phase:'review',
+      round:2,
+      goalRevision:4,
+    });
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('recovered final fallback refuses a foreign task marker on the same route', async () => {
+  const { dom, window, hooks } = await createHarness(`
+    <main>
+      <article data-testid="conversation-turn-user">
+        <div data-message-author-role="user">另一个任务 [Fabushi:foreign-final-token]</div>
+      </article>
+      <article data-testid="conversation-turn-assistant">
+        <div data-message-author-role="assistant"><div class="markdown">另一个任务的最终回复</div></div>
+        <button aria-label="复制回复"></button>
+        <button aria-label="评价回复"></button>
+      </article>
+    </main>
+  `);
+  try {
+    window.history.pushState({}, '', '/c/recovered-foreign-marker');
+    const target = {
+      id:'target-final',
+      goal:'目标任务',
+      goalRevision:1,
+      mode:'once',
+      phase:'work',
+      round:1,
+      state:'waiting',
+      url:'https://chatgpt.com/c/recovered-foreign-marker',
+      token:'missing-target-token',
+      attempted:false,
+      messages:[],
+    };
+    const foreign = {
+      id:'foreign-final',
+      goal:'其他任务',
+      mode:'once',
+      phase:'work',
+      round:1,
+      state:'waiting',
+      url:'https://chatgpt.com/c/elsewhere',
+      token:'foreign-final-token',
+      attempted:false,
+      messages:[],
+    };
+    hooks.data.tasks.push(target, foreign);
+    hooks.armRecoveredFinalIdentity(target);
+    const turn = hooks.taskTurnForInspection(target);
+    assert.equal(turn.owned, false);
+    assert.equal(turn.text, '');
+    assert.equal(hooks.ownedFinalReplyReady(target), false);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('recovered final fallback refuses a visible non-task user turn even on the exact route', async () => {
+  const { dom, window, hooks } = await createHarness(`
+    <main>
+      <article data-testid="conversation-turn-user">
+        <div data-message-author-role="user">用户后来手动发送的其他问题</div>
+      </article>
+      <article data-testid="conversation-turn-assistant">
+        <div data-message-author-role="assistant"><div class="markdown">手动问题的完整回复</div></div>
+        <button aria-label="复制回复"></button>
+        <button aria-label="评价回复"></button>
+      </article>
+    </main>
+  `);
+  try {
+    window.history.pushState({}, '', '/c/recovered-manual-turn');
+    const task = {
+      id:'recovered-manual-turn',
+      goal:'自动任务',
+      goalRevision:1,
+      mode:'once',
+      phase:'work',
+      round:1,
+      state:'waiting',
+      url:'https://chatgpt.com/c/recovered-manual-turn',
+      token:'virtualized-auto-token',
+      attempted:false,
+      messages:[],
+    };
+    hooks.data.tasks.push(task);
+    hooks.armRecoveredFinalIdentity(task);
+    const turn = hooks.taskTurnForInspection(task);
+    assert.equal(turn.owned, false);
+    assert.equal(turn.text, '');
+    assert.equal(hooks.ownedFinalReplyReady(task), false);
   } finally {
     dom.window.close();
   }
