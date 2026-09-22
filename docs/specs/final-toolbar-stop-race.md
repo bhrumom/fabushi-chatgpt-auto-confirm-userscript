@@ -156,7 +156,16 @@ Rollback by reverting the v2.9.55 behavior-changing merge.
 
 ## 15. Observability / evidence
 
-Record branch/head SHA, PR, exact-head Test run, merge SHA, canonical-main Test run, Release workflow run, tag/asset, and final source readback.
+Pre-merge implementation evidence:
+- Implementation PR: #66.
+- Verified implementation head: `63e3d123e0489031655c7952d75b9f79a6b4c70d`.
+- GitHub Actions Test run: `35687647581`, conclusion `success`.
+- Regression suite: `167/167 PASS`, `0 FAIL`.
+- Focused regressions passed:
+  - Stop disappearance with a visible composer never triggers an abnormal continuation.
+  - A late sibling final toolbar completes normally without injecting continuation.
+  - An older unassociated toolbar cannot complete the latest assistant turn.
+- Merge SHA, canonical-main Test, v2.9.55 Release workflow, release asset digest and final source readback remain pending until delivery completes.
 
 ## 16. References / provenance
 
@@ -172,7 +181,8 @@ Record branch/head SHA, PR, exact-head Test run, merge SHA, canonical-main Test 
 
 | Requirement / AC | Status | Evidence / reason |
 | --- | --- | --- |
-| R1-R15 | pending | Implementation and exact-head verification pending. |
-| AC-1-AC-6 | pending | Regression implementation pending. |
-| AC-7 | pending | Exact-head CI pending. |
+| R1-R14 | passed | PR #66 removes the 15-second Stop-missing continuation path, leaves Stop disappearance in waiting, expands final action detection to sources/more, constrains sibling action rows to the latest response lane, and bumps runtime/metadata to 2.9.55. Focused regressions passed in run 35687647581. |
+| R15 | pending | Final delivery still requires exact-head gate on the final PR head, canonical-main Test, and Release workflow. |
+| AC-1-AC-6 | passed | Run 35687647581 passed 167/167 tests including the three focused live-race regressions and all existing abnormal-recovery coverage. |
+| AC-7 | pending | The implementation head 63e3d123e0489031655c7952d75b9f79a6b4c70d is green; this compliance-record update changes the PR head, so the final exact-head Test must pass before merge. |
 | AC-8 | pending | Merge/main/release pending. |
