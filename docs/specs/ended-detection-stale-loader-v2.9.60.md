@@ -1,6 +1,6 @@
 # Ended detection: stale loader and recovery persistence — Specification
 
-Status: in progress
+Status: completed
 Owner: ChatGPT auto-confirm userscript
 Last updated: 2026-09-22
 Related incident: live v2.9.59 still refreshes an ended tool-heavy conversation every 15 minutes
@@ -89,6 +89,29 @@ Script/page reload during an explicit manual recovery
 - AC-6: Exact-head Test, canonical-main Test and Release workflow all pass.
 - AC-7: Canonical main and GitHub Release report v2.9.60.
 
-## 8. Spec compliance record
+## 8. Delivery evidence
 
-Pending implementation and verification.
+- Implementation PR: #75.
+- Final exact-head SHA: `a18e5586f2779fdd94baa857aa8ce4d0ffa892b4`.
+- Exact-head Test run: `35734723797`, conclusion `success`; full suite `176/176 PASS`, `0 FAIL`.
+- Squash merge / canonical source SHA: `d877ab4b97cc35d61c449ac0ad2fb9513873f069`.
+- Canonical-main Test run: `35734816181`, conclusion `success`.
+- Release workflow run: `35734868119`, conclusion `success`.
+- GitHub Release: `v2.9.60`, published 2026-09-22T13:39:14Z from `d877ab4b97cc35d61c449ac0ad2fb9513873f069`.
+- Release asset: `chatgpt-auto-confirm.user.js`, 281516 bytes, SHA-256 `6511641ee53629c45671b37d71f701b3b27d6d9a3f95b173e8b7eeb4e3d77ca2`.
+- Canonical main readback reports metadata `@version 2.9.60` and runtime `VERSION = '2.9.60'`.
+
+## 9. Spec compliance record
+
+| Requirement / AC | Status | Evidence / reason |
+| --- | --- | --- |
+| R1-R4 | passed | Ended detection now relies on conversation-scoped activity plus an enabled composer, ignores unrelated page-global loader UI, and suppresses the 15-minute stall refresh while an ended candidate is active. |
+| R5 | passed | Manual resume deletes the task observation and clears ended timers before re-inspection. |
+| R6-R9 | passed | Explicit manual recovery is persisted as task state and inherited when recovery identity is re-armed across reload/bootstrap; fresh dispatch and real final completion clear it; ordinary tasks remain strict. |
+| R10-R12 | passed | New regressions cover a stale global loader, resume observation reset, and explicit-recovery startup persistence. |
+| R13 | passed | Full suite retains assistant-local busy/streaming, Stop, approval, final and cross-task guards. |
+| R14 | passed | Metadata/runtime/version assertions report 2.9.60. |
+| R15 | passed | Exact-head Test 35734723797 passed before merge; canonical-main Test 35734816181 and Release 35734868119 succeeded. |
+| AC-1-AC-5 | passed | The live failure modes are covered without introducing fresh-chat duplication or automatic stable-text completion for ordinary tasks. |
+| AC-6 | passed | Exact-head, canonical-main and Release workflows all succeeded. |
+| AC-7 | passed | Canonical main and GitHub Release both report v2.9.60. |
