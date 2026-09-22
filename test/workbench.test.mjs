@@ -344,7 +344,7 @@ test('connection interruption route fallback carries visible assistant work when
     assert.match(task.abnormalFreshCarry,/已经完成 architecture checker/);
     assert.match(task.abnormalFreshCarry,/packaged acceptance/);
     assert.equal(task.abnormalFreshCarrySourceURL,'https://chatgpt.com/c/virtualized-marker');
-    assert.equal(task.abnormalFreshCarrySourceKind,'exact-route-latest-assistant');
+    assert.equal(task.abnormalFreshCarrySourceKind,'exact-route-visible-assistant-transcript');
     assert.match(task.messages.at(-1).text,/任务标识被页面虚拟化/);
     assert.match(task.messages.at(-1).text,/精确 conversation URL 回退读取/);
   } finally {
@@ -417,6 +417,47 @@ test('connection interruption immediately requeues the same task for a fresh cha
   assert.match(task.messages.at(-1).text,/不再等待 15 分钟/);
   assert.match(task.messages.at(-1).text,/不刷新旧会话/);
   dom.window.close();
+});
+
+test('connection interruption carries all substantive assistant segments when the latest assistant node is only the interruption status',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <article data-testid="conversation-turn-user"><div data-message-author-role="user">continue split response [Fabushi:split-interrupt]</div></article>
+    <article data-testid="conversation-turn-assistant-a"><div data-message-author-role="assistant"><div class="markdown">已经核对 PR #19，并确认它只是 spec-only；随后开始检查 PR #20 的真实实现。</div></div></article>
+    <article data-testid="conversation-turn-assistant-b"><div data-message-author-role="assistant"><div data-message-content>已经修进一个编译阻塞，产生新 commit；接下来正在继续清理 manifest 中仍然 planned 的模块。</div></div></article>
+    <article data-testid="conversation-turn-assistant-status"><div data-message-author-role="assistant">连接已中断。正在等待完整回复。</div></article>
+    <form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/split-interrupt');
+    const task={id:'split-interrupt',ownerTabId:h.getTabId(),goal:'original architecture goal',next:'continue architecture parity work',mode:'goal',phase:'work',round:4,state:'waiting',url:'https://chatgpt.com/c/split-interrupt',token:'split-interrupt',attempted:false,attachments:[],messages:[]};
+    h.data.tasks.push(task);
+    const latest=h.latestTurn(task);
+    assert.equal(latest.owned,true);
+    assert.match(latest.text,/连接已中断/,'the legacy latest-turn reader sees only the status node in this renderer shape');
+
+    await h.start();
+    await h.inspect(task,null);
+    assert.equal(task.state,'queued');
+    assert.equal(task.url,'');
+    assert.equal(task.abnormalFreshCarrySourceKind,'owned-visible-assistant-transcript');
+    assert.match(task.abnormalFreshCarry,/确认它只是 spec-only/);
+    assert.match(task.abnormalFreshCarry,/修进一个编译阻塞/);
+    assert.match(task.abnormalFreshCarry,/继续清理 manifest/);
+    assert.doesNotMatch(task.abnormalFreshCarry,/连接已中断/);
+    assert.ok(task.abnormalFreshCarry.indexOf('确认它只是 spec-only') < task.abnormalFreshCarry.indexOf('修进一个编译阻塞'));
+
+    const prompt=h.workPrompt(task);
+    assert.match(prompt,/一、验收会话最终给出的本轮提示词/);
+    assert.match(prompt,/continue architecture parity work/);
+    assert.match(prompt,/二、异常会话里 ChatGPT 已经工作的实时回复/);
+    assert.match(prompt,/确认它只是 spec-only/);
+    assert.match(prompt,/修进一个编译阻塞/);
+    assert.match(prompt,/三、原始目标/);
+    assert.match(prompt,/original architecture goal/);
+  } finally {
+    h.pause();
+    dom.window.close();
+  }
 });
 
 test('scheduler carries the interrupted live assistant work into the fresh-chat three-part Work prompt',async()=>{
@@ -2252,8 +2293,8 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.52$/m);
-  assert.match(source,/const VERSION = '2\.9\.52'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.53$/m);
+  assert.match(source,/const VERSION = '2\.9\.53'/);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const AMBIGUOUS_SEND_REFRESH_MS = 3 \* 60 \* 1000/);
   assert.doesNotMatch(source,/CONNECTION_INTERRUPTED_REFRESH_COOLDOWN_MS/);
