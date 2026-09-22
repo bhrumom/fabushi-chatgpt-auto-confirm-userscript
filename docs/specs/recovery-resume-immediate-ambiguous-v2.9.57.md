@@ -1,6 +1,6 @@
 # Recovery resume identity and immediate ambiguous resend — Specification
 
-Status: in progress
+Status: completed
 Owner: ChatGPT auto-confirm userscript
 Last updated: 2026-09-22
 Related incident: live v2.9.56 report after current-tab recovery
@@ -85,6 +85,29 @@ Send click attempted
 - AC-6: Exact-head Test, canonical-main Test, and Release workflow all pass.
 - AC-7: Canonical main and GitHub Release report v2.9.57.
 
-## 8. Spec compliance record
+## 8. Delivery evidence
 
-Pending implementation and verification.
+- Implementation PR: #70.
+- Final exact-head SHA: `6881e6626ef7c0692a7d099b8cc42b33a34fbfc5`.
+- Exact-head Test run: `35721856023`, conclusion `success`; full suite `170/170 PASS`, `0 FAIL`.
+- Squash merge / canonical source SHA: `85a7f6d9f59de4fcc6409b0bba6c7ea906719fa3`.
+- Canonical-main Test run: `35721930881`, conclusion `success`.
+- Release workflow run: `35721970878`, conclusion `success`.
+- GitHub Release: `v2.9.57`, published 2026-09-22T11:32:06Z from `85a7f6d9f59de4fcc6409b0bba6c7ea906719fa3`.
+- Release asset: `chatgpt-auto-confirm.user.js`, 276690 bytes, SHA-256 `48c7aae6de83b38e1a7b93d9b487787314dd67df18ec748cd7eaff885c76d40e`.
+- Canonical main readback reports metadata `@version 2.9.57` and runtime `VERSION = '2.9.57'`.
+
+## 9. Spec compliance record
+
+| Requirement / AC | Status | Evidence / reason |
+| --- | --- | --- |
+| R1-R3 | passed | PR #70 re-arms recovered-final identity when a paused task resumes and when ordinary startup/hot-replacement selects a resumable persisted task; v2.9.56 workspace-takeover arming remains present. |
+| R4-R6 | passed | Final ownership logic was not weakened. The new regressions cover manual pause/resume with marker virtualization and startup auto-resume identity. |
+| R7-R9 | passed | The old 3-minute/4-refresh ambiguous path was removed from the active timeout flow. After the 90-second confirmation window and final adoption check, an unbound send clears stale dispatch identity, preserves task payload/attachments, sets a one-shot immediate fresh-dispatch flag, and queues a fresh resend without normal dispatch cooldown. |
+| R10-R12 | passed | Unique live-route adoption and already-bound URL branches still run before fresh resend; obsolete ambiguous refresh constants/log path were removed while legacy refresh fields are only cleared for migration hygiene. |
+| R13-R14 | passed | Regression expectations were updated for immediate resend and all version assertions/readback now report 2.9.57. |
+| R15 | passed | Exact-head Test run 35721856023 passed before merge; canonical-main Test run 35721930881 and Release run 35721970878 both succeeded. |
+| AC-1-AC-2 | passed | Tests prove recovered-final identity is re-armed on pause/resume and startup while existing duplicate-send safety branches remain green. |
+| AC-3-AC-5 | passed | The updated ambiguous-send regression proves immediate queued resend, no old-page refresh/3-minute wait, one-shot cooldown bypass, and preservation of phase/round/goal/next/attachments. |
+| AC-6 | passed | Exact-head Test, canonical-main Test and Release workflow all succeeded. |
+| AC-7 | passed | Canonical main and GitHub Release both report v2.9.57. |
