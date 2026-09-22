@@ -6,7 +6,7 @@ import { JSDOM } from 'jsdom';
 const source = await fs.readFile(new URL('../chatgpt-auto-confirm.user.js', import.meta.url), 'utf8');
 const instrumentedSource = source.replace(
   '  mount();',
-  `  window.__fabushiFinalReplyTestHooks = Object.freeze({ latestTurn, taskTurnForInspection, armRecoveredFinalIdentity, ownedFinalReplyReady, recoverStalledRoute, prepareTaskForRecovery, classify, stalledProgressSignature, refreshStalledConversation, queueReviewRepair, parseReview, finish, workPrompt, plannerPrompt, inspect, data, tabId, start, pause });
+  `  window.__fabushiFinalReplyTestHooks = Object.freeze({ latestTurn, taskTurnForInspection, armRecoveredFinalIdentity, ownedFinalReplyReady, recoverStalledRoute, prepareTaskForRecovery, restoreWorkspace, classify, stalledProgressSignature, refreshStalledConversation, queueReviewRepair, parseReview, finish, workPrompt, plannerPrompt, inspect, data, tabId, start, pause });
   mount();`,
 );
 
@@ -19,8 +19,12 @@ async function createHarness(body) {
   const { window } = dom;
   window.Element.prototype.getClientRects = () => [{ width: 1, height: 1 }];
   window.navigator.locks = {
-    request(_name, _options, callback) {
-      return Promise.resolve(callback({}));
+    request(_name, options, callback) {
+      const handler = typeof options === 'function' ? options : callback;
+      return Promise.resolve(handler({}));
+    },
+    query() {
+      return Promise.resolve({ held: [] });
     },
   };
   if (!window.crypto.randomUUID) {
@@ -690,6 +694,80 @@ test('manual task recovery arms the final-reply fallback identity for the exact 
       round:2,
       goalRevision:4,
     });
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('restoring a waiting workspace into the current tab arms recovered-final identity automatically', async () => {
+  const { dom, window, hooks } = await createHarness(`
+    <main>
+      <article data-testid="conversation-turn-assistant">
+        <div data-message-author-role="assistant" data-message-id="assistant-current-tab-recovery">
+          <div class="markdown">当前标签页恢复后的最终回复。</div>
+        </div>
+        <div class="response-toolbar">
+          <button aria-label="复制回复"></button>
+          <button aria-label="评价回复"></button>
+        </div>
+      </article>
+    </main>
+  `);
+  try {
+    window.history.pushState({}, '', '/c/current-tab-workspace-recovery');
+    const ownerTabId = 'closed-workspace-owner';
+    const task = {
+      id:'current-tab-workspace-recovery',
+      ownerTabId,
+      goal:'恢复旧工作区并继续监督',
+      goalRevision:5,
+      mode:'once',
+      phase:'work',
+      round:4,
+      state:'waiting',
+      url:'https://chatgpt.com/c/current-tab-workspace-recovery',
+      token:'current-tab-workspace-token',
+      attempted:false,
+      messages:[],
+      updatedAt:Date.now(),
+    };
+    window.localStorage.setItem('fabushi-workbench-v2', JSON.stringify({
+      tasks:[task],
+      deletedTaskIds:[],
+      selectedByTab:{ [ownerTabId]:task.id },
+      tabControls:{
+        [ownerTabId]:{
+          autoResume:true,
+          lastDispatchAt:0,
+          controlRevision:0,
+          pausedAt:0,
+          globalAutoApprove:false,
+          autoApprove:true,
+        },
+      },
+    }));
+
+    const result = await hooks.restoreWorkspace(ownerTabId, true);
+    assert.equal(result.restored, true);
+    assert.equal(result.target, 'current');
+    assert.equal(result.taskId, task.id);
+
+    const restoredTask = hooks.data.tasks.find(item => item.id === task.id);
+    assert.ok(restoredTask);
+    assert.deepEqual(JSON.parse(JSON.stringify(restoredTask.recoveredFinalIdentity)), {
+      url:'https://chatgpt.com/c/current-tab-workspace-recovery',
+      token:'current-tab-workspace-token',
+      phase:'work',
+      round:4,
+      goalRevision:5,
+    });
+
+    const recovered = hooks.taskTurnForInspection(restoredTask);
+    assert.equal(recovered.owned, true);
+    assert.equal(recovered.recoveredRouteOwned, true);
+    assert.equal(recovered.final, true);
+    assert.equal(recovered.text, '当前标签页恢复后的最终回复。');
+    hooks.pause();
   } finally {
     dom.window.close();
   }
