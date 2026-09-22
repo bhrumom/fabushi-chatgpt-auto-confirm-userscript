@@ -460,6 +460,90 @@ test('connection interruption carries all substantive assistant segments when th
   }
 });
 
+test('connection interruption carries visible semantic work from zero-rect assistant hosts into the next prompt',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <article data-testid="conversation-turn-user"><div data-message-author-role="user">continue live work [Fabushi:zero-rect-interrupt]</div></article>
+    <article data-testid="conversation-turn-assistant-a"><div data-message-author-role="assistant"><div class="markdown">已经确认 PR #19 只是 spec-only，并开始核对 PR #20 的 Coordinator Host Runner 实现。</div></div></article>
+    <article data-testid="conversation-turn-assistant-b"><div data-message-author-role="assistant"><div data-message-content>已经修复一个编译阻塞并产生新 commit，正在继续清理 manifest 中仍然 planned 的模块。</div></div></article>
+    <article data-testid="conversation-turn-assistant-status"><div data-message-author-role="assistant">连接已中断。正在等待完整回复。</div></article>
+    <div role="status">连接已中断。正在等待完整回复。</div>
+    <form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form>
+  </main>`,window=>{
+    window.HTMLElement.prototype.getClientRects=function(){
+      if(this.hidden||this.closest?.('[hidden],[inert]'))return [];
+      if(this.getAttribute?.('data-message-author-role')==='assistant')return [];
+      return [{}];
+    };
+  });
+  try {
+    w.history.pushState({},'', '/c/zero-rect-interrupt');
+    const task={id:'zero-rect-interrupt',ownerTabId:h.getTabId(),goal:'original architecture goal',next:'continue exact architecture parity work',mode:'goal',phase:'work',round:5,state:'waiting',url:'https://chatgpt.com/c/zero-rect-interrupt',token:'zero-rect-interrupt',attempted:false,attachments:[],messages:[]};
+    h.data.tasks.push(task);
+
+    const assistantHosts=[...w.document.querySelectorAll('[data-message-author-role="assistant"]')];
+    assert.ok(assistantHosts.every(node=>node.getClientRects().length===0),'the regression models layout-neutral assistant-role hosts');
+    assert.ok(w.document.querySelector('.markdown').getClientRects().length>0,'semantic assistant content remains visibly rendered');
+
+    await h.start();
+    await h.inspect(task,null);
+    assert.equal(task.state,'queued');
+    assert.equal(task.url,'');
+    assert.equal(task.abnormalFreshCarrySourceKind,'owned-visible-assistant-transcript');
+    assert.match(task.abnormalFreshCarry,/PR #19 只是 spec-only/);
+    assert.match(task.abnormalFreshCarry,/Coordinator Host Runner/);
+    assert.match(task.abnormalFreshCarry,/修复一个编译阻塞/);
+    assert.match(task.abnormalFreshCarry,/继续清理 manifest/);
+    assert.doesNotMatch(task.abnormalFreshCarry,/连接已中断/);
+
+    const prompt=h.workPrompt({...task,token:'fresh-zero-rect-token'});
+    assert.match(prompt,/一、验收会话最终给出的本轮提示词/);
+    assert.match(prompt,/continue exact architecture parity work/);
+    assert.match(prompt,/二、异常会话里 ChatGPT 已经工作的实时回复/);
+    assert.match(prompt,/PR #19 只是 spec-only/);
+    assert.match(prompt,/修复一个编译阻塞/);
+    assert.match(prompt,/三、原始目标/);
+    assert.match(prompt,/original architecture goal/);
+    assert.ok(prompt.indexOf('continue exact architecture parity work') < prompt.indexOf('PR #19 只是 spec-only'));
+    assert.ok(prompt.indexOf('PR #19 只是 spec-only') < prompt.lastIndexOf('original architecture goal'));
+  } finally {
+    h.pause();
+    dom.window.close();
+  }
+});
+
+test('connection interruption never carries hidden or inert assistant content from zero-rect hosts',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <article data-testid="conversation-turn-user"><div data-message-author-role="user">continue safely [Fabushi:hidden-zero-rect]</div></article>
+    <article data-testid="conversation-turn-assistant-hidden" hidden><div data-message-author-role="assistant"><div class="markdown">SECRET_HIDDEN_ASSISTANT_WORK</div></div></article>
+    <article data-testid="conversation-turn-assistant-inert" inert><div data-message-author-role="assistant"><div data-message-content>SECRET_INERT_ASSISTANT_WORK</div></div></article>
+    <article data-testid="conversation-turn-assistant-status"><div data-message-author-role="assistant">连接已中断。正在等待完整回复。</div></article>
+    <div role="status">连接已中断。正在等待完整回复。</div>
+  </main>`,window=>{
+    window.HTMLElement.prototype.getClientRects=function(){
+      if(this.hidden||this.closest?.('[hidden],[inert]'))return [];
+      if(this.getAttribute?.('data-message-author-role')==='assistant')return [];
+      return [{}];
+    };
+  });
+  try {
+    w.history.pushState({},'', '/c/hidden-zero-rect');
+    const task={id:'hidden-zero-rect',ownerTabId:h.getTabId(),goal:'safe goal',next:'safe next',mode:'goal',phase:'work',round:2,state:'waiting',url:'https://chatgpt.com/c/hidden-zero-rect',token:'hidden-zero-rect',attempted:false,attachments:[],messages:[]};
+    h.data.tasks.push(task);
+
+    await h.start();
+    await h.inspect(task,null);
+    assert.equal(task.state,'queued');
+    assert.equal(task.url,'');
+    assert.equal(task.abnormalFreshCarry||'','');
+    assert.doesNotMatch(task.abnormalFreshCarry||'',/SECRET_HIDDEN_ASSISTANT_WORK|SECRET_INERT_ASSISTANT_WORK/);
+    const prompt=h.workPrompt({...task,token:'fresh-hidden-token'});
+    assert.doesNotMatch(prompt,/SECRET_HIDDEN_ASSISTANT_WORK|SECRET_INERT_ASSISTANT_WORK/);
+  } finally {
+    h.pause();
+    dom.window.close();
+  }
+});
+
 test('scheduler carries the interrupted live assistant work into the fresh-chat three-part Work prompt',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue current work [Fabushi:interrupt-live-send]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><p>已完成 legacy shell 拆分，并正在修复 packaged acceptance TypeScript 错误。</p><p>连接已中断。正在等待完整回复。</p></div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   w.history.pushState({},'', '/c/interrupt-live-send');
