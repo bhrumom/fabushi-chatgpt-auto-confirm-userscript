@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.57
+// @version      2.9.58
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.57';
+  const VERSION = '2.9.58';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -64,6 +64,7 @@
   // observed in loading/generating state. Keep a short grace period, then
   // finish even when the prior scan was not itself a clear observation.
   const FINAL_REPLY_STABILITY_MS = 4000;
+  const RECOVERED_STATIC_FINAL_STABILITY_MS = 8000;
   // A bound conversation can stop changing while ChatGPT is waiting for an
   // authorization card, a renderer update, or an image/tool result. Reload
   // the same route only after a full fifteen-minute idle period so long-running
@@ -1358,6 +1359,25 @@
     return nodes('[data-message-author-role=user]').slice().reverse()
       .find(node => text(node).includes(marker)) || null;
   }
+  function recoveryUserBoundaryKey(node) {
+    if (!node) return '';
+    const direct = [
+      node.getAttribute?.('data-message-id'),
+      node.getAttribute?.('data-turn-key'),
+      node.getAttribute?.('data-content-search-turn-key'),
+      node.closest?.('[data-message-id]')?.getAttribute?.('data-message-id'),
+      node.closest?.('[data-turn-key]')?.getAttribute?.('data-turn-key'),
+      node.closest?.('[data-content-search-turn-key]')?.getAttribute?.('data-content-search-turn-key'),
+    ].filter(Boolean).join('|');
+    if (direct) return `id:${direct}`;
+    const value = normalize(text(node));
+    let hash = 2166136261;
+    for (let index = 0; index < value.length; index++) {
+      hash ^= value.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return `text:${(hash >>> 0).toString(16)}:${value.length}`;
+  }
   function hasTaskMarker(task) {
     return Boolean(taskMarkerUser(task));
   }
@@ -1381,26 +1401,31 @@
     task.sessionUrls = urls.slice(-40);
     return canonical;
   }
-  function armRecoveredFinalIdentity(task) {
+  function armRecoveredFinalIdentity(task, { allowStaticFinal = false } = {}) {
     const url = canonicalConversationURL(task?.url);
     const token = String(task?.token || '');
     if (!task || !url || !token) return false;
+    const latestMountedUser = nodes('[data-message-author-role=user]').at(-1) || null;
     task.recoveredFinalIdentity = {
       url,
       token,
       phase:String(task.phase || 'work'),
       round:Number(task.round || 0),
       goalRevision:Number(task.goalRevision || 0),
+      ...(allowStaticFinal ? {
+        allowStaticFinal:true,
+        visibleUserBoundaryKey:recoveryUserBoundaryKey(latestMountedUser),
+      } : {}),
     };
     return true;
   }
   function clearRecoveredFinalIdentity(task) {
     if (task?.recoveredFinalIdentity) delete task.recoveredFinalIdentity;
   }
-  function armWorkspaceRecoveryIdentity(task) {
+  function armWorkspaceRecoveryIdentity(task, options = {}) {
     if (!task || !taskBelongsToTab(task) || !resumableStates.has(task.state)) return false;
     if (!canonicalConversationURL(task.url) || !String(task.token || '')) return false;
-    return armRecoveredFinalIdentity(task);
+    return armRecoveredFinalIdentity(task, options);
   }
   function recoveredFinalIdentityMatches(task, liveURL) {
     const identity = task?.recoveredFinalIdentity;
@@ -1731,13 +1756,13 @@
     delete task.pausedState;
     if (global) task.pauseRevision = revision;
     task.state = resumeState;
-    if (resumableStates.has(task.state)) armWorkspaceRecoveryIdentity(task);
+    if (resumableStates.has(task.state)) armWorkspaceRecoveryIdentity(task, { allowStaticFinal: !global });
     task.updatedAt = Date.now();
     log(task, legacyBlocked && knownURL
       ? '已从旧记录恢复本轮会话链接；继续按链接监控，不等待侧栏。'
       : global
         ? '已恢复全部暂停任务，继续监控并按当前目标推进。'
-        : '已恢复当前任务，其他暂停任务保持暂停。');
+        : '已恢复当前任务，其他暂停任务保持暂停；正在立即检查当前会话是否已有最终回复。');
     return true;
   }
   function restorePausedTasks(revision = Number(data.controlRevision || 0)) {
@@ -2687,6 +2712,7 @@
       owned:Boolean(sample?.owned),
       routeOwned:Boolean(sample?.routeOwned),
       foreignTaskId:String(sample?.foreignTaskId || ''),
+      recoveredStaticCandidate:Boolean(sample?.recoveredStaticCandidate),
     });
   }
   function refreshStalledConversation(task, perform = true, now = Date.now()) {
@@ -2986,6 +3012,7 @@
     if (conversationURLOwner(liveURL, task.id)) return scoped;
     const foreignTask = tabTasks().find(item => item.id !== task.id && item.token && hasTaskMarker(item));
     if (foreignTask) return scoped;
+    const identity = task.recoveredFinalIdentity || {};
     const mountedUsers = nodes('[data-message-author-role=user]');
     const latestMountedUser = mountedUsers.at(-1);
     const recoveredContinuation = Boolean(
@@ -2993,18 +3020,25 @@
       && Number(task.continuationCount || 0) > 0
       && normalize(text(latestMountedUser)) === CONTINUATION_PROMPT,
     );
-    if (latestMountedUser && !recoveredContinuation) return scoped;
+    if (latestMountedUser && !recoveredContinuation) {
+      if (!identity.allowStaticFinal) return scoped;
+      if (recoveryUserBoundaryKey(latestMountedUser) !== String(identity.visibleUserBoundaryKey || '')) return scoped;
+    }
 
-    // The fallback is final-only. It never adopts partial assistant text or a
-    // quiet page merely because the exact route matches. The existing strong
-    // toolbar/static-copy rule still determines whether this is a true final
-    // reply, and approval/Stop states remain authoritative blockers.
+    // Normal recovery remains final-only. Explicit manual recovery gets one
+    // additional path: the exact route may expose stable assistant text while
+    // ChatGPT virtualizes both the Fabushi marker and the final toolbar. That
+    // candidate is only considered after the snapshotted user boundary remains
+    // unchanged; classify() applies a separate eight-second stability gate and
+    // all active/blocking UI states still veto completion.
     const candidate = latestTurn();
-    if (!candidate.text || !candidate.final || stopButton() || cards().length) return scoped;
+    if (!candidate.text || stopButton() || cards().length) return scoped;
+    if (!candidate.final && (!identity.allowStaticFinal || candidate.streaming)) return scoped;
     return {
       ...candidate,
       owned:true,
       recoveredRouteOwned:true,
+      recoveredStaticCandidate:Boolean(!candidate.final && identity.allowStaticFinal),
     };
   }
   const allowLabel = /^(?:允许|allow|approve|批准)$/i;
@@ -3191,11 +3225,18 @@
     const finalStayedStable = sample.final && sample.text && previous?.final
       && previous?.text === sample.text
       && now - Number(previous.finalSince || previous.since || 0) >= FINAL_REPLY_STABILITY_MS;
-    if (finalStayedStable) return { state:'complete' };
+    const recoveredStaticStayedStable = Boolean(
+      sample.recoveredStaticCandidate
+      && sample.text
+      && previous?.recoveredStaticCandidate
+      && previous?.text === sample.text
+      && now - Number(previous.recoveredStaticSince || previous.since || 0) >= RECOVERED_STATIC_FINAL_STABILITY_MS
+    );
+    if (finalStayedStable || recoveredStaticStayedStable) return { state:'complete' };
     // No Stop button is only an intermediate observation. Connector approval,
     // tool execution and renderer transitions all legitimately hide Stop.
     // Without the current reply toolbar, stay bound to this conversation. The
-    // independent three-minute stall watchdog may refresh this same URL, but
+    // independent stalled-conversation watchdog may refresh this same URL, but
     // classification must never create a fresh chat from Stop disappearance.
     return { state:'waiting' };
   }
@@ -4179,7 +4220,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const rawLoading = Boolean(pageLoadingState());
     // In a bound owned conversation, active generation exposes Stop. A
     // decorative/stale spinner without Stop must not mask an abnormal stop.
-    const effectiveLoading = Boolean(rawLoading && (!turn.owned || stopPresent));
+    const effectiveLoading = Boolean(rawLoading && (turn.recoveredStaticCandidate || !turn.owned || stopPresent));
     const sample = {
       stop:stopPresent,
       cards:turn.owned ? pending.length : 0,
@@ -4197,6 +4238,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       responseActions:turn.responseActions,
       responseActionsComplete:turn.responseActionsComplete,
       explicitFinal:turn.explicitFinal,
+      recoveredStaticCandidate:Boolean(turn.recoveredStaticCandidate),
       // A current-turn streaming/busy marker is stronger evidence than the
       // temporary disappearance of Stop. Once final is true we intentionally
       // ignore a stale streaming marker so completed replies are not held.
@@ -4275,12 +4317,19 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const finalSince = sample.final && previous?.final && previous?.text === sample.text
       ? (previous.finalSince || previous.since || now)
       : sample.final ? now : 0;
+    const recoveredStaticSince = sample.recoveredStaticCandidate
+      && previous?.recoveredStaticCandidate
+      && previous?.text === sample.text
+        ? (previous.recoveredStaticSince || previous.since || now)
+        : sample.recoveredStaticCandidate ? now : 0;
     observations.set(task.id, {
       text:sample.text,
       since:stable ? previous.since : now,
       idleSince:previous?.clear ? previous.idleSince : now,
       final:Boolean(sample.final),
       finalSince,
+      recoveredStaticCandidate:Boolean(sample.recoveredStaticCandidate),
+      recoveredStaticSince,
       stop:Boolean(sample.stop),
       streaming:Boolean(sample.streaming),
       loading:Boolean(sample.loading),
@@ -4580,7 +4629,7 @@ NaN
       task.dispatchStartedAt = 0;
       task.recoveryConfirmationStartedAt = 0;
       task.url = canonicalConversationURL(task.url) || adoptedURL;
-      armRecoveredFinalIdentity(task);
+      armRecoveredFinalIdentity(task, { allowStaticFinal: !automatic });
       task.state = 'waiting';
       task.rendererRecoveryExhausted = false;
       task.routeRecoveryAttempts = 0;
@@ -4730,7 +4779,7 @@ NaN
         tasks:(stored.tasks || []).filter(task => task.ownerTabId === ownerTabId),
       }));
   }
-  async function restoreWorkspace(ownerTabId, takeOverCurrentTab = false) {
+  async function restoreWorkspace(ownerTabId, takeOverCurrentTab = false, { automatic = false } = {}) {
     if (!ownerTabId || ownerTabId === tabId) throw new Error('这是当前标签页的工作区。');
     if (!navigator.locks?.query) throw new Error('浏览器无法确认原标签页是否已关闭，暂不能恢复。');
     return navigator.locks.request('fabushi-workspace-restore:' + ownerTabId, async () => {
@@ -4761,7 +4810,7 @@ NaN
         data.autoResume = true;
         current = restoredTask.state === 'paused' ? '' : restoredTask.id;
         if (restoredTask.state === 'blocked') prepareTaskForRecovery(restoredTask, { automatic:true });
-        armWorkspaceRecoveryIdentity(restoredTask);
+        armWorkspaceRecoveryIdentity(restoredTask, { allowStaticFinal: !automatic });
         lastSwitch = Date.now();
         save();
         paint();
@@ -4792,7 +4841,7 @@ NaN
     if (!ownerTabId || ownerTabId === tabId) return false;
     automaticRecoveryBusy = true;
     try {
-      const result = await restoreWorkspace(ownerTabId, true);
+      const result = await restoreWorkspace(ownerTabId, true, { automatic:true });
       if (result?.restored && result.taskId) {
         const task = data.tasks.find(item => item.id === result.taskId);
         if (task) log(task, '检测到原标签页心跳超时；已自动接管工作区，沿用原会话、发送标识和附件继续执行。');

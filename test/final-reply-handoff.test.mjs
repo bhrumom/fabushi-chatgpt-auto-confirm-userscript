@@ -709,6 +709,8 @@ test('manual pause and resume re-arms recovered-final identity for a completed e
       phase:'work',
       round:6,
       goalRevision:7,
+      allowStaticFinal:true,
+      visibleUserBoundaryKey:'',
     });
 
     const recovered = hooks.taskTurnForInspection(task);
@@ -716,6 +718,132 @@ test('manual pause and resume re-arms recovered-final identity for a completed e
     assert.equal(recovered.recoveredRouteOwned, true);
     assert.equal(recovered.final, true);
     assert.equal(recovered.text, '暂停恢复后页面上的最终回复。');
+    hooks.pause();
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('manual resume accepts a marker-virtualized static reply after the recovery-only stability gate', async () => {
+  const { dom, window, hooks } = await createHarness(`
+    <main>
+      <article data-testid="conversation-turn-user">
+        <div data-message-author-role="user" data-message-id="older-visible-user">更早的普通用户消息</div>
+      </article>
+      <article data-testid="conversation-turn-assistant">
+        <div data-message-author-role="assistant" data-message-id="assistant-static-recovered">
+          <div class="markdown">页面已经结束，但当前渲染器没有显示最终回复操作栏。</div>
+        </div>
+      </article>
+    </main>
+  `);
+  try {
+    window.history.pushState({}, '', '/c/manual-static-recovered');
+    const task = {
+      id:'manual-static-recovered',
+      ownerTabId:hooks.tabId,
+      goal:'恢复静态最终回复',
+      goalRevision:8,
+      mode:'once',
+      phase:'work',
+      round:7,
+      state:'paused',
+      pausedState:'waiting',
+      url:'https://chatgpt.com/c/manual-static-recovered',
+      token:'virtualized-current-task-token',
+      attempted:false,
+      messages:[],
+    };
+    hooks.data.tasks.push(task);
+    assert.equal(await hooks.resumeTask(task), true);
+    assert.equal(task.recoveredFinalIdentity.allowStaticFinal, true);
+    assert.match(task.recoveredFinalIdentity.visibleUserBoundaryKey, /^id:/);
+
+    const recovered = hooks.taskTurnForInspection(task);
+    assert.equal(recovered.owned, true);
+    assert.equal(recovered.recoveredRouteOwned, true);
+    assert.equal(recovered.final, false);
+    assert.equal(recovered.recoveredStaticCandidate, true);
+    assert.equal(recovered.text, '页面已经结束，但当前渲染器没有显示最终回复操作栏。');
+
+    const sample = {
+      routeOwned:true,
+      owned:true,
+      foreignTaskId:'',
+      text:recovered.text,
+      final:false,
+      recoveredStaticCandidate:true,
+      stop:false,
+      streaming:false,
+      cards:0,
+      loading:false,
+      blocker:'',
+      rateLimit:'',
+    };
+    assert.equal(hooks.classify(sample, {
+      text:recovered.text,
+      recoveredStaticCandidate:true,
+      recoveredStaticSince:1_000,
+      since:1_000,
+      clear:true,
+    }, 8_999).state, 'waiting');
+    assert.equal(hooks.classify(sample, {
+      text:recovered.text,
+      recoveredStaticCandidate:true,
+      recoveredStaticSince:1_000,
+      since:1_000,
+      clear:true,
+    }, 9_001).state, 'complete');
+    hooks.pause();
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('manual recovery rejects a user boundary that changes after recovery was armed', async () => {
+  const { dom, window, hooks } = await createHarness(`
+    <main id="chat">
+      <article data-testid="conversation-turn-user">
+        <div data-message-author-role="user" data-message-id="older-visible-user">更早的普通用户消息</div>
+      </article>
+      <article data-testid="conversation-turn-assistant">
+        <div data-message-author-role="assistant"><div class="markdown">恢复时已有的静态回复。</div></div>
+      </article>
+    </main>
+  `);
+  try {
+    window.history.pushState({}, '', '/c/manual-boundary-change');
+    const task = {
+      id:'manual-boundary-change',
+      ownerTabId:hooks.tabId,
+      goal:'恢复任务',
+      goalRevision:2,
+      mode:'once',
+      phase:'work',
+      round:2,
+      state:'paused',
+      pausedState:'waiting',
+      url:'https://chatgpt.com/c/manual-boundary-change',
+      token:'manual-boundary-token',
+      attempted:false,
+      messages:[],
+    };
+    hooks.data.tasks.push(task);
+    assert.equal(await hooks.resumeTask(task), true);
+
+    const main = window.document.getElementById('chat');
+    main.insertAdjacentHTML('beforeend', `
+      <article data-testid="conversation-turn-user">
+        <div data-message-author-role="user" data-message-id="manual-after-recovery">用户在恢复后手动发送的新消息</div>
+      </article>
+      <article data-testid="conversation-turn-assistant">
+        <div data-message-author-role="assistant"><div class="markdown">新手动消息的回复。</div></div>
+      </article>
+    `);
+
+    const turn = hooks.taskTurnForInspection(task);
+    assert.equal(turn.owned, false);
+    assert.equal(turn.text, '');
     hooks.pause();
   } finally {
     dom.window.close();
@@ -748,6 +876,8 @@ test('manual task recovery arms the final-reply fallback identity for the exact 
       phase:'review',
       round:2,
       goalRevision:4,
+      allowStaticFinal:true,
+      visibleUserBoundaryKey:'',
     });
   } finally {
     dom.window.close();
@@ -815,6 +945,8 @@ test('restoring a waiting workspace into the current tab arms recovered-final id
       phase:'work',
       round:4,
       goalRevision:5,
+      allowStaticFinal:true,
+      visibleUserBoundaryKey:'',
     });
 
     const recovered = hooks.taskTurnForInspection(restoredTask);
