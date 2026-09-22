@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.52
+// @version      2.9.53
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.52';
+  const VERSION = '2.9.53';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -2469,20 +2469,108 @@
       .trim();
     return boundedConversationLengthCarry(source);
   }
+  function assistantSegmentContent(node) {
+    if (!node || own(node) || !visible(node)) return '';
+    const semanticSelector = '.markdown,[data-message-content],[data-selected-text-overlay-target]';
+    const semantic = [];
+    if (node.matches?.(semanticSelector)) semantic.push(node);
+    semantic.push(...nodes(semanticSelector, node).filter(visible));
+    // Prefer the outermost semantic message-content roots. ChatGPT can nest a
+    // selection overlay or data-message-content inside .markdown; reading both
+    // would duplicate the same visible assistant prose.
+    const roots = semantic.filter((candidate, index) => !semantic.some((other, otherIndex) =>
+      otherIndex !== index && other.contains(candidate),
+    ));
+    const parts = (roots.length ? roots : [node])
+      .map(item => String(item.textContent || '').trim())
+      .filter(Boolean);
+    const deduped = [];
+    for (const part of parts) {
+      if (deduped.at(-1) === part || deduped.includes(part)) continue;
+      deduped.push(part);
+    }
+    return deduped.join('\n\n').trim();
+  }
+  function visibleAssistantWorkTranscript(task, { allowExactRouteFallback = false } = {}) {
+    if (!task) return { text:'', sourceKind:'' };
+    const liveURL = canonicalConversationURL(currentConversationURL());
+    const taskURL = canonicalConversationURL(task.url);
+    if (!liveURL || !taskURL || liveURL !== taskURL) return { text:'', sourceKind:'' };
+
+    const users = nodes('[data-message-author-role=user]');
+    const markedUser = taskMarkerUser(task);
+    const latestUser = users.at(-1);
+    const continuationUser = markedUser
+      && latestUser
+      && latestUser !== markedUser
+      && Number(task.continuationCount || 0) > 0
+      && normalize(text(latestUser)) === CONTINUATION_PROMPT
+      && Boolean(markedUser.compareDocumentPosition(latestUser) & Node.DOCUMENT_POSITION_FOLLOWING)
+        ? latestUser
+        : null;
+    let boundary = continuationUser || markedUser;
+    let sourceKind = 'owned-visible-assistant-transcript';
+
+    if (boundary) {
+      // If another user turn is newer than this task boundary, do not copy any
+      // following assistant text into this task. This mirrors latestTurn(task)
+      // and keeps manual/foreign follow-up turns fail-closed.
+      if (latestUser && latestUser !== boundary) return { text:'', sourceKind:'' };
+    } else {
+      if (!allowExactRouteFallback) return { text:'', sourceKind:'' };
+      const foreignTask = tabTasks().find(item => item.id !== task.id && item.token && hasTaskMarker(item));
+      const otherOwner = conversationURLOwner(liveURL, task.id);
+      if (foreignTask || otherOwner) return { text:'', sourceKind:'' };
+      // If the task marker was virtualized but ChatGPT still mounts a verified
+      // same-task continuation, use that as the response boundary. A different
+      // mounted user turn is ambiguous and must not be attributed by URL alone.
+      const recoveredContinuation = latestUser
+        && Number(task.continuationCount || 0) > 0
+        && normalize(text(latestUser)) === CONTINUATION_PROMPT
+          ? latestUser
+          : null;
+      if (latestUser && !recoveredContinuation) return { text:'', sourceKind:'' };
+      boundary = recoveredContinuation;
+      sourceKind = 'exact-route-visible-assistant-transcript';
+    }
+
+    const assistantNodes = nodes('[data-message-author-role=assistant]')
+      .filter(visible)
+      .filter(node => !boundary || Boolean(boundary.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING));
+    const parts = [];
+    for (const node of assistantNodes) {
+      const part = cleanAbnormalFreshReply(assistantSegmentContent(node));
+      if (!part) continue;
+      if (parts.at(-1) === part || parts.includes(part)) continue;
+      parts.push(part);
+    }
+    return {
+      text: boundedConversationLengthCarry(parts.join('\n\n').trim()),
+      sourceKind: parts.length ? sourceKind : '',
+    };
+  }
   function captureOwnedAbnormalFreshCarry(task, turn = null, reason = '', sessionURL = '', now = Date.now(), { allowExactRouteFallback = false } = {}) {
     if (!task) return '';
     const liveURL = canonicalConversationURL(sessionURL || currentConversationURL());
     const taskURL = canonicalConversationURL(task.url);
     if (!liveURL || !taskURL || liveURL !== taskURL) return '';
 
-    // Preferred source: the normal marker-owned turn. ChatGPT can virtualize
-    // or temporarily unmount the user turn containing [Fabushi:token] while a
-    // long assistant response remains visible. In that renderer state,
-    // latestTurn(task) deliberately fails closed even though inspect() already
-    // trusts this exact task URL enough to handle a page-level interruption.
+    // A single ChatGPT agent response can be rendered as several assistant
+    // segments. Capture the whole visible current-response transcript before
+    // falling back to the legacy latest-turn text so a final status-only/error
+    // segment cannot hide the substantive work that is visibly above it.
+    const transcript = visibleAssistantWorkTranscript(task, { allowExactRouteFallback });
+    let sourceText = String(transcript.text || '');
+    let sourceKind = String(transcript.sourceKind || '');
+
+    // Preferred legacy source: the normal marker-owned latest turn. Keep this
+    // fallback because some renderer builds briefly mount only one assistant
+    // node without a measurable client rect while the interruption is handled.
     const ownedTurn = turn?.owned ? turn : latestTurn(task);
-    let sourceText = ownedTurn?.owned ? String(ownedTurn.text || '') : '';
-    let sourceKind = sourceText ? 'owned-turn' : '';
+    if (!sourceText && ownedTurn?.owned) {
+      sourceText = String(ownedTurn.text || '');
+      sourceKind = sourceText ? 'owned-turn' : '';
+    }
 
     // A preview is only safe when it was produced by a previously owned scan
     // of this exact route and the same phase/round.
@@ -2495,12 +2583,9 @@
       sourceKind = 'owned-preview';
     }
 
-    // Connection interruption can be rendered as page chrome after the marker
-    // user turn has been virtualized out of the DOM. When inspect() explicitly
-    // confirms that this exact route belongs to the task and no foreign task
-    // marker is present, read the latest visible assistant turn without the
-    // marker requirement. This mirrors the route trust already used to decide
-    // that the interrupted conversation may be abandoned.
+    // Retain the old exact-route latest-turn fallback as a final compatibility
+    // path. It is reached only after the stricter transcript extractor and only
+    // when the same no-foreign-owner/no-foreign-marker guards pass.
     if (!sourceText && allowExactRouteFallback) {
       const foreignTask = tabTasks().find(item => item.id !== task.id && item.token && hasTaskMarker(item));
       const otherOwner = conversationURLOwner(liveURL, task.id);
