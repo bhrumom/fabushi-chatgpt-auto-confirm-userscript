@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.57
+// @version      2.9.58
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.57';
+  const VERSION = '2.9.58';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -64,6 +64,7 @@
   // observed in loading/generating state. Keep a short grace period, then
   // finish even when the prior scan was not itself a clear observation.
   const FINAL_REPLY_STABILITY_MS = 4000;
+  const RECOVERED_STATIC_FINAL_STABILITY_MS = 8000;
   // A bound conversation can stop changing while ChatGPT is waiting for an
   // authorization card, a renderer update, or an image/tool result. Reload
   // the same route only after a full fifteen-minute idle period so long-running
@@ -1358,6 +1359,25 @@
     return nodes('[data-message-author-role=user]').slice().reverse()
       .find(node => text(node).includes(marker)) || null;
   }
+  function recoveryUserBoundaryKey(node) {
+    if (!node) return '';
+    const direct = [
+      node.getAttribute?.('data-message-id'),
+      node.getAttribute?.('data-turn-key'),
+      node.getAttribute?.('data-content-search-turn-key'),
+      node.closest?.('[data-message-id]')?.getAttribute?.('data-message-id'),
+      node.closest?.('[data-turn-key]')?.getAttribute?.('data-turn-key'),
+      node.closest?.('[data-content-search-turn-key]')?.getAttribute?.('data-content-search-turn-key'),
+    ].filter(Boolean).join('|');
+    if (direct) return `id:${direct}`;
+    const value = normalize(text(node));
+    let hash = 2166136261;
+    for (let index = 0; index < value.length; index++) {
+      hash ^= value.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return `text:${(hash >>> 0).toString(16)}:${value.length}`;
+  }
   function hasTaskMarker(task) {
     return Boolean(taskMarkerUser(task));
   }
@@ -1381,26 +1401,29 @@
     task.sessionUrls = urls.slice(-40);
     return canonical;
   }
-  function armRecoveredFinalIdentity(task) {
+  function armRecoveredFinalIdentity(task, { allowStaticFinal = false } = {}) {
     const url = canonicalConversationURL(task?.url);
     const token = String(task?.token || '');
     if (!task || !url || !token) return false;
+    const latestMountedUser = nodes('[data-message-author-role=user]').at(-1) || null;
     task.recoveredFinalIdentity = {
       url,
       token,
       phase:String(task.phase || 'work'),
       round:Number(task.round || 0),
       goalRevision:Number(task.goalRevision || 0),
+      allowStaticFinal:Boolean(allowStaticFinal),
+      visibleUserBoundaryKey:allowStaticFinal ? recoveryUserBoundaryKey(latestMountedUser) : '',
     };
     return true;
   }
   function clearRecoveredFinalIdentity(task) {
     if (task?.recoveredFinalIdentity) delete task.recoveredFinalIdentity;
   }
-  function armWorkspaceRecoveryIdentity(task) {
+  function armWorkspaceRecoveryIdentity(task, options = {}) {
     if (!task || !taskBelongsToTab(task) || !resumableStates.has(task.state)) return false;
     if (!canonicalConversationURL(task.url) || !String(task.token || '')) return false;
-    return armRecoveredFinalIdentity(task);
+    return armRecoveredFinalIdentity(task, options);
   }
   function recoveredFinalIdentityMatches(task, liveURL) {
     const identity = task?.recoveredFinalIdentity;
@@ -1731,7 +1754,7 @@
     delete task.pausedState;
     if (global) task.pauseRevision = revision;
     task.state = resumeState;
-    if (resumableStates.has(task.state)) armWorkspaceRecoveryIdentity(task);
+    if (resumableStates.has(task.state)) armWorkspaceRecoveryIdentity(task, { allowStaticFinal: !global });
     task.updatedAt = Date.now();
     log(task, legacyBlocked && knownURL
       ? '已从旧记录恢复本轮会话链接；继续按链接监控，不等待侧栏。'
@@ -4580,7 +4603,7 @@ NaN
       task.dispatchStartedAt = 0;
       task.recoveryConfirmationStartedAt = 0;
       task.url = canonicalConversationURL(task.url) || adoptedURL;
-      armRecoveredFinalIdentity(task);
+      armRecoveredFinalIdentity(task, { allowStaticFinal: !automatic });
       task.state = 'waiting';
       task.rendererRecoveryExhausted = false;
       task.routeRecoveryAttempts = 0;
@@ -4730,7 +4753,7 @@ NaN
         tasks:(stored.tasks || []).filter(task => task.ownerTabId === ownerTabId),
       }));
   }
-  async function restoreWorkspace(ownerTabId, takeOverCurrentTab = false) {
+  async function restoreWorkspace(ownerTabId, takeOverCurrentTab = false, { automatic = false } = {}) {
     if (!ownerTabId || ownerTabId === tabId) throw new Error('这是当前标签页的工作区。');
     if (!navigator.locks?.query) throw new Error('浏览器无法确认原标签页是否已关闭，暂不能恢复。');
     return navigator.locks.request('fabushi-workspace-restore:' + ownerTabId, async () => {
@@ -4761,7 +4784,7 @@ NaN
         data.autoResume = true;
         current = restoredTask.state === 'paused' ? '' : restoredTask.id;
         if (restoredTask.state === 'blocked') prepareTaskForRecovery(restoredTask, { automatic:true });
-        armWorkspaceRecoveryIdentity(restoredTask);
+        armWorkspaceRecoveryIdentity(restoredTask, { allowStaticFinal: !automatic });
         lastSwitch = Date.now();
         save();
         paint();
@@ -4792,7 +4815,7 @@ NaN
     if (!ownerTabId || ownerTabId === tabId) return false;
     automaticRecoveryBusy = true;
     try {
-      const result = await restoreWorkspace(ownerTabId, true);
+      const result = await restoreWorkspace(ownerTabId, true, { automatic:true });
       if (result?.restored && result.taskId) {
         const task = data.tasks.find(item => item.id === result.taskId);
         if (task) log(task, '检测到原标签页心跳超时；已自动接管工作区，沿用原会话、发送标识和附件继续执行。');
