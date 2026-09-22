@@ -3187,7 +3187,19 @@
   function dismissUnexpectedModals(task = null) {
     const approvalContainers = cards().map(card => card.container);
     let dismissed = 0;
+
+    // Handle the history-only request-frequency popup semantically first. The
+    // current ChatGPT renderer may not expose role=dialog/aria-modal at all,
+    // so relying on popupDialogs() alone leaves the overlay blocking the task.
+    const historyPopup = historyAccessThrottlePopup();
+    if (historyPopup && !approvalContainers.some(container => container === historyPopup.container || historyPopup.container.contains(container) || container.contains(historyPopup.container))) {
+      activateControl(historyPopup.button);
+      dismissed++;
+      if (task) log(task, '检测到仅限制访问历史会话的“请求过于频繁”提示；已点击“明白了”，继续当前任务，不进入限流休息。');
+    }
+
     for (const dialog of popupDialogs()) {
+      if (!dialog.isConnected) continue;
       // A connector authorization card may itself be rendered inside a
       // dialog. Never close that card through the generic popup heuristic.
       const actions = nodes('button,[role="button"]', dialog).filter(enabled);
@@ -3805,8 +3817,35 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
   }
   function sendButtonFor(input) {
     const form = input?.closest('form') || document;
-    return nodes('button[data-testid="send-button"],button[aria-label="发送提示词"],button[aria-label="发送提示"],button[aria-label="Send prompt"],button[aria-label="发送消息"]', form).find(enabled)
-      || nodes('button', form).find(node => enabled(node) && /^(发送|send|submit)(?:\s|$)/i.test(label(node)));
+    const explicitSelectors = [
+      'button[data-testid="send-button"]',
+      'button[aria-label="发送"]',
+      'button[aria-label="发送消息"]',
+      'button[aria-label="发送提示词"]',
+      'button[aria-label="发送提示"]',
+      'button[aria-label="Send"]',
+      'button[aria-label="Send message"]',
+      'button[aria-label="Send prompt"]',
+      'button[title="发送"]',
+      'button[title="Send"]',
+      'button[title="Send message"]',
+    ].join(',');
+    return nodes(explicitSelectors, form).find(enabled)
+      || nodes('button,[role="button"]', form).find(node => {
+        if (!enabled(node)) return false;
+        const value = normalize(label(node));
+        return /^(?:发送|发送消息|发送提示词|发送提示|send|send message|send prompt|submit)$/iu.test(value);
+      });
+  }
+  async function waitForSendButton(input, signal, timeoutMs = 3000) {
+    const startedAt = Date.now();
+    let button = sendButtonFor(input);
+    while (!button && Date.now() - startedAt < timeoutMs) {
+      await delay(100, signal);
+      check(signal);
+      button = sendButtonFor(input);
+    }
+    return button;
   }
   function clearPendingContinuation(task) {
     if (!task) return;
