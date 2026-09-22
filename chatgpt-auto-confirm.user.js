@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.58
+// @version      2.9.59
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.58';
+  const VERSION = '2.9.59';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -89,7 +89,7 @@
   const ROUTE_RECOVERY_LIMIT = 2;
   const CONTINUATION_PROMPT = '继续完成所有';
   const CONTINUATION_SEND_COOLDOWN_MS = 60 * 1000;
-  const ABNORMAL_NO_FINAL_CONTINUE_AFTER_MS = 30 * 60 * 1000;
+  const ENDED_NO_FINAL_STABILITY_MS = 8000;
   const RATE_LIMIT_FRESH_RETRY_AFTER = 3;
   // The carry is normally much smaller than this. Keep a generous bound so a
   // long assistant reply can survive a conversation-length handoff without
@@ -2713,6 +2713,8 @@
       routeOwned:Boolean(sample?.routeOwned),
       foreignTaskId:String(sample?.foreignTaskId || ''),
       recoveredStaticCandidate:Boolean(sample?.recoveredStaticCandidate),
+      composerReady:Boolean(sample?.composerReady),
+      rawLoading:Boolean(sample?.rawLoading),
     });
   }
   function refreshStalledConversation(task, perform = true, now = Date.now()) {
@@ -2832,6 +2834,12 @@
     const article = assistant?.closest('article,[data-testid^="conversation-turn-"],[data-turn-key],[data-content-search-turn-key]') || assistant;
     const markdown = assistant?.querySelector('.markdown,[data-message-content],[data-selected-text-overlay-target]');
     const content = String(markdown?.textContent || assistant?.textContent || '').trim();
+    const naturalReplyNode = assistant?.querySelector('.markdown,[data-message-content]');
+    const hasNaturalReply = Boolean(
+      naturalReplyNode
+      && String(naturalReplyNode.textContent || '').trim()
+      && !naturalReplyNode.closest?.('[data-testid*="tool"],[data-type*="tool"],[class*="tool-call"],[class*="toolCall"]')
+    );
     // The ChatGPT renderer changes action data-testid values and can mount the
     // action row next to (or, briefly, outside) the response article. Text
     // stability alone is not a final-answer signal, but a single fixed
@@ -2995,6 +3003,7 @@
       responseActionsComplete,
       explicitFinal,
       streaming,
+      hasNaturalReply,
       article,
     };
   }
@@ -3025,20 +3034,32 @@
       if (recoveryUserBoundaryKey(latestMountedUser) !== String(identity.visibleUserBoundaryKey || '')) return scoped;
     }
 
-    // Normal recovery remains final-only. Explicit manual recovery gets one
-    // additional path: the exact route may expose stable assistant text while
-    // ChatGPT virtualizes both the Fabushi marker and the final toolbar. That
-    // candidate is only considered after the snapshotted user boundary remains
-    // unchanged; classify() applies a separate eight-second stability gate and
-    // all active/blocking UI states still veto completion.
+    // Normal recovery remains final-only. Explicit manual recovery gets two
+    // bounded capabilities after the snapshotted user boundary remains
+    // unchanged: a natural-language static reply can use the eight-second
+    // recovery-final gate, while a tool-only/empty assistant edge can still be
+    // owned for ended-conversation detection so the queue can send a
+    // continuation instead of waiting fifteen minutes.
     const candidate = latestTurn();
-    if (!candidate.text || stopButton() || cards().length) return scoped;
-    if (!candidate.final && (!identity.allowStaticFinal || candidate.streaming)) return scoped;
+    if (stopButton() || cards().length) return scoped;
+    if (!identity.allowStaticFinal) {
+      if (!candidate.text || !candidate.final) return scoped;
+      return {
+        ...candidate,
+        owned:true,
+        recoveredRouteOwned:true,
+      };
+    }
     return {
       ...candidate,
       owned:true,
       recoveredRouteOwned:true,
-      recoveredStaticCandidate:Boolean(!candidate.final && identity.allowStaticFinal),
+      recoveredStaticCandidate:Boolean(
+        candidate.text
+        && candidate.hasNaturalReply
+        && !candidate.final
+        && !candidate.streaming
+      ),
     };
   }
   const allowLabel = /^(?:允许|allow|approve|批准)$/i;
@@ -4218,6 +4239,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     }
     const stopPresent = turn.owned ? Boolean(stopButton()) : false;
     const rawLoading = Boolean(pageLoadingState());
+    const composerReady = Boolean(composer());
     // In a bound owned conversation, active generation exposes Stop. A
     // decorative/stale spinner without Stop must not mask an abnormal stop.
     const effectiveLoading = Boolean(rawLoading && (turn.recoveredStaticCandidate || !turn.owned || stopPresent));
@@ -4239,6 +4261,8 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       responseActionsComplete:turn.responseActionsComplete,
       explicitFinal:turn.explicitFinal,
       recoveredStaticCandidate:Boolean(turn.recoveredStaticCandidate),
+      composerReady,
+      rawLoading,
       // A current-turn streaming/busy marker is stronger evidence than the
       // temporary disappearance of Stop. Once final is true we intentionally
       // ignore a stale streaming marker so completed replies are not held.
@@ -4257,12 +4281,14 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       sample.routeOwned
       && sample.owned
       && !sample.final
+      && !sample.recoveredStaticCandidate
       && !sample.stop
       && !sample.streaming
       && !sample.cards
-      && !sample.loading
+      && !sample.rawLoading
       && !sample.rateLimit
       && !sample.blocker
+      && sample.composerReady
       && !task.attempted,
     );
     let abnormalNoFinalChanged = false;
@@ -4347,9 +4373,9 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       paint(); // Live preview is transient; streaming does not write localStorage.
     }
     if (abnormalNoFinalEligible
-      && abnormalNoFinalFor >= ABNORMAL_NO_FINAL_CONTINUE_AFTER_MS
+      && abnormalNoFinalFor >= ENDED_NO_FINAL_STABILITY_MS
       && now - Number(task.continuationSentAt || 0) >= CONTINUATION_SEND_COOLDOWN_MS) {
-      if (await sendContinuation(task, signal, '当前会话连续 30 分钟没有得到最终回复', now)) return;
+      if (await sendContinuation(task, signal, '检测到当前会话已经结束但没有最终回复', now)) return;
     }
     if (stallEligible && refreshStalledConversation(task)) return;
     if (result.state === 'complete') { finish(task, sample.text); return; }
