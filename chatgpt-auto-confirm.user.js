@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.59
+// @version      2.9.60
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.59';
+  const VERSION = '2.9.60';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -1401,10 +1401,16 @@
     task.sessionUrls = urls.slice(-40);
     return canonical;
   }
-  function armRecoveredFinalIdentity(task, { allowStaticFinal = false } = {}) {
+  function armRecoveredFinalIdentity(task, { allowStaticFinal } = {}) {
     const url = canonicalConversationURL(task?.url);
     const token = String(task?.token || '');
     if (!task || !url || !token) return false;
+    // Manual recovery is a task-level capability, not a document-lifetime
+    // flag. Script/page reloads may re-arm the identity, but they must not
+    // silently downgrade an explicitly recovered task back to marker-only
+    // ownership. Fresh dispatch/finish clears explicitRecoveryActive.
+    const allowRecoveredStatic = Boolean(allowStaticFinal || task.explicitRecoveryActive);
+    if (allowRecoveredStatic) task.explicitRecoveryActive = true;
     const latestMountedUser = nodes('[data-message-author-role=user]').at(-1) || null;
     task.recoveredFinalIdentity = {
       url,
@@ -1412,7 +1418,7 @@
       phase:String(task.phase || 'work'),
       round:Number(task.round || 0),
       goalRevision:Number(task.goalRevision || 0),
-      ...(allowStaticFinal ? {
+      ...(allowRecoveredStatic ? {
         allowStaticFinal:true,
         visibleUserBoundaryKey:recoveryUserBoundaryKey(latestMountedUser),
       } : {}),
@@ -1752,10 +1758,17 @@
       task.preparedPrompt = '';
       task.dispatchOriginURL = '';
       task.dispatchStartedAt = 0;
+      task.explicitRecoveryActive = false;
     }
     delete task.pausedState;
     if (global) task.pauseRevision = revision;
     task.state = resumeState;
+    // A pause/resume boundary starts a fresh supervision window. Reusing the
+    // pre-pause progress observation can make an already-old 15-minute stall
+    // fire only seconds after the user explicitly resumes the task.
+    observations.delete(task.id);
+    task.abnormalNoFinalSince = 0;
+    task.abnormalNoFinalSignature = '';
     if (resumableStates.has(task.state)) armWorkspaceRecoveryIdentity(task, { allowStaticFinal: !global });
     task.updatedAt = Date.now();
     log(task, legacyBlocked && knownURL
@@ -3532,6 +3545,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
   }
   function clearDispatchIntent(task) {
     clearRecoveredFinalIdentity(task);
+    task.explicitRecoveryActive = false;
     task.preview = '';
     task.previewSourceURL = '';
     task.previewPhase = '';
@@ -4133,6 +4147,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.lengthLimitLastAt = 0;
     clearAbnormalFreshCarry(task);
     clearRecoveredFinalIdentity(task);
+    task.explicitRecoveryActive = false;
     task.noFinalReplyAttempts = 0;
     task.noFinalReplyRecoveryCycles = 0;
     task.noFinalReplyRecoveryUntil = 0;
@@ -4285,7 +4300,11 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && !sample.stop
       && !sample.streaming
       && !sample.cards
-      && !sample.rawLoading
+      // pageLoadingState() intentionally scans broad ChatGPT surfaces and can
+      // see stale/decorative progress UI from tool history. For an owned
+      // conversation, the enabled composer plus no Stop/streaming/cards is the
+      // authoritative idle signal. sample.loading remains conversation-scoped.
+      && !sample.loading
       && !sample.rateLimit
       && !sample.blocker
       && sample.composerReady
@@ -4317,6 +4336,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && !sample.rateLimit
       && !sample.blocker
       && !task.attempted
+      && !abnormalNoFinalEligible
       && stalledFor >= STALLED_REFRESH_MS,
     );
     const identityMismatchSince = sample.routeOwned && !sample.owned

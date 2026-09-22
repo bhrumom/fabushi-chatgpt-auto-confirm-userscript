@@ -152,8 +152,8 @@ test('a lost Stop control stays in the same conversation until the final toolbar
   assert.equal(h.classify({...sample,stop:true},previous,901_000).state,'generating');
   dom.window.close();
 });
-test('Stop disappearance with a visible composer never triggers an abnormal continuation',async()=>{
-  const {h,w,dom}=await fixture('<main><div class="animate-spin" aria-hidden="true"></div><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish all [Fabushi:stop-transition-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">normal reply has finished streaming but toolbar is not mounted yet</div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
+test('Stop disappearance with an active assistant busy marker never triggers an abnormal continuation',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish all [Fabushi:stop-transition-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant" aria-busy="true">normal reply is still active even though Stop is temporarily absent</div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   try {
     w.history.pushState({},'', '/c/stop-transition');
     const task={id:'stop-transition',ownerTabId:h.getTabId(),goal:'finish all',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/stop-transition',token:'stop-transition-token',attempted:false,messages:[],stopMissingSince:Date.now()-60_000,stopMissingSignature:'legacy-v2.9.54-state'};
@@ -165,11 +165,11 @@ test('Stop disappearance with a visible composer never triggers an abnormal cont
     task.abnormalNoFinalSignature='legacy-ended-candidate';
     await h.inspect(task,null);
     await h.inspect(task,null);
-    assert.equal(task.state,'waiting');
+    assert.equal(task.state,'generating','assistant-local busy state remains active generation');
     assert.equal(task.continuationCount||0,0);
     assert.equal(clicks,0);
     assert.equal(w.document.querySelector('#prompt-textarea').value,'');
-    assert.equal(task.abnormalNoFinalSince||0,0,'a visible loading spinner clears the ended-conversation timer');
+    assert.equal(task.abnormalNoFinalSince||0,0,'the active assistant busy marker clears the ended-conversation timer');
     assert.equal(task.messages.some(item=>/Stop 已消失.*异常停止/.test(item.text||'')),false);
   } finally {
     h.pause();
@@ -177,20 +177,21 @@ test('Stop disappearance with a visible composer never triggers an abnormal cont
   }
 });
 
-test('waiting response detects an ended bound conversation and continues after eight stable seconds',async()=>{
-  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish all [Fabushi:ended-waiting-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div data-testid="tool-call-result">已调用工具</div></div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
+test('waiting response detects an ended bound conversation and continues after eight stable seconds even with a stale page loader',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish all [Fabushi:ended-waiting-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div data-testid="tool-call-result">已调用工具</div></div></article><div role="status" class="loading"><svg></svg>Loading history</div><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   try {
     w.history.pushState({},'', '/c/ended-waiting');
     const task={id:'ended-waiting',ownerTabId:h.getTabId(),goal:'finish all',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/ended-waiting',token:'ended-waiting-token',attempted:false,messages:[]};
     h.data.tasks.push(task);
     let clicks=0;
     w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>clicks++);
+    assert.match(h.pageLoadingState(),/正在加载/,'the page-global loader is deliberately still visible');
     await h.start(false);
 
     await h.inspect(task,null);
     assert.equal(task.state,'waiting');
     assert.equal(task.continuationCount||0,0);
-    assert.ok(Number(task.abnormalNoFinalSince)>0,'waiting inspection starts the ended-conversation stability timer');
+    assert.ok(Number(task.abnormalNoFinalSince)>0,'waiting inspection starts the ended-conversation stability timer despite the stale page loader');
 
     task.abnormalNoFinalSince=Date.now()-9_000;
     await h.inspect(task,null);
@@ -1244,6 +1245,37 @@ test('pause marks active tasks and resume restores their runnable states',async(
   assert.equal(queued.pausedState,undefined);
   dom.window.close();
 });
+test('manual resume clears stale supervision observations before rechecking the conversation',async()=>{
+  const {h,dom}=await fixture();
+  const task=h.enqueue('resume without stale refresh','once');
+  Object.assign(task,{
+    state:'paused',
+    pausedState:'waiting',
+    phase:'work',
+    round:2,
+    goalRevision:3,
+    url:'https://chatgpt.com/c/resume-reset-observation',
+    token:'resume-reset-token',
+    attempted:false,
+    abnormalNoFinalSince:Date.now()-30*60*1000,
+    abnormalNoFinalSignature:'old-ended-signature',
+  });
+  h.observations.set(task.id,{
+    text:'old tool result',
+    clear:true,
+    progressSignature:'old-progress',
+    progressSince:Date.now()-30*60*1000,
+    since:Date.now()-30*60*1000,
+  });
+  assert.equal(await h.resumeTask(task),true);
+  assert.equal(h.observations.has(task.id),false);
+  assert.equal(task.abnormalNoFinalSince,0);
+  assert.equal(task.abnormalNoFinalSignature,'');
+  assert.equal(task.explicitRecoveryActive,true);
+  h.pause();
+  dom.window.close();
+});
+
 test('continue button starts a paused task instead of restoring a terminal blocked state',async()=>{
   const {w,h,dom}=await fixture();
   const paused=h.enqueue('continue','goal');
@@ -2267,6 +2299,51 @@ test('startup auto-resume arms recovered-final identity for the exact persisted 
   dom.window.close();
 });
 
+test('startup re-arm preserves explicit manual recovery across a document reload',async()=>{
+  const owner='startup-explicit-recovery-owner';
+  const task={
+    id:'startup-explicit-recovery',
+    ownerTabId:owner,
+    goal:'继续手动恢复的任务',
+    goalRevision:9,
+    mode:'once',
+    phase:'work',
+    round:6,
+    state:'waiting',
+    url:'https://chatgpt.com/c/startup-explicit-recovery',
+    token:'startup-explicit-token',
+    attempted:false,
+    explicitRecoveryActive:true,
+    messages:[],
+    updatedAt:Date.now(),
+  };
+  const {h,dom}=await fixture('',window=>{
+    window.history.replaceState({},'', '/c/startup-explicit-recovery');
+    window.sessionStorage.setItem('fabushi-workbench-tab-session-v1',owner);
+    window.localStorage.setItem('fabushi-workbench-v2',JSON.stringify({
+      tasks:[task],
+      deletedTaskIds:[],
+      selected:task.id,
+      selectedByTab:{[owner]:task.id},
+      tabControls:{[owner]:{autoResume:true,lastDispatchAt:0,controlRevision:0,pausedAt:0,globalAutoApprove:false,autoApprove:true}},
+    }));
+  });
+  const restored=h.data.tasks.find(item=>item.id===task.id);
+  assert.ok(restored);
+  assert.equal(restored.explicitRecoveryActive,true);
+  assert.deepEqual(JSON.parse(JSON.stringify(restored.recoveredFinalIdentity)),{
+    url:'https://chatgpt.com/c/startup-explicit-recovery',
+    token:'startup-explicit-token',
+    phase:'work',
+    round:6,
+    goalRevision:9,
+    allowStaticFinal:true,
+    visibleUserBoundaryKey:'',
+  });
+  h.pause();
+  dom.window.close();
+});
+
 test('automatic recovery ignores healthy, paused and ambiguous workspaces',async()=>{
   const makeTask=(owner,id,state='waiting')=>({id,ownerTabId:owner,goal:id,mode:'once',phase:'work',round:1,state,url:'https://chatgpt.com/c/'+id,token:id+'-token',attempted:false,attachments:[],messages:[]});
   const healthyOwner='healthy-owner';
@@ -2543,8 +2620,8 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.59$/m);
-  assert.match(source,/const VERSION = '2\.9\.59'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.60$/m);
+  assert.match(source,/const VERSION = '2\.9\.60'/);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const ENDED_NO_FINAL_STABILITY_MS = 8000/);
   assert.doesNotMatch(source,/ABNORMAL_NO_FINAL_CONTINUE_AFTER_MS/);
