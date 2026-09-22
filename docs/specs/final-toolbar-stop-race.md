@@ -1,6 +1,6 @@
 # Final-toolbar / Stop-disappearance race — Specification
 
-Status: active
+Status: completed
 Owner: ChatGPT auto-confirm userscript
 Last updated: 2026-09-22
 Related issue/task/PR: user live incident 2026-09-22 / follow-up to v2.9.54
@@ -165,7 +165,14 @@ Pre-merge implementation evidence:
   - Stop disappearance with a visible composer never triggers an abnormal continuation.
   - A late sibling final toolbar completes normally without injecting continuation.
   - An older unassociated toolbar cannot complete the latest assistant turn.
-- Merge SHA, canonical-main Test, v2.9.55 Release workflow, release asset digest and final source readback remain pending until delivery completes.
+- Final PR head: `b32b7b7fecc2747db0f72cdf332f6dfe00c06364`.
+- Exact-head Test run: `35687725747`, conclusion `success`.
+- PR #66 squash merge / canonical source SHA: `10eb221ec8dda9d670e72a331a63f54e312f84cb`.
+- Canonical-main Test run: `35687774100`, conclusion `success`; `167/167 PASS`, `0 FAIL`.
+- Release workflow run: `35687808003`, conclusion `success`.
+- GitHub Release: `v2.9.55`, published 2026-09-22T04:41:37Z from target `10eb221ec8dda9d670e72a331a63f54e312f84cb`.
+- Release asset: `chatgpt-auto-confirm.user.js`, 276346 bytes, digest `sha256:db45f7217e593da56a4efa426102a574a0691c55d1bf2d2dc5f7211dd26c2437`.
+- Final source readback reports both metadata `@version 2.9.55` and runtime `VERSION = '2.9.55'`.
 
 ## 16. References / provenance
 
@@ -181,8 +188,8 @@ Pre-merge implementation evidence:
 
 | Requirement / AC | Status | Evidence / reason |
 | --- | --- | --- |
-| R1-R14 | passed | PR #66 removes the 15-second Stop-missing continuation path, leaves Stop disappearance in waiting, expands final action detection to sources/more, constrains sibling action rows to the latest response lane, and bumps runtime/metadata to 2.9.55. Focused regressions passed in run 35687647581. |
-| R15 | pending | Final delivery still requires exact-head gate on the final PR head, canonical-main Test, and Release workflow. |
-| AC-1-AC-6 | passed | Run 35687647581 passed 167/167 tests including the three focused live-race regressions and all existing abnormal-recovery coverage. |
-| AC-7 | pending | The implementation head 63e3d123e0489031655c7952d75b9f79a6b4c70d is green; this compliance-record update changes the PR head, so the final exact-head Test must pass before merge. |
-| AC-8 | pending | Merge/main/release pending. |
+| R1-R14 | passed | PR #66 removes the 15-second Stop-missing continuation path, leaves Stop disappearance in waiting, expands final action detection to sources/more, constrains sibling action rows to the latest response lane, and bumps runtime/metadata to 2.9.55. |
+| R15 | passed | Final exact-head Test run 35687725747 passed before merge; canonical-main Test run 35687774100 and Release run 35687808003 both succeeded. |
+| AC-1-AC-6 | passed | Both the exact-head and canonical-main suites passed 167/167 tests, including the three focused live-race regressions and all existing explicit abnormal-recovery coverage. |
+| AC-7 | passed | Final PR head b32b7b7fecc2747db0f72cdf332f6dfe00c06364 passed Test run 35687725747 before PR #66 merged. |
+| AC-8 | passed | Canonical source SHA 10eb221ec8dda9d670e72a331a63f54e312f84cb passed Test run 35687774100; Release run 35687808003 published v2.9.55 with the recorded asset digest. |
