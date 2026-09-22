@@ -3493,6 +3493,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.connectionInterruptedRefreshAttempts = 0;
     task.connectionInterruptedRefreshAt = 0;
     task.connectionInterruptedRefreshExhausted = false;
+    task.immediateFreshDispatch = false;
     task.abnormalNoFinalSince = 0;
     task.abnormalNoFinalSignature = '';
     clearPendingContinuation(task);
