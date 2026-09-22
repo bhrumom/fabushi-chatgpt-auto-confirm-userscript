@@ -161,13 +161,75 @@ test('Stop disappearance with a visible composer never triggers an abnormal cont
     let clicks=0;
     w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>clicks++);
     await h.start();
+    task.abnormalNoFinalSince=Date.now()-60_000;
+    task.abnormalNoFinalSignature='legacy-ended-candidate';
     await h.inspect(task,null);
     await h.inspect(task,null);
     assert.equal(task.state,'waiting');
     assert.equal(task.continuationCount||0,0);
     assert.equal(clicks,0);
     assert.equal(w.document.querySelector('#prompt-textarea').value,'');
+    assert.equal(task.abnormalNoFinalSince||0,0,'a visible loading spinner clears the ended-conversation timer');
     assert.equal(task.messages.some(item=>/Stop 已消失.*异常停止/.test(item.text||'')),false);
+  } finally {
+    h.pause();
+    dom.window.close();
+  }
+});
+
+test('waiting response detects an ended bound conversation and continues after eight stable seconds',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish all [Fabushi:ended-waiting-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div data-testid="tool-call-result">已调用工具</div></div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
+  try {
+    w.history.pushState({},'', '/c/ended-waiting');
+    const task={id:'ended-waiting',ownerTabId:h.getTabId(),goal:'finish all',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/ended-waiting',token:'ended-waiting-token',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    let clicks=0;
+    w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>clicks++);
+    await h.start(false);
+
+    await h.inspect(task,null);
+    assert.equal(task.state,'waiting');
+    assert.equal(task.continuationCount||0,0);
+    assert.ok(Number(task.abnormalNoFinalSince)>0,'waiting inspection starts the ended-conversation stability timer');
+
+    task.abnormalNoFinalSince=Date.now()-9_000;
+    await h.inspect(task,null);
+
+    assert.equal(task.state,'waiting');
+    assert.equal(task.continuationCount,1);
+    assert.equal(clicks,1);
+    assert.equal(w.document.querySelector('#prompt-textarea').value,'继续完成所有');
+    assert.match(task.messages.at(-1).text,/检测到当前会话已经结束但没有最终回复/);
+    assert.match(task.messages.at(-1).text,/原会话输入并发送“继续完成所有”/);
+    assert.equal(task.stalledRefreshAttempts||0,0,'ended-response continuation happens before the fifteen-minute stalled refresh');
+  } finally {
+    h.pause();
+    dom.window.close();
+  }
+});
+
+test('manual recovered marker-virtualized tool-only conversation also continues instead of waiting fifteen minutes',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user" data-message-id="older-user">更早的普通用户消息</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div data-testid="tool-call-result">已调用工具</div></div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
+  try {
+    w.history.pushState({},'', '/c/recovered-ended-tool-only');
+    const task={id:'recovered-ended-tool-only',ownerTabId:h.getTabId(),goal:'继续完成任务',goalRevision:3,mode:'once',phase:'work',round:2,state:'blocked',url:'https://chatgpt.com/c/recovered-ended-tool-only',token:'virtualized-task-token',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    assert.equal(h.prepareTaskForRecovery(task),true);
+    assert.equal(task.state,'waiting');
+    assert.equal(task.recoveredFinalIdentity.allowStaticFinal,true);
+    let clicks=0;
+    w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>clicks++);
+    await h.start(false);
+
+    await h.inspect(task,null);
+    assert.ok(Number(task.abnormalNoFinalSince)>0,'explicit recovery owns the exact tool-only edge for ended-state detection');
+    task.abnormalNoFinalSince=Date.now()-9_000;
+    await h.inspect(task,null);
+
+    assert.equal(task.continuationCount,1);
+    assert.equal(clicks,1);
+    assert.equal(w.document.querySelector('#prompt-textarea').value,'继续完成所有');
+    assert.equal(task.stalledRefreshAttempts||0,0);
   } finally {
     h.pause();
     dom.window.close();
@@ -2481,9 +2543,11 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.58$/m);
-  assert.match(source,/const VERSION = '2\.9\.58'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.59$/m);
+  assert.match(source,/const VERSION = '2\.9\.59'/);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
+  assert.match(source,/const ENDED_NO_FINAL_STABILITY_MS = 8000/);
+  assert.doesNotMatch(source,/ABNORMAL_NO_FINAL_CONTINUE_AFTER_MS/);
   assert.doesNotMatch(source,/AMBIGUOUS_SEND_REFRESH_MS|AMBIGUOUS_SEND_REFRESH_LIMIT/);
   assert.doesNotMatch(source,/STOP_MISSING_CONTINUE_GRACE_MS|stopMissingSince|stopMissingSignature/);
   assert.doesNotMatch(source,/CONNECTION_INTERRUPTED_REFRESH_COOLDOWN_MS/);
