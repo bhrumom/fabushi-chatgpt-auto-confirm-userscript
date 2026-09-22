@@ -19,8 +19,9 @@ async function createHarness(body) {
   const { window } = dom;
   window.Element.prototype.getClientRects = () => [{ width: 1, height: 1 }];
   window.navigator.locks = {
-    request(_name, _options, callback) {
-      return Promise.resolve(callback({}));
+    request(_name, options, callback) {
+      const handler = typeof options === 'function' ? options : callback;
+      return Promise.resolve(handler({}));
     },
     query() {
       return Promise.resolve({ held: [] });
