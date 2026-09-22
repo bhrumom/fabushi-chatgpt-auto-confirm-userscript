@@ -2633,7 +2633,7 @@
     sameRouteWaitUntil = 0;
     sameRouteWaitSince = 0;
     observations.delete(task.id);
-    const carrySourceNote = task.abnormalFreshCarrySourceKind === 'exact-route-latest-assistant'
+    const carrySourceNote = String(task.abnormalFreshCarrySourceKind || '').startsWith('exact-route-')
       ? '已在任务标识被页面虚拟化后，通过当前任务精确 conversation URL 回退读取最新 assistant 工作内容；'
       : task.abnormalFreshCarrySourceKind === 'owned-preview'
         ? '已从本任务此前确认归属的实时预览恢复 assistant 工作内容；'
