@@ -1,6 +1,6 @@
 # Route-owned ended detection without a mounted task marker — Specification
 
-Status: in progress
+Status: completed
 Owner: ChatGPT auto-confirm userscript
 Last updated: 2026-09-22
 Related incident: marker-virtualized bound conversation can remain waiting unless the user manually pauses/resumes after upgrade
@@ -97,6 +97,28 @@ If this task's marker is still visible but a newer user turn exists, the route-o
 - AC-8: A history-only “请求过于频繁” popup is acknowledged and dismissed without interrupting current/new conversation progress.
 - AC-9: Genuine request-wide rate limits still enter the existing cooldown path.
 
-## 8. Spec compliance record
+## 8. Delivery evidence
 
-Pending implementation and verification.
+- Implementation PR: #77.
+- Final exact-head SHA: `d1f553b0aca958713349a91f407765f34a5bf84d`.
+- Exact-head Test run: `35737758907`, conclusion `success`; full suite `180/180 PASS`, `0 FAIL`.
+- Squash merge / canonical source SHA: `5fccb9fe2aa373fd96ebbdd475abce7c854a631f`.
+- Canonical-main Test run: `35737960692`, conclusion `success`.
+- Release workflow run: `35738026859`, conclusion `success`.
+- GitHub Release: `v2.9.61`, published 2026-09-22T14:06:51Z from `5fccb9fe2aa373fd96ebbdd475abce7c854a631f`.
+- Release asset: `chatgpt-auto-confirm.user.js`, 286303 bytes, SHA-256 `c5e99b7bf5df52c9e3dcb97b6cd7e362a4df1afa79ec8909563ef44ea343b6c1`.
+- Canonical main readback reports metadata `@version 2.9.61` and runtime `VERSION = '2.9.61'`.
+
+## 9. Spec compliance record
+
+| Requirement / AC | Status | Evidence / reason |
+| --- | --- | --- |
+| R1-R6 | passed | Waiting supervision has a route-owned ended-detection predicate separate from reply ownership. Exact URL, competing URL owner, visible foreign marker and still-mounted-own-marker contradiction checks remain fail-closed. |
+| R7-R12 | passed | Route-only continuation requires an empty enabled composer, no Stop/streaming/loading/approval/blocker/rate-limit/ambiguous-send state, an 8-second stable signature including user-boundary/activity evidence, and cannot race the 15-minute stalled refresh. It never attributes assistant text as a final result. |
+| R13-R16 | passed | Regressions cover marker-virtualized startup continuation without manual recovery, user-draft protection, newer-user-turn rejection, stale-loader handling, resume observation reset and explicit-recovery persistence. |
+| R17 | passed | Metadata/runtime/version assertions report 2.9.61. |
+| R18 | passed | Exact-head Test 35737758907 passed before merge; canonical-main Test 35737960692 and Release 35738026859 succeeded. |
+| R19-R23 | passed | History-only “请求过于频繁” dialogs are recognized separately from true request-wide throttling, their explicit “明白/知道了/Got it/OK” action is activated, and `rateLimitNotice()` ignores them. Existing genuine request-limit regression remains green. |
+| AC-1-AC-5 | passed | Waiting-state end detection survives marker virtualization without a manual pause/resume while keeping route-only logic continuation-only and protecting user drafts/newer user turns. |
+| AC-6-AC-7 | passed | Exact-head, canonical-main and Release workflows succeeded and canonical main/Release report v2.9.61. |
+| AC-8-AC-9 | passed | History-only frequency popup handling continues current/new conversations without cooldown while genuine request-wide rate limits retain existing cooldown behavior. |
