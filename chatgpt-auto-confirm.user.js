@@ -3842,7 +3842,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     let button = sendButtonFor(input);
     while (!button && Date.now() - startedAt < timeoutMs) {
       await delay(100, signal);
-      check(signal);
+      if (signal?.aborted) throw new Error('已暂停');
       button = sendButtonFor(input);
     }
     return button;
@@ -3887,7 +3887,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       }
       return false;
     }
-    check(signal);
+    if (signal?.aborted || task.state === 'paused' || task.state === 'cancelled') throw new Error('已暂停');
     // Commit the UI action first. Any legacy pending-continuation state is
     // cleared only after the Send activation has actually been issued.
     activateControl(button);
