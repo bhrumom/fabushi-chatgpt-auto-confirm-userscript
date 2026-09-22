@@ -1762,7 +1762,7 @@
       ? '已从旧记录恢复本轮会话链接；继续按链接监控，不等待侧栏。'
       : global
         ? '已恢复全部暂停任务，继续监控并按当前目标推进。'
-        : '已恢复当前任务，其他暂停任务保持暂停。');
+        : '已恢复当前任务，其他暂停任务保持暂停；正在立即检查当前会话是否已有最终回复。');
     return true;
   }
   function restorePausedTasks(revision = Number(data.controlRevision || 0)) {
@@ -3236,7 +3236,7 @@
     // No Stop button is only an intermediate observation. Connector approval,
     // tool execution and renderer transitions all legitimately hide Stop.
     // Without the current reply toolbar, stay bound to this conversation. The
-    // independent three-minute stall watchdog may refresh this same URL, but
+    // independent stalled-conversation watchdog may refresh this same URL, but
     // classification must never create a fresh chat from Stop disappearance.
     return { state:'waiting' };
   }
@@ -4220,7 +4220,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const rawLoading = Boolean(pageLoadingState());
     // In a bound owned conversation, active generation exposes Stop. A
     // decorative/stale spinner without Stop must not mask an abnormal stop.
-    const effectiveLoading = Boolean(rawLoading && (!turn.owned || stopPresent));
+    const effectiveLoading = Boolean(rawLoading && (turn.recoveredStaticCandidate || !turn.owned || stopPresent));
     const sample = {
       stop:stopPresent,
       cards:turn.owned ? pending.length : 0,
