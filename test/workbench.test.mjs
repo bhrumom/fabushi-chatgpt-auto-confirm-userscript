@@ -1671,31 +1671,30 @@ test('generic stalled conversation refresh cooldown is fifteen minutes while amb
   dom.window.close();
 });
 
-test('unbound ambiguous send refreshes every three minutes and only then opens a fresh retry',async()=>{
+test('unbound ambiguous send older than 90 seconds immediately queues a fresh resend without refresh delay',async()=>{
   const {h,w,dom}=await fixture();
   w.history.pushState({},'', '/c/old-conversation');
-  const task={id:'sent-unbound',goal:'review once',mode:'goal',round:1,state:'sending',phase:'review',url:'',token:'one-dispatch',attempted:true,dispatchOriginURL:'https://chatgpt.com/c/old-conversation',sentAt:1,messages:[]};
+  const attachments=[{id:'proof',name:'proof.png',type:'image/png',size:12,lastModified:1}];
+  const task={id:'sent-unbound',ownerTabId:h.getTabId(),goal:'review once',next:'keep the same next step',mode:'goal',round:3,state:'sending',phase:'review',url:'',token:'one-dispatch',attempted:true,dispatchOriginURL:'https://chatgpt.com/c/old-conversation',sentAt:1,attachments,messages:[]};
   h.data.tasks.push(task);
+  h.data.lastDispatchAt=999_999;
   h.stopAmbiguousSend(task,false,1_000_000);
-  assert.equal(task.state,'sending');
-  assert.equal(task.url,'');
-  assert.equal(task.token,'one-dispatch');
-  assert.equal(task.attempted,true);
-  assert.equal(task.ambiguousSendRefreshAttempts,1);
-  assert.equal(task.ambiguousSendRefreshAt,1_000_000);
-  assert.match(task.messages.at(-1).text,/每 3 分钟/);
-  h.stopAmbiguousSend(task,false,1_060_000);
-  assert.equal(task.ambiguousSendRefreshAttempts,1,'cooldown prevents a rapid refresh loop');
-  task.ambiguousSendRefreshAttempts=4;
-  task.ambiguousSendRefreshAt=1_000_000;
-  h.stopAmbiguousSend(task,false,1_180_001);
   assert.equal(task.state,'queued');
   assert.equal(task.url,'');
-  assert.equal(task.token,'','a fresh retry gets a new dispatch token');
+  assert.equal(task.token,'','the stale ambiguous dispatch token is discarded before a fresh send');
   assert.equal(task.attempted,false);
-  assert.equal(task.noFinalReplyAttempts,1);
+  assert.equal(task.immediateFreshDispatch,true);
+  assert.equal(task.ambiguousFreshRetryCount,1);
   assert.equal(task.ambiguousSendRefreshAttempts,0);
-  assert.match(task.messages.at(-1).text,/新开 Work\/规划会话原样重发/);
+  assert.equal(task.ambiguousSendRefreshAt,0);
+  assert.equal(task.phase,'review');
+  assert.equal(task.round,3);
+  assert.equal(task.goal,'review once');
+  assert.equal(task.next,'keep the same next step');
+  assert.deepEqual(task.attachments,attachments);
+  assert.equal(h.taskDeferredUntil(task,1_000_000),1_000_000,'the one-shot recovery resend bypasses the ordinary dispatch cooldown');
+  assert.match(task.messages.at(-1).text,/立即放弃未绑定发送并新开 ChatGPT 会话原样重发/);
+  assert.match(task.messages.at(-1).text,/不再刷新旧页面或等待 3 分钟/);
   dom.window.close();
 });
 test('edited goal is persisted and replaces stale next-round instructions',async()=>{
@@ -2164,6 +2163,48 @@ test('a fresh ChatGPT document automatically adopts the only stale running works
   dom.window.close();
 });
 
+test('startup auto-resume arms recovered-final identity for the exact persisted conversation',async()=>{
+  const owner='startup-recovered-owner';
+  const task={
+    id:'startup-recovered-final',
+    ownerTabId:owner,
+    goal:'继续已恢复任务',
+    goalRevision:6,
+    mode:'once',
+    phase:'work',
+    round:5,
+    state:'waiting',
+    url:'https://chatgpt.com/c/startup-recovered-final',
+    token:'startup-recovered-token',
+    attempted:false,
+    messages:[],
+    updatedAt:Date.now(),
+  };
+  const {h,dom}=await fixture('',window=>{
+    window.history.replaceState({},'', '/c/startup-recovered-final');
+    window.sessionStorage.setItem('fabushi-workbench-tab-session-v1',owner);
+    window.localStorage.setItem('fabushi-workbench-v2',JSON.stringify({
+      tasks:[task],
+      deletedTaskIds:[],
+      selected:task.id,
+      selectedByTab:{[owner]:task.id},
+      tabControls:{[owner]:{autoResume:true,lastDispatchAt:0,controlRevision:0,pausedAt:0,globalAutoApprove:false,autoApprove:true}},
+    }));
+  });
+  const restored=h.data.tasks.find(item=>item.id===task.id);
+  assert.ok(restored);
+  assert.deepEqual(JSON.parse(JSON.stringify(restored.recoveredFinalIdentity)),{
+    url:'https://chatgpt.com/c/startup-recovered-final',
+    token:'startup-recovered-token',
+    phase:'work',
+    round:5,
+    goalRevision:6,
+  });
+  assert.equal(h.getCurrent(),task.id);
+  h.pause();
+  dom.window.close();
+});
+
 test('automatic recovery ignores healthy, paused and ambiguous workspaces',async()=>{
   const makeTask=(owner,id,state='waiting')=>({id,ownerTabId:owner,goal:id,mode:'once',phase:'work',round:1,state,url:'https://chatgpt.com/c/'+id,token:id+'-token',attempted:false,attachments:[],messages:[]});
   const healthyOwner='healthy-owner';
@@ -2440,10 +2481,10 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.56$/m);
-  assert.match(source,/const VERSION = '2\.9\.56'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.57$/m);
+  assert.match(source,/const VERSION = '2\.9\.57'/);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
-  assert.match(source,/const AMBIGUOUS_SEND_REFRESH_MS = 3 \* 60 \* 1000/);
+  assert.doesNotMatch(source,/AMBIGUOUS_SEND_REFRESH_MS|AMBIGUOUS_SEND_REFRESH_LIMIT/);
   assert.doesNotMatch(source,/STOP_MISSING_CONTINUE_GRACE_MS|stopMissingSince|stopMissingSignature/);
   assert.doesNotMatch(source,/CONNECTION_INTERRUPTED_REFRESH_COOLDOWN_MS/);
   assert.doesNotMatch(source,/function refreshInterruptedConversation/);

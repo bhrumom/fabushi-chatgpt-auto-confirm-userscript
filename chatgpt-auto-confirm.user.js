@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.56
+// @version      2.9.57
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.56';
+  const VERSION = '2.9.57';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -73,11 +73,10 @@
   // A page that remains unchanged can therefore be retried forever, but never
   // more than once per fifteen minutes.
   const STALLED_REFRESH_COOLDOWN_MS = STALLED_REFRESH_MS;
-  // Ambiguous Send confirmation is a separate recovery path. Keep its existing
-  // three-minute cadence instead of inheriting the much longer generic stall
-  // threshold, so an unbound click can still be resolved in bounded time.
-  const AMBIGUOUS_SEND_REFRESH_MS = 3 * 60 * 1000;
-  const AMBIGUOUS_SEND_REFRESH_LIMIT = NO_FINAL_REPLY_RETRY_LIMIT;
+  // Ambiguous Send confirmation gets one bounded 90-second window. If the
+  // current round still has no bindable conversation after that window, the
+  // recovery policy is an immediate fresh-chat resend rather than repeated
+  // reloads of an unowned page.
   // A permanent page error must not create a hot loop of new conversations.
   // The first blocked recovery is immediate; repeated failures remain queued
   // and retry automatically with a short exponential delay, never as a
@@ -1479,7 +1478,7 @@
     if (navigationRetryAt > now && !taskMatchesCurrentConversation(task)) deadlines.push(navigationRetryAt);
     const attachmentRetryAt = Number(task.attachmentUploadRetryAt || 0);
     if (!task.url && task.attachmentUploadFailed && attachmentRetryAt > now) deadlines.push(attachmentRetryAt);
-    if (!task.url && !task.attempted && !task.connectionInterruptedFreshDispatch) {
+    if (!task.url && !task.attempted && !task.connectionInterruptedFreshDispatch && !task.immediateFreshDispatch) {
       const dispatchWait = dispatchCooldownRemaining(now);
       if (dispatchWait > 0) deadlines.push(now + dispatchWait);
     }
@@ -1732,6 +1731,7 @@
     delete task.pausedState;
     if (global) task.pauseRevision = revision;
     task.state = resumeState;
+    if (resumableStates.has(task.state)) armWorkspaceRecoveryIdentity(task);
     task.updatedAt = Date.now();
     log(task, legacyBlocked && knownURL
       ? '已从旧记录恢复本轮会话链接；继续按链接监控，不等待侧栏。'
@@ -3448,31 +3448,20 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     if (perform && currentConversationURL() !== boundURL) directNavigate(new URL(boundURL), task);
     return true;
   }
-  const attempts = Number(task.ambiguousSendRefreshAttempts || 0);
-  const lastRefreshAt = Number(task.ambiguousSendRefreshAt || 0);
-  if (lastRefreshAt && now - lastRefreshAt < AMBIGUOUS_SEND_REFRESH_MS) {
-    task.state = 'sending';
-    return false;
-  }
-  if (attempts >= AMBIGUOUS_SEND_REFRESH_LIMIT) {
-    resetAmbiguousSendRecovery(task);
-    return queueNoFinalReplyRetry(task, `原消息发送结果持续无法绑定本轮会话；已按每 3 分钟一次的间隔恢复 ${AMBIGUOUS_SEND_REFRESH_LIMIT} 次仍无法确认`);
-  }
-  const nextAttempt = attempts + 1;
-  task.ambiguousSendRefreshAttempts = nextAttempt;
-  task.ambiguousSendRefreshAt = now;
-  task.state = 'sending';
-  log(task, `原消息发送结果超过 90 秒仍无法确认，且尚无本轮绑定会话；正在刷新当前页面（第 ${nextAttempt}/${AMBIGUOUS_SEND_REFRESH_LIMIT} 次）。刷新后会重新判断当前页面和会话状态；若仍无法绑定，将每 3 分钟继续恢复，持续失败后自动新开会话原样重发。`);
+  const retryCount = Number(task.ambiguousFreshRetryCount || 0) + 1;
+  clearDispatchIntent(task);
+  task.ambiguousFreshRetryCount = retryCount;
+  task.immediateFreshDispatch = true;
+  task.noFinalReplyRecoveryUntil = 0;
+  task.cooldownUntil = 0;
+  task.navigationGuardRetryAt = 0;
+  task.state = 'queued';
+  task.updatedAt = now;
+  delete task.pausedState;
+  sameRouteWaitUntil = 0;
+  sameRouteWaitSince = 0;
+  log(task, `原消息发送结果超过 90 秒仍无法确认，且尚无本轮绑定会话；已立即放弃未绑定发送并新开 ChatGPT 会话原样重发（第 ${retryCount} 次），不再刷新旧页面或等待 3 分钟。phase、round、目标/next 和附件保持不变。`);
   save();
-  if (!perform) return true;
-  navigating = true;
-  try { location.reload(); } catch (error) {
-    navigating = false;
-    task.state = 'sending';
-    log(task, `发送确认恢复刷新失败：${error.message}；已保留原发送标识，3 分钟后继续尝试。`);
-    save();
-    return false;
-  }
   return true;
 }
   function noFinalReplyBackoffMs(cycle) {
@@ -3504,6 +3493,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.connectionInterruptedRefreshAttempts = 0;
     task.connectionInterruptedRefreshAt = 0;
     task.connectionInterruptedRefreshExhausted = false;
+    task.immediateFreshDispatch = false;
     task.abnormalNoFinalSince = 0;
     task.abnormalNoFinalSignature = '';
     clearPendingContinuation(task);
@@ -3838,7 +3828,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     dismissUnexpectedModals(task);
     if (stopButton() || cards().length) throw new Error('当前页面仍在生成或等待授权，禁止发送。');
     if (blocker()) throw new Error(blocker());
-    const dispatchWait = task.connectionInterruptedFreshDispatch ? 0 : dispatchCooldownRemaining();
+    const dispatchWait = (task.connectionInterruptedFreshDispatch || task.immediateFreshDispatch) ? 0 : dispatchCooldownRemaining();
     if (dispatchWait > 0) {
       state(task, 'queued', `上一会话刚结束，插件正在休息 ${Math.ceil(dispatchWait / 1000)} 秒后再派发；不会连续发送会话。`);
       save();
@@ -3890,6 +3880,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     // the handoff to the new page.
     task.attempted = true;
     task.connectionInterruptedFreshDispatch = false;
+    task.immediateFreshDispatch = false;
     task.sendPrepared = false;
     task.sendUiWaitSince = 0;
     task.rendererRecoveryExhausted = false;
@@ -4426,10 +4417,9 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
             if (task.state !== 'sending') state(task, 'sending', '正在确认原消息，暂不重发，等待当前会话完成加载。');
             return;
           }
-          // An unconfirmed click is ambiguous: the server may have accepted
-          // it even if the current page cannot find the turn. Never clear the
-          // token and redispatch, because that creates duplicate Work/planner
-          // conversations. Stop and preserve all evidence for safe recovery.
+          // The send had a full 90-second confirmation window and one final
+          // safe adoption check. If no current-round conversation can still
+          // be bound, immediately fresh-resend the same phase/round payload.
           stopAmbiguousSend(task);
           return;
         }
@@ -4439,7 +4429,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
           nextScheduleMs = sameRouteWaitUntil - Date.now();
           return;
         }
-        const dispatchWait = task.connectionInterruptedFreshDispatch ? 0 : dispatchCooldownRemaining();
+        const dispatchWait = (task.connectionInterruptedFreshDispatch || task.immediateFreshDispatch) ? 0 : dispatchCooldownRemaining();
         if (dispatchWait > 0) {
           nextScheduleMs = dispatchWait;
           state(task, 'queued', `上一会话刚结束，插件正在休息 ${Math.ceil(dispatchWait / 1000)} 秒后再派发；不会连续发送会话。`);
@@ -5175,6 +5165,7 @@ NaN
         || tabTasks().find(item => item.id === selected && !terminal.has(item.state) && resumableStates.has(item.state))
         || tabTasks().find(item => !terminal.has(item.state) && resumableStates.has(item.state));
       if (resumable) {
+        armWorkspaceRecoveryIdentity(resumable);
         current = resumable.id;
         lastSwitch = Date.now();
         autoStart(resumable.id);
