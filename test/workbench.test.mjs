@@ -165,7 +165,7 @@ test('Stop disappearance with an active assistant busy marker never triggers an 
     task.abnormalNoFinalSignature='legacy-ended-candidate';
     await h.inspect(task,null);
     await h.inspect(task,null);
-    assert.equal(task.state,'waiting');
+    assert.equal(task.state,'generating','assistant-local busy state remains active generation');
     assert.equal(task.continuationCount||0,0);
     assert.equal(clicks,0);
     assert.equal(w.document.querySelector('#prompt-textarea').value,'');
