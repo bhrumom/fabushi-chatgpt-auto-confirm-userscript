@@ -3876,26 +3876,26 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       draft = '';
     }
     if (!draft) setInput(input, CONTINUATION_PROMPT);
-    let button = sendButtonFor(input);
+    const button = await waitForSendButton(input, signal, 3000);
     if (!button) {
       task.state = 'waiting';
-      return false;
-    }
-    await delay(300, signal);
-    check(signal);
-    button = sendButtonFor(input) || (enabled(button) ? button : null);
-    if (!button) {
-      task.state = 'waiting';
+      const lastWaitLogAt = Number(task.continuationSendUiWaitLogAt || 0);
+      if (!lastWaitLogAt || Date.now() - lastWaitLogAt >= 5000) {
+        task.continuationSendUiWaitLogAt = Date.now();
+        log(task, `已输入“${CONTINUATION_PROMPT}”，但 ChatGPT 发送按钮尚未出现或尚未可用；保留原会话与输入内容并继续重试，不刷新页面、不新开会话。`);
+        save();
+      }
       return false;
     }
     check(signal);
     // Commit the UI action first. Any legacy pending-continuation state is
-    // cleared only after the Send click has actually been issued.
-    button.click();
+    // cleared only after the Send activation has actually been issued.
+    activateControl(button);
     measurements.sends++;
     const sentAt = Date.now();
     task.continuationSentAt = sentAt;
     task.continuationCount = Number(task.continuationCount || 0) + 1;
+    task.continuationSendUiWaitLogAt = 0;
     task.connectionInterruptedSince = 0;
     task.connectionInterruptedURL = '';
     task.connectionInterruptedRefreshAttempts = 0;
