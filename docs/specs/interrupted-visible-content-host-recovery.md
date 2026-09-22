@@ -1,9 +1,9 @@
 # Interrupted visible-content host recovery — Specification
 
-Status: active
+Status: completed
 Owner: ChatGPT auto-confirm userscript
 Last updated: 2026-09-22
-Related issue/task/PR: user live incident 2026-09-22 / follow-up to PR #62 and v2.9.53
+Related issue/task/PR: user live incident 2026-09-22 / PR #64 / v2.9.54
 
 ## 1. Context / problem
 
@@ -129,7 +129,19 @@ Rollback by reverting the v2.9.54 behavior-changing merge. No schema rollback is
 
 ## 15. Observability / evidence
 
-Record branch/head SHA, PR, exact-head Test run, merge SHA, canonical-main Test run, Release workflow run, tag/asset, and final source readback.
+Completion evidence:
+
+- Implementation PR: #64.
+- Exact tested PR head: `bdd567229dff689db311d0d5613f1efd0ea724c4`.
+- Exact-head Test workflow: run `35684468559`, conclusion `success`; regression suite `165/165 PASS`, `0 FAIL`.
+- The immediately preceding run `35684416892` failed only because the packaging test still asserted v2.9.53; commit `bdd567229dff689db311d0d5613f1efd0ea724c4` updated that assertion to v2.9.54 before the successful exact-head gate.
+- Protected delivery action: PR #64 squash-merged only after the exact tested head was green.
+- Canonical main source merge SHA: `13a3f0bc4c24ee2502cfd23d330bf11bb4bd5f38`.
+- Canonical-main Test workflow: run `35684521310`, conclusion `success`; regression suite `165/165 PASS`, `0 FAIL`.
+- Release workflow: run `35684552169`, conclusion `success`.
+- GitHub Release: `v2.9.54`, published 2026-09-22T03:49:22Z from target `13a3f0bc4c24ee2502cfd23d330bf11bb4bd5f38`.
+- Release asset: `chatgpt-auto-confirm.user.js`, 276545 bytes, digest `sha256:0a3f223b1ed6dde4c20b96d789b9d590019fc5aaea9cf7f84a5761326c10dcad`.
+- Final source readback at the canonical merge SHA reports both userscript metadata `@version 2.9.54` and runtime `VERSION = '2.9.54'`.
 
 ## 16. References / provenance
 
@@ -144,7 +156,13 @@ Record branch/head SHA, PR, exact-head Test run, merge SHA, canonical-main Test 
 
 | Requirement / AC | Status | Evidence / reason |
 | --- | --- | --- |
-| R1-R12 | pending | Implementation and exact-head verification not yet complete. |
-| AC-1-AC-5 | pending | Regression implementation pending. |
-| AC-6 | pending | Exact-head CI pending. |
-| AC-7 | pending | Merge/main/release pending. |
+| R1-R9 | passed | PR #64 implements content-visible extraction for layout-neutral assistant hosts while preserving route/task/phase-round boundaries and existing three-part prompt ordering. |
+| R10-R11 | passed | `test/workbench.test.mjs` adds deterministic zero-rect positive coverage plus hidden/inert negative coverage; both are included in the 165/165 passing exact-head and canonical-main suites. |
+| R12 | passed | Metadata/runtime version is 2.9.54; exact-head Test run 35684468559 passed before merge. |
+| AC-1 | passed | Zero-rect assistant host with visible semantic descendants is captured by the new regression and the exact-head/main suites. |
+| AC-2 | passed | Regression asserts the next Work prompt contains the captured work in section two between the current instruction and original goal. |
+| AC-3 | passed | Regression asserts the standalone connection-interruption notice is removed from the persisted carry. |
+| AC-4 | passed | Hidden and inert assistant content is excluded by the negative regression. |
+| AC-5 | passed | Full 165-test regression suite passed at both exact PR head and canonical main, including foreign-task and final/review identity coverage. |
+| AC-6 | passed | Exact-head Test run 35684468559 succeeded on bdd567229dff689db311d0d5613f1efd0ea724c4 before PR #64 merged. |
+| AC-7 | passed | Canonical main SHA 13a3f0bc4c24ee2502cfd23d330bf11bb4bd5f38 passed Test run 35684521310; Release run 35684552169 published v2.9.54 with the recorded asset digest. |
