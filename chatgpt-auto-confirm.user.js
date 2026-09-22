@@ -2710,6 +2710,7 @@
       owned:Boolean(sample?.owned),
       routeOwned:Boolean(sample?.routeOwned),
       foreignTaskId:String(sample?.foreignTaskId || ''),
+      recoveredStaticCandidate:Boolean(sample?.recoveredStaticCandidate),
     });
   }
   function refreshStalledConversation(task, perform = true, now = Date.now()) {
@@ -3222,7 +3223,14 @@
     const finalStayedStable = sample.final && sample.text && previous?.final
       && previous?.text === sample.text
       && now - Number(previous.finalSince || previous.since || 0) >= FINAL_REPLY_STABILITY_MS;
-    if (finalStayedStable) return { state:'complete' };
+    const recoveredStaticStayedStable = Boolean(
+      sample.recoveredStaticCandidate
+      && sample.text
+      && previous?.recoveredStaticCandidate
+      && previous?.text === sample.text
+      && now - Number(previous.recoveredStaticSince || previous.since || 0) >= RECOVERED_STATIC_FINAL_STABILITY_MS
+    );
+    if (finalStayedStable || recoveredStaticStayedStable) return { state:'complete' };
     // No Stop button is only an intermediate observation. Connector approval,
     // tool execution and renderer transitions all legitimately hide Stop.
     // Without the current reply toolbar, stay bound to this conversation. The
@@ -4228,6 +4236,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       responseActions:turn.responseActions,
       responseActionsComplete:turn.responseActionsComplete,
       explicitFinal:turn.explicitFinal,
+      recoveredStaticCandidate:Boolean(turn.recoveredStaticCandidate),
       // A current-turn streaming/busy marker is stronger evidence than the
       // temporary disappearance of Stop. Once final is true we intentionally
       // ignore a stale streaming marker so completed replies are not held.
@@ -4306,12 +4315,19 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const finalSince = sample.final && previous?.final && previous?.text === sample.text
       ? (previous.finalSince || previous.since || now)
       : sample.final ? now : 0;
+    const recoveredStaticSince = sample.recoveredStaticCandidate
+      && previous?.recoveredStaticCandidate
+      && previous?.text === sample.text
+        ? (previous.recoveredStaticSince || previous.since || now)
+        : sample.recoveredStaticCandidate ? now : 0;
     observations.set(task.id, {
       text:sample.text,
       since:stable ? previous.since : now,
       idleSince:previous?.clear ? previous.idleSince : now,
       final:Boolean(sample.final),
       finalSince,
+      recoveredStaticCandidate:Boolean(sample.recoveredStaticCandidate),
+      recoveredStaticSince,
       stop:Boolean(sample.stop),
       streaming:Boolean(sample.streaming),
       loading:Boolean(sample.loading),
