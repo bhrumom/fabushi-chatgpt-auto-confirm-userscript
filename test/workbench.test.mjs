@@ -1050,6 +1050,27 @@ test('unexpected ChatGPT modal is automatically closed while authorization cards
   assert.equal(approval.isConnected,true);
   dom.window.close();
 });
+test('history-only request-frequency popup clicks 明白 and never enters request cooldown',async()=>{
+  const {w,h,dom}=await fixture();
+  const task=h.enqueue('继续当前任务','once');
+  const modal=w.document.createElement('div');
+  modal.setAttribute('role','alertdialog');
+  modal.innerHTML='<h2>请求过于频繁</h2><p>由于请求过于频繁，我们暂时限制你访问对话记录。当前会话和新会话仍可继续。</p><button>明白</button>';
+  const acknowledge=modal.querySelector('button');
+  let clicks=0;
+  acknowledge.onclick=()=>{ clicks++; modal.remove(); };
+  w.document.body.append(modal);
+
+  assert.equal(h.rateLimitNotice(),'','history-only access restriction is not a request-wide rate limit');
+  assert.equal(h.dismissUnexpectedModals(task),1);
+  assert.equal(clicks,1);
+  assert.equal(modal.isConnected,false);
+  assert.equal(Number(task.cooldownUntil||0),0);
+  assert.match(task.messages.at(-1).text,/仅限制访问历史会话/);
+  assert.match(task.messages.at(-1).text,/已点击“明白”/);
+  dom.window.close();
+});
+
 test('historical final answer cannot complete a new user turn',async()=>{
   const {h,dom}=await fixture('<article><div data-message-author-role="assistant"><div class="markdown">old final</div></div><button data-testid="copy-turn-action-button">Copy</button></article><div data-message-author-role="user">new task</div><article><div data-message-author-role="assistant">Thinking</div></article>');
   assert.equal(h.latestTurn().final,false);
