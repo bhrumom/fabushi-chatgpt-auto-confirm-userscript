@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.54
+// @version      2.9.55
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.54';
+  const VERSION = '2.9.55';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -90,7 +90,6 @@
   const CONTINUATION_PROMPT = '继续完成所有';
   const CONTINUATION_SEND_COOLDOWN_MS = 60 * 1000;
   const ABNORMAL_NO_FINAL_CONTINUE_AFTER_MS = 30 * 60 * 1000;
-  const STOP_MISSING_CONTINUE_GRACE_MS = 15 * 1000;
   const RATE_LIMIT_FRESH_RETRY_AFTER = 3;
   // The carry is normally much smaller than this. Keep a generous bound so a
   // long assistant reply can survive a conversation-length handoff without
@@ -2825,6 +2824,7 @@
       if (/(?:good[\s_-]*response|positive[\s_-]*feedback|upvote|like|thumbs?[\s_-]*up|赞|喜欢|好的回答|回复优秀)/.test(value)) return 'like';
       if (/(?:bad[\s_-]*response|negative[\s_-]*feedback|downvote|dislike|thumbs?[\s_-]*down|踩|不喜欢|不好的回答|回复不佳)/.test(value)) return 'dislike';
       if (/(?:rate|feedback)(?:[\s_-]*(?:this\s+)?(?:response|reply|answer|message|conversation))?|评价(?:回复|回答|消息)?|评分/.test(value)) return 'feedback';
+      if (/(?:sources?|citations?|references?|show[\s_-]*sources?|来源|引用|参考资料|参考来源)/.test(value)) return 'source';
       if (/(?:regenerate|retry|try[\s_-]*again|重新生成|重试|再次生成)/.test(value)) return 'regenerate';
       if (/(?:more(?:\s+actions?)?|更多操作|更多|显示更多)/.test(value)) return 'more';
       if (/(?:branch|continue in (?:a )?new (?:chat|task)|新建(?:聊天)?分支|在新.*聊天.*分支|从这里.*(?:继续|分支))/.test(value)) return 'branch';
@@ -2838,26 +2838,46 @@
       return candidates.filter(visible).map(node => ({ node, kind: responseControlKind(node) })).filter(item => item.kind);
     };
     const responseSelector = 'article,[data-testid^="conversation-turn-"],[data-turn-key],[data-content-search-turn-key]';
-    const controlsBelongToResponse = node => {
-      const nearestTurn = node.closest?.(responseSelector);
-      return !nearestTurn || nearestTurn === article || nearestTurn === assistant;
-    };
     const hasResponseCompletionAction = kinds => kinds.has('share')
       || kinds.has('feedback')
       || kinds.has('like')
-      || kinds.has('dislike');
+      || kinds.has('dislike')
+      || kinds.has('source')
+      || kinds.has('more');
+    const composerNode = composer();
+    const follows = (from, to) => Boolean(from && to && (from.compareDocumentPosition(to) & Node.DOCUMENT_POSITION_FOLLOWING));
+    const responseLaneControl = node => {
+      if (!node || !assistant || own(node)) return false;
+      // ChatGPT can mount the final reply actions as siblings of the assistant
+      // article. Accept unassociated controls only inside the latest response
+      // lane: after the latest assistant content and before the composer or
+      // any subsequent conversation message.
+      if (!follows(assistant, node)) return false;
+      if (composerNode && !follows(node, composerNode)) return false;
+      const nextMessage = nodes('[data-message-author-role=user],[data-message-author-role=assistant]')
+        .find(candidate => candidate !== assistant && follows(assistant, candidate));
+      if (nextMessage && !follows(node, nextMessage)) return false;
+      return !node.closest?.('form,nav,aside,header,[contenteditable="true"]');
+    };
+    const controlsBelongToLatestResponse = node => {
+      const nearestTurn = node.closest?.(responseSelector);
+      if (nearestTurn) return nearestTurn === article || nearestTurn === assistant;
+      return responseLaneControl(node);
+    };
     const scopes = [];
     const addScope = scope => { if (scope && !scopes.includes(scope)) scopes.push(scope); };
     addScope(article);
     addScope(assistant);
     let ancestor = article?.parentElement;
     for (let depth = 0; ancestor && depth < 2; depth++, ancestor = ancestor.parentElement) {
-      if (ancestor.matches?.('main,[role="main"],body')) break;
+      if (ancestor.matches?.('body')) break;
       addScope(ancestor);
+      if (ancestor.matches?.('main,[role="main"]')) break;
     }
+    addScope(article?.closest?.('main,[role="main"]') || assistant?.closest?.('main,[role="main"]'));
     let responseControls = [];
     for (const scope of scopes) {
-      const found = controlsIn(scope).filter(item => controlsBelongToResponse(item.node));
+      const found = controlsIn(scope).filter(item => controlsBelongToLatestResponse(item.node));
       if (!found.length) continue;
       const kinds = new Set(found.map(item => item.kind));
       const complete = kinds.has('copy') && hasResponseCompletionAction(kinds);
@@ -3400,8 +3420,6 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.connectionInterruptedFreshDispatch = false;
     task.abnormalNoFinalSince = 0;
     task.abnormalNoFinalSignature = '';
-    task.stopMissingSince = 0;
-    task.stopMissingSignature = '';
     resetAmbiguousSendRecovery(task);
     task.updatedAt = now;
     state(task, 'waiting', '已从当前唯一的新会话恢复本轮发送结果；沿用原发送标识和附件，开始检查最终回复，不会重复发送。');
@@ -3717,8 +3735,6 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.connectionInterruptedRefreshExhausted = false;
     task.abnormalNoFinalSince = 0;
     task.abnormalNoFinalSignature = '';
-    task.stopMissingSince = 0;
-    task.stopMissingSignature = '';
     clearPendingContinuation(task);
     task.updatedAt = sentAt;
     observations.delete(task.id);
@@ -4067,8 +4083,6 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.lastBlockedRecoveryAt = 0;
     task.cooldownUntil = 0;
     task.rateLimitEpisodes = 0;
-    task.stopMissingSince = 0;
-    task.stopMissingSignature = '';
     task.sendPrepared = false;
     task.preparedPrompt = '';
     task.sendUiWaitSince = 0;
@@ -4232,37 +4246,6 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const abnormalNoFinalFor = abnormalNoFinalEligible
       ? Math.max(0, now - Number(task.abnormalNoFinalSince || now))
       : 0;
-    const stopMissingEligible = Boolean(
-      sample.routeOwned
-      && sample.owned
-      && !sample.final
-      && !sample.stop
-      && !sample.streaming
-      && !sample.cards
-      && !sample.rateLimit
-      && !sample.blocker
-      && !task.attempted
-      && composer(),
-    );
-    let stopMissingChanged = false;
-    if (!stopMissingEligible) {
-      if (task.stopMissingSince || task.stopMissingSignature) {
-        task.stopMissingSince = 0;
-        task.stopMissingSignature = '';
-        stopMissingChanged = true;
-      }
-    } else if (task.stopMissingSignature !== progressSignature) {
-      task.stopMissingSignature = progressSignature;
-      task.stopMissingSince = now;
-      stopMissingChanged = true;
-    } else if (!Number(task.stopMissingSince || 0)) {
-      task.stopMissingSince = now;
-      stopMissingChanged = true;
-    }
-    if (stopMissingChanged) save();
-    const stopMissingFor = stopMissingEligible
-      ? Math.max(0, now - Number(task.stopMissingSince || now))
-      : 0;
     const stallEligible = Boolean(
       sample.routeOwned
       && pageBelongsToTask
@@ -4317,11 +4300,6 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       task.previewPhase = String(task.phase || 'work');
       task.previewRound = Number(task.round || 0);
       paint(); // Live preview is transient; streaming does not write localStorage.
-    }
-    if (stopMissingEligible
-      && stopMissingFor >= STOP_MISSING_CONTINUE_GRACE_MS
-      && now - Number(task.continuationSentAt || 0) >= CONTINUATION_SEND_COOLDOWN_MS) {
-      if (await sendContinuation(task, signal, '检测到当前会话 Stop 已消失且没有授权卡或最终回复，判定为异常停止', now)) return;
     }
     if (abnormalNoFinalEligible
       && abnormalNoFinalFor >= ABNORMAL_NO_FINAL_CONTINUE_AFTER_MS
