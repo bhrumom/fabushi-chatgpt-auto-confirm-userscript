@@ -324,7 +324,7 @@ test('connection interruption recovery recognizes current live assistant status 
   discussed.dom.window.close();
 });
 test('connection interruption route fallback carries visible assistant work when the marker user turn is virtualized out of the DOM',async()=>{
-  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><p>已经完成 architecture checker 的第一轮修复，并把 legacy adapter 的 Agent 依赖移出。</p><p>下一步正在修 packaged acceptance 的 TypeScript 错误。</p></div></article><div role="status">连接已中断。正在等待完整回复。</div><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">旧的普通用户消息，任务 marker 已被虚拟化</div></article><article data-testid="conversation-turn-assistant-a"><div data-message-author-role="assistant"><div class="markdown">已经完成 architecture checker 的第一轮修复，并把 legacy adapter 的 Agent 依赖移出。</div></div></article><article data-testid="conversation-turn-assistant-b"><div data-message-author-role="assistant"><div data-message-content>下一步正在修 packaged acceptance 的 TypeScript 错误。</div></div></article><article data-testid="conversation-turn-assistant-status"><div data-message-author-role="assistant">连接已中断。正在等待完整回复。</div></article><div role="status">连接已中断。正在等待完整回复。</div><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   try {
     w.history.pushState({},'', '/c/virtualized-marker');
     const task={id:'virtualized-marker',ownerTabId:h.getTabId(),goal:'original architecture goal',next:'continue exact refactor',mode:'goal',phase:'work',round:2,state:'waiting',url:'https://chatgpt.com/c/virtualized-marker',token:'marker-no-longer-mounted',attempted:false,attachments:[],messages:[]};
@@ -333,7 +333,7 @@ test('connection interruption route fallback carries visible assistant work when
     assert.equal(scoped.owned,false,'the task marker is intentionally absent to model ChatGPT turn virtualization');
     assert.equal(scoped.text,'');
     const unscoped=h.latestTurn();
-    assert.match(unscoped.text,/已经完成 architecture checker/);
+    assert.match(unscoped.text,/连接已中断/,'the ordinary unscoped latest-turn fallback sees only the final status segment');
 
     await h.start();
     await h.inspect(task,null);
