@@ -161,12 +161,15 @@ test('Stop disappearance with a visible composer never triggers an abnormal cont
     let clicks=0;
     w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>clicks++);
     await h.start();
+    task.abnormalNoFinalSince=Date.now()-60_000;
+    task.abnormalNoFinalSignature='legacy-ended-candidate';
     await h.inspect(task,null);
     await h.inspect(task,null);
     assert.equal(task.state,'waiting');
     assert.equal(task.continuationCount||0,0);
     assert.equal(clicks,0);
     assert.equal(w.document.querySelector('#prompt-textarea').value,'');
+    assert.equal(task.abnormalNoFinalSince||0,0,'a visible loading spinner clears the ended-conversation timer');
     assert.equal(task.messages.some(item=>/Stop 已消失.*异常停止/.test(item.text||'')),false);
   } finally {
     h.pause();
