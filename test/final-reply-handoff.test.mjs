@@ -6,7 +6,7 @@ import { JSDOM } from 'jsdom';
 const source = await fs.readFile(new URL('../chatgpt-auto-confirm.user.js', import.meta.url), 'utf8');
 const instrumentedSource = source.replace(
   '  mount();',
-  `  window.__fabushiFinalReplyTestHooks = Object.freeze({ latestTurn, taskTurnForInspection, armRecoveredFinalIdentity, ownedFinalReplyReady, recoverStalledRoute, prepareTaskForRecovery, restoreWorkspace, classify, stalledProgressSignature, refreshStalledConversation, queueReviewRepair, parseReview, finish, workPrompt, plannerPrompt, inspect, data, tabId, start, pause });
+  `  window.__fabushiFinalReplyTestHooks = Object.freeze({ latestTurn, taskTurnForInspection, armRecoveredFinalIdentity, ownedFinalReplyReady, recoverStalledRoute, prepareTaskForRecovery, restoreWorkspace, resumeTask, classify, stalledProgressSignature, refreshStalledConversation, queueReviewRepair, parseReview, finish, workPrompt, plannerPrompt, inspect, data, tabId, start, pause });
   mount();`,
 );
 
@@ -662,6 +662,61 @@ test('recovered exact-route final reply survives marker virtualization and suppr
     task.routeRecoveryAttempts = 0;
     assert.equal(hooks.recoverStalledRoute(new window.URL(task.url), task), false);
     assert.equal(task.routeRecoveryAttempts, 0, 'a completed recovered reply must not increment route recovery');
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('manual pause and resume re-arms recovered-final identity for a completed exact-route conversation', async () => {
+  const { dom, window, hooks } = await createHarness(`
+    <main>
+      <article data-testid="conversation-turn-assistant">
+        <div data-message-author-role="assistant" data-message-id="assistant-paused-resume-final">
+          <div class="markdown">暂停恢复后页面上的最终回复。</div>
+        </div>
+        <div class="response-toolbar">
+          <button aria-label="复制回复"></button>
+          <button aria-label="评价回复"></button>
+        </div>
+      </article>
+    </main>
+  `);
+  try {
+    window.history.pushState({}, '', '/c/paused-resume-final');
+    const task = {
+      id:'paused-resume-final',
+      ownerTabId:hooks.tabId,
+      goal:'恢复暂停任务',
+      goalRevision:7,
+      mode:'once',
+      phase:'work',
+      round:6,
+      state:'paused',
+      pausedState:'waiting',
+      url:'https://chatgpt.com/c/paused-resume-final',
+      token:'paused-resume-token',
+      attempted:false,
+      messages:[],
+    };
+    hooks.data.tasks.push(task);
+    assert.equal(hooks.latestTurn(task).owned, false, 'the original marker-bearing user turn is virtualized');
+    assert.equal(task.recoveredFinalIdentity, undefined);
+
+    assert.equal(await hooks.resumeTask(task), true);
+    assert.deepEqual(JSON.parse(JSON.stringify(task.recoveredFinalIdentity)), {
+      url:'https://chatgpt.com/c/paused-resume-final',
+      token:'paused-resume-token',
+      phase:'work',
+      round:6,
+      goalRevision:7,
+    });
+
+    const recovered = hooks.taskTurnForInspection(task);
+    assert.equal(recovered.owned, true);
+    assert.equal(recovered.recoveredRouteOwned, true);
+    assert.equal(recovered.final, true);
+    assert.equal(recovered.text, '暂停恢复后页面上的最终回复。');
+    hooks.pause();
   } finally {
     dom.window.close();
   }
