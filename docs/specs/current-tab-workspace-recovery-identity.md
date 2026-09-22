@@ -1,6 +1,6 @@
 # Current-tab workspace recovery identity — Specification
 
-Status: in progress
+Status: completed
 Owner: ChatGPT auto-confirm userscript
 Last updated: 2026-09-22
 Related incident: user live incident 2026-09-22 / v2.9.55
@@ -67,6 +67,27 @@ Persisted waiting task in closed/stale workspace
 - AC-4: Exact-head and canonical-main Test workflows pass.
 - AC-5: GitHub Release v2.9.56 is published and canonical main reports metadata/runtime 2.9.56.
 
-## 8. Spec compliance record
+## 8. Delivery evidence
 
-Pending implementation and verification.
+- Implementation PR: #68.
+- Final exact-head SHA: `056d3dada6d402a116414fe820bef472199deade`.
+- Exact-head Test run: `35718532592`, conclusion `success`.
+- Squash merge / canonical source SHA: `cd002c864614070c24fe21f1ffbec7c61b3a0507`.
+- Canonical-main Test run: `35718593700`, conclusion `success`.
+- Release workflow run: `35718638161`, conclusion `success`.
+- GitHub Release: `v2.9.56`, published 2026-09-22T10:55:49Z from `cd002c864614070c24fe21f1ffbec7c61b3a0507`.
+- Release asset: `chatgpt-auto-confirm.user.js`, 277189 bytes, SHA-256 `d4cb12574f5926c199dbce3180e4593410b0f9c531bb0ad2723817a5b70e24d0`.
+- Canonical main readback reports metadata `@version 2.9.56` and runtime `VERSION = '2.9.56'`.
+
+## 9. Spec compliance record
+
+| Requirement / AC | Status | Evidence / reason |
+| --- | --- | --- |
+| R1-R3 | passed | PR #68 arms recovered-final identity before supervision for current-tab takeover and for recovery-token / automatic new-document takeover; automatic stale-workspace takeover uses the same current-tab path. |
+| R4-R6 | passed | The change leaves paused/cancelled/done handling and existing exact-route, token, phase/round, foreign-marker, foreign-user, Stop and approval fail-closed guards unchanged. |
+| R7-R9 | passed | `test/final-reply-handoff.test.mjs` now calls the real `restoreWorkspace(ownerTabId, true)` path for a persisted `waiting` task and proves marker-virtualized final ownership; the full existing negative suite passed in exact-head and canonical-main Test. |
+| R10 | passed | Metadata/runtime and package-version assertions were advanced to 2.9.56. |
+| R11 | passed | Exact-head run 35718532592 passed before merge; canonical-main run 35718593700 passed; Release run 35718638161 published v2.9.56. |
+| AC-1-AC-3 | passed | The new regression proves current-tab restore arms identity and recognizes the completed exact-route reply without a duplicate dispatch; existing cross-task and foreign-user rejection regressions remained green. |
+| AC-4 | passed | Exact-head and canonical-main Test workflows both succeeded. |
+| AC-5 | passed | Release v2.9.56 exists from canonical source SHA cd002c864614070c24fe21f1ffbec7c61b3a0507 and main readback reports 2.9.56. |
