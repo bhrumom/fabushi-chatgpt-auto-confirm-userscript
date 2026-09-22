@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.53
+// @version      2.9.54
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.53';
+  const VERSION = '2.9.54';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -2470,10 +2470,13 @@
     return boundedConversationLengthCarry(source);
   }
   function assistantSegmentContent(node) {
-    if (!node || own(node) || !visible(node)) return '';
+    if (!node || own(node) || node.closest?.('[hidden],[inert]')) return '';
     const semanticSelector = '.markdown,[data-message-content],[data-selected-text-overlay-target]';
     const semantic = [];
-    if (node.matches?.(semanticSelector)) semantic.push(node);
+    // ChatGPT can render the assistant-role host as a layout-neutral wrapper
+    // (for example display:contents) while its semantic message child is
+    // visibly painted. Do not require the host itself to own a client rect.
+    if (node.matches?.(semanticSelector) && visible(node)) semantic.push(node);
     semantic.push(...nodes(semanticSelector, node).filter(visible));
     // Prefer the outermost semantic message-content roots. ChatGPT can nest a
     // selection overlay or data-message-content inside .markdown; reading both
@@ -2481,7 +2484,26 @@
     const roots = semantic.filter((candidate, index) => !semantic.some((other, otherIndex) =>
       otherIndex !== index && other.contains(candidate),
     ));
-    const parts = (roots.length ? roots : [node])
+    let sources = roots;
+    if (!sources.length) {
+      if (visible(node)) {
+        sources = [node];
+      } else {
+        // Older/current renderer variants do not always expose a semantic
+        // wrapper. In that case accept only actually rendered descendants and
+        // exclude interactive/page chrome so a zero-rect assistant host cannot
+        // turn hidden controls into handoff context.
+        const rendered = nodes('*', node).filter(candidate =>
+          visible(candidate)
+          && !candidate.matches?.('button,[role="button"],form,nav,aside,header,textarea,input,select,option,[contenteditable="true"]')
+          && !candidate.closest?.('button,[role="button"],form,nav,aside,header,textarea,input,select,option,[contenteditable="true"]'),
+        );
+        sources = rendered.filter((candidate, index) => !rendered.some((other, otherIndex) =>
+          otherIndex !== index && other.contains(candidate),
+        ));
+      }
+    }
+    const parts = sources
       .map(item => String(item.textContent || '').trim())
       .filter(Boolean);
     const deduped = [];
@@ -2533,7 +2555,8 @@
     }
 
     const assistantNodes = nodes('[data-message-author-role=assistant]')
-      .filter(visible)
+      // The role host itself may be layout-neutral. assistantSegmentContent()
+      // decides visibility from semantic/rendered descendants.
       .filter(node => !boundary || Boolean(boundary.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING));
     const parts = [];
     for (const node of assistantNodes) {
