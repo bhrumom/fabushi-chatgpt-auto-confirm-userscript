@@ -1,6 +1,6 @@
 # Ended conversation continuation while waiting — Specification
 
-Status: in progress
+Status: completed
 Owner: ChatGPT auto-confirm userscript
 Last updated: 2026-09-22
 Related incident: live v2.9.58 conversation is visibly finished after tool calls but task remains “等待响应”
@@ -80,6 +80,29 @@ A real final reply or a valid explicit-recovery static natural-language final ca
 - AC-6: Exact-head Test, canonical-main Test and Release workflow all pass.
 - AC-7: Canonical main and GitHub Release report v2.9.59.
 
-## 8. Spec compliance record
+## 8. Delivery evidence
 
-Pending implementation and verification.
+- Implementation PR: #73.
+- Final exact-head SHA: `aababe7afe3049e568d7787bf1f3948650d3b45e`.
+- Exact-head Test run: `35725709798`, conclusion `success`; full suite `174/174 PASS`, `0 FAIL`.
+- Squash merge / canonical source SHA: `5b9293c9f7f5275e3330640667bf86f37072467e`.
+- Canonical-main Test run: `35726148851`, conclusion `success`.
+- Release workflow run: `35726198674`, conclusion `success`.
+- GitHub Release: `v2.9.59`, published 2026-09-22T12:16:33Z from `5b9293c9f7f5275e3330640667bf86f37072467e`.
+- Release asset: `chatgpt-auto-confirm.user.js`, 280263 bytes, SHA-256 `a7889e144c46d390ade60602b3f04e9577d1db3ece010621f16a66bf8495656c`.
+- Canonical main readback reports metadata `@version 2.9.59` and runtime `VERSION = '2.9.59'`.
+
+## 9. Spec compliance record
+
+| Requirement / AC | Status | Evidence / reason |
+| --- | --- | --- |
+| R1-R4 | passed | `inspect()` now checks ended-without-final on every supervision pass, including `waiting`; exact ownership, no active/loading/blocking state, enabled composer and an 8-second stability gate are required before same-chat `继续完成所有` is sent. |
+| R5-R8 | passed | Existing continuation cooldown/duplicate-send guards remain; loading resets eligibility; normal final replies and explicit-recovery natural static finals still win before continuation. |
+| R9-R10 | passed | Explicit recovered exact-route tool-only/empty assistant edges can be owned for ended detection, while static-final recovery requires natural assistant reply content. |
+| R11-R13 | passed | New regressions cover ordinary waiting-ended continuation and manual recovered tool-only continuation; the full suite preserved loading/Stop/streaming/approval/final guards. |
+| R14 | passed | Metadata/runtime/version assertions report 2.9.59. |
+| R15 | passed | Exact-head Test 35725709798 passed before merge; canonical-main Test 35726148851 and Release 35726198674 both succeeded. |
+| AC-1-AC-2 | passed | Waiting supervision actively detects the ended state and continues after about 8 seconds, before 15-minute stall refresh. |
+| AC-3-AC-5 | passed | Active/loading/approval/final states remain guarded and bound conversations continue in-place without a fresh chat. |
+| AC-6 | passed | Exact-head, canonical-main and Release workflows all succeeded. |
+| AC-7 | passed | Canonical main and GitHub Release both report v2.9.59. |
