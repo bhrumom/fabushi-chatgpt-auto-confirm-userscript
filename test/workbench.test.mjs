@@ -154,69 +154,78 @@ test('a lost Stop control stays in the same conversation until the final toolbar
 });
 test('Stop disappearance with a visible composer never triggers an abnormal continuation',async()=>{
   const {h,w,dom}=await fixture('<main><div class="animate-spin" aria-hidden="true"></div><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish all [Fabushi:stop-transition-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">normal reply has finished streaming but toolbar is not mounted yet</div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
-  w.history.pushState({},'', '/c/stop-transition');
-  const task={id:'stop-transition',ownerTabId:h.getTabId(),goal:'finish all',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/stop-transition',token:'stop-transition-token',attempted:false,messages:[],stopMissingSince:Date.now()-60_000,stopMissingSignature:'legacy-v2.9.54-state'};
-  h.data.tasks.push(task);
-  let clicks=0;
-  w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>clicks++);
-  await h.inspect(task,null);
-  await h.inspect(task,null);
-  assert.equal(task.state,'waiting');
-  assert.equal(task.continuationCount||0,0);
-  assert.equal(clicks,0);
-  assert.equal(w.document.querySelector('#prompt-textarea').value,'');
-  assert.equal(task.messages.some(item=>/Stop 已消失.*异常停止/.test(item.text||'')),false);
-  dom.window.close();
+  try {
+    w.history.pushState({},'', '/c/stop-transition');
+    const task={id:'stop-transition',ownerTabId:h.getTabId(),goal:'finish all',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/stop-transition',token:'stop-transition-token',attempted:false,messages:[],stopMissingSince:Date.now()-60_000,stopMissingSignature:'legacy-v2.9.54-state'};
+    h.data.tasks.push(task);
+    let clicks=0;
+    w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>clicks++);
+    await h.inspect(task,null);
+    await h.inspect(task,null);
+    assert.equal(task.state,'waiting');
+    assert.equal(task.continuationCount||0,0);
+    assert.equal(clicks,0);
+    assert.equal(w.document.querySelector('#prompt-textarea').value,'');
+    assert.equal(task.messages.some(item=>/Stop 已消失.*异常停止/.test(item.text||'')),false);
+  } finally {
+    dom.window.close();
+  }
 });
 
 test('a late sibling final toolbar completes normally without injecting continuation',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish all [Fabushi:late-toolbar-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">当前结论与下一步。PR 仍保持 Draft，不能合并。</div></div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
-  w.history.pushState({},'', '/c/late-toolbar');
-  const task={id:'late-toolbar',ownerTabId:h.getTabId(),goal:'finish all',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/late-toolbar',token:'late-toolbar-token',attempted:false,messages:[]};
-  h.data.tasks.push(task);
-  let clicks=0;
-  w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>clicks++);
+  try {
+    w.history.pushState({},'', '/c/late-toolbar');
+    const task={id:'late-toolbar',ownerTabId:h.getTabId(),goal:'finish all',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/late-toolbar',token:'late-toolbar-token',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    let clicks=0;
+    w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>clicks++);
 
-  await h.inspect(task,null);
-  assert.equal(task.state,'waiting');
-  assert.equal(clicks,0);
+    await h.inspect(task,null);
+    assert.equal(task.state,'waiting');
+    assert.equal(clicks,0);
 
-  const main=w.document.querySelector('main');
-  const form=w.document.querySelector('form');
-  const toolbar=w.document.createElement('div');
-  toolbar.id='late-response-actions';
-  toolbar.innerHTML='<button aria-label="复制回复"></button><button aria-label="来源"></button><button aria-label="更多操作"></button>';
-  main.insertBefore(toolbar,form);
+    const main=w.document.querySelector('main');
+    const form=w.document.querySelector('form');
+    const toolbar=w.document.createElement('div');
+    toolbar.id='late-response-actions';
+    toolbar.innerHTML='<button aria-label="复制回复"></button><button aria-label="来源"></button><button aria-label="更多操作"></button>';
+    main.insertBefore(toolbar,form);
 
-  const turn=h.latestTurn(task);
-  assert.equal(turn.final,true,'Copy + Sources/More sibling row is strong final evidence');
-  assert.ok(turn.responseActions.includes('copy'));
-  assert.ok(turn.responseActions.includes('source'));
-  assert.ok(turn.responseActions.includes('more'));
+    const turn=h.latestTurn(task);
+    assert.equal(turn.final,true,'Copy + Sources/More sibling row is strong final evidence');
+    assert.ok(turn.responseActions.includes('copy'));
+    assert.ok(turn.responseActions.includes('source'));
+    assert.ok(turn.responseActions.includes('more'));
 
-  await h.inspect(task,null);
-  assert.equal(task.state,'waiting','first final observation must respect the stability window');
-  const previous=h.observations.get(task.id);
-  h.observations.set(task.id,{...previous,final:true,finalSince:Date.now()-5_000,text:turn.text,clear:true});
-  await h.inspect(task,null);
-  assert.equal(task.state,'done');
-  assert.equal(task.continuationCount||0,0);
-  assert.equal(clicks,0);
-  assert.equal(w.document.querySelector('#prompt-textarea').value,'');
-  assert.ok(task.messages.some(item=>item.role==='assistant' && /PR 仍保持 Draft/.test(item.text||'')));
-  dom.window.close();
+    await h.inspect(task,null);
+    assert.equal(task.state,'waiting','first final observation must respect the stability window');
+    const previous=h.observations.get(task.id);
+    h.observations.set(task.id,{...previous,final:true,finalSince:Date.now()-5_000,text:turn.text,clear:true});
+    await h.inspect(task,null);
+    assert.equal(task.state,'done');
+    assert.equal(task.continuationCount||0,0);
+    assert.equal(clicks,0);
+    assert.equal(w.document.querySelector('#prompt-textarea').value,'');
+    assert.ok(task.messages.some(item=>item.role==='assistant' && /PR 仍保持 Draft/.test(item.text||'')));
+  } finally {
+    dom.window.close();
+  }
 });
 
 test('an older unassociated toolbar cannot complete the latest assistant turn',async()=>{
   const {h,w,dom}=await fixture('<main><div id="old-response-actions"><button aria-label="复制回复"></button><button aria-label="来源"></button><button aria-label="更多操作"></button></div><article data-testid="conversation-turn-user"><div data-message-author-role="user">new task [Fabushi:old-toolbar-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">latest reply without its own toolbar yet</div></div></article><form><textarea id="prompt-textarea"></textarea></form></main>');
-  w.history.pushState({},'', '/c/old-toolbar');
-  const task={id:'old-toolbar',ownerTabId:h.getTabId(),goal:'new task',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/old-toolbar',token:'old-toolbar-token',attempted:false,messages:[]};
-  h.data.tasks.push(task);
-  const turn=h.latestTurn(task);
-  assert.equal(turn.owned,true);
-  assert.equal(turn.final,false);
-  assert.deepEqual(turn.responseActions,[]);
-  dom.window.close();
+  try {
+    w.history.pushState({},'', '/c/old-toolbar');
+    const task={id:'old-toolbar',ownerTabId:h.getTabId(),goal:'new task',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/old-toolbar',token:'old-toolbar-token',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    const turn=h.latestTurn(task);
+    assert.equal(turn.owned,true);
+    assert.equal(turn.final,false);
+    assert.deepEqual(turn.responseActions,[]);
+  } finally {
+    dom.window.close();
+  }
 });
 
 test('an authorization-card transition cannot become a duplicate fresh-session send',async()=>{
