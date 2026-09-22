@@ -2521,16 +2521,14 @@
       const foreignTask = tabTasks().find(item => item.id !== task.id && item.token && hasTaskMarker(item));
       const otherOwner = conversationURLOwner(liveURL, task.id);
       if (foreignTask || otherOwner) return { text:'', sourceKind:'' };
-      // If the task marker was virtualized but ChatGPT still mounts a verified
-      // same-task continuation, use that as the response boundary. A different
-      // mounted user turn is ambiguous and must not be attributed by URL alone.
-      const recoveredContinuation = latestUser
-        && Number(task.continuationCount || 0) > 0
-        && normalize(text(latestUser)) === CONTINUATION_PROMPT
-          ? latestUser
-          : null;
-      if (latestUser && !recoveredContinuation) return { text:'', sourceKind:'' };
-      boundary = recoveredContinuation;
+      // Preserve the safety level of the existing exact-route latestTurn()
+      // fallback: when the task marker is virtualized, the last mounted user
+      // turn becomes the response boundary. This is important because ChatGPT
+      // can retain an earlier ordinary user turn while unmounting the marker
+      // turn; rejecting every unmarked user would recreate the live bug. The
+      // exact route is already uniquely owned here, and any foreign Fabushi
+      // marker/owner was rejected above.
+      boundary = latestUser || null;
       sourceKind = 'exact-route-visible-assistant-transcript';
     }
 
