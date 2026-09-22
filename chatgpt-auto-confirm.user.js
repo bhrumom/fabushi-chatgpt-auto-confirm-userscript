@@ -3009,6 +3009,7 @@
     if (conversationURLOwner(liveURL, task.id)) return scoped;
     const foreignTask = tabTasks().find(item => item.id !== task.id && item.token && hasTaskMarker(item));
     if (foreignTask) return scoped;
+    const identity = task.recoveredFinalIdentity || {};
     const mountedUsers = nodes('[data-message-author-role=user]');
     const latestMountedUser = mountedUsers.at(-1);
     const recoveredContinuation = Boolean(
@@ -3016,18 +3017,25 @@
       && Number(task.continuationCount || 0) > 0
       && normalize(text(latestMountedUser)) === CONTINUATION_PROMPT,
     );
-    if (latestMountedUser && !recoveredContinuation) return scoped;
+    if (latestMountedUser && !recoveredContinuation) {
+      if (!identity.allowStaticFinal) return scoped;
+      if (recoveryUserBoundaryKey(latestMountedUser) !== String(identity.visibleUserBoundaryKey || '')) return scoped;
+    }
 
-    // The fallback is final-only. It never adopts partial assistant text or a
-    // quiet page merely because the exact route matches. The existing strong
-    // toolbar/static-copy rule still determines whether this is a true final
-    // reply, and approval/Stop states remain authoritative blockers.
+    // Normal recovery remains final-only. Explicit manual recovery gets one
+    // additional path: the exact route may expose stable assistant text while
+    // ChatGPT virtualizes both the Fabushi marker and the final toolbar. That
+    // candidate is only considered after the snapshotted user boundary remains
+    // unchanged; classify() applies a separate eight-second stability gate and
+    // all active/blocking UI states still veto completion.
     const candidate = latestTurn();
-    if (!candidate.text || !candidate.final || stopButton() || cards().length) return scoped;
+    if (!candidate.text || stopButton() || cards().length) return scoped;
+    if (!candidate.final && (!identity.allowStaticFinal || candidate.streaming)) return scoped;
     return {
       ...candidate,
       owned:true,
       recoveredRouteOwned:true,
+      recoveredStaticCandidate:Boolean(!candidate.final && identity.allowStaticFinal),
     };
   }
   const allowLabel = /^(?:允许|allow|approve|批准)$/i;
