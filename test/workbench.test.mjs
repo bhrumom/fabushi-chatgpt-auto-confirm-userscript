@@ -891,6 +891,57 @@ test('inspect appends continuation in the same bound chat after a retryable mess
   h.pause();
   dom.window.close();
 });
+test('continuation waits for an asynchronously rendered Send message control and sends exactly once',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">recover [Fabushi:dynamic-send-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">tool output only</div></article><form id="composer-form"><textarea id="prompt-textarea"></textarea></form></main>');
+  try {
+    const task={id:'dynamic-send',ownerTabId:h.getTabId(),goal:'recover',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/dynamic-send',token:'dynamic-send-token',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    w.history.pushState({},'', '/c/dynamic-send');
+    const input=w.document.querySelector('#prompt-textarea');
+    let clicks=0;
+    let created=false;
+    input.addEventListener('input',()=>{
+      if (created || input.value!=='继续完成所有') return;
+      created=true;
+      w.setTimeout(()=>{
+        const button=w.document.createElement('button');
+        button.type='button';
+        button.setAttribute('aria-label','Send message');
+        button.addEventListener('click',()=>clicks++);
+        w.document.querySelector('#composer-form').append(button);
+      },150);
+    });
+
+    assert.equal(await h.sendContinuation(task,null,'检测到当前会话已经结束但没有最终回复',Date.now(),{ignoreCooldown:true}),true);
+    assert.equal(clicks,1);
+    assert.equal(task.continuationCount,1);
+    assert.ok(Number(task.continuationSentAt)>0);
+    assert.equal(input.value,'继续完成所有');
+    assert.match(task.messages.at(-1).text,/已在原会话输入并发送“继续完成所有”/);
+  } finally {
+    h.pause();
+    dom.window.close();
+  }
+});
+
+test('continuation recognizes the current blue-arrow Send control labelled 发送',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">recover [Fabushi:zh-send-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">tool output only</div></article><form><textarea id="prompt-textarea"></textarea><button type="button" aria-label="发送"><svg></svg></button></form></main>');
+  try {
+    const task={id:'zh-send',ownerTabId:h.getTabId(),goal:'recover',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/zh-send',token:'zh-send-token',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    w.history.pushState({},'', '/c/zh-send');
+    let clicks=0;
+    w.document.querySelector('button[aria-label="发送"]').addEventListener('click',()=>clicks++);
+
+    assert.equal(await h.sendContinuation(task,null,'检测到当前会话已经结束但没有最终回复',Date.now(),{ignoreCooldown:true}),true);
+    assert.equal(clicks,1);
+    assert.equal(task.continuationCount,1);
+  } finally {
+    h.pause();
+    dom.window.close();
+  }
+});
+
 test('exhausted abnormal retries enter persisted backoff and reset after success',async()=>{
   const {h,dom}=await fixture();
   const task=h.enqueue('keep recovering','once');
@@ -1050,25 +1101,24 @@ test('unexpected ChatGPT modal is automatically closed while authorization cards
   assert.equal(approval.isConnected,true);
   dom.window.close();
 });
-test('history-only request-frequency popup clicks 明白 and never enters request cooldown',async()=>{
+test('history-only request-frequency popup without dialog semantics clicks 明白了 and never enters request cooldown',async()=>{
   const {w,h,dom}=await fixture();
   try {
     const task=h.enqueue('继续当前任务','once');
-    const modal=w.document.createElement('div');
-    modal.setAttribute('role','alertdialog');
-    modal.innerHTML='<h2>请求过于频繁</h2><p>由于请求过于频繁，我们暂时限制你访问对话记录。当前会话和新会话仍可继续。</p><button>明白</button>';
-    const acknowledge=modal.querySelector('button');
+    const overlay=w.document.createElement('div');
+    overlay.innerHTML='<div><h2>请求过于频繁</h2><p>你的请求过于频繁。为保障数据安全，我们已暂时限制你访问对话记录。请稍等几分钟后再重试。</p><button>明白了</button></div>';
+    const acknowledge=overlay.querySelector('button');
     let clicks=0;
-    acknowledge.onclick=()=>{ clicks++; modal.remove(); };
-    w.document.body.append(modal);
+    acknowledge.onclick=()=>{ clicks++; overlay.remove(); };
+    w.document.body.append(overlay);
 
     assert.equal(h.rateLimitNotice(),'','history-only access restriction is not a request-wide rate limit');
     assert.equal(h.dismissUnexpectedModals(task),1);
     assert.equal(clicks,1);
-    assert.equal(modal.isConnected,false);
+    assert.equal(overlay.isConnected,false);
     assert.equal(Number(task.cooldownUntil||0),0);
     assert.match(task.messages.at(-1).text,/仅限制访问历史会话/);
-    assert.match(task.messages.at(-1).text,/已点击“明白”/);
+    assert.match(task.messages.at(-1).text,/已点击“明白了”/);
   } finally {
     h.pause();
     dom.window.close();
@@ -2720,8 +2770,8 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.61$/m);
-  assert.match(source,/const VERSION = '2\.9\.61'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.62$/m);
+  assert.match(source,/const VERSION = '2\.9\.62'/);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const ENDED_NO_FINAL_STABILITY_MS = 8000/);
   assert.doesNotMatch(source,/ABNORMAL_NO_FINAL_CONTINUE_AFTER_MS/);

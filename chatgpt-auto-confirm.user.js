@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.61
+// @version      2.9.62
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.61';
+  const VERSION = '2.9.62';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -2364,7 +2364,7 @@
     return '';
   }
   const historyAccessThrottlePattern = /(?:请求过于频繁|你的请求过于频繁|too many requests|request(?:s)? too frequent)[\s\S]{0,240}(?:暂时|临时|temporar(?:ily|y))?[\s\S]{0,120}(?:限制|无法|不能|restrict(?:ed|ion)?|limit(?:ed|ation)?)[\s\S]{0,120}(?:访问|查看|读取|access|view|load)[\s\S]{0,120}(?:对话记录|聊天记录|历史(?:记录|会话)?|conversation history|chat history|previous conversations?)/i;
-  const historyAccessAckLabel = /^(?:明白|知道了|我知道了|好的|好|确定|确认|收到|ok|okay|got it|understood|i understand)$/iu;
+  const historyAccessAckLabel = /^(?:明白|明白了|知道了|我知道了|好的|好|确定|确认|收到|ok|okay|got it|understood|i understand)$/iu;
   function historyAccessThrottleContainer(node = null) {
     let current = node?.nodeType === Node.TEXT_NODE ? node.parentElement : node;
     for (let depth = 0; current && depth < 10; depth += 1, current = current.parentElement) {
@@ -2372,6 +2372,29 @@
       const value = normalize(text(current));
       if (historyAccessThrottlePattern.test(value)) return current;
       if (current.matches?.('main,body,html')) break;
+    }
+    return null;
+  }
+  function historyAccessThrottlePopup() {
+    const root = document.body || document.documentElement;
+    if (!root) return null;
+    const headline = /请求过于频繁|你的请求过于频繁|too many requests|request(?:s)? too frequent/i;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let currentNode;
+    while ((currentNode = walker.nextNode())) {
+      const parent = currentNode.parentElement;
+      if (!parent || own(parent) || parent.closest('[data-message-author-role]')) continue;
+      if (!headline.test(normalize(currentNode.nodeValue))) continue;
+      let scope = parent;
+      for (let depth = 0; scope && depth < 12; depth += 1, scope = scope.parentElement) {
+        if (own(scope) || scope.matches?.('body,html')) break;
+        const value = normalize(text(scope));
+        if (!historyAccessThrottlePattern.test(value)) continue;
+        const actions = nodes('button,[role="button"]', scope).filter(enabled);
+        const acknowledge = actions.find(node => [text(node), node.getAttribute('aria-label'), node.getAttribute('title')]
+          .some(labelValue => historyAccessAckLabel.test(normalize(labelValue))));
+        if (acknowledge) return { container:scope, button:acknowledge };
+      }
     }
     return null;
   }
@@ -3164,7 +3187,19 @@
   function dismissUnexpectedModals(task = null) {
     const approvalContainers = cards().map(card => card.container);
     let dismissed = 0;
+
+    // Handle the history-only request-frequency popup semantically first. The
+    // current ChatGPT renderer may not expose role=dialog/aria-modal at all,
+    // so relying on popupDialogs() alone leaves the overlay blocking the task.
+    const historyPopup = historyAccessThrottlePopup();
+    if (historyPopup && !approvalContainers.some(container => container === historyPopup.container || historyPopup.container.contains(container) || container.contains(historyPopup.container))) {
+      activateControl(historyPopup.button);
+      dismissed++;
+      if (task) log(task, '检测到仅限制访问历史会话的“请求过于频繁”提示；已点击“明白了”，继续当前任务，不进入限流休息。');
+    }
+
     for (const dialog of popupDialogs()) {
+      if (!dialog.isConnected) continue;
       // A connector authorization card may itself be rendered inside a
       // dialog. Never close that card through the generic popup heuristic.
       const actions = nodes('button,[role="button"]', dialog).filter(enabled);
@@ -3782,8 +3817,35 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
   }
   function sendButtonFor(input) {
     const form = input?.closest('form') || document;
-    return nodes('button[data-testid="send-button"],button[aria-label="发送提示词"],button[aria-label="发送提示"],button[aria-label="Send prompt"],button[aria-label="发送消息"]', form).find(enabled)
-      || nodes('button', form).find(node => enabled(node) && /^(发送|send|submit)(?:\s|$)/i.test(label(node)));
+    const explicitSelectors = [
+      'button[data-testid="send-button"]',
+      'button[aria-label="发送"]',
+      'button[aria-label="发送消息"]',
+      'button[aria-label="发送提示词"]',
+      'button[aria-label="发送提示"]',
+      'button[aria-label="Send"]',
+      'button[aria-label="Send message"]',
+      'button[aria-label="Send prompt"]',
+      'button[title="发送"]',
+      'button[title="Send"]',
+      'button[title="Send message"]',
+    ].join(',');
+    return nodes(explicitSelectors, form).find(enabled)
+      || nodes('button,[role="button"]', form).find(node => {
+        if (!enabled(node)) return false;
+        const value = normalize(label(node));
+        return /^(?:发送|发送消息|发送提示词|发送提示|send|send message|send prompt|submit)$/iu.test(value);
+      });
+  }
+  async function waitForSendButton(input, signal, timeoutMs = 3000) {
+    const startedAt = Date.now();
+    let button = sendButtonFor(input);
+    while (!button && Date.now() - startedAt < timeoutMs) {
+      await delay(100, signal);
+      if (signal?.aborted) throw new Error('已暂停');
+      button = sendButtonFor(input);
+    }
+    return button;
   }
   function clearPendingContinuation(task) {
     if (!task) return;
@@ -3814,26 +3876,26 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       draft = '';
     }
     if (!draft) setInput(input, CONTINUATION_PROMPT);
-    let button = sendButtonFor(input);
+    const button = await waitForSendButton(input, signal, 3000);
     if (!button) {
       task.state = 'waiting';
+      const lastWaitLogAt = Number(task.continuationSendUiWaitLogAt || 0);
+      if (!lastWaitLogAt || Date.now() - lastWaitLogAt >= 5000) {
+        task.continuationSendUiWaitLogAt = Date.now();
+        log(task, `已输入“${CONTINUATION_PROMPT}”，但 ChatGPT 发送按钮尚未出现或尚未可用；保留原会话与输入内容并继续重试，不刷新页面、不新开会话。`);
+        save();
+      }
       return false;
     }
-    await delay(300, signal);
-    check(signal);
-    button = sendButtonFor(input) || (enabled(button) ? button : null);
-    if (!button) {
-      task.state = 'waiting';
-      return false;
-    }
-    check(signal);
+    if (signal?.aborted || task.state === 'paused' || task.state === 'cancelled') throw new Error('已暂停');
     // Commit the UI action first. Any legacy pending-continuation state is
-    // cleared only after the Send click has actually been issued.
-    button.click();
+    // cleared only after the Send activation has actually been issued.
+    activateControl(button);
     measurements.sends++;
     const sentAt = Date.now();
     task.continuationSentAt = sentAt;
     task.continuationCount = Number(task.continuationCount || 0) + 1;
+    task.continuationSendUiWaitLogAt = 0;
     task.connectionInterruptedSince = 0;
     task.connectionInterruptedURL = '';
     task.connectionInterruptedRefreshAttempts = 0;
