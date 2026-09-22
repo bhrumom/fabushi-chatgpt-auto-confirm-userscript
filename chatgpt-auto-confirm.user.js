@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.55
+// @version      2.9.56
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.55';
+  const VERSION = '2.9.56';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -1397,6 +1397,11 @@
   }
   function clearRecoveredFinalIdentity(task) {
     if (task?.recoveredFinalIdentity) delete task.recoveredFinalIdentity;
+  }
+  function armWorkspaceRecoveryIdentity(task) {
+    if (!task || !taskBelongsToTab(task) || !resumableStates.has(task.state)) return false;
+    if (!canonicalConversationURL(task.url) || !String(task.token || '')) return false;
+    return armRecoveredFinalIdentity(task);
   }
   function recoveredFinalIdentityMatches(task, liveURL) {
     const identity = task?.recoveredFinalIdentity;
@@ -4761,15 +4766,17 @@ NaN
         sessionStorage.setItem(TAB_SESSION_KEY, tabId);
         sessionStorage.removeItem(NAV);
         mergeStoredTasks(stored);
-        selected = task.id;
+        const restoredTask = data.tasks.find(item => item.id === task.id && taskBelongsToTab(item)) || task;
+        selected = restoredTask.id;
         data.autoResume = true;
-        current = task.state === 'paused' ? '' : task.id;
-        if (task.state === 'blocked') prepareTaskForRecovery(task, { automatic:true });
+        current = restoredTask.state === 'paused' ? '' : restoredTask.id;
+        if (restoredTask.state === 'blocked') prepareTaskForRecovery(restoredTask, { automatic:true });
+        armWorkspaceRecoveryIdentity(restoredTask);
         lastSwitch = Date.now();
         save();
         paint();
         if (data.autoResume !== false && current) autoStart(current);
-        return { restored:true, target:'current', ownerTabId, taskId:task.id };
+        return { restored:true, target:'current', ownerTabId, taskId:restoredTask.id };
       }
       const pendingKey = RECOVERY_KEY + 'pending:' + ownerTabId;
       const pending = read(pendingKey, null);
@@ -5146,6 +5153,11 @@ NaN
   if (attachmentTimeoutTaskId) recoveredTaskId = attachmentTimeoutTaskId;
   const blockedRecoveryTaskId = recoverPersistedBlockedTasks();
   if (blockedRecoveryTaskId) recoveredTaskId = blockedRecoveryTaskId;
+  if ((recoveredWorkspace || automaticRecoveryOwner) && data.autoResume !== false) {
+    const recoveredWorkspaceTask = tabTasks().find(item => item.id === selected && resumableStates.has(item.state))
+      || tabTasks().find(item => resumableStates.has(item.state));
+    if (recoveredWorkspaceTask) armWorkspaceRecoveryIdentity(recoveredWorkspaceTask);
+  }
   let ticket;try{ticket=JSON.parse(sessionStorage.getItem(NAV));}catch{}
   const ticketFresh = ticket && ticket.resume && Date.now()-ticket.at < NAV_TICKET_TTL_MS;
   const ticketUsable = ticketFresh && validNavigationTicket(ticket);
