@@ -4317,9 +4317,23 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     // In a bound owned conversation, active generation exposes Stop. A
     // decorative/stale spinner without Stop must not mask an abnormal stop.
     const activityStreaming = Boolean(activityTurn?.streaming && !activityTurn?.final);
+    const hasConversationEvidence = Boolean(
+      String(activityTurn?.text || '').trim()
+      || latestMountedUser
+      || nodes('[data-message-author-role=assistant]').some(visible)
+    );
     const effectiveLoading = Boolean(
       rawLoading
-      && (turn.recoveredStaticCandidate || (!turn.owned && !routeEndedOwned) || stopPresent || activityStreaming)
+      && (
+        turn.recoveredStaticCandidate
+        || (!turn.owned && !routeEndedOwned)
+        || stopPresent
+        || activityStreaming
+        // A blank exact route with only a spinner is genuine hydration, not
+        // an ended conversation. Ignore broad page-global loaders only after
+        // the route already contains visible conversation evidence.
+        || (routeEndedOwned && !hasConversationEvidence)
+      )
     );
     const sample = {
       stop:stopPresent,
