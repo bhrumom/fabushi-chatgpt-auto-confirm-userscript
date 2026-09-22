@@ -2481,8 +2481,8 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.57$/m);
-  assert.match(source,/const VERSION = '2\.9\.57'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.58$/m);
+  assert.match(source,/const VERSION = '2\.9\.58'/);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.doesNotMatch(source,/AMBIGUOUS_SEND_REFRESH_MS|AMBIGUOUS_SEND_REFRESH_LIMIT/);
   assert.doesNotMatch(source,/STOP_MISSING_CONTINUE_GRACE_MS|stopMissingSince|stopMissingSignature/);
