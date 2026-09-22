@@ -1,9 +1,9 @@
 # Interrupted visible-reply carry — Specification
 
-Status: active
+Status: completed
 Owner: ChatGPT auto-confirm userscript
 Last updated: 2026-09-22
-Related issue/task/PR: user incident 2026-09-22 / target v2.9.53
+Related issue/task/PR: user incident 2026-09-22 / PR #62 / v2.9.53
 
 ## 1. Context / problem
 
@@ -138,5 +138,7 @@ Record branch/head SHA, PR number, exact-head test run, merge SHA, canonical-mai
 
 | Requirement / AC | Status | Evidence / reason |
 | --- | --- | --- |
-| R1-R11 | pending | |
-| AC-1-AC-7 | pending | |
+| R1-R11 | passed | PR #62 implements the visible assistant transcript extractor, split-response carry, exact-route marker-virtualization fallback, three-part Work prompt preservation, review identity preservation, and version bump. Exact-head `c0fb73f547ba5b6afed75de42f511035b9662cfe` passed Test run `35683780271`. |
+| AC-1-AC-5 | passed | `test/workbench.test.mjs` covers split assistant segments with status-only interruption, marker virtualization with a retained user boundary, foreign marker rejection, three-part prompt ordering, and the pre-existing final/review identity regressions. All tests passed on the exact PR head and canonical main. |
+| AC-6 | passed | PR #62 exact-head Test run `35683780271` succeeded before squash merge. |
+| AC-7 | passed | PR #62 squash-merged as canonical main `9745c14531b97542a7f0aae671e4b5bc3d9bb107`; canonical-main Test run `35683823051` succeeded. Main readback reports metadata/runtime version `2.9.53`. Release run `35683855653` succeeded and published `v2.9.53` targeting the merge SHA with asset `chatgpt-auto-confirm.user.js` SHA-256 `928a422b3dfda8c008cf80b108cbab46bf72c29c44db806e9c13a7d81213fdca`. |
