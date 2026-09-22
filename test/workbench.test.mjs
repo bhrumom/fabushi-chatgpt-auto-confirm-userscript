@@ -152,8 +152,8 @@ test('a lost Stop control stays in the same conversation until the final toolbar
   assert.equal(h.classify({...sample,stop:true},previous,901_000).state,'generating');
   dom.window.close();
 });
-test('Stop disappearance with a visible composer never triggers an abnormal continuation',async()=>{
-  const {h,w,dom}=await fixture('<main><div class="animate-spin" aria-hidden="true"></div><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish all [Fabushi:stop-transition-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">normal reply has finished streaming but toolbar is not mounted yet</div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
+test('Stop disappearance with an active assistant busy marker never triggers an abnormal continuation',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish all [Fabushi:stop-transition-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant" aria-busy="true">normal reply is still active even though Stop is temporarily absent</div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   try {
     w.history.pushState({},'', '/c/stop-transition');
     const task={id:'stop-transition',ownerTabId:h.getTabId(),goal:'finish all',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/stop-transition',token:'stop-transition-token',attempted:false,messages:[],stopMissingSince:Date.now()-60_000,stopMissingSignature:'legacy-v2.9.54-state'};
@@ -169,7 +169,7 @@ test('Stop disappearance with a visible composer never triggers an abnormal cont
     assert.equal(task.continuationCount||0,0);
     assert.equal(clicks,0);
     assert.equal(w.document.querySelector('#prompt-textarea').value,'');
-    assert.equal(task.abnormalNoFinalSince||0,0,'a visible loading spinner clears the ended-conversation timer');
+    assert.equal(task.abnormalNoFinalSince||0,0,'the active assistant busy marker clears the ended-conversation timer');
     assert.equal(task.messages.some(item=>/Stop 已消失.*异常停止/.test(item.text||'')),false);
   } finally {
     h.pause();
