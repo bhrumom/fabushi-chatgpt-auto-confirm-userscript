@@ -13,6 +13,8 @@ For an ordinary persisted waiting task after script/page startup, `latestTurn(ta
 
 The task URL itself is already a durable task boundary. When the exact saved conversation is open, no other task owns that URL, no foreign Fabushi marker is visible, the original task marker is absent rather than contradicted by a newer mounted user turn, the composer is empty and enabled, and all activity/blocker signals are absent, the script can safely detect “conversation ended without final” and send a continuation in the same chat. This is not final-reply attribution and must not be used to complete a task.
 
+A second live UI case must be handled in the same release: ChatGPT may show a “请求过于频繁” popup whose text says that only access to previous conversation/history records is temporarily restricted. This popup does not block the current conversation, a new conversation, or current-generation progress. It must therefore be acknowledged with its explicit “明白 / 知道了 / Got it / OK” action and ignored by the real request-rate-limit cooldown detector.
+
 ## 2. Goal
 
 Allow ordinary `waiting` supervision to detect and continue an ended exact-route conversation even when the task marker was virtualized, without requiring a manual pause/resume.
@@ -48,6 +50,11 @@ Publish as userscript v2.9.61.
 - R16: Preserve v2.9.60 stale-loader, resume-reset and explicit-recovery persistence regressions.
 - R17: Bump metadata/runtime/version assertions to 2.9.61.
 - R18: Merge only after exact-head GitHub Actions Test passes, then verify canonical-main Test and Release v2.9.61.
+- R19: Detect the specific request-frequency popup whose message explicitly says that access to previous conversation/history records is temporarily restricted.
+- R20: For that history-only restriction popup, click an explicit acknowledgement action such as `明白`, `知道了`, `Got it` or `OK`, then continue normal supervision immediately.
+- R21: The history-only restriction popup must not trigger `restForRateLimit()`, task cooldown, pausing, page refresh, cancellation, or fresh-chat suppression.
+- R22: A genuine request rate-limit notice such as “请稍等几分钟后再重试” that is not scoped only to history access must continue to trigger the existing cooldown behavior.
+- R23: Add regression coverage proving the history-only popup is acknowledged and ignored by `rateLimitNotice()`, while the existing genuine-rate-limit regression remains green.
 
 ## 5. Target behavior
 
@@ -75,6 +82,8 @@ If this task's marker is still visible but a newer user turn exists, the route-o
 - Existing v2.9.60 and final/streaming/approval/cross-task guards remain green.
 - Canonical-main Test succeeds.
 - Release workflow publishes v2.9.61.
+- History-only request-frequency popup regression proves the `明白` action is clicked and no cooldown is reported.
+- Existing genuine request-rate-limit regression remains green.
 
 ## 7. Acceptance criteria
 
@@ -85,6 +94,8 @@ If this task's marker is still visible but a newer user turn exists, the route-o
 - AC-5: No duplicate fresh chat is introduced.
 - AC-6: Exact-head Test, canonical-main Test and Release workflow all pass.
 - AC-7: Canonical main and GitHub Release report v2.9.61.
+- AC-8: A history-only “请求过于频繁” popup is acknowledged and dismissed without interrupting current/new conversation progress.
+- AC-9: Genuine request-wide rate limits still enter the existing cooldown path.
 
 ## 8. Spec compliance record
 
