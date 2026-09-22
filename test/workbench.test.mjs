@@ -185,6 +185,7 @@ test('waiting response detects an ended bound conversation and continues after e
     h.data.tasks.push(task);
     let clicks=0;
     w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>clicks++);
+    await h.start(false);
 
     await h.inspect(task,null);
     assert.equal(task.state,'waiting');
@@ -202,6 +203,7 @@ test('waiting response detects an ended bound conversation and continues after e
     assert.match(task.messages.at(-1).text,/原会话输入并发送“继续完成所有”/);
     assert.equal(task.stalledRefreshAttempts||0,0,'ended-response continuation happens before the fifteen-minute stalled refresh');
   } finally {
+    h.pause();
     dom.window.close();
   }
 });
@@ -217,6 +219,7 @@ test('manual recovered marker-virtualized tool-only conversation also continues 
     assert.equal(task.recoveredFinalIdentity.allowStaticFinal,true);
     let clicks=0;
     w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>clicks++);
+    await h.start(false);
 
     await h.inspect(task,null);
     assert.ok(Number(task.abnormalNoFinalSince)>0,'explicit recovery owns the exact tool-only edge for ended-state detection');
@@ -228,6 +231,7 @@ test('manual recovered marker-virtualized tool-only conversation also continues 
     assert.equal(w.document.querySelector('#prompt-textarea').value,'继续完成所有');
     assert.equal(task.stalledRefreshAttempts||0,0);
   } finally {
+    h.pause();
     dom.window.close();
   }
 });
