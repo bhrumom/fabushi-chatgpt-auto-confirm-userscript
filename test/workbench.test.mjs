@@ -160,6 +160,7 @@ test('Stop disappearance with a visible composer never triggers an abnormal cont
     h.data.tasks.push(task);
     let clicks=0;
     w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>clicks++);
+    await h.start();
     await h.inspect(task,null);
     await h.inspect(task,null);
     assert.equal(task.state,'waiting');
@@ -168,6 +169,7 @@ test('Stop disappearance with a visible composer never triggers an abnormal cont
     assert.equal(w.document.querySelector('#prompt-textarea').value,'');
     assert.equal(task.messages.some(item=>/Stop 已消失.*异常停止/.test(item.text||'')),false);
   } finally {
+    h.pause();
     dom.window.close();
   }
 });
@@ -181,6 +183,7 @@ test('a late sibling final toolbar completes normally without injecting continua
     let clicks=0;
     w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>clicks++);
 
+    await h.start();
     await h.inspect(task,null);
     assert.equal(task.state,'waiting');
     assert.equal(clicks,0);
@@ -209,6 +212,7 @@ test('a late sibling final toolbar completes normally without injecting continua
     assert.equal(w.document.querySelector('#prompt-textarea').value,'');
     assert.ok(task.messages.some(item=>item.role==='assistant' && /PR 仍保持 Draft/.test(item.text||'')));
   } finally {
+    h.pause();
     dom.window.close();
   }
 });
@@ -222,8 +226,9 @@ test('an older unassociated toolbar cannot complete the latest assistant turn',a
     const turn=h.latestTurn(task);
     assert.equal(turn.owned,true);
     assert.equal(turn.final,false);
-    assert.deepEqual(turn.responseActions,[]);
+    assert.equal(turn.responseActions.length,0);
   } finally {
+    h.pause();
     dom.window.close();
   }
 });
@@ -1914,6 +1919,7 @@ test('owned route inspection preserves loading recovery counters until loading t
     assert.equal(task.rendererRecoveryExhausted,false);
     assert.equal(task.sendUiWaitSince,0);
   } finally {
+    h.pause();
     dom.window.close();
   }
 });
@@ -2396,6 +2402,7 @@ test('a navigation permit consumes no local budget until the route change is com
     assert.ok(Number(denied.retryAfterMs)>=29000);
     assert.equal(navigationRequests().length,2);
   } finally {
+    h.pause();
     dom.window.close();
   }
 });
