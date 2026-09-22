@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.61
+// @version      2.9.62
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.61';
+  const VERSION = '2.9.62';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -2364,7 +2364,7 @@
     return '';
   }
   const historyAccessThrottlePattern = /(?:请求过于频繁|你的请求过于频繁|too many requests|request(?:s)? too frequent)[\s\S]{0,240}(?:暂时|临时|temporar(?:ily|y))?[\s\S]{0,120}(?:限制|无法|不能|restrict(?:ed|ion)?|limit(?:ed|ation)?)[\s\S]{0,120}(?:访问|查看|读取|access|view|load)[\s\S]{0,120}(?:对话记录|聊天记录|历史(?:记录|会话)?|conversation history|chat history|previous conversations?)/i;
-  const historyAccessAckLabel = /^(?:明白|知道了|我知道了|好的|好|确定|确认|收到|ok|okay|got it|understood|i understand)$/iu;
+  const historyAccessAckLabel = /^(?:明白|明白了|知道了|我知道了|好的|好|确定|确认|收到|ok|okay|got it|understood|i understand)$/iu;
   function historyAccessThrottleContainer(node = null) {
     let current = node?.nodeType === Node.TEXT_NODE ? node.parentElement : node;
     for (let depth = 0; current && depth < 10; depth += 1, current = current.parentElement) {
@@ -2372,6 +2372,29 @@
       const value = normalize(text(current));
       if (historyAccessThrottlePattern.test(value)) return current;
       if (current.matches?.('main,body,html')) break;
+    }
+    return null;
+  }
+  function historyAccessThrottlePopup() {
+    const root = document.body || document.documentElement;
+    if (!root) return null;
+    const headline = /请求过于频繁|你的请求过于频繁|too many requests|request(?:s)? too frequent/i;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let currentNode;
+    while ((currentNode = walker.nextNode())) {
+      const parent = currentNode.parentElement;
+      if (!parent || own(parent) || parent.closest('[data-message-author-role]')) continue;
+      if (!headline.test(normalize(currentNode.nodeValue))) continue;
+      let scope = parent;
+      for (let depth = 0; scope && depth < 12; depth += 1, scope = scope.parentElement) {
+        if (own(scope) || scope.matches?.('body,html')) break;
+        const value = normalize(text(scope));
+        if (!historyAccessThrottlePattern.test(value)) continue;
+        const actions = nodes('button,[role="button"]', scope).filter(enabled);
+        const acknowledge = actions.find(node => [text(node), node.getAttribute('aria-label'), node.getAttribute('title')]
+          .some(labelValue => historyAccessAckLabel.test(normalize(labelValue))));
+        if (acknowledge) return { container:scope, button:acknowledge };
+      }
     }
     return null;
   }
