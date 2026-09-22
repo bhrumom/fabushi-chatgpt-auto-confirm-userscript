@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.60
+// @version      2.9.61
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.60';
+  const VERSION = '2.9.61';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -2726,7 +2726,11 @@
       routeOwned:Boolean(sample?.routeOwned),
       foreignTaskId:String(sample?.foreignTaskId || ''),
       recoveredStaticCandidate:Boolean(sample?.recoveredStaticCandidate),
+      routeEndedOwned:Boolean(sample?.routeEndedOwned),
+      activityText:String(sample?.activityText || '').slice(-6000),
+      userBoundaryKey:String(sample?.userBoundaryKey || ''),
       composerReady:Boolean(sample?.composerReady),
+      composerEmpty:Boolean(sample?.composerEmpty),
       rawLoading:Boolean(sample?.rawLoading),
     });
   }
@@ -4226,7 +4230,23 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const begin = performance.now(), turn = taskTurnForInspection(task), pending = cards();
     const routeOwned = Boolean(liveURL && taskURL && liveURL === taskURL);
     const foreignTask = tabTasks().find(item => item.id !== task.id && item.token && hasTaskMarker(item));
-    const pageBelongsToTask = routeOwned && (turn.owned || !foreignTask);
+    const otherRouteOwner = routeOwned ? conversationURLOwner(liveURL, task.id) : null;
+    const ownMarkerMounted = Boolean(taskMarkerUser(task));
+    // Reply ownership stays strict. Ended-conversation detection gets a
+    // narrower route-only fallback when ChatGPT has virtualized this task's
+    // marker: exact route, no competing task/marker, and no contradictory
+    // still-mounted own marker. This fallback may only send a continuation in
+    // the same chat; it never attributes assistant text as a final result.
+    const routeEndedOwned = Boolean(
+      routeOwned
+      && !turn.owned
+      && !task.attempted
+      && !ownMarkerMounted
+      && !foreignTask
+      && !otherRouteOwner
+    );
+    const pageBelongsToTask = routeOwned && (turn.owned || routeEndedOwned || !foreignTask);
+    const activityTurn = routeEndedOwned ? latestTurn() : turn;
     // A conversation-length notice is a hard product boundary, not a normal
     // final answer. Handle it before final-toolbar classification so a visible
     // copy/share toolbar on the notice cannot prematurely finish Work/Review.
@@ -4252,15 +4272,24 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       await sendContinuation(task, signal, '检测到“消息错误/发送超时，请重试”');
       return;
     }
-    const stopPresent = turn.owned ? Boolean(stopButton()) : false;
+    const stopPresent = (turn.owned || routeEndedOwned) ? Boolean(stopButton()) : false;
     const rawLoading = Boolean(pageLoadingState());
-    const composerReady = Boolean(composer());
+    const composerNode = composer();
+    const composerReady = Boolean(composerNode);
+    const composerDraft = normalize(composerNode?.value || composerNode?.textContent);
+    const composerEmpty = Boolean(composerReady && !composerDraft);
+    const latestMountedUser = nodes('[data-message-author-role=user]').at(-1) || null;
+    const userBoundaryKey = recoveryUserBoundaryKey(latestMountedUser);
     // In a bound owned conversation, active generation exposes Stop. A
     // decorative/stale spinner without Stop must not mask an abnormal stop.
-    const effectiveLoading = Boolean(rawLoading && (turn.recoveredStaticCandidate || !turn.owned || stopPresent));
+    const activityStreaming = Boolean(activityTurn?.streaming && !activityTurn?.final);
+    const effectiveLoading = Boolean(
+      rawLoading
+      && (turn.recoveredStaticCandidate || (!turn.owned && !routeEndedOwned) || stopPresent || activityStreaming)
+    );
     const sample = {
       stop:stopPresent,
-      cards:turn.owned ? pending.length : 0,
+      cards:(turn.owned || routeEndedOwned) ? pending.length : 0,
       loading:effectiveLoading,
       blocker:blocker(),
       rateLimit:rateLimitNotice(),
@@ -4276,12 +4305,16 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       responseActionsComplete:turn.responseActionsComplete,
       explicitFinal:turn.explicitFinal,
       recoveredStaticCandidate:Boolean(turn.recoveredStaticCandidate),
+      routeEndedOwned,
+      activityText:String(activityTurn?.text || ''),
+      userBoundaryKey,
       composerReady,
+      composerEmpty,
       rawLoading,
       // A current-turn streaming/busy marker is stronger evidence than the
       // temporary disappearance of Stop. Once final is true we intentionally
       // ignore a stale streaming marker so completed replies are not held.
-      streaming:Boolean(turn.streaming && !turn.final),
+      streaming:activityStreaming,
       sentAt:task.sentAt,
     };
     const previous = observations.get(task.id);
@@ -4294,7 +4327,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const stalledFor = progressUnchanged ? now - progressSince : 0;
     const abnormalNoFinalEligible = Boolean(
       sample.routeOwned
-      && sample.owned
+      && (sample.owned || sample.routeEndedOwned)
       && !sample.final
       && !sample.recoveredStaticCandidate
       && !sample.stop
@@ -4308,6 +4341,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && !sample.rateLimit
       && !sample.blocker
       && sample.composerReady
+      && sample.composerEmpty
       && !task.attempted,
     );
     let abnormalNoFinalChanged = false;
@@ -4379,6 +4413,10 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       stop:Boolean(sample.stop),
       streaming:Boolean(sample.streaming),
       loading:Boolean(sample.loading),
+      routeEndedOwned:Boolean(sample.routeEndedOwned),
+      activityText:String(sample.activityText || ''),
+      userBoundaryKey:String(sample.userBoundaryKey || ''),
+      composerEmpty:Boolean(sample.composerEmpty),
       clear,
       identityMismatchSince,
       progressSignature,
