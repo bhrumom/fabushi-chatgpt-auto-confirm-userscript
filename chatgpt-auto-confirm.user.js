@@ -1412,8 +1412,10 @@
       phase:String(task.phase || 'work'),
       round:Number(task.round || 0),
       goalRevision:Number(task.goalRevision || 0),
-      allowStaticFinal:Boolean(allowStaticFinal),
-      visibleUserBoundaryKey:allowStaticFinal ? recoveryUserBoundaryKey(latestMountedUser) : '',
+      ...(allowStaticFinal ? {
+        allowStaticFinal:true,
+        visibleUserBoundaryKey:recoveryUserBoundaryKey(latestMountedUser),
+      } : {}),
     };
     return true;
   }
