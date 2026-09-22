@@ -12,7 +12,7 @@ async function fixture(body='', setup=()=>{}) {
   const held = new Set();
   w.navigator.locks = {query:async()=>({held:[...held].map(name=>({name}))}),request:async(name,options,callback)=>{callback ||= options;if(held.has(name))return callback(null);held.add(name);try{return await callback({name});}finally{held.delete(name);}}};
   setup(w);
-  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, stopAmbiguousSend, adoptUnboundAttemptedConversation, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, stopAmbiguousSend, adoptUnboundAttemptedConversation, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('runtime blocked transition immediately becomes a fresh queued resend',async()=>{
@@ -159,19 +159,14 @@ test('Stop disappearance with a visible composer never triggers an abnormal cont
   h.data.tasks.push(task);
   let clicks=0;
   w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>clicks++);
-  try {
-    await h.start();
-    await h.inspect(task,null);
-    await h.inspect(task,null);
-    assert.equal(task.state,'waiting');
-    assert.equal(task.continuationCount||0,0);
-    assert.equal(clicks,0);
-    assert.equal(w.document.querySelector('#prompt-textarea').value,'');
-    assert.equal(task.messages.some(item=>/Stop 已消失.*异常停止/.test(item.text||'')),false);
-  } finally {
-    h.pause();
-    dom.window.close();
-  }
+  await h.inspect(task,null);
+  await h.inspect(task,null);
+  assert.equal(task.state,'waiting');
+  assert.equal(task.continuationCount||0,0);
+  assert.equal(clicks,0);
+  assert.equal(w.document.querySelector('#prompt-textarea').value,'');
+  assert.equal(task.messages.some(item=>/Stop 已消失.*异常停止/.test(item.text||'')),false);
+  dom.window.close();
 });
 
 test('a late sibling final toolbar completes normally without injecting continuation',async()=>{
@@ -181,40 +176,35 @@ test('a late sibling final toolbar completes normally without injecting continua
   h.data.tasks.push(task);
   let clicks=0;
   w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>clicks++);
-  let now=1_000_000;
-  w.Date.now=()=>now;
-  try {
-    await h.start();
-    await h.inspect(task,null);
-    assert.equal(task.state,'waiting');
-    assert.equal(clicks,0);
 
-    const main=w.document.querySelector('main');
-    const form=w.document.querySelector('form');
-    const toolbar=w.document.createElement('div');
-    toolbar.id='late-response-actions';
-    toolbar.innerHTML='<button aria-label="复制回复"></button><button aria-label="来源"></button><button aria-label="更多操作"></button>';
-    main.insertBefore(toolbar,form);
+  await h.inspect(task,null);
+  assert.equal(task.state,'waiting');
+  assert.equal(clicks,0);
 
-    const turn=h.latestTurn(task);
-    assert.equal(turn.final,true,'Copy + Sources/More sibling row is strong final evidence');
-    assert.ok(turn.responseActions.includes('copy'));
-    assert.ok(turn.responseActions.includes('source'));
-    assert.ok(turn.responseActions.includes('more'));
+  const main=w.document.querySelector('main');
+  const form=w.document.querySelector('form');
+  const toolbar=w.document.createElement('div');
+  toolbar.id='late-response-actions';
+  toolbar.innerHTML='<button aria-label="复制回复"></button><button aria-label="来源"></button><button aria-label="更多操作"></button>';
+  main.insertBefore(toolbar,form);
 
-    await h.inspect(task,null);
-    assert.equal(task.state,'waiting','first final observation must respect the stability window');
-    now+=5_000;
-    await h.inspect(task,null);
-    assert.equal(task.state,'done');
-    assert.equal(task.continuationCount||0,0);
-    assert.equal(clicks,0);
-    assert.equal(w.document.querySelector('#prompt-textarea').value,'');
-    assert.ok(task.messages.some(item=>item.role==='assistant' && /PR 仍保持 Draft/.test(item.text||'')));
-  } finally {
-    h.pause();
-    dom.window.close();
-  }
+  const turn=h.latestTurn(task);
+  assert.equal(turn.final,true,'Copy + Sources/More sibling row is strong final evidence');
+  assert.ok(turn.responseActions.includes('copy'));
+  assert.ok(turn.responseActions.includes('source'));
+  assert.ok(turn.responseActions.includes('more'));
+
+  await h.inspect(task,null);
+  assert.equal(task.state,'waiting','first final observation must respect the stability window');
+  const previous=h.observations.get(task.id);
+  h.observations.set(task.id,{...previous,final:true,finalSince:Date.now()-5_000,text:turn.text,clear:true});
+  await h.inspect(task,null);
+  assert.equal(task.state,'done');
+  assert.equal(task.continuationCount||0,0);
+  assert.equal(clicks,0);
+  assert.equal(w.document.querySelector('#prompt-textarea').value,'');
+  assert.ok(task.messages.some(item=>item.role==='assistant' && /PR 仍保持 Draft/.test(item.text||'')));
+  dom.window.close();
 });
 
 test('an older unassociated toolbar cannot complete the latest assistant turn',async()=>{
