@@ -12,7 +12,7 @@ async function fixture(body='', setup=()=>{}) {
   const held = new Set();
   w.navigator.locks = {query:async()=>({held:[...held].map(name=>({name}))}),request:async(name,options,callback)=>{callback ||= options;if(held.has(name))return callback(null);held.add(name);try{return await callback({name});}finally{held.delete(name);}}};
   setup(w);
-  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, visibleAssistantWorkTranscript, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, stopAmbiguousSend, adoptUnboundAttemptedConversation, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, visibleAssistantWorkTranscript, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('runtime blocked transition immediately becomes a fresh queued resend',async()=>{
@@ -1915,6 +1915,50 @@ test('generic stalled conversation refresh cooldown is fifteen minutes while amb
   dom.window.close();
 });
 
+test('exact prompt retained after an ambiguous send prevents a fresh duplicate dispatch',async()=>{
+  const {h,w,dom}=await fixture('<main><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">Send</button></form></main>');
+  const task={id:'retained-draft',ownerTabId:h.getTabId(),goal:'finish work',next:'',mode:'goal',round:2,state:'sending',phase:'work',url:'',token:'retained-token',preparedPrompt:'complete the requested task [Fabushi:retained-token]',attempted:true,sentAt:1,messages:[]};
+  h.data.tasks.push(task);
+  w.document.querySelector('#prompt-textarea').value=task.preparedPrompt;
+  h.stopAmbiguousSend(task,false,100_000);
+  assert.equal(task.state,'sending');
+  assert.equal(task.attempted,true);
+  assert.equal(task.token,'retained-token');
+  assert.equal(task.url,'');
+  assert.equal(task.phase,'work');
+  assert.match(task.messages.at(-1).text,/不会因 Stop 按钮缺失而新开会话重发/);
+  dom.window.close();
+});
+test('retained prompt is adopted into its later marked route without changing send identity',async()=>{
+  const {h,w,dom}=await fixture('<main><form><textarea id="prompt-textarea"></textarea></form></main>');
+  const task={id:'retained-route',ownerTabId:h.getTabId(),goal:'finish work',mode:'goal',round:2,state:'sending',phase:'work',url:'',token:'retained-route-token',preparedPrompt:'complete the task [Fabushi:retained-route-token]',attempted:true,sentAt:1,messages:[]};
+  h.data.tasks.push(task);
+  w.document.querySelector('#prompt-textarea').value=task.preparedPrompt;
+  h.stopAmbiguousSend(task,false,100_000);
+  w.history.pushState({},'', '/c/retained-route');
+  const user=w.document.createElement('div');
+  user.dataset.messageAuthorRole='user';
+  user.textContent=task.preparedPrompt;
+  w.document.querySelector('main').prepend(user);
+  h.stopAmbiguousSend(task,false,110_000);
+  assert.equal(task.url,'https://chatgpt.com/c/retained-route');
+  assert.equal(task.attempted,false);
+  assert.equal(task.token,'retained-route-token');
+  assert.equal(task.phase,'work');
+  assert.equal(task.round,2);
+  dom.window.close();
+});
+test('visibility-aware supervision slows ordinary scans but preserves short recovery deadlines',async()=>{
+  const {h,dom}=await fixture();
+  assert.equal(h.visibilityAwareDelay(4000,4000,15000,false),4000);
+  assert.equal(h.visibilityAwareDelay(2000,4000,15000,false),2000,'short explicit wakeups are preserved');
+  assert.equal(h.visibilityAwareDelay(4000,4000,15000,true),15000);
+  assert.equal(h.visibilityAwareDelay(20000,4000,15000,true),20000);
+  assert.equal(h.visibilityAwareDelay(100,4000,15000,true),100);
+  assert.equal(h.visibilityAwareDelay(500,4000,15000,true),500);
+  dom.window.close();
+});
+
 test('unbound ambiguous send older than 90 seconds immediately queues a fresh resend without refresh delay',async()=>{
   const {h,w,dom}=await fixture();
   w.history.pushState({},'', '/c/old-conversation');
@@ -2770,8 +2814,8 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.63$/m);
-  assert.match(source,/const VERSION = '2\.9\.63'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.64$/m);
+  assert.match(source,/const VERSION = '2\.9\.64'/);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const ENDED_NO_FINAL_STABILITY_MS = 8000/);
   assert.doesNotMatch(source,/ABNORMAL_NO_FINAL_CONTINUE_AFTER_MS/);
