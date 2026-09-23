@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.62
+// @version      2.9.63
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.62';
+  const VERSION = '2.9.63';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -144,6 +144,7 @@
   const HOST_MEMORY_PLUGIN_ID = 'chatgpt-auto-confirm';
   const MEMORY_MONITOR_INTERVAL_MS = 30000;
   const MEMORY_PRESSURE_SAMPLES = 2;
+  const MEMORY_HOST_REQUEST_MIN_BYTES = 1024 * 1024 * 1024;
   const MEMORY_LOCAL_CLEANUP_COOLDOWN_MS = 60000;
   const MEMORY_HOST_REQUEST_COOLDOWN_MS = 5 * 60 * 1000;
   const MEMORY_HOST_RESPONSE_TTL_MS = 10000;
@@ -926,8 +927,8 @@
     memorySnapshot = snapshot;
     memoryPressure = memoryPressureLevel(snapshot);
     const safety = memoryDiscardSafety();
-    if (!userInitiated && memoryPressure !== 'high') {
-      return { ok:false, discarded:false, reason:'pressure-not-high', safety };
+    if (!userInitiated && !['elevated','high'].includes(memoryPressure)) {
+      return { ok:false, discarded:false, reason:'pressure-not-elevated', safety };
     }
     if (!userInitiated && now - memoryLastHostRequestAt < MEMORY_HOST_REQUEST_COOLDOWN_MS) {
       return { ok:false, discarded:false, reason:'cooldown', safety };
@@ -984,10 +985,12 @@
       const snapshot = readMemorySnapshot();
       memorySnapshot = snapshot;
       memoryPressure = memoryPressureLevel(snapshot);
-      if (memoryPressure === 'high') memoryPressureStreak += 1;
+      if (['elevated','high'].includes(memoryPressure)) memoryPressureStreak += 1;
       else memoryPressureStreak = 0;
       if (memoryPressure === 'elevated' || memoryPressure === 'high') cleanupLocalMemory({ reason:'memory-pressure' });
-      if (memoryPressure === 'high' && memoryPressureStreak >= MEMORY_PRESSURE_SAMPLES) {
+      if (['elevated','high'].includes(memoryPressure)
+        && Number(snapshot.usedBytes || 0) >= MEMORY_HOST_REQUEST_MIN_BYTES
+        && memoryPressureStreak >= MEMORY_PRESSURE_SAMPLES) {
         await requestHostMemoryCleanup({ reason:'memory-pressure', userInitiated:false });
       }
       paint?.();
@@ -2593,6 +2596,21 @@
     }
     return deduped.join('\n\n').trim();
   }
+  function assistantTurnContent(roleNode) {
+    const turn = roleNode?.closest?.('article,[data-testid^="conversation-turn-"],[data-turn-key],[data-content-search-turn-key]');
+    if (!turn || own(turn) || turn.closest?.('[hidden],[inert]')) return assistantSegmentContent(roleNode);
+    // Current ChatGPT renders agent progress as Markdown siblings of the
+    // assistant-role status node inside one conversation turn. The turn is
+    // safe to inspect only because it contains this assistant-role node.
+    const semantic = nodes('.markdown,[data-message-content],[data-selected-text-overlay-target]', turn)
+      .filter(node => visible(node)
+        && !node.closest?.('[hidden],[inert],[data-message-author-role="user"],[data-testid*="tool"],[data-type*="tool"],[class*="tool-call"],[class*="toolCall"]'));
+    const roots = semantic.filter((candidate, index) => !semantic.some((other, otherIndex) =>
+      otherIndex !== index && other.contains(candidate),
+    ));
+    const content = roots.map(node => String(node.textContent || '').trim()).filter(Boolean).join('\n\n').trim();
+    return content || assistantSegmentContent(roleNode);
+  }
   function visibleAssistantWorkTranscript(task, { allowExactRouteFallback = false } = {}) {
     if (!task) return { text:'', sourceKind:'' };
     const liveURL = canonicalConversationURL(currentConversationURL());
@@ -2639,8 +2657,12 @@
       // decides visibility from semantic/rendered descendants.
       .filter(node => !boundary || Boolean(boundary.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING));
     const parts = [];
+    const seenTurns = new Set();
     for (const node of assistantNodes) {
-      const part = cleanAbnormalFreshReply(assistantSegmentContent(node));
+      const turn = node.closest?.('article,[data-testid^="conversation-turn-"],[data-turn-key],[data-content-search-turn-key]') || node;
+      if (seenTurns.has(turn)) continue;
+      seenTurns.add(turn);
+      const part = cleanAbnormalFreshReply(assistantTurnContent(node));
       if (!part) continue;
       if (parts.at(-1) === part || parts.includes(part)) continue;
       parts.push(part);
@@ -2769,6 +2791,7 @@
       userBoundaryKey:String(sample?.userBoundaryKey || ''),
       composerReady:Boolean(sample?.composerReady),
       composerEmpty:Boolean(sample?.composerEmpty),
+      composerHasRecoveryDraft:Boolean(sample?.composerHasRecoveryDraft),
       rawLoading:Boolean(sample?.rawLoading),
     });
   }
@@ -2887,9 +2910,9 @@
     const replies = nodes('[data-message-author-role=assistant]').filter(node => !user || Boolean(user.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING));
     const assistant = replies.at(-1);
     const article = assistant?.closest('article,[data-testid^="conversation-turn-"],[data-turn-key],[data-content-search-turn-key]') || assistant;
-    const markdown = assistant?.querySelector('.markdown,[data-message-content],[data-selected-text-overlay-target]');
-    const content = String(markdown?.textContent || assistant?.textContent || '').trim();
-    const naturalReplyNode = assistant?.querySelector('.markdown,[data-message-content]');
+    const markdown = article?.querySelector?.('.markdown,[data-message-content],[data-selected-text-overlay-target]');
+    const content = assistantTurnContent(assistant);
+    const naturalReplyNode = article?.querySelector?.('.markdown,[data-message-content]');
     const hasNaturalReply = Boolean(
       naturalReplyNode
       && String(naturalReplyNode.textContent || '').trim()
@@ -3872,10 +3895,22 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     }
     let draft = normalize(input.value || input.textContent);
     if (draft && draft !== CONTINUATION_PROMPT) {
-      setInput(input, '');
-      draft = '';
+      const lastLogAt = Number(task.continuationDraftBlockedLogAt || 0);
+      if (!lastLogAt || now - lastLogAt >= 30000) {
+        task.continuationDraftBlockedLogAt = now;
+        task.state = 'waiting';
+        log(task, `${reason}；检测到 composer 里有非自动恢复文本，已保留草稿并等待，不会覆盖或发送它。`);
+        save();
+      }
+      return false;
     }
-    if (!draft) setInput(input, CONTINUATION_PROMPT);
+    task.pendingContinuationReason = String(reason || '当前会话异常中断').slice(0, 1000);
+    task.pendingContinuationURL = liveURL;
+    task.pendingContinuationSince ||= now;
+    if (!draft) {
+      save();
+      setInput(input, CONTINUATION_PROMPT);
+    }
     const button = await waitForSendButton(input, signal, 3000);
     if (!button) {
       task.state = 'waiting';
@@ -4350,18 +4385,26 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     if (lengthLimitNotice) {
       if (queueConversationLengthHandoff(task, turn, lengthLimitNotice, Date.now())) return;
     }
-    // Connection interruption is a hard session boundary for the owned route.
-    // Once confirmed, abandon this conversation immediately even if an old
-    // approval card is still painted; the fresh chat will resend the current
-    // phase message with a new dispatch identity.
-    const interrupted = Boolean(pageBelongsToTask && connectionInterruptedNotice(turn));
+    // An interrupted bound conversation remains the task's working chat.
+    // Retry the same turn instead of losing its live work in a fresh chat.
+    const interrupted = Boolean(pageBelongsToTask && connectionInterruptedNotice(routeEndedOwned ? activityTurn : turn));
     if (interrupted || task.pendingContinuationReason) {
       const reason = interrupted
         ? '检测到“连接已中断，正在等待完整回复”'
         : '检测到旧版本遗留的连接中断强制续发状态';
-      queueInterruptedFreshRetry(task, reason, Date.now(), turn, {
-        allowExactRouteFallback: Boolean(routeOwned && !foreignTask),
-      });
+      const statusNode = nodes('[data-message-author-role=assistant]', turn.article).at(-1)
+        || nodes('[data-message-author-role=assistant]').at(-1);
+      const statusKey = statusNode?.getAttribute?.('data-message-id')
+        || statusNode?.closest?.('[data-turn-key],[data-content-search-turn-key]')?.getAttribute?.('data-turn-key')
+        || `${recoveryUserBoundaryKey(nodes('[data-message-author-role=user]').at(-1))}:${normalize(text(statusNode)).slice(-300)}`;
+      if (interrupted && task.connectionInterruptedContinuationStatusKey === statusKey) {
+        task.state = 'waiting';
+        return;
+      }
+      if (await sendContinuation(task, signal, reason)) {
+        task.connectionInterruptedContinuationStatusKey = statusKey;
+        save();
+      }
       return;
     }
     if (pageBelongsToTask && !turn.final && !pending.length && sendTimeoutNotice(turn)) {
@@ -4374,6 +4417,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const composerReady = Boolean(composerNode);
     const composerDraft = normalize(composerNode?.value || composerNode?.textContent);
     const composerEmpty = Boolean(composerReady && !composerDraft);
+    const composerHasRecoveryDraft = Boolean(composerReady && composerDraft === CONTINUATION_PROMPT);
     const latestMountedUser = nodes('[data-message-author-role=user]').at(-1) || null;
     const userBoundaryKey = recoveryUserBoundaryKey(latestMountedUser);
     // In a bound owned conversation, active generation exposes Stop. A
@@ -4420,6 +4464,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       userBoundaryKey,
       composerReady,
       composerEmpty,
+      composerHasRecoveryDraft,
       rawLoading,
       // A current-turn streaming/busy marker is stronger evidence than the
       // temporary disappearance of Stop. Once final is true we intentionally
@@ -4451,7 +4496,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && !sample.rateLimit
       && !sample.blocker
       && sample.composerReady
-      && sample.composerEmpty
+      && (sample.composerEmpty || sample.composerHasRecoveryDraft)
       && !task.attempted,
     );
     let abnormalNoFinalChanged = false;
@@ -5103,7 +5148,7 @@ NaN
     const memoryCleanupButton = element('button','清理当前标签页内存','memory-cleanup'); memoryCleanupButton.type='button';
     const memoryStatusNode = element('small',memoryStatusText(),'memory-status');
     chat.append(head);
-    settings.append(globalApprovalLabel,globalPauseButton,memoryCleanupButton,memoryStatusNode,element('small','内存数值仅是网页 JS 堆估算；真正卸载标签页由宿主在安全时机处理。'),element('small','仅展开“允许”旁的菜单并选择“允许本次会话”；不会选择永久授权。'));
+    settings.append(globalApprovalLabel,globalPauseButton,memoryCleanupButton,memoryStatusNode,element('small','此数值只估算网页 JavaScript 堆，不等于 Chrome 标签页完整内存。宿主只能卸载非活动且无未保存内容/进行中任务的标签页；重新打开时会重新加载。活动标签页无法通过 tabs.discard 清理到初始占用。'),element('small','仅展开“允许”旁的菜单并选择“允许本次会话”；不会选择永久授权。'));
     const feed = element('div','','feed'); feed.setAttribute('role','log'); feed.setAttribute('aria-live','polite');
     const notice = element('div','单标签页 · 已暂停','notice');
     const compose = element('form','','compose'), input = element('textarea'); input.placeholder = '输入任务目标，可直接粘贴图片或视频…'; input.setAttribute('aria-label','任务目标');

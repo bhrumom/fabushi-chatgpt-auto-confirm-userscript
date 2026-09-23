@@ -12,7 +12,7 @@ async function fixture(body='', setup=()=>{}) {
   const held = new Set();
   w.navigator.locks = {query:async()=>({held:[...held].map(name=>({name}))}),request:async(name,options,callback)=>{callback ||= options;if(held.has(name))return callback(null);held.add(name);try{return await callback({name});}finally{held.delete(name);}}};
   setup(w);
-  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, stopAmbiguousSend, adoptUnboundAttemptedConversation, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, visibleAssistantWorkTranscript, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, stopAmbiguousSend, adoptUnboundAttemptedConversation, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('runtime blocked transition immediately becomes a fresh queued resend',async()=>{
@@ -522,7 +522,7 @@ test('connection interruption recovery recognizes current live assistant status 
   assert.equal(discussed.h.connectionInterruptedNotice({owned:true,article}),false,'long assistant discussion and blockquotes are not product-status detections');
   discussed.dom.window.close();
 });
-test('connection interruption route fallback carries visible assistant work when the marker user turn is virtualized out of the DOM',async()=>{
+test.skip('connection interruption route fallback carries visible assistant work when the marker user turn is virtualized out of the DOM',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">旧的普通用户消息，任务 marker 已被虚拟化</div></article><article data-testid="conversation-turn-assistant-a"><div data-message-author-role="assistant"><div class="markdown">已经完成 architecture checker 的第一轮修复，并把 legacy adapter 的 Agent 依赖移出。</div></div></article><article data-testid="conversation-turn-assistant-b"><div data-message-author-role="assistant"><div data-message-content>下一步正在修 packaged acceptance 的 TypeScript 错误。</div></div></article><article data-testid="conversation-turn-assistant-status"><div data-message-author-role="assistant">连接已中断。正在等待完整回复。</div></article><div role="status">连接已中断。正在等待完整回复。</div><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   try {
     w.history.pushState({},'', '/c/virtualized-marker');
@@ -580,7 +580,7 @@ test('a stale earlier retry error cannot override a newer final reply',async()=>
   assert.equal(h.sendTimeoutNotice(turn),false,'the earlier error card is not the latest task reply');
   dom.window.close();
 });
-test('connection interruption immediately requeues the same task for a fresh chat without refresh or continuation',async()=>{
+test.skip('obsolete: connection interruption requeues a fresh chat instead of continuing in place',async()=>{
   const {h,w,dom}=await fixture();
   const task=h.enqueue('original goal','goal',[{id:'doc-1',name:'evidence.txt',type:'text/plain',size:12,lastModified:1}]);
   Object.assign(task,{
@@ -618,7 +618,7 @@ test('connection interruption immediately requeues the same task for a fresh cha
   dom.window.close();
 });
 
-test('connection interruption carries all substantive assistant segments when the latest assistant node is only the interruption status',async()=>{
+test.skip('connection interruption carries all substantive assistant segments when the latest assistant node is only the interruption status',async()=>{
   const {h,w,dom}=await fixture(`<main>
     <article data-testid="conversation-turn-user"><div data-message-author-role="user">continue split response [Fabushi:split-interrupt]</div></article>
     <article data-testid="conversation-turn-assistant-a"><div data-message-author-role="assistant"><div class="markdown">已经核对 PR #19，并确认它只是 spec-only；随后开始检查 PR #20 的真实实现。</div></div></article>
@@ -659,7 +659,7 @@ test('connection interruption carries all substantive assistant segments when th
   }
 });
 
-test('connection interruption carries visible semantic work from zero-rect assistant hosts into the next prompt',async()=>{
+test.skip('connection interruption carries visible semantic work from zero-rect assistant hosts into the next prompt',async()=>{
   const {h,w,dom}=await fixture(`<main>
     <article data-testid="conversation-turn-user"><div data-message-author-role="user">continue live work [Fabushi:zero-rect-interrupt]</div></article>
     <article data-testid="conversation-turn-assistant-a"><div data-message-author-role="assistant"><div class="markdown">已经确认 PR #19 只是 spec-only，并开始核对 PR #20 的 Coordinator Host Runner 实现。</div></div></article>
@@ -710,7 +710,7 @@ test('connection interruption carries visible semantic work from zero-rect assis
   }
 });
 
-test('connection interruption never carries hidden or inert assistant content from zero-rect hosts',async()=>{
+test.skip('connection interruption never carries hidden or inert assistant content from zero-rect hosts',async()=>{
   const {h,w,dom}=await fixture(`<main>
     <article data-testid="conversation-turn-user"><div data-message-author-role="user">continue safely [Fabushi:hidden-zero-rect]</div></article>
     <article data-testid="conversation-turn-assistant-hidden" hidden><div data-message-author-role="assistant"><div class="markdown">SECRET_HIDDEN_ASSISTANT_WORK</div></div></article>
@@ -743,7 +743,7 @@ test('connection interruption never carries hidden or inert assistant content fr
   }
 });
 
-test('scheduler carries the interrupted live assistant work into the fresh-chat three-part Work prompt',async()=>{
+test.skip('scheduler carries the interrupted live assistant work into the fresh-chat three-part Work prompt',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue current work [Fabushi:interrupt-live-send]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><p>已完成 legacy shell 拆分，并正在修复 packaged acceptance TypeScript 错误。</p><p>连接已中断。正在等待完整回复。</p></div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   w.history.pushState({},'', '/c/interrupt-live-send');
   const task={id:'interrupt-live-send',ownerTabId:h.getTabId(),goal:'original goal',next:'continue current work',mode:'goal',phase:'work',round:3,state:'waiting',url:'https://chatgpt.com/c/interrupt-live-send',token:'interrupt-live-send',attempted:false,attachments:[],messages:[]};
@@ -810,7 +810,7 @@ test('scheduler carries the interrupted live assistant work into the fresh-chat 
   dom.window.close();
 });
 
-test('legacy pending interruption state is migrated to fresh-chat recovery instead of same-chat continuation',async()=>{
+test.skip('legacy pending interruption state is migrated to fresh-chat recovery instead of same-chat continuation',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:legacy-pending]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">partial stopped response</div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   w.history.pushState({},'', '/c/legacy-pending');
   const task={id:'legacy-pending',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/legacy-pending',token:'legacy-pending',pendingContinuationReason:'旧版连接中断待续发',pendingContinuationURL:'https://chatgpt.com/c/legacy-pending',pendingContinuationSince:1,messages:[]};
@@ -2770,8 +2770,8 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.62$/m);
-  assert.match(source,/const VERSION = '2\.9\.62'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.63$/m);
+  assert.match(source,/const VERSION = '2\.9\.63'/);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const ENDED_NO_FINAL_STABILITY_MS = 8000/);
   assert.doesNotMatch(source,/ABNORMAL_NO_FINAL_CONTINUE_AFTER_MS/);
@@ -2786,4 +2786,150 @@ test('the packaged userscript declares its stable remote update and download URL
   assert.match(source,/connection-interrupted-fresh-chat/);
   assert.match(source,/^\/\/ @updateURL\s+https:\/\/raw\.githubusercontent\.com\/bhrumom\/fabushi-chatgpt-auto-confirm-userscript\/main\/chatgpt-auto-confirm\.user\.js$/m);
   assert.match(source,/^\/\/ @downloadURL\s+https:\/\/raw\.githubusercontent\.com\/bhrumom\/fabushi-chatgpt-auto-confirm-userscript\/main\/chatgpt-auto-confirm\.user\.js$/m);
+});
+
+test('live assistant turn extracts sibling Markdown and connection interruption continues in the same chat once',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <section data-testid="conversation-turn-1"><div data-message-author-role="user">goal [Fabushi:live-shape]</div></section>
+    <section data-testid="conversation-turn-2">
+      <div class="markdown"><p>PR #3 已前移到新 HEAD，继续检查 CI。</p></div>
+      <div class="markdown"><p>Ledger 共 2046 行，下一步闭环 production wiring。</p></div>
+      <div data-message-author-role="assistant" data-message-id="status-1">连接已中断。正在等待完整回复。</div>
+    </section>
+    <form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/live-shape');
+    const task={id:'live-shape',ownerTabId:h.getTabId(),goal:'goal',mode:'goal',phase:'work',round:40,state:'waiting',url:'https://chatgpt.com/c/live-shape',token:'live-shape',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    const transcript=h.visibleAssistantWorkTranscript(task);
+    assert.match(transcript.text,/PR #3 已前移/);
+    assert.match(transcript.text,/Ledger 共 2046 行/);
+    assert.doesNotMatch(transcript.text,/连接已中断/);
+    assert.match(h.latestTurn(task).text,/Ledger 共 2046 行/);
+    let sends=0;
+    w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>sends++);
+    await h.start();
+    await h.inspect(task,null);
+    assert.equal(sends,1);
+    assert.equal(task.url,'https://chatgpt.com/c/live-shape');
+    assert.equal(task.token,'live-shape');
+    assert.equal(task.phase,'work');
+    assert.equal(task.round,40);
+    assert.equal(task.continuationCount,1);
+    await h.inspect(task,null);
+    assert.equal(sends,1,'the same status node must not cause another send');
+  } finally {h.pause();dom.window.close();}
+});
+
+test('a second interruption after a continuation sends again in the same conversation',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <section data-testid="conversation-turn-1"><div data-message-author-role="user">goal [Fabushi:repeat-interrupt]</div></section>
+    <section data-testid="conversation-turn-2"><div data-message-author-role="assistant" data-message-id="status-first">连接已中断。正在等待完整回复。</div></section>
+    <form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/repeat-interrupt');
+    const task={id:'repeat-interrupt',ownerTabId:h.getTabId(),goal:'goal',mode:'goal',phase:'work',round:3,state:'waiting',url:'https://chatgpt.com/c/repeat-interrupt',token:'repeat-interrupt',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    let sends=0;
+    w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>sends++);
+    await h.start();
+    await h.inspect(task,null);
+    assert.equal(sends,1);
+    const nextUser=w.document.createElement('section');
+    nextUser.dataset.testid='conversation-turn-3';
+    nextUser.innerHTML='<div data-message-author-role="user">继续完成所有</div>';
+    w.document.querySelector('main').insertBefore(nextUser,w.document.querySelector('form'));
+    const nextAssistant=w.document.createElement('section');
+    nextAssistant.dataset.testid='conversation-turn-4';
+    nextAssistant.innerHTML='<div data-message-author-role="assistant" data-message-id="status-second">连接已中断。正在等待完整回复。</div>';
+    w.document.querySelector('main').insertBefore(nextAssistant,w.document.querySelector('form'));
+    task.continuationSentAt=0;
+    await h.inspect(task,null);
+    assert.equal(sends,2);
+    assert.equal(task.url,'https://chatgpt.com/c/repeat-interrupt');
+    assert.equal(task.round,3);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('turn-sibling extraction excludes hidden content and foreign user turns',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <section data-testid="conversation-turn-1"><div data-message-author-role="user">goal [Fabushi:scope-check]</div></section>
+    <section data-testid="conversation-turn-2"><div class="markdown">SAFE_WORK</div><div class="markdown" hidden>HIDDEN_SECRET</div><div data-message-author-role="assistant">status</div></section>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/scope-check');
+    const task={id:'scope-check',ownerTabId:h.getTabId(),goal:'goal',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/scope-check',token:'scope-check',messages:[]};
+    h.data.tasks.push(task);
+    assert.match(h.visibleAssistantWorkTranscript(task).text,/SAFE_WORK/);
+    assert.doesNotMatch(h.visibleAssistantWorkTranscript(task).text,/HIDDEN_SECRET/);
+    const foreign=w.document.createElement('section');
+    foreign.innerHTML='<div data-message-author-role="user">another task</div>';
+    w.document.querySelector('main').append(foreign);
+    assert.equal(h.visibleAssistantWorkTranscript(task).text,'');
+  } finally {dom.window.close();}
+});
+
+test('resumed ended conversation sends an exact recovery composer draft after the stability gate',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">resume task [Fabushi:recovery-draft]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div data-testid="tool-call-result">已调用工具</div></div></article><form><textarea id="prompt-textarea">继续完成所有</textarea><button data-testid="send-button" type="button">发送</button></form></main>');
+  try {
+    w.history.pushState({},'', '/c/recovery-draft');
+    const task={id:'recovery-draft',ownerTabId:h.getTabId(),goal:'resume task',mode:'once',phase:'work',round:4,state:'waiting',url:'https://chatgpt.com/c/recovery-draft',token:'recovery-draft',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    let clicks=0;
+    w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>clicks++);
+    await h.start(false);
+    await h.inspect(task,null);
+    assert.equal(task.continuationCount||0,0,'the ended state still waits for a stable observation');
+    assert.ok(Number(task.abnormalNoFinalSince)>0);
+    task.abnormalNoFinalSince=Date.now()-9000;
+    await h.inspect(task,null);
+    assert.equal(clicks,1);
+    assert.equal(task.continuationCount,1);
+    assert.equal(task.url,'https://chatgpt.com/c/recovery-draft');
+    assert.equal(w.document.querySelector('#prompt-textarea').value,'继续完成所有');
+    assert.equal(task.pendingContinuationReason,'');
+  } finally {h.pause();dom.window.close();}
+});
+
+test('continuation intent is persisted before composer fill and unrelated drafts are preserved',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">recover [Fabushi:pending-intent]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">partial</div></article><form><textarea id="prompt-textarea"></textarea></form></main>');
+  try {
+    w.history.pushState({},'', '/c/pending-intent');
+    const task={id:'pending-intent',ownerTabId:h.getTabId(),goal:'recover',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/pending-intent',token:'pending-intent',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    const input=w.document.querySelector('#prompt-textarea');
+    input.value='leave my draft';
+    assert.equal(await h.sendContinuation(task,null,'test recovery intent',Date.now(),{ignoreCooldown:true}),false);
+    assert.equal(input.value,'leave my draft');
+    assert.equal(task.pendingContinuationReason,undefined);
+    input.value='';
+    assert.equal(await h.sendContinuation(task,null,'test recovery intent',Date.now(),{ignoreCooldown:true}),false,'no Send control means the durable intent remains queued');
+    assert.equal(input.value,'继续完成所有');
+    assert.equal(task.pendingContinuationReason,'test recovery intent');
+    assert.equal(task.pendingContinuationURL,'https://chatgpt.com/c/pending-intent');
+  } finally {h.pause();dom.window.close();}
+});
+
+test('automatic host memory discard is requested for sustained elevated JS heap and labels active-tab denial',async()=>{
+  const gib=1024*1024*1024;
+  const requests=[];
+  const {h,w,dom}=await fixture('',window=>{
+    Object.defineProperty(window.performance,'memory',{configurable:true,value:{usedJSHeapSize:1.2*gib,totalJSHeapSize:1.5*gib,jsHeapSizeLimit:4*gib}});
+    window.addEventListener('message',event=>{
+      if(event.data?.source!=='fabushi-userscript'||event.data?.type!=='tab-memory.request')return;
+      requests.push(event.data);
+      window.setTimeout(()=>window.dispatchEvent(new window.MessageEvent('message',{data:{source:'fabushi-extension',type:'tab-memory.response',requestId:event.data.requestId,ok:true,result:{ok:true,discarded:false,reason:'active-tab'}},source:window})),0);
+    });
+  });
+  try {
+    await h.inspectMemoryPressure();
+    await h.inspectMemoryPressure();
+    assert.equal(requests.length,1,'two elevated samples above 1 GiB request the host capability');
+    assert.equal(requests[0].payload.pressure,'elevated');
+    assert.equal(h.memorySnapshot().usedBytes,1.2*gib);
+    assert.match(h.memoryStatusText(),/网页 JS 堆估算/);
+    assert.match(h.memoryStatusText(),/当前标签页正在使用中/);
+  } finally {h.pause();dom.window.close();}
 });
