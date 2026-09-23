@@ -482,35 +482,93 @@ test('conversation length-limit detection is scoped to the current response and 
   assistantQuote.dom.window.close();
 });
 
-test('conversation length-limit handoff preserves phase/round/attachments and replaces carry on repeated hops',async()=>{
-  const {h,w,dom}=await fixture();
+test('conversation length-limit handoff copies the complete current assistant response, not a stale turn or prior reply',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">OLD_REPLY_MUST_NOT_CARRY</div></div></article>
+    <article data-testid="conversation-turn-user"><div data-message-author-role="user">finish everything [Fabushi:length-hop]</div></article>
+    <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">当前轮已经完成 A/B。</div></div></article>
+    <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">接着完成了 C。</div></div></article>
+    <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">你已达到此对话的长度上限，你可以开始新聊天以继续对话。</div></div></article>
+  </main>`);
   const attachments=[{id:'proof',name:'proof.png',type:'image/png',size:12}];
-  const task={id:'length-hop',ownerTabId:h.getTabId(),goal:'finish everything',mode:'goal',phase:'work',round:2,state:'waiting',url:'https://chatgpt.com/c/length-one',token:'old-token',attempted:false,attachments,messages:[]};
+  const task={id:'length-hop',ownerTabId:h.getTabId(),goal:'finish everything',mode:'goal',phase:'work',round:2,state:'waiting',url:'https://chatgpt.com/c/length-one',token:'length-hop',attempted:false,attachments,messages:[]};
   h.data.tasks.push(task);
   w.history.pushState({},'', '/c/length-one');
-  assert.equal(h.queueConversationLengthHandoff(task,{text:'第一会话已经完成 A/B；你已达到此对话的长度上限，你可以开始新聊天以继续对话。'},'notice',1_000),true);
+  assert.equal(h.queueConversationLengthHandoff(task,{owned:true,text:'STALE_TURN_TEXT'},'你已达到此对话的长度上限，你可以开始新聊天以继续对话。',1_000),true);
   assert.equal(task.state,'queued');
   assert.equal(task.url,'');
   assert.equal(task.token,'');
   assert.equal(task.phase,'work');
   assert.equal(task.round,2);
   assert.deepEqual(task.attachments,attachments);
-  assert.match(task.lengthLimitCarry,/已经完成 A\/B/);
+  assert.match(task.lengthLimitCarry,/当前轮已经完成 A\/B/);
+  assert.match(task.lengthLimitCarry,/接着完成了 C/);
+  assert.doesNotMatch(task.lengthLimitCarry,/OLD_REPLY_MUST_NOT_CARRY|STALE_TURN_TEXT|长度上限/);
   assert.equal(task.lengthLimitHopCount,1);
   assert.equal(task.lengthLimitCarrySourceURL,'https://chatgpt.com/c/length-one');
   assert.equal(task.history.at(-1).reason,'conversation-length-limit');
 
+  w.document.querySelector('main').innerHTML=`
+    <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">SECOND_OLD_REPLY_MUST_NOT_CARRY</div></div></article>
+    <article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:second-token]</div></article>
+    <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">第二会话又完成 C/D。</div></div></article>
+    <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">你已达到此对话的长度上限，你可以开始新聊天以继续对话。</div></div></article>`;
   task.url='https://chatgpt.com/c/length-two';
   task.token='second-token';
   task.state='waiting';
   w.history.pushState({},'', '/c/length-two');
-  assert.equal(h.queueConversationLengthHandoff(task,{text:'第二会话又完成 C；你已达到此对话的长度上限，你可以开始新聊天以继续对话。'},'notice',2_000),true);
+  assert.equal(h.queueConversationLengthHandoff(task,{owned:true,text:'STALE_SECOND_TURN'},'notice',2_000),true);
   assert.equal(task.phase,'work');
   assert.equal(task.round,2);
   assert.equal(task.lengthLimitHopCount,2);
-  assert.match(task.lengthLimitCarry,/第二会话又完成 C/);
+  assert.match(task.lengthLimitCarry,/第二会话又完成 C\/D/);
+  assert.doesNotMatch(task.lengthLimitCarry,/SECOND_OLD_REPLY_MUST_NOT_CARRY|STALE_SECOND_TURN|长度上限/);
   assert.doesNotMatch(task.lengthLimitCarry,/已经完成 A\/B/,'each hop carries the latest page reply instead of growing without bound');
   dom.window.close();
+});
+
+test('a length-limit notice without safe current assistant work does not queue a fresh chat',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish [Fabushi:length-no-carry]</div></article><div role="status">你已达到此对话的长度上限，你可以开始新聊天以继续对话。</div></main>');
+  try {
+    w.history.pushState({},'', '/c/length-no-carry');
+    const task={id:'length-no-carry',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/length-no-carry',token:'length-no-carry',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    await h.start();
+    await h.inspect(task,null);
+    assert.equal(task.state,'waiting');
+    assert.equal(task.url,'https://chatgpt.com/c/length-no-carry');
+    assert.equal(task.token,'length-no-carry');
+    assert.equal(task.lengthLimitCarry||'','');
+  } finally {h.pause();dom.window.close();}
+});
+
+test('a length-limit handoff waits for the active response and then carries its latest complete work',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <article data-testid="conversation-turn-user"><div data-message-author-role="user">finish [Fabushi:length-streaming]</div></article>
+    <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">已经完成模块 A。</div></div></article>
+    <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">你已达到此对话的长度上限，你可以开始新聊天以继续对话。</div></div></article>
+    <form><textarea id="prompt-textarea"></textarea><button aria-label="停止回答">停止</button></form>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/length-streaming');
+    const task={id:'length-streaming',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/length-streaming',token:'length-streaming',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    await h.start();
+    await h.inspect(task,null);
+    assert.equal(task.state,'waiting');
+    assert.equal(task.url,'https://chatgpt.com/c/length-streaming');
+    assert.equal(task.lengthLimitCarry||'','');
+    const next= w.document.createElement('article');
+    next.dataset.testid='conversation-turn-assistant';
+    next.innerHTML='<div data-message-author-role="assistant"><div class="markdown">随后补完了模块 B。</div></div>';
+    w.document.querySelector('form').before(next);
+    w.document.querySelector('[aria-label="停止回答"]').remove();
+    await h.inspect(task,null);
+    assert.equal(task.state,'queued');
+    assert.match(task.lengthLimitCarry,/已经完成模块 A/);
+    assert.match(task.lengthLimitCarry,/随后补完了模块 B/);
+    assert.doesNotMatch(task.lengthLimitCarry,/长度上限/);
+  } finally {h.pause();dom.window.close();}
 });
 
 test('fresh Work and Review prompts include the previous length-limited reply without changing their contracts',async()=>{
@@ -3062,8 +3120,8 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.70$/m);
-  assert.match(source,/const VERSION = '2\.9\.70'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.71$/m);
+  assert.match(source,/const VERSION = '2\.9\.71'/);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const ENDED_NO_FINAL_STABILITY_MS = 8000/);
   assert.doesNotMatch(source,/ABNORMAL_NO_FINAL_CONTINUE_AFTER_MS/);
