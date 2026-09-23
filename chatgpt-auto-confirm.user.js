@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.66
+// @version      2.9.67
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.66';
+  const VERSION = '2.9.67';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -49,6 +49,7 @@
   const ATTACHMENT_AUTO_RETRY_MAX_MS = 60000;
   const NAV = 'fabushi-workbench-navigation-v2';
   const TAB_SESSION_KEY = 'fabushi-workbench-tab-session-v1';
+  const TASK_TRANSFER_KEY = 'fabushi-workbench-task-transfer-v1:';
   const LEGACY_OWNER_KEY = 'fabushi-workbench-legacy-owner-v1';
   const ROOT = 'fabushi-auto-confirm-root';
   // This limit is only for unbound ambiguous sends that still have no durable
@@ -297,6 +298,7 @@
   let workspaceRelease = null;
   let workspaceReleased = Promise.resolve();
   const recoveryToken = new URLSearchParams(location.hash.slice(1)).get('fabushi-resume');
+  const taskTransferToken = new URLSearchParams(location.hash.slice(1)).get('fabushi-assign-task');
   const sessionTabId = sessionStorage.getItem(TAB_SESSION_KEY);
   let handoffTicket = null;
   try { handoffTicket = JSON.parse(sessionStorage.getItem(NAV)); } catch {}
@@ -304,6 +306,19 @@
     && Number.isFinite(Number(handoffTicket.at))
     && Date.now() - Number(handoffTicket.at) < NAV_TICKET_TTL_MS);
   let recoveredWorkspace = '';
+  let pendingTaskTransfer = null;
+  if (taskTransferToken) {
+    const candidate = read(TASK_TRANSFER_KEY + taskTransferToken, null);
+    if (candidate && candidate.version === 1 && Date.now() - Number(candidate.at || 0) < 60000
+      && candidate.targetOwnerTabId && candidate.taskId) {
+      pendingTaskTransfer = candidate;
+      recoveredWorkspace = candidate.targetOwnerTabId;
+    } else {
+      localStorage.removeItem(TASK_TRANSFER_KEY + taskTransferToken);
+    }
+    history.replaceState(history.state, '', location.pathname + location.search);
+    window.opener = null;
+  }
   if (recoveryToken) {
     const recovery = read(RECOVERY_KEY + recoveryToken, null);
     if (recovery && Date.now() - recovery.at < NAV_TICKET_TTL_MS) {
@@ -395,6 +410,20 @@
       ? task.attachments.map(normalizeAttachmentMeta).filter(Boolean)
       : [];
     compactTaskMessages(task);
+  }
+  if (pendingTaskTransfer && tabId === pendingTaskTransfer.targetOwnerTabId) {
+    const transferred = data.tasks.find(task => task.id === pendingTaskTransfer.taskId);
+    if (transferred && transferred.ownerTabId === pendingTaskTransfer.sourceOwnerTabId) {
+      transferred.ownerTabId = tabId;
+      transferred.updatedAt = Date.now();
+      transferred.messages ||= [];
+      transferred.messages.push({at:Date.now(),role:'status',text:'已在新标签页接收此任务；原会话链接、发送标识、阶段、轮次和附件保持不变。'});
+      compactTaskMessages(transferred);
+      data.selectedByTab ||= {};
+      data.selectedByTab[tabId] = transferred.id;
+      localStorage.setItem(KEY, JSON.stringify(data));
+    }
+    localStorage.removeItem(TASK_TRANSFER_KEY + taskTransferToken);
   }
   if (typeof data.globalAutoApprove !== 'boolean') data.globalAutoApprove = false;
   let legacyOwner = localStorage.getItem(LEGACY_OWNER_KEY);
@@ -5084,7 +5113,50 @@ NaN
       .map(ownerTabId => ({
         ownerTabId,
         tasks:(stored.tasks || []).filter(task => task.ownerTabId === ownerTabId),
+        live:(Date.now() - Number(readWorkspaceHeartbeat(ownerTabId)?.at || 0)) < WORKSPACE_HEARTBEAT_STALE_MS,
       }));
+  }
+  async function assignTaskToWorkspace(taskId, ownerTabId) {
+    const task = data.tasks.find(item => item.id === taskId);
+    if (!task || !ownerTabId || task.ownerTabId === ownerTabId) return false;
+    if (ownerTabId !== tabId && Date.now() - Number(readWorkspaceHeartbeat(ownerTabId)?.at || 0) >= WORKSPACE_HEARTBEAT_STALE_MS) throw new Error('目标标签页不在线；请先恢复该工作区，或选择一个正在运行的标签页。');
+    return navigator.locks.request('fabushi-task-transfer-v1:' + taskId, async () => {
+      const stored = read(KEY, {tasks:[]});
+      const live = stored.tasks?.find(item => item.id === taskId);
+      if (!live || live.ownerTabId !== task.ownerTabId) throw new Error('任务归属刚刚发生变化，请刷新后重试。');
+      if (!stored.tasks.some(item => item.ownerTabId === ownerTabId)) throw new Error('目标标签页工作区已不存在，请重新选择。');
+      if (stored.tasks.filter(item => item.ownerTabId === ownerTabId).length >= 50) throw new Error('目标标签页最多保存 50 个任务，请先归档已完成任务。');
+      live.ownerTabId = ownerTabId;
+      live.updatedAt = Date.now();
+      live.messages ||= [];
+      live.messages.push({at:Date.now(),role:'status',text:'任务已分配到另一标签页；当前会话链接、阶段、轮次和附件保持不变。'});
+      task.ownerTabId = ownerTabId;
+      task.updatedAt = live.updatedAt;
+      task.messages ||= [];
+      task.messages.push(live.messages.at(-1));
+      stored.selectedByTab ||= {};
+      stored.selectedByTab[ownerTabId] = taskId;
+      localStorage.setItem(KEY, JSON.stringify(stored));
+      mergeStoredTasks(stored);
+      selected = taskBelongsToTab(task) ? taskId : (tabTasks()[0]?.id || '');
+      save();
+      return true;
+    });
+  }
+  function openTaskInNewWorkspace(taskId) {
+    const task = data.tasks.find(item => item.id === taskId);
+    if (!task) throw new Error('找不到要移动的任务。');
+    const token = crypto.randomUUID();
+    const targetOwnerTabId = crypto.randomUUID();
+    const ticket = {version:1,token,taskId,sourceOwnerTabId:task.ownerTabId,targetOwnerTabId,at:Date.now()};
+    localStorage.setItem(TASK_TRANSFER_KEY + token, JSON.stringify(ticket));
+    const opened = window.open(location.origin + '/#fabushi-assign-task=' + encodeURIComponent(token), '_blank');
+    if (!opened) {
+      localStorage.removeItem(TASK_TRANSFER_KEY + token);
+      throw new Error('浏览器未打开新标签页，请允许本次弹出窗口后重试。');
+    }
+    opened.opener = null;
+    return true;
   }
   async function restoreWorkspace(ownerTabId, takeOverCurrentTab = false, { automatic = false } = {}) {
     if (!ownerTabId || ownerTabId === tabId) throw new Error('这是当前标签页的工作区。');
@@ -5197,6 +5269,10 @@ NaN
       #${ROOT} aside .task-select:hover{background:#303030}
       #${ROOT} .task-row.readonly .task-select{cursor:default}
       #${ROOT} .task-row-actions{display:flex;align-items:center;gap:3px;flex-shrink:0}
+      #${ROOT} .task-move{max-width:92px;padding:4px 3px;font-size:10px;background:#292929;color:#ddd}
+      #${ROOT} .task-group.drop-ready{outline:1px dashed #8974e8;outline-offset:2px;background:#24213a}
+      #${ROOT} .task-drop-new{display:block;width:calc(100% - 8px);margin:6px 4px;padding:9px;border:1px dashed #7663ce;background:#28243e;color:#ddd;text-align:center}
+      #${ROOT} .drop-hint{padding:4px 8px;color:#888;font-size:10px;line-height:1.4}
       #${ROOT} aside .task-row-actions button.task-action{width:auto;padding:4px 6px;font-size:11px;white-space:nowrap}
       #${ROOT} aside .task-row-actions button.task-action.danger{color:#ffaaaa}
       #${ROOT} aside .task-row-actions button.task-action:disabled{color:#999}
@@ -5338,9 +5414,26 @@ NaN
       globalPauseButton.disabled=tabTasks().length===0;
       list.replaceChildren();
       const fresh=element('button','＋ 新任务'); fresh.onclick=()=>{selected='';clearSelectedFiles();save();input.focus();}; list.append(fresh);
+      list.append(element('small','拖到下方工作区即可分配；浏览器原生标签栏不接收网页拖放。','drop-hint'));
+      const newTabDrop=element('button','＋ 拖到这里，在新标签页处理','task-drop-new');
+      newTabDrop.type='button';newTabDrop.dataset.newTabDrop='true';
+      newTabDrop.onclick=()=>{if(selected)try{openTaskInNewWorkspace(selected);}catch(error){showError(error);}else notice.textContent='请先选择任务，或把任务拖到这里。';};
+      newTabDrop.addEventListener('dragover',event=>{event.preventDefault();newTabDrop.classList.add('drop-ready');});
+      newTabDrop.addEventListener('dragleave',()=>newTabDrop.classList.remove('drop-ready'));
+      newTabDrop.addEventListener('drop',event=>{event.preventDefault();newTabDrop.classList.remove('drop-ready');const taskId=event.dataTransfer?.getData('application/x-fabushi-task')||event.dataTransfer?.getData('text/plain');if(taskId)try{openTaskInNewWorkspace(taskId);}catch(error){showError(error);}});
+      list.append(newTabDrop);
+      const wireWorkspaceDrop=(group,owner,enabled=true)=>{
+        group.dataset.dropOwnerTabId=owner;
+        if(!enabled){group.title='工作区不在线；请使用恢复按钮在新标签页恢复。';return;}
+        group.addEventListener('dragover',event=>{event.preventDefault();group.classList.add('drop-ready');});
+        group.addEventListener('dragleave',event=>{if(!group.contains(event.relatedTarget))group.classList.remove('drop-ready');});
+        group.addEventListener('drop',event=>{event.preventDefault();group.classList.remove('drop-ready');const taskId=event.dataTransfer?.getData('application/x-fabushi-task')||event.dataTransfer?.getData('text/plain');if(taskId)assignTaskToWorkspace(taskId,owner).catch(showError);});
+      };
       const appendTaskRow=(group,item,interactive=true)=>{
         const row=element('div','',`task-row${item.id===selected&&interactive?' selected':''}${interactive?'':' readonly'}`);
         row.dataset.taskId=item.id; row.dataset.taskState=item.state;
+        row.draggable=true;row.title='拖动到其他工作区以分配此任务';
+        row.addEventListener('dragstart',event=>{event.dataTransfer?.setData('application/x-fabushi-task',item.id);event.dataTransfer?.setData('text/plain',item.id);if(event.dataTransfer)event.dataTransfer.effectAllowed='move';});
         const selectControl=element(interactive?'button':'div','','task-select');
         if(interactive){selectControl.type='button';selectControl.setAttribute('aria-label',`查看任务详情：${item.goal.slice(0,80)}`);selectControl.onclick=()=>{selected=item.id;save();};}
         selectControl.append(element('span',item.goal.slice(0,34),'task-name'));
@@ -5352,8 +5445,13 @@ NaN
         const recoveryRemaining = Number(item.noFinalReplyRecoveryUntil || 0) - Date.now();
         if (recoveryRemaining > 0) meta.append(document.createTextNode(' · 异常恢复约 '+Math.ceil(recoveryRemaining / 60000)+' 分钟'));
         selectControl.append(meta); row.append(selectControl);
-        if(interactive){
+        {
           const actions=element('div','','task-row-actions');
+          const move=element('select','','task-move');move.setAttribute('aria-label',`分配任务：${item.goal.slice(0,60)}`);const placeholder=element('option','分配到…');placeholder.value='';move.append(placeholder);
+          for(const workspace of [{ownerTabId:tabId,label:'当前标签页',live:true},...recoverableWorkspaces().map((workspace,index)=>({ownerTabId:workspace.ownerTabId,label:`标签页 ${index+1}`,live:workspace.live}))])if(workspace.live&&workspace.ownerTabId!==item.ownerTabId){const option=element('option',workspace.label);option.value=workspace.ownerTabId;move.append(option);}
+          const newChoice=element('option','新标签页');newChoice.value='__new__';move.append(newChoice);
+          move.onchange=event=>{event.stopPropagation();const target=move.value;move.value='';if(target==='__new__')try{openTaskInNewWorkspace(item.id);}catch(error){showError(error);}else if(target)assignTaskToWorkspace(item.id,target).catch(showError);};actions.append(move);
+          if(interactive){
           const details=element('button','详情','task-action'); details.type='button'; details.title='查看任务详情'; details.onclick=event=>{event.stopPropagation();selected=item.id;save();}; actions.append(details);
           if(item.state==='paused'){
             const resume=element('button','继续','task-action'); resume.type='button'; resume.title='只继续此任务'; resume.onclick=event=>{event.stopPropagation();resumeTask(item).catch(showError);}; actions.append(resume);
@@ -5365,23 +5463,33 @@ NaN
           const removable=terminal.has(item.state)||item.state==='paused';
           const remove=element('button','删除','task-action danger'); remove.type='button'; remove.disabled=!removable; remove.title=removable?'删除此任务及其本地附件':'请先暂停或取消此任务，再删除';
           if(removable)remove.onclick=event=>{event.stopPropagation();deleteTask(item);};
-          actions.append(remove); row.append(actions);
+          actions.append(remove);
+          }
+          row.append(actions);
         }
         group.append(row);
       };
       const currentTasks=tabTasks();
-      if(currentTasks.length){
+      {
         const group=element('section','','task-group');group.setAttribute('role','group');group.setAttribute('aria-label','当前标签页任务');
+        wireWorkspaceDrop(group,tabId);
         const title=element('div','','task-group-title');title.append(element('span','当前标签页'),element('span',`${currentTasks.length}`,'task-count'));group.append(title);
-        for(const item of currentTasks)appendTaskRow(group,item,true);list.append(group);
+        if(currentTasks.length)for(const item of currentTasks)appendTaskRow(group,item,true);
+        else group.append(element('small','把任务拖到这里，交由当前标签页处理。','drop-hint'));
+        list.append(group);
       }
       recoverableWorkspaces().forEach((workspace,index)=>{
         const group=element('section','','task-group');group.dataset.ownerTabId=workspace.ownerTabId;group.setAttribute('role','group');group.setAttribute('aria-label',`可恢复标签页 ${index+1}`);
-        const title=element('div','','task-group-title');title.title=workspace.ownerTabId;title.append(element('span',`可恢复标签页 ${index+1}`),element('span',`${workspace.tasks.length}`,'task-count'));group.append(title);
-        const useCurrent=currentTasks.length===0;
-        const restore=element('button',useCurrent?'恢复到当前标签页':'在新标签页恢复','restore-workspace');
-        restore.onclick=()=>restoreWorkspace(workspace.ownerTabId,useCurrent).then(result=>{notice.textContent=result.target==='current'?'旧任务记录已恢复到当前标签页。':'已打开专用标签页，旧任务记录将在那里恢复。';}).catch(showError);
-        group.append(restore);
+        wireWorkspaceDrop(group,workspace.ownerTabId,workspace.live);
+        const label=workspace.live?`其他标签页 ${index+1}`:`可恢复标签页 ${index+1}`;
+        group.setAttribute('aria-label',label);
+        const title=element('div','','task-group-title');title.title=workspace.ownerTabId;title.append(element('span',label),element('span',`${workspace.tasks.length}`,'task-count'));group.append(title);
+        if(!workspace.live){
+          const useCurrent=currentTasks.length===0;
+          const restore=element('button',useCurrent?'恢复到当前标签页':'在新标签页恢复','restore-workspace');
+          restore.onclick=()=>restoreWorkspace(workspace.ownerTabId,useCurrent).then(result=>{notice.textContent=result.target==='current'?'旧任务记录已恢复到当前标签页。':'已打开专用标签页，旧任务记录将在那里恢复。';}).catch(showError);
+          group.append(restore);
+        }
         for(const item of workspace.tasks)appendTaskRow(group,item,false);list.append(group);
       });
       const nextSignature=JSON.stringify([selected,task?.goalRevision,task?.messageVersion,task?.url,task?.state,task?.preview,taskAttachmentSummary(task),task?.attachmentUploadPending,task?.attachmentUploadFailed,task?.attachmentUploadRetryAt,task?.attachmentUploadRetryCount]);

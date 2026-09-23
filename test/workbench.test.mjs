@@ -4,15 +4,15 @@ import { readFileSync } from 'node:fs';
 import { JSDOM } from 'jsdom';
 
 const source = readFileSync(new URL('../chatgpt-auto-confirm.user.js', import.meta.url), 'utf8');
-async function fixture(body='', setup=()=>{}) {
-  const dom = new JSDOM(`<body>${body}</body>`, { url:'https://chatgpt.com/', runScripts:'outside-only' });
+async function fixture(body='', setup=()=>{}, url='https://chatgpt.com/') {
+  const dom = new JSDOM(`<body>${body}</body>`, { url, runScripts:'outside-only' });
   const w = dom.window;
   w.HTMLElement.prototype.getClientRects = function(){return this.hidden ? [] : [{}];};
   w.SVGElement.prototype.getClientRects = function(){return this.hidden ? [] : [{}];};
   const held = new Set();
   w.navigator.locks = {query:async()=>({held:[...held].map(name=>({name}))}),request:async(name,options,callback)=>{callback ||= options;if(held.has(name))return callback(null);held.add(name);try{return await callback({name});}finally{held.delete(name);}}};
   setup(w);
-  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, visibleAssistantWorkTranscript, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, visibleAssistantWorkTranscript, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('runtime blocked transition immediately becomes a fresh queued resend',async()=>{
@@ -29,7 +29,7 @@ test('runtime blocked transition immediately becomes a fresh queued resend',asyn
 });
 
 test('completion requires own final toolbar, stop absent, no approval and stable evidence',async()=>{
-  const {h,dom}=await fixture();
+  const {h,w,dom}=await fixture();
   const sample={owned:true,final:true,text:'result',sentAt:0,cards:0,stop:false};
   const previous={text:'result',since:1000,idleSince:1000,clear:true,final:true,finalSince:1000};
   assert.equal(h.classify(sample,previous,6000).state,'complete');
@@ -76,6 +76,79 @@ test('loading detection ignores transcript, composer, sidebar and workbench indi
   ownSpinner.className='animate-spin';
   w.document.querySelector('#fabushi-auto-confirm-root').append(ownSpinner);
   assert.equal(h.pageLoadingState(),'');
+  dom.window.close();
+});
+test('task reassignment changes only ownership and preserves paused execution identity',async()=>{
+  const {h,w,dom}=await fixture();
+  const task=h.enqueue('move me','goal');
+  Object.assign(task,{state:'paused',pausedState:'waiting',phase:'review',round:4,url:'https://chatgpt.com/c/kept',token:'kept-token',attempted:true,next:'keep next',attachments:[{id:'file-1',name:'keep.png'}]});
+  const sibling={id:'sibling',ownerTabId:'target-workspace',goal:'already there',state:'waiting',updatedAt:1,messages:[]};
+  h.data.tasks.push(sibling);
+  w.localStorage.setItem('fabushi-workspace-heartbeat-v1:target-workspace',JSON.stringify({ownerTabId:'target-workspace',at:Date.now(),autoResume:true,running:true}));
+  h.log(sibling,'seed target workspace');
+  assert.equal(await h.assignTaskToWorkspace(task.id,'target-workspace'),true);
+  assert.equal(task.ownerTabId,'target-workspace');
+  assert.equal(task.state,'paused');
+  assert.equal(task.phase,'review');
+  assert.equal(task.round,4);
+  assert.equal(task.url,'https://chatgpt.com/c/kept');
+  assert.equal(task.token,'kept-token');
+  assert.equal(task.next,'keep next');
+  assert.deepEqual(task.attachments,[{id:'file-1',name:'keep.png'}]);
+  assert.equal(h.tabTasks().length,0);
+  assert.deepEqual(Array.from(h.recoverableWorkspaces().find(workspace=>workspace.ownerTabId==='target-workspace').tasks,item=>item.id).sort(),['sibling',task.id].sort());
+  dom.window.close();
+});
+test('dragging a task row onto another live workspace transfers that task',async()=>{
+  const {h,w,dom}=await fixture();
+  const source=h.enqueue('drag this task','once');
+  const sibling={id:'drop-target-task',ownerTabId:'target-live-tab',goal:'target queue',state:'waiting',updatedAt:1,messages:[]};
+  h.data.tasks.push(sibling);
+  w.localStorage.setItem('fabushi-workspace-heartbeat-v1:target-live-tab',JSON.stringify({ownerTabId:'target-live-tab',at:Date.now(),autoResume:true,running:true}));
+  h.log(sibling,'seed active target');
+  const taskRow=w.document.querySelector(`[data-task-id="${source.id}"]`);
+  const dropGroup=w.document.querySelector('[data-owner-tab-id="target-live-tab"]');
+  let dragged='';
+  const dataTransfer={effectAllowed:'',setData(type,value){if(type==='application/x-fabushi-task')dragged=value;},getData(type){return type==='application/x-fabushi-task'?dragged:'';}};
+  const start=new w.Event('dragstart',{bubbles:true});Object.defineProperty(start,'dataTransfer',{value:dataTransfer});taskRow.dispatchEvent(start);
+  const drop=new w.Event('drop',{bubbles:true,cancelable:true});Object.defineProperty(drop,'dataTransfer',{value:dataTransfer});dropGroup.dispatchEvent(drop);
+  await new Promise(resolve=>setTimeout(resolve,0));
+  assert.equal(dragged,source.id);
+  assert.equal(source.ownerTabId,'target-live-tab');
+  assert.equal(h.data.tasks.filter(task=>task.id===source.id).length,1);
+  dom.window.close();
+});
+test('new-tab assignment opens a short-lived task-only transfer ticket',async()=>{
+  let openedURL='';
+  const {h,w,dom}=await fixture('',window=>{window.open=url=>{openedURL=url;return{opener:{}};};});
+  const task=h.enqueue('only selected task','once');
+  assert.equal(h.openTaskInNewWorkspace(task.id),true);
+  assert.match(openedURL,/^https:\/\/chatgpt\.com\/#fabushi-assign-task=/);
+  const token=new URL(openedURL).hash.split('=')[1];
+  const ticket=JSON.parse(w.localStorage.getItem('fabushi-workbench-task-transfer-v1:'+token));
+  assert.equal(ticket.taskId,task.id);
+  assert.equal(ticket.sourceOwnerTabId,h.getTabId());
+  assert.ok(ticket.targetOwnerTabId);
+  assert.deepEqual(Object.keys(ticket).sort(),['at','sourceOwnerTabId','targetOwnerTabId','taskId','token','version'].sort());
+  dom.window.close();
+});
+test('new tab claims the transfer workspace and adopts only the ticketed task',async()=>{
+  const owner='new-tab-owner', sourceOwner='source-tab', token='ticket-token';
+  const task={id:'assigned-only',ownerTabId:sourceOwner,goal:'task goal',state:'waiting',phase:'review',round:3,url:'https://chatgpt.com/c/existing-chat',token:'dispatch-token',attempted:true,attachments:[{id:'attachment-1',name:'doc.pdf'}],messages:[]};
+  const ticket={version:1,token,taskId:task.id,sourceOwnerTabId:sourceOwner,targetOwnerTabId:owner,at:Date.now()};
+  const {h,w,dom}=await fixture('',window=>{
+    window.localStorage.setItem('fabushi-workbench-v2',JSON.stringify({tasks:[task],selectedByTab:{},tabControls:{[sourceOwner]:{autoResume:true,controlRevision:0}}}));
+    window.localStorage.setItem('fabushi-workbench-task-transfer-v1:'+token,JSON.stringify(ticket));
+  },'https://chatgpt.com/#fabushi-assign-task='+token);
+  assert.equal(h.getTabId(),owner);
+  assert.equal(h.tabTasks().length,1);
+  assert.equal(h.tabTasks()[0].id,task.id);
+  assert.equal(h.tabTasks()[0].phase,'review');
+  assert.equal(h.tabTasks()[0].round,3);
+  assert.equal(h.tabTasks()[0].url,task.url);
+  assert.equal(h.tabTasks()[0].token,task.token);
+  assert.equal(h.tabTasks()[0].attachments[0].id,'attachment-1');
+  assert.equal(w.localStorage.getItem('fabushi-workbench-task-transfer-v1:'+token),null);
   dom.window.close();
 });
 test('clearing the loading signal stays bound until final reply controls appear',async()=>{
@@ -2145,6 +2218,10 @@ test('task rows expose isolated pause, details, cancel, and delete controls',asy
   assert.ok([...w.document.querySelectorAll('.settings button')].some(button=>/^(暂停|继续)全部任务$/.test(button.textContent)),'the global pause action is explicit and separate');
 
   assert.ok(action(rowFor(first),'详情'),'each task exposes a details action');
+  assert.ok(rowFor(first).draggable,'tasks can be dragged between workspace groups');
+  assert.ok(rowFor(first).querySelector('select[aria-label^="分配任务"]'),'keyboard users have an assignment selector');
+  assert.ok(w.document.querySelector('[data-new-tab-drop="true"]'),'the sidebar exposes a new-tab drop target');
+  assert.ok(w.document.querySelector('[data-drop-owner-tab-id]'),'the current workspace is a drop target even when empty');
   assert.ok(action(rowFor(first),'暂停'),'a runnable task exposes a pause action');
   assert.equal(action(rowFor(first),'删除').disabled,true,'a live task cannot be deleted before it is stopped');
   action(rowFor(first),'暂停').click();
@@ -2899,8 +2976,8 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.66$/m);
-  assert.match(source,/const VERSION = '2\.9\.66'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.67$/m);
+  assert.match(source,/const VERSION = '2\.9\.67'/);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const ENDED_NO_FINAL_STABILITY_MS = 8000/);
   assert.doesNotMatch(source,/ABNORMAL_NO_FINAL_CONTINUE_AFTER_MS/);
