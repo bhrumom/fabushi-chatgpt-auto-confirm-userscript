@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.70
+// @version      2.9.71
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.70';
+  const VERSION = '2.9.71';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -2554,6 +2554,16 @@
     const half = Math.floor((CONVERSATION_LENGTH_CARRY_MAX - 120) / 2);
     return `${reply.slice(0, half)}\n\n[...上一会话回复中间内容因长度过大省略...]\n\n${reply.slice(-half)}`;
   }
+  function cleanConversationLengthReply(value) {
+    // The recognized product notice can appear in the same assistant turn as
+    // the work. It explains why the handoff is needed, but is not work context.
+    const source = String(value || '')
+      .replace(conversationLengthLimitPattern, ' ')
+      .replace(/[ \t]+/g, ' ')
+      .replace(/\n[ \t]*\n(?:[ \t]*\n)+/g, '\n\n')
+      .trim();
+    return boundedConversationLengthCarry(source);
+  }
   const connectionInterruptedPattern = /^(?:连接已中断[。.!]?\s*正在等待完整回复[。.!]?|connection (?:was |has been )?interrupted[.!]?\s*(?:we(?:'re| are) )?waiting for (?:the )?full response[.!]?)$/i;
   function connectionInterruptedNotice(turn = null) {
     const matches = value => connectionInterruptedPattern.test(normalize(value));
@@ -3779,8 +3789,13 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     if (!task || terminal.has(task.state) || task.state === 'paused') return false;
     const sessionURL = currentConversationURL() || canonicalConversationURL(task.url);
     if (!sessionURL) return false;
-    const rawReply = String(turn?.text || noticeText || '').trim();
-    const carry = boundedConversationLengthCarry(rawReply);
+    // Read the whole visible assistant response after this task's owned user
+    // boundary. `turn.text` only represents the final assistant DOM node and
+    // can be a transient status/tool shell; `noticeText` is never reply text.
+    const transcript = visibleAssistantWorkTranscript(task, {
+      allowExactRouteFallback:Boolean(!turn?.owned),
+    });
+    const carry = cleanConversationLengthReply(transcript.text);
     if (!carry) return false;
     recordConversationURL(task, sessionURL);
     task.history ||= [];
@@ -3798,6 +3813,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.lengthLimitCarrySourceURL = sessionURL;
     task.lengthLimitHopCount = nextHop;
     task.lengthLimitLastAt = now;
+    task.lengthLimitCarryWaitKey = '';
     task.noFinalReplyRecoveryUntil = 0;
     task.cooldownUntil = 0;
     task.state = 'queued';
@@ -4527,7 +4543,29 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     // copy/share toolbar on the notice cannot prematurely finish Work/Review.
     const lengthLimitNotice = pageBelongsToTask ? conversationLengthLimitNotice(turn) : '';
     if (lengthLimitNotice) {
+      if (turn.streaming || stopButton()) {
+        const waitKey = `${taskURL}:${normalize(lengthLimitNotice).slice(0, 200)}:generating`;
+        task.state = 'waiting';
+        task.updatedAt = Date.now();
+        if (task.lengthLimitCarryWaitKey !== waitKey) {
+          task.lengthLimitCarryWaitKey = waitKey;
+          log(task, '已检测到会话长度上限，但当前 assistant 仍在生成；先留在原会话等待这一轮结束，再提取完整回复接力，不会复制中途内容。');
+        }
+        save();
+        return;
+      }
       if (queueConversationLengthHandoff(task, turn, lengthLimitNotice, Date.now())) return;
+      // Do not advance with an older assistant reply or with the notice itself
+      // when the current task response cannot yet be safely established.
+      const waitKey = `${taskURL}:${normalize(lengthLimitNotice).slice(0, 240)}`;
+      task.state = 'waiting';
+      task.updatedAt = Date.now();
+      if (task.lengthLimitCarryWaitKey !== waitKey) {
+        task.lengthLimitCarryWaitKey = waitKey;
+        log(task, '已检测到会话长度上限，但当前任务的 assistant 回复尚不能安全提取；保留原会话等待内容稳定，不会把旧回复或提示文字带入新会话。');
+      }
+      save();
+      return;
     }
     // An interrupted bound conversation remains the task's working chat.
     // Retry the same turn instead of losing its live work in a fresh chat.
