@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.67
+// @version      2.9.69
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.67';
+  const VERSION = '2.9.69';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -1660,6 +1660,17 @@
     return '';
   }
   function conversationLoading() { return Boolean(pageLoadingState()); }
+  function activeAssistantGeneration() {
+    if (stopButton()) return true;
+    const assistant = nodes('[data-message-author-role=assistant]').filter(visible).at(-1);
+    if (!assistant) return false;
+    const article = assistant.closest('article,[data-testid^="conversation-turn-"],[data-turn-key],[data-content-search-turn-key]') || assistant;
+    return Boolean(article.matches?.('[data-is-streaming="true"],[aria-busy="true"]')
+      || article.querySelector('[data-is-streaming="true"],[aria-busy="true"]'));
+  }
+  function visibleConversationHasMessages() {
+    return nodes('[data-message-author-role=user],[data-message-author-role=assistant]').some(visible);
+  }
   function haltRunnerForPause() {
     running = false;
     controller?.abort();
@@ -2814,6 +2825,27 @@
     save();
     return true;
   }
+  function visibleConversationProgressFingerprint() {
+    // Task ownership can be temporarily unavailable while ChatGPT virtualizes
+    // a user marker. Progress detection must still notice a newly rendered
+    // reply without using that reply as task-owned result/completion evidence.
+    // Keep this bounded to the visible transcript tail to limit scan cost on
+    // long conversations.
+    return nodes('[data-message-author-role=user],[data-message-author-role=assistant]')
+      .filter(visible)
+      .slice(-8)
+      .map(node => {
+        const role = node.getAttribute('data-message-author-role') || '';
+        const content = String(node.textContent || '').replace(/\s+/g, ' ').trim();
+        return {
+          role,
+          id:node.getAttribute('data-message-id') || '',
+          text:content.slice(-3000),
+          streaming:node.getAttribute('data-is-streaming') || '',
+          busy:node.getAttribute('aria-busy') || '',
+        };
+      });
+  }
   function stalledProgressSignature(sample) {
     return JSON.stringify({
       text:String(sample?.text || '').slice(-6000),
@@ -2838,6 +2870,10 @@
       composerEmpty:Boolean(sample?.composerEmpty),
       composerHasRecoveryDraft:Boolean(sample?.composerHasRecoveryDraft),
       rawLoading:Boolean(sample?.rawLoading),
+      // Unlike sample.text/activityText, this page-tail evidence deliberately
+      // survives temporary task-marker ownership gaps. It only resets the
+      // no-change clock; it never authorizes completion or continuation.
+      conversationTail:sample?.conversationTail || [],
     });
   }
   function refreshStalledConversation(task, perform = true, now = Date.now()) {
@@ -3558,6 +3594,15 @@
       if (resetRendererRecoveryState(task)) save();
       return false;
     }
+    // Marker ownership can temporarily disappear while ChatGPT is rendering
+    // an active assistant turn. Never reload that conversation; its marker
+    // may reappear once the current turn completes.
+    if (activeAssistantGeneration() && visibleConversationHasMessages()) {
+      sameRouteWaitSince = Date.now();
+      sameRouteWaitUntil = sameRouteWaitSince + 5000;
+      navigating = false;
+      return false;
+    }
     const attempts = Number(task?.routeRecoveryAttempts || 0);
     if (task?.rendererRecoveryExhausted || attempts >= ROUTE_RECOVERY_LIMIT) {
       if (task && !task.rendererRecoveryExhausted) {
@@ -3846,7 +3891,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       // A task marker proves route ownership, not renderer health. Keep the
       // recovery budget while the page still reports loading.
       const loadingReason = pageLoadingState();
-      if (!loadingReason && resetRendererRecoveryState(task)) save();
+      if (!loadingReason && !activeAssistantGeneration() && resetRendererRecoveryState(task)) save();
       return true;
     }
     const target = safeURL(url);
@@ -3859,7 +3904,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
         sessionStorage.removeItem(NAV); sameRouteWaitUntil = 0; sameRouteWaitSince = 0; navigating = false;
         // Inspection may proceed on a partially rendered route, but recovery
         // counters reset only after the loading signal has really disappeared.
-        if (!loadingReason && resetRendererRecoveryState(task)) save();
+        if (!loadingReason && !activeAssistantGeneration() && resetRendererRecoveryState(task)) save();
         return true;
       }
       if (requireComposer && loadingReason) return holdForChatGPTLoading(task, loadingReason);
@@ -4563,6 +4608,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       composerEmpty,
       composerHasRecoveryDraft,
       rawLoading,
+      conversationTail:visibleConversationProgressFingerprint(),
       // A current-turn streaming/busy marker is stronger evidence than the
       // temporary disappearance of Stop. Once final is true we intentionally
       // ignore a stale streaming marker so completed replies are not held.
@@ -4625,10 +4671,11 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && !abnormalNoFinalEligible
       && stalledFor >= STALLED_REFRESH_MS,
     );
+    const pageGenerationActive = activeAssistantGeneration();
     const identityMismatchSince = sample.routeOwned && !sample.owned
-      ? (previous?.identityMismatchSince || now)
+      ? (visibleConversationHasMessages() ? 0 : (pageGenerationActive ? now : (previous?.identityMismatchSince || now)))
       : 0;
-    if (identityMismatchSince && now - identityMismatchSince >= ROUTE_HYDRATION_TIMEOUT_MS) {
+    if (identityMismatchSince && !pageGenerationActive && now - identityMismatchSince >= ROUTE_HYDRATION_TIMEOUT_MS) {
       let target;
       try { target = safeURL(task.url); } catch { target = null; }
       if (target && !task.rendererRecoveryExhausted) {

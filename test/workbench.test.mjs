@@ -2058,6 +2058,92 @@ test('generic stalled conversation refresh cooldown is fifteen minutes while amb
   dom.window.close();
 });
 
+test('active assistant turn with no page changes refreshes after fifteen minutes',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue work [Fabushi:active-stall]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">Checking the latest CI status.</div><div aria-busy="true" class="loading-shimmer">Working</div></div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="stop-button" aria-label="停止回答">Stop</button></form></main>');
+  w.history.pushState({},'', '/c/active-stall');
+  const task={id:'active-stall',ownerTabId:h.getTabId(),goal:'continue work',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/active-stall',token:'active-stall',attempted:false,messages:[]};
+  h.data.tasks.push(task);
+  try {
+    await h.start(false);
+    await h.inspect(task,null);
+    const observation=h.observations.get(task.id);
+    assert.ok(observation,'owned active conversation is observed');
+    observation.progressSince=Date.now()-16*60*1000;
+    await h.inspect(task,null);
+    assert.equal(task.stalledRefreshAttempts,1,'Stop/busy does not exempt an unchanged page from the fifteen-minute refresh');
+    assert.equal(task.state,'waiting','the page refresh is scheduled after its full unchanged interval');
+    assert.equal(task.messages.some(message=>/连续 15 分钟没有可见变化/.test(message.text||'')),true);
+  } finally {
+    h.pause();
+    dom.window.close();
+  }
+});
+
+test('active assistant generation suppresses route recovery during temporary marker mismatch',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue work without mounted task marker</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">Checking the latest CI status.</div><div aria-busy="true">Working</div></div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="stop-button" aria-label="停止回答">Stop</button></form></main>');
+  w.history.pushState({},'', '/c/active-route-mismatch');
+  const task={id:'active-route-mismatch',ownerTabId:h.getTabId(),goal:'continue work',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/active-route-mismatch',token:'temporarily-virtualized-marker',attempted:false,messages:[],routeRecoveryAttempts:1};
+  h.data.tasks.push(task);
+  try {
+    await h.start(false);
+    await h.inspect(task,null);
+    const observation=h.observations.get(task.id);
+    assert.ok(observation,'the fixture records route observation despite temporary ownership mismatch');
+    observation.identityMismatchSince=Date.now()-60_000;
+    await h.inspect(task,null);
+    assert.equal(task.routeRecoveryAttempts,1,'active assistant output must not start another page recovery');
+    assert.equal(task.messages.some(message=>/页面长时间没有恢复/.test(message.text||'')),false);
+    assert.equal(h.observations.get(task.id).identityMismatchSince,0,'visible conversation content bypasses quick empty-route hydration recovery');
+  } finally {
+    h.pause();
+    dom.window.close();
+  }
+});
+
+test('active assistant generation does not clear persisted route recovery counters',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">goal [Fabushi:active-counter]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant" aria-busy="true">Working</div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="stop-button" aria-label="停止回答">Stop</button></form></main>');
+  w.history.pushState({},'', '/c/active-counter');
+  const task={id:'active-counter',ownerTabId:h.getTabId(),goal:'goal',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/active-counter',token:'active-counter',attempted:false,messages:[],routeRecoveryAttempts:1,workspaceDocumentRecoveryAttempts:1,rendererRecoveryExhausted:true};
+  h.data.tasks.push(task);
+  try {
+    assert.equal(await h.navigate(task.url,null,task,false),true);
+    assert.equal(task.routeRecoveryAttempts,1);
+    assert.equal(task.workspaceDocumentRecoveryAttempts,1);
+    assert.equal(task.rendererRecoveryExhausted,true);
+  } finally {
+    h.pause();
+    dom.window.close();
+  }
+});
+
+test('a newly rendered page reply restarts the idle refresh clock even during task-marker mismatch',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">later non-task user turn</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant" data-message-id="assistant-before"><div class="markdown">Earlier page reply.</div></div></article><form><textarea id="prompt-textarea"></textarea></form></main>');
+  w.history.pushState({},'', '/c/page-progress');
+  const task={id:'page-progress',ownerTabId:h.getTabId(),goal:'work',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/page-progress',token:'virtualized-task-marker',attempted:false,messages:[]};
+  h.data.tasks.push(task);
+  try {
+    await h.start(false);
+    w.document.querySelector('#prompt-textarea').value='human draft';
+    await h.inspect(task,null);
+    const observation=h.observations.get(task.id);
+    assert.ok(observation);
+    observation.progressSince=Date.now()-16*60*1000;
+    const assistant=w.document.querySelector('[data-message-author-role="assistant"]');
+    assistant.setAttribute('data-message-id','assistant-after');
+    assistant.setAttribute('aria-busy','true');
+    assistant.querySelector('.markdown').textContent='A new page reply has arrived.';
+    await h.inspect(task,null);
+    assert.equal(task.stalledRefreshAttempts||0,0,'new visible page reply restarts the idle interval');
+    assert.ok(Date.now()-h.observations.get(task.id).progressSince < 500,'the progress clock starts at the new reply');
+    h.observations.get(task.id).progressSince=Date.now()-16*60*1000;
+    await h.inspect(task,null);
+    assert.equal(task.stalledRefreshAttempts,1,'Stop/busy remains compatible with refresh after a full unchanged interval');
+  } finally {
+    h.pause();
+    dom.window.close();
+  }
+});
+
 test('exact retained composer text is cleared at timeout before existing ambiguous retry',async()=>{
   const {h,w,dom}=await fixture('<main><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">Send</button></form></main>');
   const task={id:'retained-draft',ownerTabId:h.getTabId(),goal:'finish work',next:'',mode:'goal',round:2,state:'sending',phase:'work',url:'',token:'retained-token',preparedPrompt:'complete the requested task [Fabushi:retained-token]',attempted:true,sentAt:1,messages:[]};
@@ -2976,8 +3062,8 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.67$/m);
-  assert.match(source,/const VERSION = '2\.9\.67'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.69$/m);
+  assert.match(source,/const VERSION = '2\.9\.69'/);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const ENDED_NO_FINAL_STABILITY_MS = 8000/);
   assert.doesNotMatch(source,/ABNORMAL_NO_FINAL_CONTINUE_AFTER_MS/);
