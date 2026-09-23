@@ -3062,8 +3062,8 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.69$/m);
-  assert.match(source,/const VERSION = '2\.9\.69'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.70$/m);
+  assert.match(source,/const VERSION = '2\.9\.70'/);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const ENDED_NO_FINAL_STABILITY_MS = 8000/);
   assert.doesNotMatch(source,/ABNORMAL_NO_FINAL_CONTINUE_AFTER_MS/);
@@ -3201,6 +3201,31 @@ test('continuation intent is persisted before composer fill and unrelated drafts
     assert.equal(input.value,'继续完成所有');
     assert.equal(task.pendingContinuationReason,'test recovery intent');
     assert.equal(task.pendingContinuationURL,'https://chatgpt.com/c/pending-intent');
+  } finally {h.pause();dom.window.close();}
+});
+
+test('interrupted recovery tolerates a null task article after refresh and keeps the same conversation',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <article data-testid="conversation-turn-user"><div data-message-author-role="user">another task [Fabushi:foreign]</div></article>
+    <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">partial reply</div></article>
+    <div role="status">连接已中断。正在等待完整回复</div>
+    <form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/null-article-recovery');
+    const task={id:'null-article-recovery',ownerTabId:h.getTabId(),goal:'continue work',mode:'goal',phase:'work',round:7,state:'waiting',url:'https://chatgpt.com/c/null-article-recovery',token:'expected-owner',attempted:true,messages:[]};
+    h.data.tasks.push(task);
+    assert.equal(h.latestTurn(task).article,null,'a mismatched visible task marker intentionally has no owned article');
+    let sends=0;
+    w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>sends++);
+    await h.start(false);
+    await h.inspect(task,null);
+    assert.equal(sends,1);
+    assert.equal(task.url,'https://chatgpt.com/c/null-article-recovery');
+    assert.equal(task.token,'expected-owner');
+    assert.equal(task.phase,'work');
+    assert.equal(task.round,7);
+    assert.equal(w.document.querySelector('#prompt-textarea').value,'继续完成所有');
   } finally {h.pause();dom.window.close();}
 });
 
