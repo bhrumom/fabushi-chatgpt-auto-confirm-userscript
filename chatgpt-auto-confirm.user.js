@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.65
+// @version      2.9.66
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.65';
+  const VERSION = '2.9.66';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -3899,12 +3899,21 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     }
     return button;
   }
+  async function waitForStopButtonGone(signal, timeoutMs = 3000) {
+    const startedAt = Date.now();
+    while (stopButton() && Date.now() - startedAt < timeoutMs) {
+      await delay(100, signal);
+      if (signal?.aborted) throw new Error('已暂停');
+    }
+    return !stopButton();
+  }
   function clearPendingContinuation(task) {
     if (!task) return;
     task.pendingContinuationReason = '';
     task.pendingContinuationURL = '';
     task.pendingContinuationSince = 0;
     task.pendingContinuationStopClickedAt = 0;
+    task.pendingContinuationStopRecovery = false;
     task.pendingContinuationLastWaitLogAt = 0;
   }
   async function sendContinuation(task, signal, reason = '当前会话异常中断', now = Date.now(), options = {}) {
@@ -3913,9 +3922,39 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const taskURL = canonicalConversationURL(task.url);
     if (!liveURL || !taskURL || liveURL !== taskURL) return false;
     if (!options.ignoreCooldown && now - Number(task.continuationSentAt || 0) < CONTINUATION_SEND_COOLDOWN_MS) return false;
-    if (stopButton() || cards().length || blocker() || rateLimitNotice()) {
+    if (cards().length || blocker() || rateLimitNotice()) {
       task.state = 'waiting';
       return false;
+    }
+    const stop = stopButton();
+    const stopRecoveryAllowed = options.stopInterruptedGeneration === true
+      || task.pendingContinuationStopRecovery === true;
+    if (stop && !stopRecoveryAllowed) {
+      task.state = 'waiting';
+      return false;
+    }
+    if (options.stopInterruptedGeneration === true) task.pendingContinuationStopRecovery = true;
+    if (stop) {
+      task.pendingContinuationReason = String(reason || '当前会话异常中断').slice(0, 1000);
+      task.pendingContinuationURL = liveURL;
+      task.pendingContinuationSince ||= now;
+      if (!Number(task.pendingContinuationStopClickedAt || 0)) {
+        activateControl(stop);
+        task.pendingContinuationStopClickedAt = Date.now();
+        task.state = 'waiting';
+        log(task, `${reason}；ChatGPT 仍显示停止生成按钮，已先停止异常生成，并等待该按钮消失后再发送“${CONTINUATION_PROMPT}”。`);
+        save();
+      }
+      if (!await waitForStopButtonGone(signal)) {
+        task.state = 'waiting';
+        const lastWaitLogAt = Number(task.pendingContinuationLastWaitLogAt || 0);
+        if (!lastWaitLogAt || Date.now() - lastWaitLogAt >= 5000) {
+          task.pendingContinuationLastWaitLogAt = Date.now();
+          log(task, `${reason}；已请求停止异常生成，但停止按钮仍在，继续等待；不会重复点击、发送或切换会话。`);
+          save();
+        }
+        return false;
+      }
     }
     const input = composer();
     if (!input) {
@@ -4430,7 +4469,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
         task.state = 'waiting';
         return;
       }
-      if (await sendContinuation(task, signal, reason)) {
+      if (await sendContinuation(task, signal, reason, Date.now(), { stopInterruptedGeneration:interrupted })) {
         task.connectionInterruptedContinuationStatusKey = statusKey;
         save();
       }

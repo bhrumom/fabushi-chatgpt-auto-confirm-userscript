@@ -942,6 +942,75 @@ test('continuation recognizes the current blue-arrow Send control labelled 发�
   }
 });
 
+test('connection interruption stops the stuck generation before revealing and clicking Send',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">recover [Fabushi:stop-before-send]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">连接已中断，正在等待完整回复</div></article><form id="composer-form"><textarea id="prompt-textarea"></textarea><button data-testid="stop-button" type="button">Stop</button></form></main>');
+  try {
+    const task={id:'stop-before-send',ownerTabId:h.getTabId(),goal:'recover',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/stop-before-send',token:'stop-before-send',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    w.history.pushState({},'', '/c/stop-before-send');
+    const form=w.document.querySelector('#composer-form');
+    const stop=form.querySelector('[data-testid="stop-button"]');
+    const input=form.querySelector('textarea');
+    const order=[];
+    let sends=0;
+    stop.addEventListener('click',()=>{
+      order.push('stop');
+      w.setTimeout(()=>stop.remove(),150);
+    });
+    input.addEventListener('input',()=>{
+      order.push('prompt');
+      if(form.querySelector('[data-testid="send-button"]'))return;
+      const send=w.document.createElement('button');
+      send.type='button';
+      send.dataset.testid='send-button';
+      send.textContent='发送';
+      send.addEventListener('click',()=>{order.push('send');sends++;});
+      form.append(send);
+    });
+
+    assert.equal(await h.sendContinuation(task,null,'检测到“连接已中断，正在等待完整回复”',Date.now(),{ignoreCooldown:true,stopInterruptedGeneration:true}),true);
+    assert.deepEqual(order,['stop','prompt','send']);
+    assert.equal(sends,1);
+    assert.equal(task.continuationCount,1);
+    assert.equal(task.url,'https://chatgpt.com/c/stop-before-send');
+    assert.equal(task.pendingContinuationReason,'');
+    assert.match(task.messages.at(-1).text,/已在原会话输入并发送“继续完成所有”/);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('ordinary continuation never clicks a visible Stop control',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">recover [Fabushi:no-stop-click]</div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="stop-button" type="button">Stop</button></form></main>');
+  try {
+    w.history.pushState({},'', '/c/no-stop-click');
+    const task={id:'no-stop-click',ownerTabId:h.getTabId(),goal:'recover',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/no-stop-click',token:'no-stop-click',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    let stops=0;
+    w.document.querySelector('[data-testid="stop-button"]').addEventListener('click',()=>stops++);
+    assert.equal(await h.sendContinuation(task,null,'ordinary continuation',Date.now(),{ignoreCooldown:true}),false);
+    assert.equal(stops,0);
+    assert.equal(w.document.querySelector('#prompt-textarea').value,'');
+    assert.equal(task.pendingContinuationStopClickedAt||0,0);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('interrupted continuation clicks Stop once and does not send while Stop remains visible',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">recover [Fabushi:stop-stuck]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">连接已中断。正在等待完整回复。</div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="stop-button" type="button">Stop</button><button data-testid="send-button" type="button">发送</button></form></main>');
+  try {
+    w.history.pushState({},'', '/c/stop-stuck');
+    const task={id:'stop-stuck',ownerTabId:h.getTabId(),goal:'recover',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/stop-stuck',token:'stop-stuck',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    let stops=0,sends=0;
+    w.document.querySelector('[data-testid="stop-button"]').addEventListener('click',()=>stops++);
+    w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>sends++);
+    assert.equal(await h.sendContinuation(task,null,'连接中断',Date.now(),{ignoreCooldown:true,stopInterruptedGeneration:true}),false);
+    assert.equal(stops,1);
+    assert.equal(sends,0);
+    assert.equal(w.document.querySelector('#prompt-textarea').value,'');
+    assert.ok(Number(task.pendingContinuationStopClickedAt)>0);
+    assert.equal(task.pendingContinuationStopRecovery,true);
+  } finally {h.pause();dom.window.close();}
+});
+
 test('exhausted abnormal retries enter persisted backoff and reset after success',async()=>{
   const {h,dom}=await fixture();
   const task=h.enqueue('keep recovering','once');
@@ -1226,10 +1295,11 @@ test('empty ChatGPT composer is filled before looking up its send control',async
   const root=w.document.getElementById('fabushi-auto-confirm-root');
   root.querySelector('textarea').value='send with initially empty composer';
   root.querySelector('form').dispatchEvent(new w.Event('submit',{cancelable:true}));
-  await new Promise(resolve=>setTimeout(resolve,1100));
+  const sendDeadline=Date.now()+5000;
+  while ((!sends || !h.data.tasks.at(-1)?.url) && Date.now()<sendDeadline) await new Promise(resolve=>setTimeout(resolve,50));
   const task=h.data.tasks[0];
   h.pause();
-  assert.equal(sends,1);
+  assert.equal(sends,1,JSON.stringify({state:task.state,prepared:task.sendPrepared,prompt:task.preparedPrompt,messages:task.messages.map(message=>message.text)}));
   assert.equal(pageInput.value,task.preparedPrompt);
   assert.ok(task.url.endsWith(`/c/empty-${task.id}`));
   assert.equal(task.sendPrepared,false);
@@ -2829,8 +2899,8 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.65$/m);
-  assert.match(source,/const VERSION = '2\.9\.65'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.66$/m);
+  assert.match(source,/const VERSION = '2\.9\.66'/);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const ENDED_NO_FINAL_STABILITY_MS = 8000/);
   assert.doesNotMatch(source,/ABNORMAL_NO_FINAL_CONTINUE_AFTER_MS/);
