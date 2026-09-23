@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.64
+// @version      2.9.65
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.64';
+  const VERSION = '2.9.65';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -3589,7 +3589,18 @@
   task.ambiguousSendRefreshAttempts = 0;
   task.ambiguousSendRefreshAt = 0;
 }
+function clearRetainedPreparedComposer(task) {
+  if (!retainedPreparedComposer(task)) return false;
+  const input = composer();
+  setInput(input, '');
+  task.retainedComposerDraftSince = 0;
+  task.retainedComposerDraftNotedAt = 0;
+  return true;
+}
 function stopAmbiguousSend(task, perform = true, now = Date.now()) {
+  if (clearRetainedPreparedComposer(task)) {
+    log(task, '已等待原发送确认时限；输入框仍残留完全相同的本轮任务文本，已清空后继续原有会话确认/恢复规则。');
+  }
   const adoptedURL = adoptUnboundAttemptedConversation(task);
   if (adoptedURL) {
     task.attempted = false;
@@ -3632,20 +3643,6 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     if (perform && currentConversationURL() !== boundURL) directNavigate(new URL(boundURL), task);
     return true;
   }
-  if (retainedPreparedComposer(task)) {
-    const firstObservation = !task.retainedComposerDraftNotedAt;
-    task.retainedComposerDraftSince ||= now;
-    if (task.state !== 'sending') task.state = 'sending';
-    if (firstObservation) {
-      task.retainedComposerDraftNotedAt = now;
-      task.updatedAt = now;
-      log(task, '发送后输入框仍保留本轮完整消息，发送结果存在歧义；已保留原发送标识并等待会话/消息标识出现，不会因 Stop 按钮缺失而新开会话重发。');
-      save();
-    }
-    return true;
-  }
-  task.retainedComposerDraftSince = 0;
-  task.retainedComposerDraftNotedAt = 0;
   const retryCount = Number(task.ambiguousFreshRetryCount || 0) + 1;
   clearDispatchIntent(task);
   task.ambiguousFreshRetryCount = retryCount;
@@ -3679,6 +3676,8 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.sendPrepared = false;
     task.preparedPrompt = '';
     task.sendUiWaitSince = 0;
+    task.retainedComposerDraftSince = 0;
+    task.retainedComposerDraftNotedAt = 0;
     task.dispatchOriginURL = '';
     task.dispatchStartedAt = 0;
     task.recoveryConfirmationStartedAt = 0;
