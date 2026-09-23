@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.69
+// @version      2.9.70
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.69';
+  const VERSION = '2.9.70';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -1592,7 +1592,9 @@
     return css.display !== 'none' && css.visibility !== 'hidden' && node.getClientRects().length > 0;
   };
   const enabled = node => visible(node) && !node.disabled && node.getAttribute('aria-disabled') !== 'true';
-  const nodes = (selector, scope = document) => [...scope.querySelectorAll(selector)].filter(node => !own(node));
+  const nodes = (selector, scope = document) => scope?.querySelectorAll
+    ? [...scope.querySelectorAll(selector)].filter(node => !own(node))
+    : [];
   const pageLoadingHint = /animate[-_]spin|spinner|progress(?:bar)?|hydrating|hydrate|loading|加载|水合|请稍候|please wait/i;
   const pageLoadingSelectors = [
     '[aria-busy="true"]',
