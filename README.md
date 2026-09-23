@@ -1,12 +1,16 @@
-# Fabushi 独立油猴工作台 2.9.51
+# Fabushi 独立油猴工作台 2.9.66
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.51`。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.66`。
 
 脚本头部固定声明 `@updateURL` 和 `@downloadURL`。油猴脚本管理器以及 Fabushi
 宿主会直接检查该地址的 `@version`；发布新版本时只需更新脚本本身和版本号，不需要
 同步修改 Marketplace 目录。
+
+## 2.9.66 中断续发先停止生成
+
+检测到当前任务会话显示“连接已中断，正在等待完整回复”且仍挂着停止生成按钮时，先在原会话点击停止；等停止按钮消失后再填入并发送“继续完成所有”。等待期间保留同一会话和任务状态，不重复点击停止、不刷新或新开会话。其他续发情形仍不会代替用户停止正常生成。
 
 ## 使用
 
