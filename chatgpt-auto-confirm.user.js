@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.71
+// @version      2.9.72
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.71';
+  const VERSION = '2.9.72';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -71,6 +71,7 @@
   // the same route only after a full fifteen-minute idle period so long-running
   // tool/agent work is not disturbed by an aggressive generic stall refresh.
   const STALLED_REFRESH_MS = 15 * 60 * 1000;
+  const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 * 60 * 1000;
   // Keep the persisted generic-stall reload interval aligned with the detector.
   // A page that remains unchanged can therefore be retried forever, but never
   // more than once per fifteen minutes.
@@ -2888,8 +2889,8 @@
       conversationTail:sample?.conversationTail || [],
     });
   }
-  function refreshStalledConversation(task, perform = true, now = Date.now()) {
-    if (!task || task.state === 'paused' || task.state === 'cancelled' || task.attempted) return false;
+  function refreshStalledConversation(task, perform = true, now = Date.now(), options = {}) {
+    if (!task || task.state === 'paused' || task.state === 'cancelled' || (task.attempted && options.force !== true)) return false;
     const conversationURL = currentConversationURL() || canonicalConversationURL(task.url);
     const taskURL = canonicalConversationURL(task.url);
     if (!conversationURL || !taskURL || conversationURL !== taskURL) return false;
@@ -2917,7 +2918,7 @@
     task.stalledRefreshExhausted = false;
     task.state = 'waiting';
     observations.delete(task.id);
-    log(task, `当前会话连续 15 分钟没有可见变化；正在刷新当前页面（第 ${nextAttempt} 次，后续仍无变化时每 15 分钟继续刷新），保留会话、发送标识、附件和当前阶段，不会重复发送。`);
+    log(task, options.message || `当前会话连续 15 分钟没有可见变化；正在刷新当前页面（第 ${nextAttempt} 次，后续仍无变化时每 15 分钟继续刷新），保留会话、发送标识、附件和当前阶段，不会重复发送。`);
     save();
     if (!perform) return true;
     navigating = true;
@@ -2926,6 +2927,31 @@
       task.state = 'waiting';
       log(task, `停滞会话刷新失败：${error.message}；已保留当前任务，15 分钟后继续尝试。`);
       save();
+      return false;
+    }
+    return true;
+  }
+  function refreshInterruptedStopStall(task, now = Date.now(), perform = true) {
+    const stopClickedAt = Number(task?.pendingContinuationStopClickedAt || 0);
+    if (!task?.pendingContinuationStopRecovery || !stopClickedAt) return false;
+    const progress = JSON.stringify(visibleConversationProgressFingerprint());
+    const previousProgress = String(task.pendingContinuationStopProgressSignature || '');
+    if (previousProgress && progress !== previousProgress) {
+      task.pendingContinuationStopClickedAt = now;
+      task.pendingContinuationStopProgressSignature = progress;
+      save();
+      return false;
+    }
+    if (!previousProgress) task.pendingContinuationStopProgressSignature = progress;
+    const lastRefreshAt = Number(task.stalledRefreshAt || 0);
+    const stalledSince = Math.max(stopClickedAt, lastRefreshAt);
+    if (now - stalledSince < INTERRUPTED_STOP_STALL_REFRESH_MS) return false;
+    task.pendingContinuationStopClickedAt = 0;
+    if (!refreshStalledConversation(task, perform, now, {
+      force:true,
+      message:`点击停止后 ChatGPT 连续 15 分钟仍未恢复；正在刷新当前会话并保留“${CONTINUATION_PROMPT}”恢复意图（第 ${Number(task.stalledRefreshAttempts || 0) + 1} 次），页面恢复后会重新停止卡住的生成并重试。`,
+    })) {
+      task.pendingContinuationStopClickedAt = stopClickedAt;
       return false;
     }
     return true;
@@ -4005,6 +4031,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.pendingContinuationURL = '';
     task.pendingContinuationSince = 0;
     task.pendingContinuationStopClickedAt = 0;
+    task.pendingContinuationStopProgressSignature = '';
     task.pendingContinuationStopRecovery = false;
     task.pendingContinuationLastWaitLogAt = 0;
   }
@@ -4031,6 +4058,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       task.pendingContinuationURL = liveURL;
       task.pendingContinuationSince ||= now;
       if (!Number(task.pendingContinuationStopClickedAt || 0)) {
+        task.pendingContinuationStopProgressSignature = visibleConversationProgressFingerprint();
         activateControl(stop);
         task.pendingContinuationStopClickedAt = Date.now();
         task.state = 'waiting';
@@ -4039,6 +4067,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       }
       if (!await waitForStopButtonGone(signal)) {
         task.state = 'waiting';
+        if (refreshInterruptedStopStall(task, Date.now())) return false;
         const lastWaitLogAt = Number(task.pendingContinuationLastWaitLogAt || 0);
         if (!lastWaitLogAt || Date.now() - lastWaitLogAt >= 5000) {
           task.pendingContinuationLastWaitLogAt = Date.now();
