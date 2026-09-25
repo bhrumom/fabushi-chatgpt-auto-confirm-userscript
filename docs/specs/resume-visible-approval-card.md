@@ -99,4 +99,4 @@ Approval state remains visible through the existing task status UI; no new telem
 | R4 | passed | Only after classification does the existing `data.autoApprove` branch call `authorize`; detection itself does not click controls. Regression confirms the split-menu arrow is untouched. |
 | R5 | passed | Foreign-marker regression remains non-approval; canonical route equality and `conversationURLOwner()` guard the positive route capability. |
 | R6 | passed | Workbench regressions cover marker-virtualized approval, preserved reply ownership boundary, no-click detection and foreign task suppression. |
-| AC-1-AC-4 | passed | `npm test`: 210 tests, 203 passed, 0 failed, 7 skipped; `git diff --check` clean. |
+| AC-1-AC-4 | passed | `npm test`: 210 tests, 203 passed, 0 failed, 7 skipped; `git diff --check` clean. Version `2.9.74` passed canonical-main Test run `36078630086` and Release run `36078676229`. Release `v2.9.74` targets source commit `552a887701272af8149ea0c45b56faded5628324`; published asset SHA-256 `64c93916116a0a04fd113e5d903017477eb1929c03f0b79252d2f94d02b5dff9` matches the local tested userscript. |
