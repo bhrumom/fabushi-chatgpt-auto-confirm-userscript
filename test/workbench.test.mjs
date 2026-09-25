@@ -59,6 +59,11 @@ test('a visible conversation spinner is loading, not an abnormal end',async()=>{
   h.pause();
   dom.window.close();
 });
+test('loading inspection ignores unrelated animated SVGs outside the conversation surface',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-message-author-role="assistant">answer</article></main><aside><svg style="animation:spin 1s linear infinite"></svg></aside>');
+  assert.equal(h.pageLoadingState(),'');
+  dom.window.close();
+});
 test('a root-page spinner is loading and blocks dispatch until hydration finishes',async()=>{
   const {h,w,dom}=await fixture('<main><div class="animate-spin"></div><form><textarea id="prompt-textarea"></textarea></form></main>');
   const task={id:'root-loading',goal:'wait for root',state:'queued',attachments:[],messages:[]};
@@ -3159,10 +3164,29 @@ test('sustained memory pressure reloads the exact task session in the same tab w
     assert.equal(task.state,'waiting');
     assert.equal(task.url,'https://chatgpt.com/c/memory-takeover');
     assert.ok(Number(task.memoryPressureReloadAt)>0);
+    assert.equal(task.memoryPressureReloadURL,task.url);
     const heartbeat=JSON.parse(w.localStorage.getItem(`fabushi-workspace-heartbeat-v1:${h.getTabId()}`));
     assert.equal(heartbeat.taskId,task.id);
     assert.equal(heartbeat.taskURL,task.url);
     assert.ok(heartbeat.recoveryToken);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('sustained heap pressure never reloads the same conversation route repeatedly',async()=>{
+  const gib=1024*1024*1024;
+  const {h,w,dom}=await fixture('',window=>Object.defineProperty(window.performance,'memory',{configurable:true,value:{usedJSHeapSize:1.2*gib,totalJSHeapSize:1.5*gib,jsHeapSizeLimit:4*gib}}));
+  try {
+    w.history.pushState({},'', '/c/memory-reload-once');
+    const task={id:'memory-once',ownerTabId:h.getTabId(),goal:'preserve task',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/memory-reload-once',token:'dispatch',attempted:true,attachments:[],messages:[]};
+    h.data.tasks.push(task);
+    const first=await h.requestHostMemoryCleanup({reason:'memory-pressure'});
+    assert.equal(first.reason,'same-tab-reload');
+    w.dispatchEvent(new w.PageTransitionEvent('pageshow',{persisted:true}));
+    const later=await h.requestHostMemoryCleanup({reason:'memory-pressure'});
+    assert.equal(later.reason,'same-route-already-reloaded');
+    assert.match(h.memoryStatusText(),/避免循环刷新/);
+    assert.equal(task.memoryPressureReloadURL,task.url);
+    assert.equal(task.state,'waiting');
   } finally {h.pause();dom.window.close();}
 });
 
@@ -3321,8 +3345,8 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.77$/m);
-  assert.match(source,/const VERSION = '2\.9\.77'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.78$/m);
+  assert.match(source,/const VERSION = '2\.9\.78'/);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const ENDED_NO_FINAL_STABILITY_MS = 8000/);

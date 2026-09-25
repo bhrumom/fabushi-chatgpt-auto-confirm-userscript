@@ -30,6 +30,7 @@ Reduce avoidable DOM work in recurring supervision, preserve strict task ownersh
 - R5: If a ticketed fresh-document recovery fails to unload the current document, stop its runner and release its workspace lock so the host's replacement tab can claim the original task instead of opening as an empty, conflicting workspace.
 - R6: Add regression coverage for loading detection and failed-document handoff; retain all existing task ownership and recovery tests.
 - R7: Record the measured userscript scan duration as an estimate of instrumented work only, not total browser lag.
+- R8: Limit recurring loader detection to the primary conversation surface when available, avoid enumerating every SVG solely to discover animated loaders, and avoid per-element visibility/layout checks for all historic turns when only a bounded transcript tail is needed.
 
 ## 5. Current state
 
@@ -65,7 +66,7 @@ Existing ticket contracts remain unchanged: `fabushi-resume=<token>` for a prove
 ## 11. Implementation strategy
 
 1. Add this Spec before product code.
-2. Collapse loading-state discovery to one root containing scope while preserving candidate de-duplication and all semantic checks.
+2. Collapse loading-state discovery to one root containing scope, prefer `main`, and drop the unbounded all-SVG animation fallback while preserving semantic and class-based loader checks.
 3. Add/adjust regression tests for loader detection and run the full test suite.
 4. On a failed `document-recovery` navigation watchdog, stop the old runner and release its lock without pausing or clearing the task; keep the durable host recovery lease available.
 5. Review the paired host's ticket-validation and replacement-tab code, run the full userscript suite, and document that live Chrome recovery/performance remains unverified.
@@ -106,3 +107,4 @@ Record local test and source checks below. `measurements.totalScanMs` is a local
 | R3-R4 / AC-3 | passed | Paired host `chatgpt-vps-control/chrome-platform/extension/userscript-recovery.js` opens the stored validated `recoveryURL`; regression confirms the failed old document releases the matching workspace lock while preserving task owner, state, and ticket. |
 | R5 / AC-4 | passed | `failed fresh-document recovery yields the workspace lock for the ticketed replacement tab` passes. |
 | R6-R7 / AC-2, AC-5 | passed | `npm test`: 213 total, 206 passed, 0 failed, 7 skipped; `node --check chatgpt-auto-confirm.user.js` and `git diff --check` pass. Live Chrome recovery and CPU comparison remain unverified. |
+| R8 | passed locally | `pageLoadingState()` prefers `main` and no longer enumerates all SVGs; `visibleConversationProgressFingerprint()` limits layout visibility checks to its final eight transcript nodes. Loader positive/negative DOM tests remain green. |

@@ -13,7 +13,7 @@ Separately, an ended bound conversation can send `继续完成所有` repeatedly
 
 ## 2. Goal
 
-When a recoverable current task's JS-heap estimate remains at least 1 GiB, reload the exact current task conversation in the same tab after persisting its workspace/dispatch identity. In any one bound conversation, send at most three `继续完成所有` messages; before a fourth send, capture visible assistant work and queue a fresh conversation with that carry.
+When a recoverable current task's JS-heap estimate remains at least 1 GiB, reload the exact current task conversation in the same tab after persisting its workspace/dispatch identity. Never automatically reload the same conversation route more than once: long-chat hydration can recreate the same heap pressure, so repeated same-route reloads would worsen the incident rather than recover it. In any one bound conversation, send at most three `继续完成所有` messages; before a fourth send, capture visible assistant work and queue a fresh conversation with that carry.
 
 ## 3. Non-goals
 
@@ -32,6 +32,8 @@ When a recoverable current task's JS-heap estimate remains at least 1 GiB, reloa
 - R5: A bound session may issue at most 3 successful `继续完成所有` sends. Before a fourth attempt, capture visible current assistant work, strip status notices, queue a new conversation for the same task/phase/round, and preserve goal/next/attachments.
 - R6: The new conversation resets its per-session continuation count to zero through the existing dispatch reset.
 - R7: Add userscript regressions for threshold, same-tab persisted reload, continuation cap/carry, and under-threshold/unsafe/final cases.
+- R8: Persist the conversation URL on a memory-pressure reload and refuse another automatic reload of that same task route even after the ordinary cooldown; a different bound route may be evaluated independently.
+- R9: Make repeated memory-recovery refusal observable as “already reloaded this conversation” rather than reporting a generic cooldown/failure.
 
 ## 5. Architecture / ownership
 
@@ -47,7 +49,7 @@ Continuation count reaches 3 → reject a fourth same-chat send → visible assi
 
 - Missing content script or stopped service worker is a host-bridge failure; same-tab reload must not rely on that bridge.
 - Draft, unsaved attachments, active send/upload/approval, paused task, non-unique task, or route mismatch blocks memory reload.
-- Reload rejection leaves the current task intact and retries only after a bounded cooldown.
+- Reload rejection leaves the current task intact and retries only after a bounded cooldown; a successfully submitted memory reload is a one-attempt-per-conversation action, not a periodic refresh loop.
 - Same-tab reload must release/reacquire its Web Lock through existing lifecycle hooks; it must never open a parallel workspace.
 - A final reply or authorization route must be processed before continuation-cap handoff; completion and approval classification keep priority.
 - A reply without safely attributable visible assistant work may be handed off only if existing carry policy can prove task/route ownership; otherwise retain safe wait behavior rather than fabricate context.
@@ -65,4 +67,5 @@ Continuation count reaches 3 → reject a fourth same-chat send → visible assi
 |---|---|---|
 | R1-R4 | implemented | `memoryReloadSafety()` + `reloadTaskForMemoryPressure()` persist the exact task and recovery heartbeat before same-tab reload; regression covers safe same-route reload and no-task refusal. |
 | R5-R6 | implemented | `sendContinuation()` rejects attempt 4, captures owned assistant work, strips timeout/status text, and queues the same task with dispatch count reset. |
-| R7 | released; live acceptance pending | `npm test`: 218 total, 211 passed, 0 failed, 7 skipped; syntax check and `git diff --check` pass. Canonical-main Test run [36090932461](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/actions/runs/36090932461) and automatic Release run [36090980390](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/actions/runs/36090980390) succeeded. [v2.9.77 Release](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/releases/tag/v2.9.77), asset SHA-256 `5771973ccd134321a781898af8c8b08738937fd1ab90928fe08efdbe62d57cf9`. Real Chrome reload/resume still needs live acceptance. |
+| R7 | released; live acceptance pending | `npm test`: 220 total, 213 passed, 0 failed, 7 skipped; syntax check and `git diff --check` pass. Canonical-main Test run [36090932461](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/actions/runs/36090932461) and automatic Release run [36090980390](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/actions/runs/36090980390) succeeded for v2.9.77. Real Chrome reload/resume still needs live acceptance. |
+| R8-R9 | passed locally | `memoryPressureReloadURL` is persisted per task and blocks a second same-route reload; `sustained heap pressure never reloads the same conversation route repeatedly` verifies the refusal after simulated same-document recovery. Full suite: 220 total, 213 passed, 0 failed, 7 skipped. Live Chrome performance and reload/resume acceptance remain pending. |

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.77
+// @version      2.9.78
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.77';
+  const VERSION = '2.9.78';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -944,8 +944,13 @@
     const liveURL = currentConversationURL();
     const taskURL = canonicalConversationURL(task?.url);
     if (!task || !liveURL || !taskURL || liveURL !== taskURL || data.autoResume === false) return false;
+    // Reloading a very long conversation can reconstruct the same large React
+    // transcript and immediately recreate the heap pressure. Never turn that
+    // into a periodic same-route reload loop; another route gets its own gate.
+    if (task.memoryPressureReloadURL === liveURL) return false;
     if (now - Number(task.memoryPressureReloadAt || 0) < MEMORY_SAME_TAB_RELOAD_COOLDOWN_MS) return false;
     task.memoryPressureReloadAt = now;
+    task.memoryPressureReloadURL = liveURL;
     task.state = 'waiting';
     task.updatedAt = now;
     ensureAutomaticRecoveryTicket(task, { force:true, destination:liveURL });
@@ -1031,6 +1036,11 @@
       }
       const reloaded = reloadTaskForMemoryPressure(safety.activeTask, now);
       if (reloaded) return { ok:true, reloaded:true, reason:'same-tab-reload', safety };
+      if (safety.activeTask?.memoryPressureReloadURL === safety.liveURL) {
+        memoryLastAction = '此会话已执行过一次内存恢复重载；页面重建后仍偏高，为避免循环刷新，本会话不会再次自动重载。';
+        paint?.();
+        return { ok:false, reloaded:false, reason:'same-route-already-reloaded', safety };
+      }
       memoryLastAction = '内存压力恢复刷新处于冷却期或未能提交；任务仍保留在当前标签页。';
       paint?.();
       return { ok:false, discarded:false, reason:'reload-cooldown-or-failed', safety };
@@ -1698,21 +1708,18 @@
   ].join(',');
   function pageLoadingState() {
     const main = document.querySelector('main');
-    // `body` already contains `main`, and `documentElement` contains both.
-    // Walking all three on every supervision tick repeats the same expensive
-    // selector and visibility work across the entire ChatGPT conversation.
-    const scope = document.body || document.documentElement || main;
+    // Prefer ChatGPT's conversation surface. Scanning the whole body also
+    // walks sidebar, workbench, and extension UI on every supervision tick.
+    const scope = main || document.body || document.documentElement;
     if (!scope) return '';
     const candidates = [];
-    const turns = [];
     if (scope.matches?.(pageLoadingSelectors)) candidates.push(scope);
     candidates.push(...nodes(pageLoadingSelectors, scope));
-    // Some ChatGPT loading glyphs are SVGs with only a runtime CSS animation
-    // and no stable loading class/ARIA label. `body` includes both the main
-    // route and app-level overlays, so one traversal still covers both.
-    candidates.push(...nodes('svg', scope));
-    turns.push(...nodes('[data-message-author-role=user],[data-message-author-role=assistant]', scope));
-    const hasVisibleTurn = turns.some(visible);
+    // Class/ARIA/test-id selectors already recognize known loading spinners;
+    // enumerating every SVG to inspect computed animation is costly on long
+    // transcripts and needlessly treats unrelated animated artwork as loading.
+    const turns = nodes('[data-message-author-role=user],[data-message-author-role=assistant]', scope);
+    const hasVisibleTurn = turns.slice(-8).some(visible);
     const seen = new Set();
     for (const node of candidates) {
       if (seen.has(node)) continue;
@@ -1724,13 +1731,7 @@
       const statusSpinner = node.getAttribute('role') === 'status'
         && (!text(node) || node.querySelector('svg'))
         && pageLoadingHint.test(attrs);
-      let animation = '';
-      try {
-        const css = getComputedStyle(node);
-        animation = `${css.animationName || ''} ${css.animation || ''}`;
-      } catch {}
-      const animatedSpinner = node.matches('svg') && /spin|rotate|load|progress/i.test(animation);
-      if (semantic || pageLoadingHint.test(attrs) || statusSpinner || animatedSpinner) {
+      if (semantic || pageLoadingHint.test(attrs) || statusSpinner) {
         return 'ChatGPT 页面正在加载，等待会话内容完全渲染。';
       }
     }
@@ -2950,8 +2951,8 @@
     // Keep this bounded to the visible transcript tail to limit scan cost on
     // long conversations.
     return nodes('[data-message-author-role=user],[data-message-author-role=assistant]')
-      .filter(visible)
       .slice(-8)
+      .filter(visible)
       .map(node => {
         const role = node.getAttribute('data-message-author-role') || '';
         const content = String(node.textContent || '').replace(/\s+/g, ' ').trim();
