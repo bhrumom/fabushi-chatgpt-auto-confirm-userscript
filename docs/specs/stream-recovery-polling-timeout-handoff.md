@@ -89,11 +89,11 @@ No persisted schema change. Data flow: exact-route/current-response validation â
 
 ## 14. Release / migration / rollback
 
-No migration. Candidate version is 2.9.76 because 2.9.75 is an unpublished local candidate. Do not publish without exact-head and canonical-main workflow evidence. Roll back by reverting the detector/branch/tests; persisted carry fields remain backward compatible.
+No migration. Version 2.9.76 includes the prior 2.9.75 local recovery/performance changes. Roll back by reverting the detector/branch/tests; persisted carry fields remain backward compatible.
 
 ## 15. Observability / evidence
 
-The task log records the timeout-triggered fresh-session retry count, carry source kind, old conversation history entry, and whether visible work was captured. Record local test evidence here; exact-head Actions and live Chrome evidence remain pending until performed.
+The task log records the timeout-triggered fresh-session retry count, carry source kind, old conversation history entry, and whether visible work was captured. Exact-head canonical-main Test run 36088624251 and Release run 36088661110 succeeded for commit 4565b8344a7d34def7def8486023b37f015840c7. GitHub Release v2.9.76 contains the tested userscript asset. Live Chrome runtime verification remains pending.
 
 ## 16. References / provenance
 
@@ -108,4 +108,4 @@ The task log records the timeout-triggered fresh-session retry count, carry sour
 | Requirement / AC | Status | Evidence / reason |
 | --- | --- | --- |
 | R1-R6 / AC-1-AC-4 | implemented | Exact current-turn + visible Retry detector is evaluated before generic timeout/final classification; captured carry is cleaned; task identity and attachment preservation are covered by `stream recovery polling timeout carries visible work into a fresh chat`. |
-| R7-R8 / AC-5 | verified locally | Positive carry and negative quote/stale/final/no-Retry DOM regressions pass; version is 2.9.76. Full `npm test`: 215 total, 208 pass, 0 fail, 7 skipped. `node --check` and `git diff --check` pass. Exact-HEAD GitHub Actions and live Chrome verification remain pending; unpublished. |
+| R7-R8 / AC-5 | passed | Positive carry and negative quote/stale/final/no-Retry DOM regressions pass; version is 2.9.76. Full `npm test`: 215 total, 208 pass, 0 fail, 7 skipped. `node --check` and `git diff --check` pass. Exact-HEAD Test and Release Actions succeeded and v2.9.76 is published; live Chrome verification remains pending. |

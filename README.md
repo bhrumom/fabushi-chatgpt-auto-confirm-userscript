@@ -1,8 +1,8 @@
-# Fabushi 独立油猴工作台 2.9.76（待发布）
+# Fabushi 独立油猴工作台 2.9.76
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前候选版本为 `2.9.76`。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前已发布版本为 `2.9.76`。
 
 脚本头部固定声明 `@updateURL` 和 `@downloadURL`。油猴脚本管理器以及 Fabushi
 宿主会直接检查该地址的 `@version`；发布新版本时只需更新脚本本身和版本号，不需要
@@ -41,14 +41,15 @@
 - 新文档恢复导航在 8 秒内没有卸载旧文档时，旧标签页停止任务监督并释放工作区锁，保留原任务、会话、发送标识和恢复票据，让 Fabushi 宿主打开的带票据恢复标签页能接管，而不是被旧标签页锁挡住后变成空工作区。
 - 普通同会话恢复仍沿用原有监督行为；只有明确的 `document-recovery` 交接会让出所有权，避免误抢活跃会话。
 - 页面加载识别只遍历一次包含 `main` 与应用级覆盖层的页面范围，减少长会话中重复扫描。
-- `2.9.75` 的恢复交接与重复扫描修复已并入当前 `2.9.76` 候选。
+- `2.9.75` 的恢复交接与重复扫描修复已并入 `2.9.76`。
 
 ## 2.9.76 stream recovery 超时接力到新会话
 
 - 当前任务的 assistant 回复出现 `ChatGPT stream recovery polling timed out` 且同一错误区域存在可见 Retry/重试操作时，不再盲目等待或在失败会话重复发送；脚本保存本轮可见工作并为同一任务排入新会话。
 - 新会话提示包含本轮 `next` 指令、异常会话已完成的可见工作和原始目标；超时状态本身会从接力内容剔除，任务阶段、轮次和附件保持不变。
 - 只处理当前绑定会话中的独立错误状态；引用/代码中的错误文字、旧错误、无重试操作或已出现最终回复都不会触发接力。
-- `2.9.76` 为待发布候选；本地自动化测试 215 项中 208 通过、0 失败、7 项明确跳过，另 `node --check` 和 `git diff --check` 通过。exact-HEAD GitHub Actions 与 Chrome 实机验证尚未完成，验证完成前不发布。
+- `2.9.76` 已发布：[GitHub Release](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/releases/tag/v2.9.76)，[直接安装脚本](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/releases/download/v2.9.76/chatgpt-auto-confirm.user.js)。
+- 本地 `npm test` 215 项中 208 通过、0 失败、7 项明确跳过；`node --check` 与 `git diff --check` 通过。canonical-main Test run [36088624251](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/actions/runs/36088624251) 和自动 Release run [36088661110](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/actions/runs/36088661110) 均成功。Release 指向提交 `4565b8344a7d34def7def8486023b37f015840c7`；脚本资产 SHA-256：`25ed1099095dbcfbd205b8b1c3427297583e85744b8a7f93457513865f00b9aa`。
 
 ## 2.9.72 中断后 Stop 卡住自动刷新重试
 
