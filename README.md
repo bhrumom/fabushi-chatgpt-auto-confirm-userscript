@@ -89,6 +89,7 @@
 - 一次任务检查中的限流、连接中断、会话长度和页面错误检测现在按需共享同一份页面文字快照；此前同一轮可能完整遍历页面四次。
 - 会话长度提示先匹配短文本，再检查可见性；普通叶节点不再做冗余父级读取，跨节点提示只读取最多 600 字符的嵌套容器文本并缓存结果，超长容器会提前终止读取。
 - 检测范围仍排除对话历史和 Fabushi 面板；慢扫描计数可直接确认每次检查的完整页面文字遍历是否降为最多一次。
+- 已发布：[GitHub Release](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/releases/tag/v2.9.83)，[直接安装脚本](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/releases/download/v2.9.83/chatgpt-auto-confirm.user.js)。Exact-HEAD Test run [36161307859](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/actions/runs/36161307859) 和自动 Release run [36161369304](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/actions/runs/36161369304) 成功；发布资产 SHA-256：`a14efa788b56c2078c5380678d95d28c9fcf3abd41149fd80c7b6b71dcfd2018`。
 
 ## 2.9.72 中断后 Stop 卡住自动刷新重试
 
