@@ -2,7 +2,7 @@
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前开发版本为 `2.9.78`。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前已发布版本为 `2.9.78`。
 
 脚本头部固定声明 `@updateURL` 和 `@downloadURL`。油猴脚本管理器以及 Fabushi
 宿主会直接检查该地址的 `@version`；发布新版本时只需更新脚本本身和版本号，不需要
@@ -62,7 +62,8 @@
 
 - 每个任务会话路由最多自动执行一次内存压力重载。长会话重新加载后若 JS 堆仍高，脚本会明确记录“避免循环刷新”，保留任务并继续监督；切换到新的会话路由后可重新评估。
 - 加载检测优先检查 ChatGPT 主内容区，不再遍历整页 SVG 并逐个读取动画样式；页面进度指纹只对最近 8 条消息执行可见性/布局检查。
-- 发布状态：等待主分支测试通过后，由 Release 工作流自动创建版本。
+- 已发布：[GitHub Release](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/releases/tag/v2.9.78)，[直接安装脚本](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/releases/download/v2.9.78/chatgpt-auto-confirm.user.js)。Exact-source Test run [36093974738](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/actions/runs/36093974738) 成功；发布提交 `fb65b1f6a73d257860c24e7a6020858207694473`，Release asset SHA-256：`43240530a14083d758594c117ec012786f02656aea8e78155cf9db14913c38b4`。
+- 单测与语法验证通过；实站内存恢复和页面流畅度仍需你用新版在 Chrome 中验收。
 
 ## 2.9.72 中断后 Stop 卡住自动刷新重试
 
