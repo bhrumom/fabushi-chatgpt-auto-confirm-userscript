@@ -66,6 +66,33 @@ test('slow-scan diagnostics report stage timings and counts without transcript c
   } finally { h.pause(); dom.window.close(); }
 });
 
+test('resuming a large persisted workspace keeps workbench rendering bounded',async()=>{
+  let workbenchReads=0;
+  const {h,w,dom}=await fixture('',window=>{
+    const originalGetItem=window.Storage.prototype.getItem;
+    window.Storage.prototype.getItem=function(key){
+      if(key==='fabushi-workbench-v2')workbenchReads++;
+      return originalGetItem.call(this,key);
+    };
+  });
+  try {
+    const task={id:'resume-large',ownerTabId:h.getTabId(),goal:'resume without freezing',mode:'goal',phase:'work',round:3,state:'paused',pausedState:'waiting',url:'https://chatgpt.com/c/resume-large',token:'resume-token',attempted:false,messages:Array.from({length:80},(_,index)=>({at:index+1,role:'status',text:`status-${index}`})),messageVersion:80};
+    h.data.tasks.push(task);
+    for(let index=0;index<72;index++)h.data.tasks.push({id:`archived-${index}`,ownerTabId:`archived-owner-${index%9}`,goal:`archived task ${index}`,mode:'once',phase:'work',round:1,state:'done',messages:[],messageVersion:0});
+
+    workbenchReads=0;
+    await h.resumeTask(task);
+    const rebuildsAfterResume=h.measurements.sidebarRebuilds;
+    h.log(task,'post-resume diagnostic one');
+    h.log(task,'post-resume diagnostic two');
+
+    assert.ok(workbenchReads<=8,`resume should parse the durable workbench only a bounded number of times, got ${workbenchReads}`);
+    assert.equal(h.measurements.sidebarRebuilds,rebuildsAfterResume,'status-only updates must not rebuild every task row');
+    assert.ok(w.document.querySelectorAll('.feed .bubble').length<=30,'the visible log tail stays bounded');
+    assert.match(w.document.querySelector('.feed')?.textContent||'',/完整记录仍保存在当前浏览器/);
+  } finally { h.pause(); dom.window.close(); }
+});
+
 test('completion requires own final toolbar, stop absent, no approval and stable evidence',async()=>{
   const {h,w,dom}=await fixture();
   const sample={owned:true,final:true,text:'result',sentAt:0,cards:0,stop:false};
@@ -3383,8 +3410,8 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.80$/m);
-  assert.match(source,/const VERSION = '2\.9\.80'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.81$/m);
+  assert.match(source,/const VERSION = '2\.9\.81'/);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const ENDED_NO_FINAL_STABILITY_MS = 8000/);

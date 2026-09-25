@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.80
+// @version      2.9.81
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.80';
+  const VERSION = '2.9.81';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -188,6 +188,11 @@
   const MAX_TASK_MESSAGES = 80;
   const MAX_TASK_MESSAGE_TEXT = 12000;
   const MAX_TASK_MESSAGE_CHARS = 320000;
+  // The full durable log remains available in storage, but rendering hundreds
+  // of thousands of characters into the live workbench on every status write
+  // can monopolize the renderer. Keep the visible tail bounded; diagnostics
+  // and the most recent recovery transitions remain visible.
+  const MAX_RENDERED_TASK_MESSAGES = 30;
   const AUTO_RECOVERABLE_STATE_NAMES = new Set(['queued', 'sending', 'uploading', 'waiting', 'loading', 'generating', 'approval', 'reviewing']);
   const read = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key)) || fallback; } catch { return fallback; } };
   const lifecycleController = typeof AbortController === 'function' ? new AbortController() : null;
@@ -484,7 +489,10 @@
   let selected = data.selectedByTab[tabId] || (legacyOwner === tabId ? data.selected : ''), current = '', lastSwitch = 0, navigating = false, sameRouteWaitUntil = 0, sameRouteWaitSince = 0;
   let recoveredTaskId = '';
   let paint = () => {}, mode = 'once';
-  const measurements = { scans: 0, totalScanMs: 0, sends: 0, switches: 0 };
+  const measurements = {
+    scans:0, totalScanMs:0, sends:0, switches:0,
+    paints:0, totalPaintMs:0, lastPaintMs:0, sidebarRebuilds:0,
+  };
   let lastSlowScanDiagnosticAt = 0;
   let lastFingerprintStats = { messageNodes:0, inspectedTextChars:0 };
   let scanDiagnostics = {
@@ -5533,8 +5541,11 @@ NaN
     if (running) schedule(100);
     return target;
   }
-  function recoverableWorkspaces() {
-    const stored = read(KEY, {tasks:[]});
+  function recoverableWorkspaces(snapshot = null) {
+    // paint() already owns the current merged data snapshot. Accept it here
+    // so one workbench render does not JSON.parse the entire durable queue
+    // once per task row while building every "move to" menu.
+    const stored = snapshot && typeof snapshot === 'object' ? snapshot : read(KEY, {tasks:[]});
     return [...new Set((stored.tasks || [])
       .filter(task => task.ownerTabId && task.ownerTabId !== tabId)
       .map(task => task.ownerTabId))]
@@ -5828,18 +5839,40 @@ NaN
     const submit = element('button','↑','send'); submit.type='submit'; submit.setAttribute('aria-label','发送任务');
     controls.append(select,autoLabel,submit); compose.append(input,attachmentBox,controls); chat.append(settings,feed,notice,compose); desk.append(sidebar,chat);
     const launch=element('button','⚡ Fabushi 脚本','launch'); root.append(desk,launch); document.documentElement.append(style); (document.body || document.documentElement).append(root);
-    let signature='';
+    let signature='', sidebarSignature='';
     paint = () => {
+      const paintStartedAt = performance.now();
       const task=data.tasks.find(item=>item.id===selected && taskBelongsToTab(item));
       heading.textContent=task ? (task.mode==='goal'?'持续目标':'单次任务')+' · '+statusNames[task.state] : '任务工作台';
       editGoalButton.disabled=!task || task.state==='done';
       memoryStatusNode.textContent=memoryStatusText();
       memoryCleanupButton.disabled=memoryMonitorBusy || hostMemoryPending.size > 0;
       const runnableCount=tabTasks().filter(item=>!terminal.has(item.state)&&item.state!=='paused').length;
-      notice.textContent=`当前标签页工作区 · ${running?`监督中，${runnableCount>1?`多个本页任务每 ${Math.round(SUPERVISION_INTERVAL_MS / 1000)} 秒轮换`:'按当前任务推进'}；任务可单独暂停/继续`:'已暂停，自动操作已停止'} · 扫描 ${measurements.scans} 次，平均 ${(measurements.totalScanMs / Math.max(1, measurements.scans)).toFixed(1)} ms · ${memoryStatusText()}`;
+      notice.textContent=`当前标签页工作区 · ${running?`监督中，${runnableCount>1?`多个本页任务每 ${Math.round(SUPERVISION_INTERVAL_MS / 1000)} 秒轮换`:'按当前任务推进'}；任务可单独暂停/继续`:'已暂停，自动操作已停止'} · 扫描 ${measurements.scans} 次，平均 ${(measurements.totalScanMs / Math.max(1, measurements.scans)).toFixed(1)} ms · 界面最近 ${measurements.lastPaintMs.toFixed(1)} ms、侧栏重建 ${measurements.sidebarRebuilds} 次 · ${memoryStatusText()}`;
       pauseButton.textContent=task?.state==='paused'?'继续当前任务':(task?.state==='cancelled'||task?.state==='blocked')?'恢复任务':task&&!terminal.has(task.state)?(running?'暂停当前任务':'继续当前任务'):running?'暂停全部':'继续全部';
       globalPauseButton.textContent=running?'暂停全部任务':'继续全部任务';
       globalPauseButton.disabled=tabTasks().length===0;
+      const currentTasks=tabTasks();
+      const workspaceSnapshots=recoverableWorkspaces(data);
+      const rowSignature=item=>[
+        item.id,item.ownerTabId,item.state,Number(item.round||0),Number(item.goalRevision||0),
+        String(item.goal||'').slice(0,80),taskAttachments(item).length,
+        Math.max(0,Math.ceil((Number(item.noFinalReplyRecoveryUntil||0)-Date.now())/60000)),
+      ];
+      const nextSidebarSignature=JSON.stringify([
+        selected,current,running,
+        currentTasks.map(rowSignature),
+        workspaceSnapshots.map(workspace=>[workspace.ownerTabId,workspace.live,workspace.tasks.map(rowSignature)]),
+      ]);
+      const sidebarRebuilt=sidebarSignature!==nextSidebarSignature;
+      const recordPaint=renderedMessageCount=>{
+        const elapsed=performance.now()-paintStartedAt;
+        measurements.paints++;measurements.totalPaintMs+=elapsed;measurements.lastPaintMs=elapsed;
+        if(elapsed>=500)console.warn('[Fabushi] 慢界面刷新诊断（不含任务内容）',{elapsedMs:Math.round(elapsed),sidebarRebuilt,currentTasks:currentTasks.length,recoverableWorkspaces:workspaceSnapshots.length,recoverableTasks:workspaceSnapshots.reduce((sum,workspace)=>sum+workspace.tasks.length,0),renderedMessages:Number(renderedMessageCount||0)});
+      };
+      if(sidebarRebuilt){
+      sidebarSignature=nextSidebarSignature;
+      measurements.sidebarRebuilds++;
       list.replaceChildren();
       const fresh=element('button','＋ 新任务'); fresh.onclick=()=>{selected='';clearSelectedFiles();save();input.focus();}; list.append(fresh);
       list.append(element('small','拖到下方工作区即可分配；浏览器原生标签栏不接收网页拖放。','drop-hint'));
@@ -5876,7 +5909,7 @@ NaN
         {
           const actions=element('div','','task-row-actions');
           const move=element('select','','task-move');move.setAttribute('aria-label',`分配任务：${item.goal.slice(0,60)}`);const placeholder=element('option','分配到…');placeholder.value='';move.append(placeholder);
-          for(const workspace of [{ownerTabId:tabId,label:'当前标签页',live:true},...recoverableWorkspaces().map((workspace,index)=>({ownerTabId:workspace.ownerTabId,label:`标签页 ${index+1}`,live:workspace.live}))])if(workspace.live&&workspace.ownerTabId!==item.ownerTabId){const option=element('option',workspace.label);option.value=workspace.ownerTabId;move.append(option);}
+          for(const workspace of [{ownerTabId:tabId,label:'当前标签页',live:true},...workspaceSnapshots.map((workspace,index)=>({ownerTabId:workspace.ownerTabId,label:`标签页 ${index+1}`,live:workspace.live}))])if(workspace.live&&workspace.ownerTabId!==item.ownerTabId){const option=element('option',workspace.label);option.value=workspace.ownerTabId;move.append(option);}
           const newChoice=element('option','新标签页');newChoice.value='__new__';move.append(newChoice);
           move.onchange=event=>{event.stopPropagation();const target=move.value;move.value='';if(target==='__new__')try{openTaskInNewWorkspace(item.id);}catch(error){showError(error);}else if(target)assignTaskToWorkspace(item.id,target).catch(showError);};actions.append(move);
           if(interactive){
@@ -5897,7 +5930,6 @@ NaN
         }
         group.append(row);
       };
-      const currentTasks=tabTasks();
       {
         const group=element('section','','task-group');group.setAttribute('role','group');group.setAttribute('aria-label','当前标签页任务');
         wireWorkspaceDrop(group,tabId);
@@ -5906,7 +5938,7 @@ NaN
         else group.append(element('small','把任务拖到这里，交由当前标签页处理。','drop-hint'));
         list.append(group);
       }
-      recoverableWorkspaces().forEach((workspace,index)=>{
+      workspaceSnapshots.forEach((workspace,index)=>{
         const group=element('section','','task-group');group.dataset.ownerTabId=workspace.ownerTabId;group.setAttribute('role','group');group.setAttribute('aria-label',`可恢复标签页 ${index+1}`);
         wireWorkspaceDrop(group,workspace.ownerTabId,workspace.live);
         const label=workspace.live?`其他标签页 ${index+1}`:`可恢复标签页 ${index+1}`;
@@ -5920,14 +5952,22 @@ NaN
         }
         for(const item of workspace.tasks)appendTaskRow(group,item,false);list.append(group);
       });
+      }
       const nextSignature=JSON.stringify([selected,task?.goalRevision,task?.messageVersion,task?.url,task?.state,task?.preview,taskAttachmentSummary(task),task?.attachmentUploadPending,task?.attachmentUploadFailed,task?.attachmentUploadRetryAt,task?.attachmentUploadRetryCount]);
-      if(signature===nextSignature)return; signature=nextSignature;
+      if(signature===nextSignature){
+        recordPaint(0);
+        return;
+      }
+      signature=nextSignature;
       const nearBottom=feed.scrollHeight-feed.scrollTop-feed.clientHeight<80;
       feed.replaceChildren();
       if(!task)feed.append(element('p','在下方输入任务。单次任务等待一次最终回复；持续目标在每轮结束后新开规划/验收会话，由规划结果安排下一轮。会话恢复按已记录的唯一链接进行，不需要手动点击继续。'));
       if(task)feed.append(element('div',`当前目标：${task.goal}`,'goal'));
       if(task?.attachments?.length)feed.append(element('div',`任务附件：${taskAttachmentSummary(task)}`,'attachment-summary'));
-      for(const message of task?.messages||[]){const bubble=element('div',message.text,`bubble ${message.role}`);const time=element('time',new Date(message.at).toLocaleTimeString());bubble.append(time);feed.append(bubble);}
+      const allMessages=task?.messages||[];
+      const renderedMessages=allMessages.slice(-MAX_RENDERED_TASK_MESSAGES);
+      if(allMessages.length>renderedMessages.length)feed.append(element('small',`为保持页面流畅，仅显示最近 ${renderedMessages.length}/${allMessages.length} 条记录；完整记录仍保存在当前浏览器。`,'render-limit'));
+      for(const message of renderedMessages){const bubble=element('div',message.text,`bubble ${message.role}`);const time=element('time',new Date(message.at).toLocaleTimeString());bubble.append(time);feed.append(bubble);}
       if(task?.preview && !terminal.has(task.state))feed.append(element('div',`实时回复\n${task.preview}`,'bubble assistant'));
       const sessionURL = canonicalConversationURL(task?.url);
       if(sessionURL){
@@ -5967,6 +6007,7 @@ NaN
       if(task && !terminal.has(task.state) && task.state !== 'paused'){const cancel=element('button','取消此任务');cancel.onclick=()=>cancelTask(task);feed.append(cancel);}
       if(task){const removable=terminal.has(task.state)||task.state==='paused';const remove=element('button','删除此任务');remove.disabled=!removable;remove.title=removable?'删除此任务及其本地附件':'请先暂停或取消此任务，再删除';if(removable)remove.onclick=()=>deleteTask(task);feed.append(remove);}
       if(nearBottom)feed.scrollTop=feed.scrollHeight;
+      recordPaint(renderedMessages.length);
     };
     function showError(error){notice.textContent=error.message;}
     launch.onclick=()=>{desk.classList.toggle('open');paint();};close.onclick=()=>desk.classList.remove('open');
