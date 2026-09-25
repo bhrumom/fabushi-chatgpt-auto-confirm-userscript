@@ -2,7 +2,7 @@
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前源码候选版本为 `2.9.77`（尚未发布）。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前已发布版本为 `2.9.77`。
 
 脚本头部固定声明 `@updateURL` 和 `@downloadURL`。油猴脚本管理器以及 Fabushi
 宿主会直接检查该地址的 `@version`；发布新版本时只需更新脚本本身和版本号，不需要
@@ -51,11 +51,12 @@
 - `2.9.76` 已发布：[GitHub Release](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/releases/tag/v2.9.76)，[直接安装脚本](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/releases/download/v2.9.76/chatgpt-auto-confirm.user.js)。
 - 本地 `npm test` 215 项中 208 通过、0 失败、7 项明确跳过；`node --check` 与 `git diff --check` 通过。canonical-main Test run [36088624251](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/actions/runs/36088624251) 和自动 Release run [36088661110](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/actions/runs/36088661110) 均成功。Release 指向提交 `4565b8344a7d34def7def8486023b37f015840c7`；脚本资产 SHA-256：`25ed1099095dbcfbd205b8b1c3427297583e85744b8a7f93457513865f00b9aa`。
 
-## 2.9.77 same-tab memory recovery and continuation cap (candidate)
+## 2.9.77 same-tab memory recovery and continuation cap
 
 - 在网页 JS 堆估算连续两次达到 1 GiB、且当前只有一个精确会话任务可恢复时，保存任务/会话状态并在原标签页重新加载当前会话；不依赖扩展宿主回收活动标签，也不新开重复标签。草稿、附件待上传、授权、发送/上传中或会话不匹配时不刷新。
 - 同一 ChatGPT 会话最多发送 3 次“继续完成所有”。第 4 次之前保存当前可归属的 assistant 工作内容（剔除 stream timeout 等状态文本）并排入新会话继续，保留 task/phase/round/goal/next/attachments。
-- 此候选尚未发布，也不代表已经在实站完成验收。
+- 已发布：[GitHub Release](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/releases/tag/v2.9.77)，[直接安装脚本](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/releases/download/v2.9.77/chatgpt-auto-confirm.user.js)。主分支测试 run [36090932461](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/actions/runs/36090932461) 和自动 Release run [36090980390](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/actions/runs/36090980390) 均成功；Release 资产 SHA-256：`5771973ccd134321a781898af8c8b08738937fd1ab90928fe08efdbe62d57cf9`。
+- 单元和 DOM 测试通过；Chrome 实站内存压力重载恢复仍需真实页面验收。
 
 ## 2.9.72 中断后 Stop 卡住自动刷新重试
 
