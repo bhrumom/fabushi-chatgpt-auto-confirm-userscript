@@ -1270,8 +1270,30 @@ test('nested split authorization card is detected without article/section wrappe
   assert.equal(h.cards().length,0);
   dom.window.close();
 });
+test('current allow-once split authorization card is detected and selects only the conversation grant',async()=>{
+  const {w,h,dom}=await fixture('<main><div id="card"><div>GitHub</div><form><button type="button">拒绝<kbd aria-hidden="true">Esc</kbd></button><div><button type="button" id="allow-once"><span>允许一次</span><kbd aria-hidden="true">⏎</kbd></button><button type="button" aria-haspopup="menu" aria-label="审批选项" aria-expanded="false" data-state="closed"><svg></svg></button></div></form></div></main>');
+  const primary=w.document.querySelector('#allow-once');
+  const arrow=w.document.querySelector('[aria-label="审批选项"]');
+  let primaryClicks=0, arrowClicks=0, conversationApprovals=0;
+  primary.onclick=()=>primaryClicks++;
+  arrow.addEventListener('pointerdown',()=>{
+    arrowClicks++;
+    if(w.document.querySelector('[role=menu]'))return;
+    const menu=w.document.createElement('div');menu.setAttribute('role','menu');
+    const once=w.document.createElement('div');once.setAttribute('role','menuitem');once.textContent='允许一次';
+    const conversation=w.document.createElement('div');conversation.setAttribute('role','menuitem');conversation.textContent='Allow GitHub for this conversation';
+    conversation.onclick=()=>conversationApprovals++;
+    menu.append(once,conversation);w.document.body.append(menu);
+  });
+  assert.equal(h.cards().length,1);
+  await h.authorize(h.cards()[0],null,null,false);
+  assert.equal(arrowClicks,1);
+  assert.equal(conversationApprovals,1);
+  assert.equal(primaryClicks,0);
+  dom.window.close();
+});
 test('ordinary allow controls are not mistaken for authorization cards',async()=>{
-  const {h,dom}=await fixture('<main><button>允许</button><div><button>拒绝</button><button>允许</button></div><div><button>允许</button><button aria-haspopup="menu">选项</button></div></main>');
+  const {h,dom}=await fixture('<main><button>允许</button><button>允许一次</button><div><button>拒绝</button><button>允许</button></div><div><button>拒绝</button><button>允许一次</button></div><div><button>允许</button><button aria-haspopup="menu">选项</button></div></main>');
   assert.equal(h.cards().length,0);
   dom.window.close();
 });
@@ -1289,7 +1311,7 @@ test('unexpected ChatGPT modal is automatically closed while authorization cards
 
   const approval=w.document.createElement('div');
   approval.setAttribute('role','dialog');
-  approval.innerHTML='<button>拒绝</button><button>允许</button><button aria-haspopup="menu">⌄</button>';
+  approval.innerHTML='<button>拒绝</button><button><span>允许一次</span><kbd aria-hidden="true">⏎</kbd></button><button aria-haspopup="menu" aria-label="审批选项">⌄</button>';
   const approvalClose=w.document.createElement('button');
   approvalClose.setAttribute('aria-label','Close');
   approvalClose.textContent='×';
@@ -3140,8 +3162,8 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.72$/m);
-  assert.match(source,/const VERSION = '2\.9\.72'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.73$/m);
+  assert.match(source,/const VERSION = '2\.9\.73'/);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const ENDED_NO_FINAL_STABILITY_MS = 8000/);

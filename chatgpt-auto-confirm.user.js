@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.72
+// @version      2.9.73
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.72';
+  const VERSION = '2.9.73';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -3259,7 +3259,7 @@
       ),
     };
   }
-  const allowLabel = /^(?:允许|allow|approve|批准)$/i;
+  const allowLabel = /^(?:允许(?:一次)?|批准(?:一次)?|allow(?: once| one time)?|approve(?: once| one time)?)$/i;
   const denyLabel = /^(?:拒绝|不允许|deny|decline|reject)$/i;
   function approvalArrow(node, allowButton) {
     return node !== allowButton && (
@@ -3268,7 +3268,13 @@
       || (!text(node) && Boolean(node.querySelector('svg')) && node.parentElement === allowButton.parentElement)
     );
   }
-  const actionMatches = (node, pattern) => [text(node), node?.getAttribute('aria-label'), node?.getAttribute('title')]
+  function actionText(node) {
+    if (!node?.querySelector?.('[aria-hidden="true"]')) return text(node);
+    const copy = node?.cloneNode?.(true);
+    copy?.querySelectorAll?.('[aria-hidden="true"]').forEach(child => child.remove());
+    return normalize(copy?.textContent);
+  }
+  const actionMatches = (node, pattern) => [actionText(node), node?.getAttribute('aria-label'), node?.getAttribute('title')]
     .some(value => pattern.test(normalize(value)));
   function cards() {
     const result = [], seen = new Set();
