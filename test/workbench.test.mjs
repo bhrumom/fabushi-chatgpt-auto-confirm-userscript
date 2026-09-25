@@ -62,6 +62,7 @@ test('slow-scan diagnostics report stage timings and counts without transcript c
     assert.match(diagnostic,/当前回复识别 .* ms/);
     assert.match(diagnostic,/授权卡扫描 .* ms/);
     assert.match(diagnostic,/消息节点 user=\d+、assistant=\d+/);
+    assert.match(diagnostic,/页面文字扫描 calls=1、/,'all page-chrome status classifiers reuse one page text traversal per inspection');
     assert.doesNotMatch(diagnostic,/PRIVATE-TRANSCRIPT|private task prompt|diag-token/);
   } finally { h.pause(); dom.window.close(); }
 });
@@ -2130,6 +2131,25 @@ test('ordinary page labels do not trigger ancestor text scans during request-lim
   assert.equal(mainTextReads,0,'unrelated labels must not reread the full main subtree');
   dom.window.close();
 });
+test('ordinary labels and oversized containers do not trigger conversation-limit ancestor text reads',async()=>{
+  const {h,w,dom}=await fixture();
+  const main=w.document.createElement('main');
+  for(let index=0;index<500;index++){
+    const label=w.document.createElement('span');
+    label.textContent=`ordinary page label ${index}`;
+    main.append(label);
+  }
+  const oversized=w.document.createElement('div');
+  oversized.innerHTML='<span>ordinary nested label</span>'.repeat(1000);
+  main.append(oversized);
+  w.document.body.append(main);
+
+  let largeTextReads=0;
+  Object.defineProperty(oversized,'textContent',{configurable:true,get(){largeTextReads++;return 'very large irrelevant content';}});
+  assert.equal(h.conversationLengthLimitNotice(),'');
+  assert.equal(largeTextReads,0,'unrelated large containers must not be flattened to reject them');
+  dom.window.close();
+});
 test('reload recovery preserves healthy and rate-limited in-flight sessions',async()=>{
   const {h,dom}=await fixture();
   const base={goal:'test task',mode:'goal',phase:'work',round:1};
@@ -3431,8 +3451,8 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.82$/m);
-  assert.match(source,/const VERSION = '2\.9\.82'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.83$/m);
+  assert.match(source,/const VERSION = '2\.9\.83'/);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const ENDED_NO_FINAL_STABILITY_MS = 8000/);

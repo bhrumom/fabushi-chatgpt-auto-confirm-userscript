@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.82
+// @version      2.9.83
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.82';
+  const VERSION = '2.9.83';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -1781,6 +1781,18 @@
     scanDiagnostics.pageUiTextNodes += records.length;
     return records;
   }
+  function boundedTextContent(node, maxChars = 600) {
+    if (!node) return '';
+    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+    let value = '';
+    let current;
+    while ((current = walker.nextNode())) {
+      const chunk = current.nodeValue || '';
+      if (chunk.length > maxChars - value.length) return null;
+      value += chunk;
+    }
+    return normalize(value);
+  }
   const pageLoadingHint = /animate[-_]spin|spinner|progress(?:bar)?|hydrating|hydrate|loading|加载|水合|请稍候|please wait/i;
   const pageLoadingSelectors = [
     '[aria-busy="true"]',
@@ -2613,9 +2625,9 @@
     }
     return null;
   }
-  function historyAccessThrottlePopup() {
+  function historyAccessThrottlePopup(getPageRecords = pageUiTextRecords) {
     const headline = /请求过于频繁|你的请求过于频繁|too many requests|request(?:s)? too frequent/i;
-    for (const record of pageUiTextRecords()) {
+    for (const record of getPageRecords()) {
       const parent = record.parent;
       if (!parent || !headline.test(record.direct)) continue;
       let scope = parent;
@@ -2631,7 +2643,7 @@
     }
     return null;
   }
-  function rateLimitNotice() {
+  function rateLimitNotice(getPageRecords = pageUiTextRecords) {
     const startedAt = performance.now();
     const pattern = /请求过于频繁|你的请求过于频繁|请稍等几分钟后再重试|访问频率受限|too many requests|rate limit/i;
     // Inspect actual page notices, never the task transcript or this panel.
@@ -2640,7 +2652,7 @@
     // does not throttle the current/new chat path, so it is explicitly ignored
     // here and acknowledged by dismissUnexpectedModals().
     try {
-      for (const record of pageUiTextRecords()) {
+      for (const record of getPageRecords()) {
         const parent = record.parent;
         // Check the cheap direct text first. The former order walked up every
         // ordinary page label and materialized each ancestor's full text,
@@ -2695,7 +2707,7 @@
     scanDiagnostics.responseTextNodes += records.length;
     return records;
   }
-  function sendTimeoutNotice(turn = null) {
+  function sendTimeoutNotice(turn = null, getPageRecords = pageUiTextRecords) {
     const pattern = /消息(?:发送)?(?:超时|错误|失败)\s*[，,。.!]?\s*请重试|message (?:send|sending) timed out|message (?:error|failed)[\s,:-]*(?:please )?(?:retry|try again)|failed to send/i;
     const retryPattern = /^(?:重试|再次尝试|再试一次|retry|try again|again)(?:\b|$)/i;
     const retryControls = 'button,a,[role="button"]';
@@ -2720,15 +2732,14 @@
     // keep this read bounded to the current response instead.
     for (const record of responseTextNodes(responseTurn)) {
       const parent = record.parent;
-      if (!parent || !visible(parent) || !pattern.test(record.direct)) continue;
+      if (!parent || !pattern.test(record.direct) || !visible(parent)) continue;
       if (hasRetryControl(parent)) return true;
     }
     // A visible page-level error is actionable. Page chrome is scanned
     // separately and deliberately skips the transcript subtree.
-    for (const record of pageUiTextRecords()) {
+    for (const record of getPageRecords()) {
       const parent = record.parent;
-      if (!parent || !visible(parent)) continue;
-      if (!pattern.test(record.direct)) continue;
+      if (!parent || !pattern.test(record.direct) || !visible(parent)) continue;
       const message = parent.closest('[data-message-author-role]');
       if (!message) return true;
     }
@@ -2762,20 +2773,25 @@
     return false;
   }
   const conversationLengthLimitPattern = /(?:你已达到(?:此|本)对话的(?:长度上限|最大长度)[，,。.!；;\s]*(?:你)?可以(?:开始|开启|新建)(?:一个)?新(?:的)?(?:聊天|对话)(?:以|来)?继续(?:对话|聊天)?|(?:you(?:'|’)?ve|you have|this conversation has) reached (?:the )?(?:maximum|max) (?:length|conversation length)(?: for| of)? (?:this|the)?\s*conversation.*?(?:keep (?:talking|chatting)|continue).*?(?:start(?:ing)?|open(?:ing)?|begin(?:ning)?) (?:a )?new chat)/i;
-  function conversationLengthLimitNotice(turn = null) {
+  function conversationLengthLimitNotice(turn = null, getPageRecords = pageUiTextRecords) {
     const matches = value => conversationLengthLimitPattern.test(normalize(value));
     const scopedArticle = turn?.owned ? turn.article : null;
     if (scopedArticle) {
+      const textByParent = new WeakMap();
       for (const record of responseTextNodes(turn)) {
         const parent = record.parent;
         const direct = record.direct;
-        const block = normalize(parent?.textContent);
-        if (!visible(parent)) continue;
+        if (!parent) continue;
         // The product notice is a short standalone UI sentence/paragraph.
         // Refuse long prose containers so an assistant discussing or quoting
         // the sentence as ordinary task content does not recursively trigger.
-        if ((direct && direct.length <= 600 && matches(direct))
-          || (block && block.length <= 600 && matches(block))) {
+        const directMatch = direct && direct.length <= 600 && matches(direct);
+        let block = '';
+        if (!directMatch && parent?.childElementCount) {
+          if (!textByParent.has(parent)) textByParent.set(parent, boundedTextContent(parent, 600));
+          block = textByParent.get(parent) || '';
+        }
+        if ((directMatch || (block && matches(block))) && visible(parent)) {
           return (block || direct).slice(0, 2000);
         }
       }
@@ -2783,14 +2799,18 @@
     // Some ChatGPT builds render the notice as page chrome rather than inside
     // the assistant turn. Exclude every transcript turn and the Fabushi panel
     // so user quotations and our own recovery log can never self-trigger.
-    for (const record of pageUiTextRecords()) {
+    const textByParent = new WeakMap();
+    for (const record of getPageRecords()) {
       const parent = record.parent;
       if (!parent) continue;
       const direct = record.direct;
-      const block = normalize(parent.textContent);
-      if (!visible(parent)) continue;
-      if ((direct && direct.length <= 600 && matches(direct))
-        || (block && block.length <= 600 && matches(block))) {
+      const directMatch = direct && direct.length <= 600 && matches(direct);
+      let block = '';
+      if (!directMatch && parent.childElementCount) {
+        if (!textByParent.has(parent)) textByParent.set(parent, boundedTextContent(parent, 600));
+        block = textByParent.get(parent) || '';
+      }
+      if ((directMatch || (block && matches(block))) && visible(parent)) {
         return (block || direct).slice(0, 2000);
       }
     }
@@ -2813,7 +2833,7 @@
     return boundedConversationLengthCarry(source);
   }
   const connectionInterruptedPattern = /^(?:连接已中断[。.!]?\s*正在等待完整回复[。.!]?|connection (?:was |has been )?interrupted[.!]?\s*(?:we(?:'re| are) )?waiting for (?:the )?full response[.!]?)$/i;
-  function connectionInterruptedNotice(turn = null) {
+  function connectionInterruptedNotice(turn = null, getPageRecords = pageUiTextRecords) {
     const matches = value => connectionInterruptedPattern.test(normalize(value));
     // Current ChatGPT builds can render this product error inside the live
     // assistant turn instead of page chrome. Accept only a standalone matching
@@ -2831,7 +2851,7 @@
     // Older renderer variants expose the same status as page chrome. Exclude
     // every transcript turn and the Fabushi workbench so quoted task text and
     // our own logs cannot self-trigger.
-    for (const record of pageUiTextRecords()) {
+    for (const record of getPageRecords()) {
       const parent = record.parent;
       const direct = record.direct;
       if (parent && direct && direct.length <= 240 && matches(direct) && visible(parent)) return true;
@@ -4845,6 +4865,11 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     }
     const begin = performance.now();
     resetScanDiagnostics();
+    // All page-chrome classifiers in this synchronous inspection share one
+    // lazy snapshot. If an earlier owned-turn check returns, no body-wide
+    // traversal is paid for at all.
+    let pageUiRecordsSnapshot = null;
+    const getPageUiRecords = () => pageUiRecordsSnapshot || (pageUiRecordsSnapshot = pageUiTextRecords());
     const turnStartedAt = performance.now();
     const turn = taskTurnForInspection(task);
     const turnInspectionMs = performance.now() - turnStartedAt;
@@ -4879,7 +4904,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     // A conversation-length notice is a hard product boundary, not a normal
     // final answer. Handle it before final-toolbar classification so a visible
     // copy/share toolbar on the notice cannot prematurely finish Work/Review.
-    const lengthLimitNotice = pageBelongsToTask && !approvalVisible ? conversationLengthLimitNotice(turn) : '';
+    const lengthLimitNotice = pageBelongsToTask && !approvalVisible ? conversationLengthLimitNotice(turn, getPageUiRecords) : '';
     if (lengthLimitNotice) {
       if (turn.streaming || stopButton()) {
         const waitKey = `${taskURL}:${normalize(lengthLimitNotice).slice(0, 200)}:generating`;
@@ -4912,7 +4937,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     if (streamPollingTimeout) {
       if (queueInterruptedFreshRetry(task, '检测到 ChatGPT stream recovery polling timed out', Date.now(), routeEndedOwned ? activityTurn : turn)) return;
     }
-    const interrupted = Boolean(pageBelongsToTask && !approvalVisible && connectionInterruptedNotice(routeEndedOwned ? activityTurn : turn));
+    const interrupted = Boolean(pageBelongsToTask && !approvalVisible && connectionInterruptedNotice(routeEndedOwned ? activityTurn : turn, getPageUiRecords));
     if (!approvalVisible && (interrupted || task.pendingContinuationReason)) {
       const reason = interrupted
         ? '检测到“连接已中断，正在等待完整回复”'
@@ -4932,7 +4957,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       }
       return;
     }
-    if (pageBelongsToTask && !turn.final && !pending.length && sendTimeoutNotice(turn)) {
+    if (pageBelongsToTask && !turn.final && !pending.length && sendTimeoutNotice(turn, getPageUiRecords)) {
       await sendContinuation(task, signal, '检测到“消息错误/发送超时，请重试”');
       return;
     }
@@ -4978,7 +5003,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       approvalRouteEligible,
       loading:effectiveLoading,
       blocker:blocker(),
-      rateLimit:rateLimitNotice(),
+      rateLimit:rateLimitNotice(getPageUiRecords),
       // A matching URL is only the route boundary. The task marker on the
       // latest user turn is the message boundary; both are required before
       // reading Stop, approval cards, or an assistant reply.
