@@ -28,6 +28,44 @@ test('runtime blocked transition immediately becomes a fresh queued resend',asyn
   dom.window.close();
 });
 
+test('active long assistant streams use bounded tail reads and skip completion-toolbar scans',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-stream"><div data-message-author-role="user">task [Fabushi:stream-tail-token]</div><div data-message-author-role="assistant"><div class="markdown"></div></div></article><button data-testid="stop-button" aria-label="Stop generating">Stop</button></main>');
+  try {
+    w.history.pushState({},'', '/c/stream-tail');
+    const markdown=w.document.querySelector('.markdown');
+    markdown.textContent='old work '.repeat(60_000)+'LATEST-STREAM-TAIL';
+    const task={id:'stream-tail',ownerTabId:h.getTabId(),goal:'task',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/stream-tail',token:'stream-tail-token',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+
+    const turn=h.latestTurn(task);
+    assert.equal(turn.streaming,true);
+    assert.equal(turn.final,false);
+    assert.equal(turn.diagnostic.boundedStreamRead,true);
+    assert.ok(turn.diagnostic.inspectedTextChars<=6000);
+    assert.match(turn.text,/LATEST-STREAM-TAIL$/);
+    assert.ok(turn.text.length<10_000);
+  } finally { h.pause(); dom.window.close(); }
+});
+
+test('slow-scan diagnostics report stage timings and counts without transcript content',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-diag"><div data-message-author-role="user">task [Fabushi:diag-token]</div><div data-message-author-role="assistant"><div class="markdown">PRIVATE-TRANSCRIPT-SHOULD-NOT-ENTER-DIAGNOSTIC</div></div></article><form><textarea id="prompt-textarea"></textarea></form></main>');
+  try {
+    w.history.pushState({},'', '/c/slow-diag');
+    let clock=0;
+    Object.defineProperty(w.performance,'now',{configurable:true,value:()=>{clock+=250;return clock;}});
+    const task={id:'slow-diag',ownerTabId:h.getTabId(),goal:'private task prompt',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/slow-diag',token:'diag-token',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+
+    await h.start();
+    await h.inspect(task,null);
+    const diagnostic=task.messages.find(item=>item.text.includes('慢扫描诊断'))?.text || '';
+    assert.match(diagnostic,/当前回复识别 .* ms/);
+    assert.match(diagnostic,/授权卡扫描 .* ms/);
+    assert.match(diagnostic,/消息节点 user=\d+、assistant=\d+/);
+    assert.doesNotMatch(diagnostic,/PRIVATE-TRANSCRIPT|private task prompt|diag-token/);
+  } finally { h.pause(); dom.window.close(); }
+});
+
 test('completion requires own final toolbar, stop absent, no approval and stable evidence',async()=>{
   const {h,w,dom}=await fixture();
   const sample={owned:true,final:true,text:'result',sentAt:0,cards:0,stop:false};
@@ -3345,8 +3383,8 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.78$/m);
-  assert.match(source,/const VERSION = '2\.9\.78'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.79$/m);
+  assert.match(source,/const VERSION = '2\.9\.79'/);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const ENDED_NO_FINAL_STABILITY_MS = 8000/);

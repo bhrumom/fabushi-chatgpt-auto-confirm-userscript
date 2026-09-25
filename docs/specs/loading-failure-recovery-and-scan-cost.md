@@ -31,6 +31,11 @@ Reduce avoidable DOM work in recurring supervision, preserve strict task ownersh
 - R6: Add regression coverage for loading detection and failed-document handoff; retain all existing task ownership and recovery tests.
 - R7: Record the measured userscript scan duration as an estimate of instrumented work only, not total browser lag.
 - R8: Limit recurring loader detection to the primary conversation surface when available, avoid enumerating every SVG solely to discover animated loaders, and avoid per-element visibility/layout checks for all historic turns when only a bounded transcript tail is needed.
+- R9: While an assistant turn is actively streaming, recurring supervision must inspect only a bounded tail of its rendered text; full response extraction is reserved for a stable, non-streaming turn or an explicit handoff.
+- R10: Do not normalize or copy an entire growing assistant response just to calculate a progress fingerprint; obtain only the bounded suffix needed for progress detection.
+- R11: Add rate-limited privacy-safe performance diagnostics to task logs when an inspection is slow. Include total/stage durations, message-node counts, and inspected text-length estimates; never log message text, prompt/task content, URLs, tokens, or attachment data.
+- R12: Avoid redundant full-document authorization-card scans from both the task inspection and the global-approval timer when the global-approval feature is disabled; preserve authorization detection when enabled and during active task inspection.
+- R13: Add regression tests for large/growing assistant content and diagnostics, and ensure instrumentation is throttled so it does not itself cause frequent persistence or rendering work.
 
 ## 5. Current state
 
@@ -38,7 +43,7 @@ Reduce avoidable DOM work in recurring supervision, preserve strict task ownersh
 
 ## 6. Target state
 
-The userscript performs one bounded page-scope loading scan per inspection. If its explicit fresh-document navigation does not unload the current page, that page yields the runner and workspace lock while retaining the persisted task and recovery ticket. Host-mediated recovery opens a replacement with that task-bound ticket; the replacement claims the workspace before continuing. Ordinary route-refresh failures retain the existing same-tab supervision behavior.
+The userscript performs one bounded page-scope loading scan per inspection. During active streaming it reads only a bounded text suffix and avoids rescanning full transcript content; expensive inspections emit a throttled, content-free stage timing record in the task log. If its explicit fresh-document navigation does not unload the current page, that page yields the runner and workspace lock while retaining the persisted task and recovery ticket. Host-mediated recovery opens a replacement with that task-bound ticket; the replacement claims the workspace before continuing. Ordinary route-refresh failures retain the existing same-tab supervision behavior.
 
 ## 7. Architecture and ownership boundaries
 
@@ -67,9 +72,11 @@ Existing ticket contracts remain unchanged: `fabushi-resume=<token>` for a prove
 
 1. Add this Spec before product code.
 2. Collapse loading-state discovery to one root containing scope, prefer `main`, and drop the unbounded all-SVG animation fallback while preserving semantic and class-based loader checks.
-3. Add/adjust regression tests for loader detection and run the full test suite.
-4. On a failed `document-recovery` navigation watchdog, stop the old runner and release its lock without pausing or clearing the task; keep the durable host recovery lease available.
-5. Review the paired host's ticket-validation and replacement-tab code, run the full userscript suite, and document that live Chrome recovery/performance remains unverified.
+3. Add bounded tail-text extraction for active assistant streams; keep full extraction for settled replies and explicit carry handoffs.
+4. Add rate-limited, content-free scan-stage timing and node/length metrics; skip global approval scans unless the feature is enabled.
+5. Add/adjust regression tests for loader detection, long growing replies, authorization behavior, and diagnostic privacy/throttling.
+6. On a failed `document-recovery` navigation watchdog, stop the old runner and release its lock without pausing or clearing the task; keep the durable host recovery lease available.
+7. Review the paired host's ticket-validation and replacement-tab code, run the full userscript suite, and document that live Chrome recovery/performance remains unverified.
 
 ## 12. Verification / test strategy
 
@@ -108,3 +115,4 @@ Record local test and source checks below. `measurements.totalScanMs` is a local
 | R5 / AC-4 | passed | `failed fresh-document recovery yields the workspace lock for the ticketed replacement tab` passes. |
 | R6-R7 / AC-2, AC-5 | passed | `npm test`: 213 total, 206 passed, 0 failed, 7 skipped; `node --check chatgpt-auto-confirm.user.js` and `git diff --check` pass. Live Chrome recovery and CPU comparison remain unverified. |
 | R8 | passed locally | `pageLoadingState()` prefers `main` and no longer enumerates all SVGs; `visibleConversationProgressFingerprint()` limits layout visibility checks to its final eight transcript nodes. Loader positive/negative DOM tests remain green. |
+| R9-R13 | passed locally | `npm test`: 222 total, 215 passed, 0 failed, 7 skipped; added a 60,000-repeat streamed-message test proving at most 6,000 assistant characters are read per inspection, replaced quadratic nested-root filtering with ancestor-set filtering, and confirmed slow-scan logs contain stage timings/counts but no transcript or task text. Existing global approval scanning already returns before enumerating cards when disabled; active task inspection still detects authorization cards. Live Chrome performance and release CI remain pending. |

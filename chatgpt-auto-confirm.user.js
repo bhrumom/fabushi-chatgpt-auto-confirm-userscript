@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.78
+// @version      2.9.79
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.78';
+  const VERSION = '2.9.79';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -105,6 +105,9 @@
   // their durable /c/<id> URLs instead of holding the tab on one task.
   const SUPERVISION_INTERVAL_MS = 15000;
   const VISIBLE_SCAN_INTERVAL_MS = 4000;
+  const STREAM_TEXT_TAIL_LIMIT = 6000;
+  const SLOW_SCAN_DIAGNOSTIC_THRESHOLD_MS = 1200;
+  const SLOW_SCAN_DIAGNOSTIC_INTERVAL_MS = 30000;
   const HIDDEN_SCAN_INTERVAL_MS = 15000;
   const AUTO_START_RETRY_MS = 5000;
   const NAV_TICKET_TTL_MS = 10 * 60 * 1000;
@@ -482,6 +485,8 @@
   let recoveredTaskId = '';
   let paint = () => {}, mode = 'once';
   const measurements = { scans: 0, totalScanMs: 0, sends: 0, switches: 0 };
+  let lastSlowScanDiagnosticAt = 0;
+  let lastFingerprintStats = { messageNodes:0, inspectedTextChars:0 };
   const observations = new Map();
   // Attachment previews and native FileLists belong to one rendered ChatGPT
   // composer only. Keep that acknowledgement in memory and bind it to the
@@ -1456,6 +1461,41 @@
     writeWorkspaceHeartbeat(lifecycle);
   }
   const normalize = value => String(value || '').replace(/\s+/g, ' ').trim();
+  function textTail(node, maxChars = STREAM_TEXT_TAIL_LIMIT) {
+    if (!node || !Number.isFinite(Number(maxChars)) || Number(maxChars) <= 0) return '';
+    const limit = Math.max(1, Math.floor(Number(maxChars)));
+    const stack = [node], chunks = [];
+    let length = 0;
+    // Walk the DOM from the end and stop as soon as the bounded suffix is
+    // collected. Reading node.textContent first would materialize the entire
+    // growing response on every supervision tick.
+    while (stack.length && length < limit) {
+      const current = stack.pop();
+      if (current.nodeType === Node.TEXT_NODE) {
+        const value = String(current.nodeValue || '');
+        if (!value) continue;
+        const take = Math.min(value.length, limit - length);
+        chunks.push(value.slice(-take));
+        length += take;
+        continue;
+      }
+      for (let child = current.firstChild; child; child = child.nextSibling) stack.push(child);
+    }
+    return chunks.reverse().join('');
+  }
+  function hasTextNode(node) {
+    if (!node) return false;
+    const stack = [node];
+    while (stack.length) {
+      const current = stack.pop();
+      if (current.nodeType === Node.TEXT_NODE) {
+        if (String(current.nodeValue || '').trim()) return true;
+        continue;
+      }
+      for (let child = current.firstChild; child; child = child.nextSibling) stack.push(child);
+    }
+    return false;
+  }
   function parseConversationURL(value) {
     let target;
     try { target = new URL(value, location.origin); } catch { return null; }
@@ -2727,24 +2767,33 @@
       .trim();
     return boundedConversationLengthCarry(source);
   }
-  function assistantSegmentContent(node) {
+  function outermostSemanticRoots(candidates) {
+    const candidateSet = new Set(candidates);
+    return candidates.filter(candidate => {
+      for (let parent = candidate.parentElement; parent; parent = parent.parentElement) {
+        if (candidateSet.has(parent)) return false;
+      }
+      return true;
+    });
+  }
+  function assistantSegmentContent(node, { tailLimit = 0 } = {}) {
     if (!node || own(node) || node.closest?.('[hidden],[inert]')) return '';
     const semanticSelector = '.markdown,[data-message-content],[data-selected-text-overlay-target]';
     const semantic = [];
     // ChatGPT can render the assistant-role host as a layout-neutral wrapper
     // (for example display:contents) while its semantic message child is
     // visibly painted. Do not require the host itself to own a client rect.
-    if (node.matches?.(semanticSelector) && visible(node)) semantic.push(node);
-    semantic.push(...nodes(semanticSelector, node).filter(visible));
+    if (node.matches?.(semanticSelector)) semantic.push(node);
+    semantic.push(...nodes(semanticSelector, node));
     // Prefer the outermost semantic message-content roots. ChatGPT can nest a
     // selection overlay or data-message-content inside .markdown; reading both
     // would duplicate the same visible assistant prose.
-    const roots = semantic.filter((candidate, index) => !semantic.some((other, otherIndex) =>
-      otherIndex !== index && other.contains(candidate),
-    ));
+    const roots = outermostSemanticRoots(semantic).filter(visible);
     let sources = roots;
     if (!sources.length) {
-      if (visible(node)) {
+      if (tailLimit && visible(node)) {
+        sources = [node];
+      } else if (visible(node)) {
         sources = [node];
       } else {
         // Older/current renderer variants do not always expose a semantic
@@ -2756,14 +2805,15 @@
           && !candidate.matches?.('button,[role="button"],form,nav,aside,header,textarea,input,select,option,[contenteditable="true"]')
           && !candidate.closest?.('button,[role="button"],form,nav,aside,header,textarea,input,select,option,[contenteditable="true"]'),
         );
-        sources = rendered.filter((candidate, index) => !rendered.some((other, otherIndex) =>
-          otherIndex !== index && other.contains(candidate),
-        ));
+        sources = outermostSemanticRoots(rendered);
       }
     }
-    const parts = sources
-      .map(item => String(item.textContent || '').trim())
-      .filter(Boolean);
+    let remaining = tailLimit;
+    const parts = sources.map(item => {
+      const value = tailLimit ? textTail(item, remaining) : String(item.textContent || '');
+      if (tailLimit) remaining = Math.max(0, remaining - value.length);
+      return value.trim();
+    }).filter(Boolean);
     const deduped = [];
     for (const part of parts) {
       if (deduped.at(-1) === part || deduped.includes(part)) continue;
@@ -2771,20 +2821,22 @@
     }
     return deduped.join('\n\n').trim();
   }
-  function assistantTurnContent(roleNode) {
+  function assistantTurnContent(roleNode, { tailLimit = 0 } = {}) {
     const turn = roleNode?.closest?.('article,[data-testid^="conversation-turn-"],[data-turn-key],[data-content-search-turn-key]');
-    if (!turn || own(turn) || turn.closest?.('[hidden],[inert]')) return assistantSegmentContent(roleNode);
+    if (!turn || own(turn) || turn.closest?.('[hidden],[inert]')) return assistantSegmentContent(roleNode, { tailLimit });
     // Current ChatGPT renders agent progress as Markdown siblings of the
     // assistant-role status node inside one conversation turn. The turn is
     // safe to inspect only because it contains this assistant-role node.
     const semantic = nodes('.markdown,[data-message-content],[data-selected-text-overlay-target]', turn)
-      .filter(node => visible(node)
-        && !node.closest?.('[hidden],[inert],[data-message-author-role="user"],[data-testid*="tool"],[data-type*="tool"],[class*="tool-call"],[class*="toolCall"]'));
-    const roots = semantic.filter((candidate, index) => !semantic.some((other, otherIndex) =>
-      otherIndex !== index && other.contains(candidate),
-    ));
-    const content = roots.map(node => String(node.textContent || '').trim()).filter(Boolean).join('\n\n').trim();
-    return content || assistantSegmentContent(roleNode);
+      .filter(node => !node.closest?.('[hidden],[inert],[data-message-author-role="user"],[data-testid*="tool"],[data-type*="tool"],[class*="tool-call"],[class*="toolCall"]'));
+    const roots = outermostSemanticRoots(semantic).filter(visible);
+    let remaining = tailLimit;
+    const content = roots.map(node => {
+      const value = tailLimit ? textTail(node, remaining) : String(node.textContent || '');
+      if (tailLimit) remaining = Math.max(0, remaining - value.length);
+      return value.trim();
+    }).filter(Boolean).join('\n\n').trim();
+    return content || assistantSegmentContent(roleNode, { tailLimit });
   }
   function visibleAssistantWorkTranscript(task, { allowExactRouteFallback = false } = {}) {
     if (!task) return { text:'', sourceKind:'' };
@@ -2950,20 +3002,23 @@
     // reply without using that reply as task-owned result/completion evidence.
     // Keep this bounded to the visible transcript tail to limit scan cost on
     // long conversations.
-    return nodes('[data-message-author-role=user],[data-message-author-role=assistant]')
-      .slice(-8)
-      .filter(visible)
-      .map(node => {
+    const messageNodes = nodes('[data-message-author-role=user],[data-message-author-role=assistant]');
+    let inspectedTextChars = 0;
+    const fingerprint = messageNodes.slice(-8).filter(visible).map(node => {
         const role = node.getAttribute('data-message-author-role') || '';
-        const content = String(node.textContent || '').replace(/\s+/g, ' ').trim();
+        const rawTail = textTail(node, 3000);
+        inspectedTextChars += rawTail.length;
+        const content = rawTail.replace(/\s+/g, ' ').trim();
         return {
           role,
           id:node.getAttribute('data-message-id') || '',
-          text:content.slice(-3000),
+          text:content,
           streaming:node.getAttribute('data-is-streaming') || '',
           busy:node.getAttribute('aria-busy') || '',
         };
       });
+    lastFingerprintStats = { messageNodes:messageNodes.length, inspectedTextChars };
+    return fingerprint;
   }
   function stalledProgressSignature(sample) {
     return JSON.stringify({
@@ -3123,6 +3178,7 @@
       return {
         user: text(user),
         text: '',
+        diagnostic:{ userNodes:users.length, assistantNodes:0, inspectedTextChars:0, boundedStreamRead:false },
         final: false,
         owned: false,
         responseActions: [],
@@ -3136,11 +3192,15 @@
     const assistant = replies.at(-1);
     const article = assistant?.closest('article,[data-testid^="conversation-turn-"],[data-turn-key],[data-content-search-turn-key]') || assistant;
     const markdown = article?.querySelector?.('.markdown,[data-message-content],[data-selected-text-overlay-target]');
-    const content = assistantTurnContent(assistant);
+    const stopVisible = Boolean(stopButton());
+    const streamingMarker = Boolean(article?.querySelector('[data-is-streaming="true"],[aria-busy="true"]')
+      || [markdown, assistant, article].some(node => node?.getAttribute?.('data-is-streaming') === 'true' || node?.getAttribute?.('aria-busy') === 'true'));
+    const boundedStreamRead = stopVisible || streamingMarker;
+    const content = assistantTurnContent(assistant, { tailLimit:boundedStreamRead ? STREAM_TEXT_TAIL_LIMIT : 0 });
     const naturalReplyNode = article?.querySelector?.('.markdown,[data-message-content]');
     const hasNaturalReply = Boolean(
       naturalReplyNode
-      && String(naturalReplyNode.textContent || '').trim()
+      && hasTextNode(naturalReplyNode)
       && !naturalReplyNode.closest?.('[data-testid*="tool"],[data-type*="tool"],[class*="tool-call"],[class*="toolCall"]')
     );
     // The ChatGPT renderer changes action data-testid values and can mount the
@@ -3173,7 +3233,9 @@
       return '';
     };
     const controlsIn = scope => {
-      if (!scope) return [];
+      // A live Stop control makes completion impossible. Walking every
+      // toolbar and SVG inside a large response is wasted work during output.
+      if (!scope || stopVisible) return [];
       const candidates = [];
       if (scope.matches?.(responseControlSelector)) candidates.push(scope);
       candidates.push(...nodes(responseControlSelector, scope));
@@ -3231,7 +3293,7 @@
     // older response's toolbar cannot make the current turn look complete.
     const messageId = assistant?.getAttribute('data-message-id') || '';
     const turnKey = article?.getAttribute('data-turn-key') || article?.getAttribute('data-content-search-turn-key') || '';
-    if (messageId || turnKey) {
+    if (!stopVisible && (messageId || turnKey)) {
       for (const item of nodes(responseControlSelector).filter(visible)) {
         const associationParents = [
           item,
@@ -3275,11 +3337,8 @@
       markdown
       && [markdown, assistant, article].some(hasCompletionMarker),
     );
-    const streaming = Boolean(
-      article?.querySelector('[data-is-streaming="true"],[aria-busy="true"]')
-      || [markdown, assistant, article].find(node => node?.getAttribute?.('data-is-streaming') === 'true' || node?.getAttribute?.('aria-busy') === 'true'),
-    );
-    const finalByActions = Boolean(content && responseActionsComplete && !stopButton());
+    const streaming = boundedStreamRead;
+    const finalByActions = Boolean(content && responseActionsComplete && !stopVisible);
     // Current ChatGPT builds can finish rendering before every secondary
     // action button is mounted/labeled. Treat an explicit non-streaming
     // completion marker plus the response-local Copy action as equivalent
@@ -3290,11 +3349,12 @@
       && explicitFinal
       && !streaming
       && responseActions.has('copy')
-      && !stopButton(),
+      && !stopVisible,
     );
     return {
       user: text(user),
       text: content,
+      diagnostic:{ userNodes:users.length, assistantNodes:replies.length, inspectedTextChars:content.length, boundedStreamRead },
       // Stop can disappear while ChatGPT is waiting for connector approval,
       // running a tool, or rebuilding the renderer. Completion therefore
       // requires the current assistant turn's visible reply toolbar:
@@ -4675,7 +4735,13 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       state(task, 'waiting', '正在等待切换到当前任务会话；不会读取其他任务的页面内容。');
       return;
     }
-    const begin = performance.now(), turn = taskTurnForInspection(task), pending = cards();
+    const begin = performance.now();
+    const turnStartedAt = performance.now();
+    const turn = taskTurnForInspection(task);
+    const turnInspectionMs = performance.now() - turnStartedAt;
+    const cardsStartedAt = performance.now();
+    const pending = cards();
+    const authorizationScanMs = performance.now() - cardsStartedAt;
     const routeOwned = Boolean(liveURL && taskURL && liveURL === taskURL);
     const foreignTask = tabTasks().find(item => item.id !== task.id && item.token && hasTaskMarker(item));
     const otherRouteOwner = routeOwned ? conversationURLOwner(liveURL, task.id) : null;
@@ -4762,7 +4828,9 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       return;
     }
     const stopPresent = (turn.owned || routeEndedOwned) ? Boolean(stopButton()) : false;
+    const loadingStartedAt = performance.now();
     const rawLoading = Boolean(pageLoadingState());
+    const loadingScanMs = performance.now() - loadingStartedAt;
     const composerNode = composer();
     const composerReady = Boolean(composerNode);
     const composerDraft = normalize(composerNode?.value || composerNode?.textContent);
@@ -4791,6 +4859,10 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
         || (routeEndedOwned && !hasConversationEvidence)
       )
     );
+    const fingerprintStartedAt = performance.now();
+    const conversationTail = visibleConversationProgressFingerprint();
+    const fingerprintMs = performance.now() - fingerprintStartedAt;
+    const fingerprintStats = lastFingerprintStats;
     const sample = {
       stop:stopPresent,
       cards:approvalRouteEligible ? pending.length : 0,
@@ -4817,7 +4889,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       composerEmpty,
       composerHasRecoveryDraft,
       rawLoading,
-      conversationTail:visibleConversationProgressFingerprint(),
+      conversationTail,
       // A current-turn streaming/busy marker is stronger evidence than the
       // temporary disappearance of Stop. Once final is true we intentionally
       // ignore a stale streaming marker so completed replies are not held.
@@ -4931,7 +5003,15 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       progressSignature,
       progressSince,
     });
-    measurements.scans++; measurements.totalScanMs += performance.now() - begin;
+    const inspectionMs = performance.now() - begin;
+    measurements.scans++; measurements.totalScanMs += inspectionMs;
+    if (inspectionMs >= SLOW_SCAN_DIAGNOSTIC_THRESHOLD_MS
+      && Date.now() - lastSlowScanDiagnosticAt >= SLOW_SCAN_DIAGNOSTIC_INTERVAL_MS) {
+      lastSlowScanDiagnosticAt = Date.now();
+      const otherMs = Math.max(0, inspectionMs - turnInspectionMs - authorizationScanMs - loadingScanMs - fingerprintMs);
+      const stats = turn.diagnostic || {};
+      log(task, `慢扫描诊断（仅耗时与计数，不含消息内容）：总计 ${inspectionMs.toFixed(0)} ms；当前回复识别 ${turnInspectionMs.toFixed(0)} ms；授权卡扫描 ${authorizationScanMs.toFixed(0)} ms；加载检测 ${loadingScanMs.toFixed(0)} ms；进度指纹 ${fingerprintMs.toFixed(0)} ms；其余检查 ${otherMs.toFixed(0)} ms。消息节点 user=${Number(stats.userNodes || 0)}、assistant=${Number(stats.assistantNodes || 0)}；回复文本读取 ${Number(stats.inspectedTextChars || 0)} 字${stats.boundedStreamRead ? '（流式有界尾读）' : ''}；指纹消息=${fingerprintStats.messageNodes}、指纹字符=${fingerprintStats.inspectedTextChars}。`);
+    }
     if (sample.owned && task.preview !== sample.text) {
       task.preview = sample.text.slice(-6000);
       task.previewSourceURL = liveURL;
