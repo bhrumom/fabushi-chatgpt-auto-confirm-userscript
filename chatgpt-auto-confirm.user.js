@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.79
+// @version      2.9.80
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.79';
+  const VERSION = '2.9.80';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -487,6 +487,18 @@
   const measurements = { scans: 0, totalScanMs: 0, sends: 0, switches: 0 };
   let lastSlowScanDiagnosticAt = 0;
   let lastFingerprintStats = { messageNodes:0, inspectedTextChars:0 };
+  let scanDiagnostics = {
+    pageUiCalls:0, pageUiMs:0, pageUiVisited:0, pageUiTextNodes:0,
+    responseCalls:0, responseMs:0, responseTextNodes:0,
+    cardsCalls:0, cardsMs:0, cardsButtons:0, cardsCandidates:0,
+  };
+  function resetScanDiagnostics() {
+    scanDiagnostics = {
+      pageUiCalls:0, pageUiMs:0, pageUiVisited:0, pageUiTextNodes:0,
+      responseCalls:0, responseMs:0, responseTextNodes:0,
+      cardsCalls:0, cardsMs:0, cardsButtons:0, cardsCandidates:0,
+    };
+  }
   const observations = new Map();
   // Attachment previews and native FileLists belong to one rendered ChatGPT
   // composer only. Keep that acknowledgement in memory and bind it to the
@@ -1723,6 +1735,42 @@
   const nodes = (selector, scope = document) => scope?.querySelectorAll
     ? [...scope.querySelectorAll(selector)].filter(node => !own(node))
     : [];
+  function pageUiTextRecords() {
+    const startedAt = performance.now();
+    const root = document.body || document.documentElement;
+    if (!root) {
+      scanDiagnostics.pageUiCalls += 1;
+      scanDiagnostics.pageUiMs += performance.now() - startedAt;
+      return [];
+    }
+    const records = [];
+    let visited = 0;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          // Rejecting a transcript root skips its entire historical subtree;
+          // the previous body-wide text walker still visited every token even
+          // though every matching node was discarded afterwards.
+          if (own(node) || node.matches?.('[data-message-author-role],blockquote,pre,code')) return NodeFilter.FILTER_REJECT;
+          return NodeFilter.FILTER_ACCEPT;
+        }
+        const parent = node.parentElement;
+        return parent && !own(parent) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+      },
+    });
+    let current;
+    while ((current = walker.nextNode())) {
+      visited += 1;
+      if (current.nodeType !== Node.TEXT_NODE) continue;
+      const direct = normalize(current.nodeValue);
+      if (direct) records.push({ node:current, parent:current.parentElement, direct });
+    }
+    scanDiagnostics.pageUiCalls += 1;
+    scanDiagnostics.pageUiMs += performance.now() - startedAt;
+    scanDiagnostics.pageUiVisited += visited;
+    scanDiagnostics.pageUiTextNodes += records.length;
+    return records;
+  }
   const pageLoadingHint = /animate[-_]spin|spinner|progress(?:bar)?|hydrating|hydrate|loading|加载|水合|请稍候|please wait/i;
   const pageLoadingSelectors = [
     '[aria-busy="true"]',
@@ -2556,15 +2604,10 @@
     return null;
   }
   function historyAccessThrottlePopup() {
-    const root = document.body || document.documentElement;
-    if (!root) return null;
     const headline = /请求过于频繁|你的请求过于频繁|too many requests|request(?:s)? too frequent/i;
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-    let currentNode;
-    while ((currentNode = walker.nextNode())) {
-      const parent = currentNode.parentElement;
-      if (!parent || own(parent) || parent.closest('[data-message-author-role]')) continue;
-      if (!headline.test(normalize(currentNode.nodeValue))) continue;
+    for (const record of pageUiTextRecords()) {
+      const parent = record.parent;
+      if (!parent || !headline.test(record.direct)) continue;
       let scope = parent;
       for (let depth = 0; scope && depth < 12; depth += 1, scope = scope.parentElement) {
         if (own(scope) || scope.matches?.('body,html')) break;
@@ -2585,17 +2628,54 @@
     // restricting access to older conversation/history records. That popup
     // does not throttle the current/new chat path, so it is explicitly ignored
     // here and acknowledged by dismissUnexpectedModals().
-    const walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT);
-    let currentNode;
-    while ((currentNode = walker.nextNode())) {
-      const parent = currentNode.parentElement;
-      if (!parent || own(parent) || parent.closest('[data-message-author-role]')) continue;
+    for (const record of pageUiTextRecords()) {
+      const parent = record.parent;
+      if (!parent) continue;
       if (historyAccessThrottleContainer(parent)) continue;
-      if (pattern.test(normalize(currentNode.nodeValue)) && visible(parent)) {
+      if (pattern.test(record.direct) && visible(parent)) {
         return '检测到 ChatGPT 请求过于频繁；插件进入休息等待，不发送新请求、不刷新页面。';
       }
     }
     return '';
+  }
+  function currentResponseAssistantArticles(turn = null) {
+    const article = turn?.article;
+    if (!article || own(article)) return [];
+    const scope = article.closest?.('main,[role="main"]') || article.parentElement || document.body;
+    if (!scope) return [article];
+    const follows = (from, to) => Boolean(from && to && (from.compareDocumentPosition(to) & Node.DOCUMENT_POSITION_FOLLOWING));
+    const users = nodes('[data-message-author-role="user"]', scope);
+    const boundary = users.filter(user => follows(user, article)).at(-1) || null;
+    const roots = [];
+    const seen = new Set();
+    for (const assistant of nodes('[data-message-author-role="assistant"]', scope)) {
+      if (boundary && !follows(boundary, assistant)) continue;
+      const root = assistant.closest?.('article,[data-testid^="conversation-turn-"],[data-turn-key],[data-content-search-turn-key]') || assistant;
+      if (own(root) || seen.has(root)) continue;
+      seen.add(root);
+      roots.push(root);
+    }
+    // A single response can contain several assistant segments, but a broken
+    // renderer must not turn this bounded current-response read into another
+    // whole-history traversal.
+    return roots.slice(-32);
+  }
+  function responseTextNodes(turn = null) {
+    const startedAt = performance.now();
+    const records = [];
+    for (const article of currentResponseAssistantArticles(turn)) {
+      const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT);
+      let currentNode;
+      while ((currentNode = walker.nextNode())) {
+        const parent = currentNode.parentElement;
+        if (!parent || own(parent) || parent.closest?.('blockquote,pre,code,[data-message-author-role="user"]')) continue;
+        records.push({ node:currentNode, parent, direct:normalize(currentNode.nodeValue) });
+      }
+    }
+    scanDiagnostics.responseCalls += 1;
+    scanDiagnostics.responseMs += performance.now() - startedAt;
+    scanDiagnostics.responseTextNodes += records.length;
+    return records;
   }
   function sendTimeoutNotice(turn = null) {
     const pattern = /消息(?:发送)?(?:超时|错误|失败)\s*[，,。.!]?\s*请重试|message (?:send|sending) timed out|message (?:error|failed)[\s,:-]*(?:please )?(?:retry|try again)|failed to send/i;
@@ -2611,19 +2691,28 @@
       }
       return false;
     };
-    // A visible page-level error is actionable. When ChatGPT renders the
-    // error inside an assistant turn, require a nearby retry control so a
-    // quoted transcript sentence cannot trigger a duplicate dispatch.
-    const walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT);
-    let currentNode;
-    while ((currentNode = walker.nextNode())) {
-      const parent = currentNode.parentElement;
-      if (!parent || own(parent)) continue;
-      if (!pattern.test(normalize(currentNode.nodeValue)) || !visible(parent)) continue;
+    const responseTurn = turn || (() => {
+      const assistant = nodes('[data-message-author-role="assistant"]').at(-1);
+      const article = assistant?.closest?.('article,[data-testid^="conversation-turn-"],[data-turn-key],[data-content-search-turn-key]') || assistant;
+      return article ? { article } : null;
+    })();
+    // A visible assistant error is actionable only when it belongs to the
+    // current response lane and has a nearby retry control. The previous
+    // body-wide walker visited every historical token on every inspection;
+    // keep this read bounded to the current response instead.
+    for (const record of responseTextNodes(responseTurn)) {
+      const parent = record.parent;
+      if (!parent || !visible(parent) || !pattern.test(record.direct)) continue;
+      if (hasRetryControl(parent)) return true;
+    }
+    // A visible page-level error is actionable. Page chrome is scanned
+    // separately and deliberately skips the transcript subtree.
+    for (const record of pageUiTextRecords()) {
+      const parent = record.parent;
+      if (!parent || !visible(parent)) continue;
+      if (!pattern.test(record.direct)) continue;
       const message = parent.closest('[data-message-author-role]');
       if (!message) return true;
-      if (turn?.article && !(turn.article === message || turn.article.contains?.(message))) continue;
-      if (hasRetryControl(parent)) return true;
     }
     return false;
   }
@@ -2659,13 +2748,10 @@
     const matches = value => conversationLengthLimitPattern.test(normalize(value));
     const scopedArticle = turn?.owned ? turn.article : null;
     if (scopedArticle) {
-      const walker = document.createTreeWalker(scopedArticle, NodeFilter.SHOW_TEXT);
-      let currentNode;
-      while ((currentNode = walker.nextNode())) {
-        const parent = currentNode.parentElement;
-        if (!parent || own(parent) || parent.closest('blockquote,pre,code,[data-message-author-role="user"]')) continue;
-        const direct = normalize(currentNode.nodeValue);
-        const block = normalize(parent.textContent);
+      for (const record of responseTextNodes(turn)) {
+        const parent = record.parent;
+        const direct = record.direct;
+        const block = normalize(parent?.textContent);
         if (!visible(parent)) continue;
         // The product notice is a short standalone UI sentence/paragraph.
         // Refuse long prose containers so an assistant discussing or quoting
@@ -2679,12 +2765,10 @@
     // Some ChatGPT builds render the notice as page chrome rather than inside
     // the assistant turn. Exclude every transcript turn and the Fabushi panel
     // so user quotations and our own recovery log can never self-trigger.
-    const walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT);
-    let currentNode;
-    while ((currentNode = walker.nextNode())) {
-      const parent = currentNode.parentElement;
-      if (!parent || own(parent) || parent.closest('[data-message-author-role],blockquote,pre,code')) continue;
-      const direct = normalize(currentNode.nodeValue);
+    for (const record of pageUiTextRecords()) {
+      const parent = record.parent;
+      if (!parent) continue;
+      const direct = record.direct;
       const block = normalize(parent.textContent);
       if (!visible(parent)) continue;
       if ((direct && direct.length <= 600 && matches(direct))
@@ -2720,25 +2804,19 @@
     // from consuming the recovery budget.
     const scopedArticle = turn?.owned ? turn.article : null;
     if (scopedArticle) {
-      const walker = document.createTreeWalker(scopedArticle, NodeFilter.SHOW_TEXT);
-      let currentNode;
-      while ((currentNode = walker.nextNode())) {
-        const parent = currentNode.parentElement;
-        if (!parent || own(parent) || parent.closest('blockquote,pre,code,[data-message-author-role="user"]')) continue;
-        const direct = normalize(currentNode.nodeValue);
+      for (const record of responseTextNodes(turn)) {
+        const parent = record.parent;
+        const direct = record.direct;
         if (direct && direct.length <= 240 && matches(direct) && visible(parent)) return true;
       }
     }
     // Older renderer variants expose the same status as page chrome. Exclude
     // every transcript turn and the Fabushi workbench so quoted task text and
     // our own logs cannot self-trigger.
-    const walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT);
-    let currentNode;
-    while ((currentNode = walker.nextNode())) {
-      const parent = currentNode.parentElement;
-      if (!parent || own(parent) || parent.closest('[data-message-author-role],blockquote,pre,code')) continue;
-      const direct = normalize(currentNode.nodeValue);
-      if (direct && direct.length <= 240 && matches(direct) && visible(parent)) return true;
+    for (const record of pageUiTextRecords()) {
+      const parent = record.parent;
+      const direct = record.direct;
+      if (parent && direct && direct.length <= 240 && matches(direct) && visible(parent)) return true;
     }
     return false;
   }
@@ -3448,15 +3526,25 @@
   const actionMatches = (node, pattern) => [actionText(node), node?.getAttribute('aria-label'), node?.getAttribute('title')]
     .some(value => pattern.test(normalize(value)));
   function cards() {
+    const startedAt = performance.now();
     const result = [], seen = new Set();
-    for (const button of nodes('button,[role=button]').filter(enabled)) {
+    // Read labels first, then perform layout checks only for allow candidates.
+    // The old path called getComputedStyle/getClientRects for every button on
+    // the page before discovering whether it was related to authorization.
+    const allButtons = nodes('button,[role=button]');
+    const allowCandidates = allButtons
+      .filter(button => actionMatches(button, allowLabel))
+      .filter(enabled);
+    scanDiagnostics.cardsButtons += allButtons.length;
+    scanDiagnostics.cardsCandidates += allowCandidates.length;
+    for (const button of allowCandidates) {
       if (!actionMatches(button, allowLabel) || button.hasAttribute('aria-haspopup')) continue;
       let container = button.parentElement;
       for (let depth = 0; container && depth < 9; depth++, container = container.parentElement) {
         if (container === document.body || container.tagName === 'MAIN') break;
-        const actions = nodes('button,[role=button]', container).filter(enabled);
-        const deny = actions.find(node => actionMatches(node, denyLabel));
-        const arrow = actions.find(node => approvalArrow(node, button));
+        const actions = nodes('button,[role=button]', container);
+        const deny = actions.find(node => actionMatches(node, denyLabel) && enabled(node));
+        const arrow = actions.find(node => approvalArrow(node, button) && enabled(node));
         // Authorization-card copy varies by connector and language. The stable
         // signal is its action cluster: Reject + Allow + the split-button menu.
         if (deny && arrow) {
@@ -3465,6 +3553,8 @@
         }
       }
     }
+    scanDiagnostics.cardsCalls += 1;
+    scanDiagnostics.cardsMs += performance.now() - startedAt;
     return result;
   }
   // ChatGPT occasionally shows product announcements, image-generation tips,
@@ -4736,6 +4826,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       return;
     }
     const begin = performance.now();
+    resetScanDiagnostics();
     const turnStartedAt = performance.now();
     const turn = taskTurnForInspection(task);
     const turnInspectionMs = performance.now() - turnStartedAt;
@@ -5010,7 +5101,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       lastSlowScanDiagnosticAt = Date.now();
       const otherMs = Math.max(0, inspectionMs - turnInspectionMs - authorizationScanMs - loadingScanMs - fingerprintMs);
       const stats = turn.diagnostic || {};
-      log(task, `慢扫描诊断（仅耗时与计数，不含消息内容）：总计 ${inspectionMs.toFixed(0)} ms；当前回复识别 ${turnInspectionMs.toFixed(0)} ms；授权卡扫描 ${authorizationScanMs.toFixed(0)} ms；加载检测 ${loadingScanMs.toFixed(0)} ms；进度指纹 ${fingerprintMs.toFixed(0)} ms；其余检查 ${otherMs.toFixed(0)} ms。消息节点 user=${Number(stats.userNodes || 0)}、assistant=${Number(stats.assistantNodes || 0)}；回复文本读取 ${Number(stats.inspectedTextChars || 0)} 字${stats.boundedStreamRead ? '（流式有界尾读）' : ''}；指纹消息=${fingerprintStats.messageNodes}、指纹字符=${fingerprintStats.inspectedTextChars}。`);
+      log(task, `慢扫描诊断（仅耗时与计数，不含消息内容）：总计 ${inspectionMs.toFixed(0)} ms；当前回复识别 ${turnInspectionMs.toFixed(0)} ms；授权卡扫描 ${authorizationScanMs.toFixed(0)} ms；加载检测 ${loadingScanMs.toFixed(0)} ms；进度指纹 ${fingerprintMs.toFixed(0)} ms；其余检查 ${otherMs.toFixed(0)} ms。消息节点 user=${Number(stats.userNodes || 0)}、assistant=${Number(stats.assistantNodes || 0)}；回复文本读取 ${Number(stats.inspectedTextChars || 0)} 字${stats.boundedStreamRead ? '（流式有界尾读）' : ''}；指纹消息=${fingerprintStats.messageNodes}、指纹字符=${fingerprintStats.inspectedTextChars}；页面文字扫描 calls=${scanDiagnostics.pageUiCalls}、耗时=${scanDiagnostics.pageUiMs.toFixed(0)} ms、遍历节点=${scanDiagnostics.pageUiVisited}、文本节点=${scanDiagnostics.pageUiTextNodes}；当前回复文本扫描 calls=${scanDiagnostics.responseCalls}、耗时=${scanDiagnostics.responseMs.toFixed(0)} ms、文本节点=${scanDiagnostics.responseTextNodes}；授权候选按钮=${scanDiagnostics.cardsCandidates}/${scanDiagnostics.cardsButtons}、授权扫描内部耗时=${scanDiagnostics.cardsMs.toFixed(0)} ms。`);
     }
     if (sample.owned && task.preview !== sample.text) {
       task.preview = sample.text.slice(-6000);

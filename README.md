@@ -1,8 +1,8 @@
-# Fabushi 独立油猴工作台 2.9.78
+# Fabushi 独立油猴工作台 2.9.80
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前已发布版本为 `2.9.78`。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前已发布版本为 `2.9.80`。
 
 脚本头部固定声明 `@updateURL` 和 `@downloadURL`。油猴脚本管理器以及 Fabushi
 宿主会直接检查该地址的 `@version`；发布新版本时只需更新脚本本身和版本号，不需要
@@ -64,6 +64,12 @@
 - 加载检测优先检查 ChatGPT 主内容区，不再遍历整页 SVG 并逐个读取动画样式；页面进度指纹只对最近 8 条消息执行可见性/布局检查。
 - 已发布：[GitHub Release](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/releases/tag/v2.9.78)，[直接安装脚本](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/releases/download/v2.9.78/chatgpt-auto-confirm.user.js)。Exact-source Test run [36093974738](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/actions/runs/36093974738) 成功；发布提交 `fb65b1f6a73d257860c24e7a6020858207694473`，Release asset SHA-256：`43240530a14083d758594c117ec012786f02656aea8e78155cf9db14913c38b4`。
 - 单测与语法验证通过；实站内存恢复和页面流畅度仍需你用新版在 Chrome 中验收。
+
+## 2.9.80 修复恢复后的页面卡顿并补充扫描诊断
+
+- 页面级限流、超时、连接中断和会话长度提示扫描会跳过整棵历史消息子树；当前响应的错误卡片和多段 assistant 回复仍在有界范围内单独检查，避免发送“继续完成所有”后每轮都重新遍历整段会话。
+- 授权卡扫描先按“允许/Allow”标签筛选候选按钮，再执行可见性和布局检查，避免长页面上对所有按钮逐个读取布局。
+- 慢扫描日志现在额外记录页面文字扫描、当前回复文字扫描和授权候选按钮的耗时与计数，仍不记录消息内容、任务目标、URL、token 或附件数据，便于在 Chrome 实测时定位卡顿阶段。
 
 ## 2.9.72 中断后 Stop 卡住自动刷新重试
 
