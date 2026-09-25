@@ -2109,6 +2109,27 @@ test('rate-limit detection ignores the plugin log and conversation text',async()
   assert.match(h.rateLimitNotice(),/休息等待/);
   dom.window.close();
 });
+test('ordinary page labels do not trigger ancestor text scans during request-limit checks',async()=>{
+  const {h,w,dom}=await fixture();
+  const main=w.document.createElement('main');
+  for(let index=0;index<500;index++){
+    const label=w.document.createElement('span');
+    label.textContent=`ordinary page label ${index}`;
+    main.append(label);
+  }
+  const transcript=w.document.createElement('article');
+  transcript.setAttribute('data-message-author-role','assistant');
+  transcript.textContent='large historical conversation '.repeat(20_000);
+  main.append(transcript);
+  w.document.body.append(main);
+
+  let mainTextReads=0;
+  const textContentGetter=Object.getOwnPropertyDescriptor(w.Node.prototype,'textContent').get;
+  Object.defineProperty(main,'textContent',{configurable:true,get(){mainTextReads++;return textContentGetter.call(this);}});
+  assert.equal(h.rateLimitNotice(),'');
+  assert.equal(mainTextReads,0,'unrelated labels must not reread the full main subtree');
+  dom.window.close();
+});
 test('reload recovery preserves healthy and rate-limited in-flight sessions',async()=>{
   const {h,dom}=await fixture();
   const base={goal:'test task',mode:'goal',phase:'work',round:1};
@@ -3410,8 +3431,8 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.81$/m);
-  assert.match(source,/const VERSION = '2\.9\.81'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.82$/m);
+  assert.match(source,/const VERSION = '2\.9\.82'/);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const ENDED_NO_FINAL_STABILITY_MS = 8000/);

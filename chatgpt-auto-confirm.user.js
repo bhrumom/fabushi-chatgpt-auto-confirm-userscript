@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.81
+// @version      2.9.82
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.81';
+  const VERSION = '2.9.82';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -499,12 +499,14 @@
     pageUiCalls:0, pageUiMs:0, pageUiVisited:0, pageUiTextNodes:0,
     responseCalls:0, responseMs:0, responseTextNodes:0,
     cardsCalls:0, cardsMs:0, cardsButtons:0, cardsCandidates:0,
+    rateLimitCalls:0, rateLimitMs:0, rateLimitAncestorChecks:0,
   };
   function resetScanDiagnostics() {
     scanDiagnostics = {
       pageUiCalls:0, pageUiMs:0, pageUiVisited:0, pageUiTextNodes:0,
       responseCalls:0, responseMs:0, responseTextNodes:0,
       cardsCalls:0, cardsMs:0, cardsButtons:0, cardsCandidates:0,
+      rateLimitCalls:0, rateLimitMs:0, rateLimitAncestorChecks:0,
     };
   }
   const observations = new Map();
@@ -2605,7 +2607,7 @@
     let current = node?.nodeType === Node.TEXT_NODE ? node.parentElement : node;
     for (let depth = 0; current && depth < 10; depth += 1, current = current.parentElement) {
       if (own(current)) return null;
-      const value = normalize(text(current));
+      const value = normalize(textTail(current, 1200));
       if (historyAccessThrottlePattern.test(value)) return current;
       if (current.matches?.('main,body,html')) break;
     }
@@ -2630,21 +2632,29 @@
     return null;
   }
   function rateLimitNotice() {
+    const startedAt = performance.now();
     const pattern = /请求过于频繁|你的请求过于频繁|请稍等几分钟后再重试|访问频率受限|too many requests|rate limit/i;
     // Inspect actual page notices, never the task transcript or this panel.
     // A separate ChatGPT popup can say requests are frequent while only
     // restricting access to older conversation/history records. That popup
     // does not throttle the current/new chat path, so it is explicitly ignored
     // here and acknowledged by dismissUnexpectedModals().
-    for (const record of pageUiTextRecords()) {
-      const parent = record.parent;
-      if (!parent) continue;
-      if (historyAccessThrottleContainer(parent)) continue;
-      if (pattern.test(record.direct) && visible(parent)) {
+    try {
+      for (const record of pageUiTextRecords()) {
+        const parent = record.parent;
+        // Check the cheap direct text first. The former order walked up every
+        // ordinary page label and materialized each ancestor's full text,
+        // including the entire transcript inside <main>, on every tick.
+        if (!parent || !pattern.test(record.direct) || !visible(parent)) continue;
+        scanDiagnostics.rateLimitAncestorChecks += 1;
+        if (historyAccessThrottleContainer(parent)) continue;
         return '检测到 ChatGPT 请求过于频繁；插件进入休息等待，不发送新请求、不刷新页面。';
       }
+      return '';
+    } finally {
+      scanDiagnostics.rateLimitCalls += 1;
+      scanDiagnostics.rateLimitMs += performance.now() - startedAt;
     }
-    return '';
   }
   function currentResponseAssistantArticles(turn = null) {
     const article = turn?.article;
@@ -5109,7 +5119,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       lastSlowScanDiagnosticAt = Date.now();
       const otherMs = Math.max(0, inspectionMs - turnInspectionMs - authorizationScanMs - loadingScanMs - fingerprintMs);
       const stats = turn.diagnostic || {};
-      log(task, `慢扫描诊断（仅耗时与计数，不含消息内容）：总计 ${inspectionMs.toFixed(0)} ms；当前回复识别 ${turnInspectionMs.toFixed(0)} ms；授权卡扫描 ${authorizationScanMs.toFixed(0)} ms；加载检测 ${loadingScanMs.toFixed(0)} ms；进度指纹 ${fingerprintMs.toFixed(0)} ms；其余检查 ${otherMs.toFixed(0)} ms。消息节点 user=${Number(stats.userNodes || 0)}、assistant=${Number(stats.assistantNodes || 0)}；回复文本读取 ${Number(stats.inspectedTextChars || 0)} 字${stats.boundedStreamRead ? '（流式有界尾读）' : ''}；指纹消息=${fingerprintStats.messageNodes}、指纹字符=${fingerprintStats.inspectedTextChars}；页面文字扫描 calls=${scanDiagnostics.pageUiCalls}、耗时=${scanDiagnostics.pageUiMs.toFixed(0)} ms、遍历节点=${scanDiagnostics.pageUiVisited}、文本节点=${scanDiagnostics.pageUiTextNodes}；当前回复文本扫描 calls=${scanDiagnostics.responseCalls}、耗时=${scanDiagnostics.responseMs.toFixed(0)} ms、文本节点=${scanDiagnostics.responseTextNodes}；授权候选按钮=${scanDiagnostics.cardsCandidates}/${scanDiagnostics.cardsButtons}、授权扫描内部耗时=${scanDiagnostics.cardsMs.toFixed(0)} ms。`);
+      log(task, `慢扫描诊断（仅耗时与计数，不含消息内容）：总计 ${inspectionMs.toFixed(0)} ms；当前回复识别 ${turnInspectionMs.toFixed(0)} ms；授权卡扫描 ${authorizationScanMs.toFixed(0)} ms；加载检测 ${loadingScanMs.toFixed(0)} ms；进度指纹 ${fingerprintMs.toFixed(0)} ms；其余检查 ${otherMs.toFixed(0)} ms。消息节点 user=${Number(stats.userNodes || 0)}、assistant=${Number(stats.assistantNodes || 0)}；回复文本读取 ${Number(stats.inspectedTextChars || 0)} 字${stats.boundedStreamRead ? '（流式有界尾读）' : ''}；指纹消息=${fingerprintStats.messageNodes}、指纹字符=${fingerprintStats.inspectedTextChars}；页面文字扫描 calls=${scanDiagnostics.pageUiCalls}、耗时=${scanDiagnostics.pageUiMs.toFixed(0)} ms、遍历节点=${scanDiagnostics.pageUiVisited}、文本节点=${scanDiagnostics.pageUiTextNodes}；请求限制检测 calls=${scanDiagnostics.rateLimitCalls}、耗时=${scanDiagnostics.rateLimitMs.toFixed(0)} ms、历史提示祖先检查=${scanDiagnostics.rateLimitAncestorChecks}；当前回复文本扫描 calls=${scanDiagnostics.responseCalls}、耗时=${scanDiagnostics.responseMs.toFixed(0)} ms、文本节点=${scanDiagnostics.responseTextNodes}；授权候选按钮=${scanDiagnostics.cardsCandidates}/${scanDiagnostics.cardsButtons}、授权扫描内部耗时=${scanDiagnostics.cardsMs.toFixed(0)} ms。`);
     }
     if (sample.owned && task.preview !== sample.text) {
       task.preview = sample.text.slice(-6000);
