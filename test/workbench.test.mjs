@@ -1864,6 +1864,26 @@ test('GitHub card selects from the live UI selects its connector-named menu item
   assert.equal(approvals,1);
   dom.window.close();
 });
+test('resumed exact-route task recognizes an approval card after its user marker is virtualized',async()=>{
+  const {w,h,dom}=await fixture('<main><article data-message-author-role="user">Earlier task prompt</article><article data-message-author-role="assistant" aria-busy="true">Continuing work</article><div id="approval"><button>拒绝</button><button>允许一次</button><button aria-haspopup="menu" aria-label="审批选项">⌄</button></div><form><textarea id="prompt-textarea"></textarea></form></main>',()=>{},'https://chatgpt.com/c/resumed-approval');
+  const task={id:'resumed-approval-task',ownerTabId:h.getTabId(),goal:'resume task',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/resumed-approval',token:'virtualized-marker',attempted:true,messages:[]};
+  h.data.tasks.push(task);
+  assert.equal(h.cards().length,1,'fixture must expose a detectable authorization card');
+  const result=h.classify({routeOwned:true,owned:false,approvalRouteEligible:true,cards:h.cards().length,stop:false,streaming:true,loading:true,blocker:'',rateLimit:''},null,Date.now());
+  assert.equal(result.state,'approval','an eligible visible card must win over marker ownership, generation and loading classification');
+  assert.equal(h.latestTurn(task).owned,false,'route-only approval recognition must not claim assistant reply ownership');
+  assert.equal(w.document.querySelector('#approval [aria-haspopup]').getAttribute('aria-haspopup'),'menu','detection does not open or click the approval control');
+  dom.window.close();
+});
+test('resumed approval card stays unassigned when a foreign task marker owns the visible turn',async()=>{
+  const {h,dom}=await fixture('<main><article data-message-author-role="user">[Fabushi:foreign-token] Other task</article><article data-message-author-role="assistant" aria-busy="true">Other task in progress</article><div><button>拒绝</button><button>允许一次</button><button aria-haspopup="menu">⌄</button></div><form><textarea id="prompt-textarea"></textarea></form></main>',()=>{},'https://chatgpt.com/c/resumed-approval-foreign');
+  const task={id:'resumed-approval-task',ownerTabId:h.getTabId(),goal:'resume task',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/resumed-approval-foreign',token:'virtualized-marker',attempted:true,messages:[]};
+  const foreign={id:'foreign-task',ownerTabId:h.getTabId(),goal:'other task',state:'waiting',url:'https://chatgpt.com/c/resumed-approval-foreign',token:'foreign-token',attempted:true,messages:[]};
+  h.data.tasks.push(task,foreign);
+  const result=h.classify({routeOwned:true,owned:false,approvalRouteEligible:false,foreignTaskId:foreign.id,cards:0,stop:false,streaming:true,loading:true,blocker:'',rateLimit:''},null,Date.now());
+  assert.notEqual(result.state,'approval','a visible marker for a different task must retain the fail-closed boundary');
+  dom.window.close();
+});
 test('Radix authorization trigger opens on pointerdown before selecting its div menuitem',async()=>{
   const {w,h,dom}=await fixture('<main><div id="card"><p>任意内容</p><button>拒绝</button><button>允许</button><button aria-haspopup="menu" aria-label="Allow GitHub for this conversation">⌄</button></div></main>');
   let pointerdowns=0, approvals=0;
@@ -3162,8 +3182,8 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.73$/m);
-  assert.match(source,/const VERSION = '2\.9\.73'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.74$/m);
+  assert.match(source,/const VERSION = '2\.9\.74'/);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const ENDED_NO_FINAL_STABILITY_MS = 8000/);

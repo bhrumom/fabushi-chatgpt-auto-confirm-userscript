@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.73
+// @version      2.9.74
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.73';
+  const VERSION = '2.9.74';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -3462,6 +3462,7 @@
     if (sample.rateLimit) return { state:'cooldown', reason:sample.rateLimit };
     const ignoredPageNotice = /ChatGPT 使用额度或访问频率受限|达到使用上限|usage limit|rate limit|too many requests|请求过于频繁|达到.*限额/i.test(String(sample.blocker || ''));
     if (sample.blocker && !ignoredPageNotice) return { state:'blocked', reason:sample.blocker };
+    if (sample.approvalRouteEligible && sample.cards) return { state:'approval' };
     if (sample.routeOwned === false || !sample.owned) {
       const reason = sample.foreignTaskId
         ? '当前页面仍显示另一个任务的消息；已暂停本轮读取，等待当前任务会话完成交接。'
@@ -4558,6 +4559,11 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const foreignTask = tabTasks().find(item => item.id !== task.id && item.token && hasTaskMarker(item));
     const otherRouteOwner = routeOwned ? conversationURLOwner(liveURL, task.id) : null;
     const ownMarkerMounted = Boolean(taskMarkerUser(task));
+    // ChatGPT may virtualize the marker-bearing user turn while leaving an
+    // approval card visible in this task's already-bound conversation. Route
+    // identity is enough to surface that control only when no competing task
+    // owns the page; it must never grant ownership of assistant content.
+    const approvalRouteEligible = Boolean(routeOwned && !foreignTask && !otherRouteOwner);
     // Reply ownership stays strict. Ended-conversation detection gets a
     // narrower route-only fallback when ChatGPT has virtualized this task's
     // marker: exact route, no competing task/marker, and no contradictory
@@ -4573,10 +4579,11 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     );
     const pageBelongsToTask = routeOwned && (turn.owned || routeEndedOwned || !foreignTask);
     const activityTurn = routeEndedOwned ? latestTurn() : turn;
+    const approvalVisible = approvalRouteEligible && pending.length > 0;
     // A conversation-length notice is a hard product boundary, not a normal
     // final answer. Handle it before final-toolbar classification so a visible
     // copy/share toolbar on the notice cannot prematurely finish Work/Review.
-    const lengthLimitNotice = pageBelongsToTask ? conversationLengthLimitNotice(turn) : '';
+    const lengthLimitNotice = pageBelongsToTask && !approvalVisible ? conversationLengthLimitNotice(turn) : '';
     if (lengthLimitNotice) {
       if (turn.streaming || stopButton()) {
         const waitKey = `${taskURL}:${normalize(lengthLimitNotice).slice(0, 200)}:generating`;
@@ -4604,8 +4611,8 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     }
     // An interrupted bound conversation remains the task's working chat.
     // Retry the same turn instead of losing its live work in a fresh chat.
-    const interrupted = Boolean(pageBelongsToTask && connectionInterruptedNotice(routeEndedOwned ? activityTurn : turn));
-    if (interrupted || task.pendingContinuationReason) {
+    const interrupted = Boolean(pageBelongsToTask && !approvalVisible && connectionInterruptedNotice(routeEndedOwned ? activityTurn : turn));
+    if (!approvalVisible && (interrupted || task.pendingContinuationReason)) {
       const reason = interrupted
         ? '检测到“连接已中断，正在等待完整回复”'
         : '检测到旧版本遗留的连接中断强制续发状态';
@@ -4660,7 +4667,8 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     );
     const sample = {
       stop:stopPresent,
-      cards:(turn.owned || routeEndedOwned) ? pending.length : 0,
+      cards:approvalRouteEligible ? pending.length : 0,
+      approvalRouteEligible,
       loading:effectiveLoading,
       blocker:blocker(),
       rateLimit:rateLimitNotice(),
@@ -4742,6 +4750,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && !sample.final
       && !sample.rateLimit
       && !sample.blocker
+      && !sample.cards
       && !task.attempted
       && !abnormalNoFinalEligible
       && stalledFor >= STALLED_REFRESH_MS,
