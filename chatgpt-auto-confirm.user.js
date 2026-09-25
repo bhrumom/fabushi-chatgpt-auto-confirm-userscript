@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.76
+// @version      2.9.77
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.76';
+  const VERSION = '2.9.77';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -90,6 +90,7 @@
   const ROUTE_HYDRATION_TIMEOUT_MS = 30000;
   const ROUTE_RECOVERY_LIMIT = 2;
   const CONTINUATION_PROMPT = '继续完成所有';
+  const MAX_SAME_SESSION_CONTINUATIONS = 3;
   const CONTINUATION_SEND_COOLDOWN_MS = 60 * 1000;
   const ENDED_NO_FINAL_STABILITY_MS = 8000;
   const RATE_LIMIT_FRESH_RETRY_AFTER = 3;
@@ -142,8 +143,8 @@
   const HOST_RECOVERY_RENEW_MS = 30000;
   const HOST_RECOVERY_RESPONSE_TTL_MS = 10000;
   // A userscript cannot read the renderer's RSS or force V8 to collect the
-  // whole ChatGPT page. It can, however, bound its own retained state and ask
-  // the MV3 host to discard this tab when Chrome exposes a safe opportunity.
+  // whole ChatGPT page. It bounds its own retained state and reloads the exact
+  // conversation in place when sustained pressure and task safety permit.
   const HOST_MEMORY_CAPABILITY = 'tab-memory-discard';
   const HOST_MEMORY_REQUEST_TYPE = 'tab-memory.request';
   const HOST_MEMORY_RESPONSE_TYPE = 'tab-memory.response';
@@ -153,6 +154,7 @@
   const MEMORY_HOST_REQUEST_MIN_BYTES = 1024 * 1024 * 1024;
   const MEMORY_LOCAL_CLEANUP_COOLDOWN_MS = 60000;
   const MEMORY_HOST_REQUEST_COOLDOWN_MS = 5 * 60 * 1000;
+  const MEMORY_SAME_TAB_RELOAD_COOLDOWN_MS = 5 * 60 * 1000;
   const MEMORY_HOST_RESPONSE_TTL_MS = 10000;
   // Full ChatGPT document navigations are expensive. The host guard adds a
   // second, cross-document budget; these local limits remain effective when
@@ -508,6 +510,7 @@
   let memoryPressureStreak = 0;
   let memoryLastCleanupAt = 0;
   let memoryLastHostRequestAt = 0;
+  let memoryHostCooldownMs = MEMORY_HOST_REQUEST_COOLDOWN_MS;
   let memorySnapshot = { supported:false, source:'performance.memory', at:0, reason:'not-sampled' };
   let memoryPressure = 'unsupported';
   let memoryLastAction = '';
@@ -922,6 +925,45 @@
       activeTaskId:activeTask?.id || '',
     };
   }
+  function memoryReloadSafety() {
+    const transient = readTransientUIState();
+    const owned = tabTasks().filter(task => !terminal.has(task.state) && task.state !== 'paused');
+    const activeTask = owned.length === 1 ? owned[0] : null;
+    const liveURL = currentConversationURL();
+    const hasDraft = Boolean(transient.hasDraft || hasUnsavedComposerInput());
+    const hasPendingAttachment = Boolean(transient.hasFiles || tabTasks().some(task => task.attachmentUploadPending));
+    const unsafeTaskState = !activeTask || !['waiting','generating','reviewing'].includes(String(activeTask.state || ''))
+      || activeTask.attachmentUploadPending === true;
+    const safe = data.autoResume !== false && !busy && !navigating && !hasDraft
+      && !hasPendingAttachment && !cards().length && !stopButton()
+      && !unsafeTaskState && canonicalConversationURL(activeTask?.url) === liveURL;
+    return { safe, hidden:document.visibilityState === 'hidden', hasDraft, hasPendingAttachment,
+      activeTask, liveURL, reason:unsafeTaskState ? 'task-not-resumable' : '' };
+  }
+  function reloadTaskForMemoryPressure(task, now = Date.now()) {
+    const liveURL = currentConversationURL();
+    const taskURL = canonicalConversationURL(task?.url);
+    if (!task || !liveURL || !taskURL || liveURL !== taskURL || data.autoResume === false) return false;
+    if (now - Number(task.memoryPressureReloadAt || 0) < MEMORY_SAME_TAB_RELOAD_COOLDOWN_MS) return false;
+    task.memoryPressureReloadAt = now;
+    task.state = 'waiting';
+    task.updatedAt = now;
+    ensureAutomaticRecoveryTicket(task, { force:true, destination:liveURL });
+    writeWorkspaceHeartbeat('memory-pressure-reload');
+    log(task, `网页 JS 堆估算已连续达到 1 GiB；已保存当前会话和任务状态，正在同一标签页重新加载 ${taskURL} 以释放旧页面内存。恢复后继续此任务，不新开标签页、不重复发送。`);
+    save();
+    navigating = true;
+    try { location.reload(); }
+    catch (error) {
+      navigating = false;
+      task.state = 'waiting';
+      log(task, `内存压力恢复刷新失败：${String(error?.message || error).slice(0, 180)}；任务已保留，稍后再尝试。`);
+      save();
+      return false;
+    }
+    memoryLastAction = '已在原标签页重载当前会话；任务状态已保存，页面恢复后继续。';
+    return true;
+  }
   function cleanupLocalMemory({ reason = 'memory-pressure' } = {}) {
     const now = Date.now();
     if (now - memoryLastCleanupAt < MEMORY_LOCAL_CLEANUP_COOLDOWN_MS) {
@@ -976,11 +1018,24 @@
     const snapshot = readMemorySnapshot();
     memorySnapshot = snapshot;
     memoryPressure = memoryPressureLevel(snapshot);
-    const safety = memoryDiscardSafety();
+    const safety = userInitiated ? memoryDiscardSafety() : memoryReloadSafety();
     if (!userInitiated && !['elevated','high'].includes(memoryPressure)) {
       return { ok:false, discarded:false, reason:'pressure-not-elevated', safety };
     }
-    if (!userInitiated && now - memoryLastHostRequestAt < MEMORY_HOST_REQUEST_COOLDOWN_MS) {
+    if (!userInitiated) {
+      cleanupLocalMemory({ reason });
+      if (!safety.safe) {
+        memoryLastAction = `内存压力达到阈值，但当前状态不适合刷新（${safety.reason || (safety.hasDraft ? '有未保存输入' : safety.hasPendingAttachment ? '附件处理中' : '任务/会话状态不安全')}）；保留原页面并稍后重试。`;
+        paint?.();
+        return { ok:false, discarded:false, reason:'unsafe-state', safety };
+      }
+      const reloaded = reloadTaskForMemoryPressure(safety.activeTask, now);
+      if (reloaded) return { ok:true, reloaded:true, reason:'same-tab-reload', safety };
+      memoryLastAction = '内存压力恢复刷新处于冷却期或未能提交；任务仍保留在当前标签页。';
+      paint?.();
+      return { ok:false, discarded:false, reason:'reload-cooldown-or-failed', safety };
+    }
+    if (now - memoryLastHostRequestAt < memoryHostCooldownMs) {
       return { ok:false, discarded:false, reason:'cooldown', safety };
     }
     cleanupLocalMemory({ reason });
@@ -1023,8 +1078,14 @@
     if (response?.discarded) memoryLastAction = '宿主已请求 Chrome 卸载此非活动标签页；再次打开时会自动恢复任务。';
     else if (response?.reason === 'active-tab') memoryLastAction = '当前标签页正在使用中；请先切换到其他标签页，宿主才能安全回收它。';
     else if (response?.reason === 'unsafe-state') memoryLastAction = '当前有发送、上传、审批、导航或未保存输入，暂不回收标签页。';
-    else if (response?.reason === 'host-unavailable' || response?.reason === 'host-timeout') memoryLastAction = '宿主回收能力暂不可用，已完成脚本本地清理。';
-    else if (response?.reason) memoryLastAction = `宿主未回收标签页：${String(response.reason).slice(0, 120)}。`;
+    else if (response?.reason === 'host-unavailable' || response?.reason === 'host-timeout') {
+      memoryHostCooldownMs = 60000;
+      memoryLastAction = '宿主接力桥接无响应（可能是扩展未启用或服务工作线程未应答）；已完成本地清理，稍后重试。';
+    }
+    else if (response?.reason) {
+      memoryHostCooldownMs = 60000;
+      memoryLastAction = `宿主未接力标签页：${String(response.reason).slice(0, 120)}。稍后重试。`;
+    }
     paint?.();
     return response;
   }
@@ -4132,6 +4193,16 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
         }
         return false;
       }
+    }
+    if (Number(task.continuationCount || 0) >= MAX_SAME_SESSION_CONTINUATIONS) {
+      const handoffReason = `同一会话“${CONTINUATION_PROMPT}”已发送 ${MAX_SAME_SESSION_CONTINUATIONS} 次，达到上限`;
+      const turn = taskTurnForInspection(task);
+      const queued = queueInterruptedFreshRetry(task, handoffReason, now, turn, { allowExactRouteFallback:true });
+      if (queued) {
+        log(task, `${handoffReason}；已将当前可归属的 assistant 工作内容带到新的会话继续，不会在旧会话发送第 ${MAX_SAME_SESSION_CONTINUATIONS + 1} 次续发。`);
+        save();
+      }
+      return false;
     }
     const input = composer();
     if (!input) {

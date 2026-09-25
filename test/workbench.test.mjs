@@ -1103,6 +1103,48 @@ test('continuation waits for an asynchronously rendered Send message control and
   }
 });
 
+test('the first three same-chat continuation attempts remain in the bound conversation',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue implementation [Fabushi:continuation-three]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">partial work</div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
+  try {
+    w.history.pushState({},'', '/c/continuation-three');
+    const task={id:'continuation-three',ownerTabId:h.getTabId(),goal:'continue implementation',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/continuation-three',token:'continuation-three',attempted:true,messages:[]};
+    h.data.tasks.push(task);
+    let sends=0;
+    w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>sends++);
+    for(let attempt=1;attempt<=3;attempt++){
+      assert.equal(await h.sendContinuation(task,null,'异常中断',Date.now()+attempt,{ignoreCooldown:true}),true);
+      assert.equal(task.url,'https://chatgpt.com/c/continuation-three');
+      assert.equal(task.continuationCount,attempt);
+    }
+    assert.equal(sends,3);
+    assert.equal(task.state,'waiting');
+  } finally {h.pause();dom.window.close();}
+});
+
+test('a fourth same-chat continuation hands visible work to a fresh conversation without sending',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue implementation [Fabushi:continuation-cap]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">已完成运行时修复；下一步补充集成测试并验证。</div><div role="alert">ChatGPT stream recovery polling timed out</div></div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
+  try {
+    w.history.pushState({},'', '/c/continuation-cap');
+    const task={id:'continuation-cap',ownerTabId:h.getTabId(),goal:'continue implementation',next:'finish integration tests',mode:'once',phase:'work',round:2,state:'waiting',url:'https://chatgpt.com/c/continuation-cap',token:'continuation-cap',attempted:true,continuationCount:3,attachments:[{name:'evidence.txt',type:'text/plain',size:12}],messages:[]};
+    h.data.tasks.push(task);
+    let sends=0;
+    w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>sends++);
+
+    assert.equal(await h.sendContinuation(task,null,'异常中断',Date.now(),{ignoreCooldown:true}),false);
+    assert.equal(sends,0,'the fourth continuation is never sent in the old chat');
+    assert.equal(w.document.querySelector('#prompt-textarea').value,'');
+    assert.equal(task.state,'queued');
+    assert.equal(task.url,'');
+    assert.equal(task.token,'');
+    assert.equal(task.continuationCount,0,'fresh chat begins with a new per-session counter');
+    assert.equal(task.phase,'work');
+    assert.equal(task.round,2);
+    assert.deepEqual(task.attachments,[{name:'evidence.txt',type:'text/plain',size:12}]);
+    assert.match(task.abnormalFreshCarry,/已完成运行时修复；下一步补充集成测试并验证。/);
+    assert.doesNotMatch(task.abnormalFreshCarry,/ChatGPT stream recovery polling timed out/);
+  } finally {h.pause();dom.window.close();}
+});
+
 test('continuation recognizes the current blue-arrow Send control labelled 发送',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">recover [Fabushi:zh-send-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">tool output only</div></article><form><textarea id="prompt-textarea"></textarea><button type="button" aria-label="发送"><svg></svg></button></form></main>');
   try {
@@ -3101,6 +3143,29 @@ test('memory diagnostics identify a bounded JS heap estimate and pressure level'
   dom.window.close();
 });
 
+test('sustained memory pressure reloads the exact task session in the same tab without requiring the host',async()=>{
+  const gib=1024*1024*1024;
+  const {h,w,dom}=await fixture('',window=>Object.defineProperty(window.performance,'memory',{configurable:true,value:{usedJSHeapSize:1.2*gib,totalJSHeapSize:1.5*gib,jsHeapSizeLimit:4*gib}}));
+  try {
+    w.history.pushState({},'', '/c/memory-takeover');
+    const task={id:'memory-task',ownerTabId:h.getTabId(),goal:'private task goal',mode:'once',phase:'work',round:2,state:'waiting',url:'https://chatgpt.com/c/memory-takeover',token:'dispatch',attempted:true,attachments:[],messages:[]};
+    h.data.tasks.push(task);
+    let hostRequests=0;
+    w.addEventListener('message',event=>{if(event.data?.source==='fabushi-userscript'&&event.data?.type==='tab-memory.request')hostRequests++;});
+    const result=await h.requestHostMemoryCleanup({reason:'memory-pressure'});
+    assert.equal(result.reason,'same-tab-reload');
+    assert.equal(result.reloaded,true);
+    assert.equal(hostRequests,0,'automatic renderer reset no longer depends on the host discard bridge');
+    assert.equal(task.state,'waiting');
+    assert.equal(task.url,'https://chatgpt.com/c/memory-takeover');
+    assert.ok(Number(task.memoryPressureReloadAt)>0);
+    const heartbeat=JSON.parse(w.localStorage.getItem(`fabushi-workspace-heartbeat-v1:${h.getTabId()}`));
+    assert.equal(heartbeat.taskId,task.id);
+    assert.equal(heartbeat.taskURL,task.url);
+    assert.ok(heartbeat.recoveryToken);
+  } finally {h.pause();dom.window.close();}
+});
+
 test('local memory cleanup bounds task logs without deleting task identity or attachments',async()=>{
   const {h,dom}=await fixture();
   const task=h.enqueue('保留这个目标','once',[{id:'attachment-1',name:'证据.png',type:'image/png',size:10,lastModified:1}]);
@@ -3256,8 +3321,8 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.76$/m);
-  assert.match(source,/const VERSION = '2\.9\.76'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.77$/m);
+  assert.match(source,/const VERSION = '2\.9\.77'/);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const ENDED_NO_FINAL_STABILITY_MS = 8000/);
@@ -3424,7 +3489,7 @@ test('interrupted recovery tolerates a null task article after refresh and keeps
   } finally {h.pause();dom.window.close();}
 });
 
-test('automatic host memory discard is requested for sustained elevated JS heap and labels active-tab denial',async()=>{
+test('automatic memory recovery never asks the host or reloads when there is no uniquely owned task',async()=>{
   const gib=1024*1024*1024;
   const requests=[];
   const {h,w,dom}=await fixture('',window=>{
@@ -3438,10 +3503,9 @@ test('automatic host memory discard is requested for sustained elevated JS heap 
   try {
     await h.inspectMemoryPressure();
     await h.inspectMemoryPressure();
-    assert.equal(requests.length,1,'two elevated samples above 1 GiB request the host capability');
-    assert.equal(requests[0].payload.pressure,'elevated');
+    assert.equal(requests.length,0,'automatic recovery is now in-place and does not call tabs.discard through the host');
     assert.equal(h.memorySnapshot().usedBytes,1.2*gib);
     assert.match(h.memoryStatusText(),/网页 JS 堆估算/);
-    assert.match(h.memoryStatusText(),/当前标签页正在使用中/);
+    assert.match(h.memoryStatusText(),/task-not-resumable/);
   } finally {h.pause();dom.window.close();}
 });
