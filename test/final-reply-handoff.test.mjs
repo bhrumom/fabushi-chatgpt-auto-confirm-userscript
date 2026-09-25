@@ -667,6 +667,95 @@ test('recovered exact-route final reply survives marker virtualization and suppr
   }
 });
 
+test('recorded continuation owns the final reply after the original marker is virtualized', async () => {
+  const { dom, window, hooks } = await createHarness(`
+    <main>
+      <article data-testid="conversation-turn-user">
+        <div data-message-author-role="user">继续完成所有</div>
+      </article>
+      <article data-testid="conversation-turn-assistant">
+        <div data-message-author-role="assistant" data-message-id="assistant-after-continuation">
+          <div class="markdown">PR 状态检查已完成，这是本轮最终结论。</div>
+        </div>
+        <div class="response-toolbar">
+          <button aria-label="复制"></button>
+          <button aria-label="评价回复"></button>
+          <button aria-label="分享"></button>
+        </div>
+      </article>
+    </main>
+  `);
+  try {
+    window.history.pushState({}, '', '/c/markerless-continuation-final');
+    const task = {
+      id:'markerless-continuation-final',
+      ownerTabId:hooks.tabId,
+      goal:'继续完成任务',
+      goalRevision:2,
+      mode:'once',
+      phase:'work',
+      round:4,
+      state:'waiting',
+      url:'https://chatgpt.com/c/markerless-continuation-final',
+      token:'markerless-continuation-token',
+      attempted:false,
+      continuationCount:1,
+      messages:[],
+    };
+    hooks.data.tasks.push(task);
+    assert.equal(hooks.latestTurn(task).owned, false, 'the original task marker is virtualized');
+    assert.equal(task.recoveredFinalIdentity, undefined, 'this regression does not rely on a pre-armed recovery identity');
+    const recovered = hooks.taskTurnForInspection(task);
+    assert.equal(recovered.owned, true);
+    assert.equal(recovered.recoveredRouteOwned, true);
+    assert.equal(recovered.final, true);
+    assert.equal(recovered.text, 'PR 状态检查已完成，这是本轮最终结论。');
+    assert.equal(hooks.ownedFinalReplyReady(task), true);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('a prior final toolbar cannot satisfy a later recorded continuation', async () => {
+  const { dom, window, hooks } = await createHarness(`
+    <main>
+      <article data-testid="conversation-turn-assistant">
+        <div data-message-author-role="assistant"><div class="markdown">较早回复。</div></div>
+        <button aria-label="复制"></button>
+        <button aria-label="评价回复"></button>
+        <button aria-label="分享"></button>
+      </article>
+      <article data-testid="conversation-turn-user">
+        <div data-message-author-role="user">继续完成所有</div>
+      </article>
+    </main>
+  `);
+  try {
+    window.history.pushState({}, '', '/c/prior-toolbar-before-continuation');
+    const task = {
+      id:'prior-toolbar-before-continuation',
+      ownerTabId:hooks.tabId,
+      goal:'继续当前任务',
+      mode:'once',
+      phase:'work',
+      round:1,
+      state:'waiting',
+      url:'https://chatgpt.com/c/prior-toolbar-before-continuation',
+      token:'prior-toolbar-token',
+      attempted:false,
+      continuationCount:1,
+      messages:[],
+    };
+    hooks.data.tasks.push(task);
+    const turn = hooks.taskTurnForInspection(task);
+    assert.equal(turn.owned, false);
+    assert.equal(turn.final, false);
+    assert.equal(turn.text, '');
+  } finally {
+    dom.window.close();
+  }
+});
+
 test('manual pause and resume re-arms recovered-final identity for a completed exact-route conversation', async () => {
   const { dom, window, hooks } = await createHarness(`
     <main>

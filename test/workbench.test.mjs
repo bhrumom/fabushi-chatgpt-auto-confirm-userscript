@@ -1022,6 +1022,54 @@ test('inspect appends continuation in the same bound chat after a retryable mess
   h.pause();
   dom.window.close();
 });
+test('stream recovery polling timeout carries visible work into a fresh chat',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue implementation [Fabushi:stream-timeout]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">已检查 exact HEAD，修复了 Arc 移动问题；接下来补自动化运行时依赖并验证 CI。</div><div role="alert">ChatGPT stream recovery polling timed out <button aria-label="Retry">Retry</button></div></div></article><form><textarea id="prompt-textarea"></textarea></form></main>');
+  const task={id:'stream-timeout',ownerTabId:h.getTabId(),goal:'continue implementation',next:'implement current slice',mode:'once',phase:'work',round:3,state:'waiting',url:'https://chatgpt.com/c/stream-timeout',token:'stream-timeout',attempted:false,attachments:[{name:'design.png',type:'image/png',size:12}],messages:[]};
+  h.data.tasks.push(task);
+  w.history.pushState({},'', '/c/stream-timeout');
+  await h.start();
+  const turn=h.latestTurn(task);
+  assert.equal(turn.owned,true);
+  assert.equal(turn.final,false);
+  await h.inspect(task,null);
+  assert.equal(task.state,'queued');
+  assert.equal(task.url,'');
+  assert.equal(task.token,'');
+  assert.equal(task.phase,'work');
+  assert.equal(task.round,3);
+  assert.equal(task.attachments[0].name,'design.png');
+  assert.match(task.abnormalFreshCarry,/已检查 exact HEAD/);
+  assert.doesNotMatch(task.abnormalFreshCarry,/stream recovery polling timed out/i);
+  assert.equal(task.abnormalFreshCarryPhase,'work');
+  assert.equal(task.abnormalFreshCarryRound,3);
+  assert.equal(task.connectionInterruptedFreshRetryCount,1);
+  assert.ok(task.history?.some(entry=>entry.url==='https://chatgpt.com/c/stream-timeout'));
+  const prompt=h.workPrompt(task);
+  assert.ok(prompt.indexOf('implement current slice')<prompt.indexOf('已检查 exact HEAD'));
+  assert.ok(prompt.indexOf('已检查 exact HEAD')<prompt.indexOf('原始目标：\ncontinue implementation'));
+  h.pause();
+  dom.window.close();
+});
+test('stream recovery timeout is ignored when quoted, stale, final, or missing Retry',async()=>{
+  const cases=[
+    ['<div data-message-author-role="assistant"><blockquote>ChatGPT stream recovery polling timed out</blockquote><button aria-label="Retry">Retry</button></div>','quoted'],
+    ['<article data-testid="conversation-turn-user"><div data-message-author-role="user">goal [Fabushi:stale-stream]</div></article><article data-message-author-role="assistant">ChatGPT stream recovery polling timed out<button aria-label="Retry">Retry</button></article><article data-message-author-role="assistant">newer reply<button aria-label="复制回复"></button><button aria-label="评价回复"></button></article>','stale-stream'],
+    ['<div data-message-author-role="assistant"><div role="alert">ChatGPT stream recovery polling timed out</div></div>','no-retry'],
+  ];
+  for (const [body,id] of cases) {
+    const {h,w,dom}=await fixture(`<main>${body}<form><textarea id="prompt-textarea"></textarea></form></main>`);
+    const task={id,ownerTabId:h.getTabId(),goal:'goal',mode:'once',phase:'work',round:1,state:'waiting',url:`https://chatgpt.com/c/${id}`,token:id,attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    w.history.pushState({},'', `/c/${id}`);
+    await h.start();
+    await h.inspect(task,null);
+    assert.equal(task.url,`https://chatgpt.com/c/${id}`,`${id} must retain the current chat`);
+    assert.equal(task.state,'waiting',`${id} must not queue a fresh chat`);
+    assert.equal(task.connectionInterruptedFreshRetryCount||0,0);
+    h.pause();
+    dom.window.close();
+  }
+});
 test('continuation waits for an asynchronously rendered Send message control and sends exactly once',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">recover [Fabushi:dynamic-send-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">tool output only</div></article><form id="composer-form"><textarea id="prompt-textarea"></textarea></form></main>');
   try {
@@ -2537,6 +2585,32 @@ test('same-route recovery is a committed reload path and watchdog re-arms a sche
   }
 });
 
+test('failed fresh-document recovery yields the workspace lock for the ticketed replacement tab',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-message-author-role="user">goal [Fabushi:document-recovery-yield]</article><div class="animate-spin"></div></main>');
+  try {
+    w.history.replaceState({},'', '/c/document-recovery-yield');
+    const owner=h.getTabId();
+    const task={id:'document-recovery-yield',ownerTabId:owner,goal:'goal',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/document-recovery-yield',token:'stable-token',attempted:true,messages:[],routeRecoveryAttempts:2};
+    h.data.tasks.push(task);
+    await h.start(false);
+    h.recoverStalledRoute(new w.URL(task.url),task);
+    await new Promise(resolve=>w.setTimeout(resolve,0));
+    assert.equal(h.getNavigationState().navigating,true);
+    h.armNavigationCommitWatchdog(task,'document-recovery',10);
+    await new Promise(resolve=>w.setTimeout(resolve,300));
+    await new Promise(resolve=>w.setTimeout(resolve,0));
+    assert.equal(task.state,'waiting','the persisted task remains resumable');
+    assert.equal(task.ownerTabId,owner,'ownership identity remains bound to the recovery ticket');
+    assert.ok(task.messages.some(message=>message.text.includes('释放工作区锁')),`the handoff is visible in task history: ${JSON.stringify({messages:task.messages,state:h.getNavigationState()})}`);
+    assert.equal(h.getNavigationState().timer,false,'the failed page stops supervising instead of racing the replacement');
+    const locks=await w.navigator.locks.query();
+    assert.equal(locks.held.some(lock=>lock.name===`fabushi-workspace-v1:${owner}`),false,'the replacement can claim the workspace lock');
+  } finally {
+    h.pause();
+    dom.window.close();
+  }
+});
+
 test('ordinary same-route navigation remains a no-op but asynchronous cancellation re-arms the scheduler',async()=>{
   const {h,w,dom}=await fixture();
   try {
@@ -3182,8 +3256,8 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.74$/m);
-  assert.match(source,/const VERSION = '2\.9\.74'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.76$/m);
+  assert.match(source,/const VERSION = '2\.9\.76'/);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const ENDED_NO_FINAL_STABILITY_MS = 8000/);

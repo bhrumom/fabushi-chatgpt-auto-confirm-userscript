@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.74
+// @version      2.9.76
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -16,7 +16,7 @@
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.74';
+  const VERSION = '2.9.76';
   const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -762,8 +762,24 @@
       navigating = false;
       if (task && !terminal.has(task.state) && task.state !== 'paused') {
         task.updatedAt = Date.now();
-        log(task, `页面恢复导航已提交但当前文档在 ${Math.ceil(delayMs / 1000)} 秒内没有卸载；已自动解除导航等待并继续监督，不会静默停止。`);
+        if (reason === 'document-recovery') {
+          log(task, `恢复页面在 ${Math.ceil(delayMs / 1000)} 秒内未完成文档交接；已停止本标签页监督并释放工作区锁，避免与宿主打开的恢复标签页争抢任务。任务与恢复票据保留，由恢复标签页取得唯一执行权。`);
+        } else {
+          log(task, `页面恢复导航已提交但当前文档在 ${Math.ceil(delayMs / 1000)} 秒内没有卸载；已自动解除导航等待并继续监督，不会静默停止。`);
+        }
         save();
+      }
+      if (reason === 'document-recovery') {
+        // A host-created recovery tab carries the same workspace ticket and
+        // must acquire this document's Web Lock before it can resume. If the
+        // failed document navigation did not unload this page, continuing to
+        // supervise here would leave the replacement tab empty (or create a
+        // split-brain sender). Yield only for this explicit, ticketed handoff.
+        haltRunnerForPause();
+        stopWorkspaceHeartbeat('document-recovery-handoff');
+        void releaseWorkspace();
+        paint();
+        return;
       }
       schedule(100);
     }, Math.max(100, Number(delayMs) || NAVIGATION_COMMIT_WATCHDOG_MS));
@@ -1621,20 +1637,20 @@
   ].join(',');
   function pageLoadingState() {
     const main = document.querySelector('main');
-    const scopes = [...new Set([main, document.body, document.documentElement].filter(Boolean))];
-    if (!scopes.length) return '';
+    // `body` already contains `main`, and `documentElement` contains both.
+    // Walking all three on every supervision tick repeats the same expensive
+    // selector and visibility work across the entire ChatGPT conversation.
+    const scope = document.body || document.documentElement || main;
+    if (!scope) return '';
     const candidates = [];
     const turns = [];
-    for (const scope of scopes) {
-      if (scope.matches?.(pageLoadingSelectors)) candidates.push(scope);
-      candidates.push(...nodes(pageLoadingSelectors, scope));
-      // Some ChatGPT loading glyphs are SVGs with only a runtime CSS
-      // animation and no stable loading class/ARIA label. Inspect SVGs in all
-      // page surfaces, not just <main>, because the app-level overlay can be
-      // mounted beside the main route container.
-      candidates.push(...nodes('svg', scope));
-      turns.push(...nodes('[data-message-author-role=user],[data-message-author-role=assistant]', scope));
-    }
+    if (scope.matches?.(pageLoadingSelectors)) candidates.push(scope);
+    candidates.push(...nodes(pageLoadingSelectors, scope));
+    // Some ChatGPT loading glyphs are SVGs with only a runtime CSS animation
+    // and no stable loading class/ARIA label. `body` includes both the main
+    // route and app-level overlays, so one traversal still covers both.
+    candidates.push(...nodes('svg', scope));
+    turns.push(...nodes('[data-message-author-role=user],[data-message-author-role=assistant]', scope));
     const hasVisibleTurn = turns.some(visible);
     const seen = new Set();
     for (const node of candidates) {
@@ -2509,6 +2525,33 @@
     }
     return false;
   }
+  const streamRecoveryPollingTimeoutPattern = /^ChatGPT stream recovery polling timed out[.!]?$/i;
+  const retryActionPattern = /^(?:重试|再次尝试|再试一次|retry|try again|again)(?:\b|$)/i;
+  function hasVisibleRetryAction(node) {
+    const retryControls = 'button,a,[role="button"]';
+    let scope = node?.parentElement || null;
+    for (let depth = 0; scope && depth < 8; depth += 1, scope = scope.parentElement) {
+      const controls = [];
+      if (scope.matches?.(retryControls)) controls.push(scope);
+      controls.push(...nodes(retryControls, scope));
+      if (controls.some(control => visible(control) && retryActionPattern.test(label(control)))) return true;
+    }
+    return false;
+  }
+  function streamRecoveryPollingTimeoutNotice(turn = null) {
+    const scopedArticle = turn?.owned ? turn.article : null;
+    if (!scopedArticle) return false;
+    const walker = document.createTreeWalker(scopedArticle, NodeFilter.SHOW_TEXT);
+    let currentNode;
+    while ((currentNode = walker.nextNode())) {
+      const parent = currentNode.parentElement;
+      if (!parent || own(parent) || parent.closest('blockquote,pre,code,[data-message-author-role="user"]')) continue;
+      const direct = normalize(currentNode.nodeValue);
+      if (direct && direct.length <= 160 && streamRecoveryPollingTimeoutPattern.test(direct)
+        && visible(parent) && hasVisibleRetryAction(parent)) return true;
+    }
+    return false;
+  }
   const conversationLengthLimitPattern = /(?:你已达到(?:此|本)对话的(?:长度上限|最大长度)[，,。.!；;\s]*(?:你)?可以(?:开始|开启|新建)(?:一个)?新(?:的)?(?:聊天|对话)(?:以|来)?继续(?:对话|聊天)?|(?:you(?:'|’)?ve|you have|this conversation has) reached (?:the )?(?:maximum|max) (?:length|conversation length)(?: for| of)? (?:this|the)?\s*conversation.*?(?:keep (?:talking|chatting)|continue).*?(?:start(?:ing)?|open(?:ing)?|begin(?:ning)?) (?:a )?new chat)/i;
   function conversationLengthLimitNotice(turn = null) {
     const matches = value => conversationLengthLimitPattern.test(normalize(value));
@@ -2618,6 +2661,7 @@
     const source = String(value || '')
       .replace(/连接已中断[。.!]?\s*正在等待完整回复[。.!]?/gi, ' ')
       .replace(/connection (?:was |has been )?interrupted[.!]?\s*(?:we(?:'re| are) )?waiting for (?:the )?full response[.!]?/gi, ' ')
+      .replace(/ChatGPT stream recovery polling timed out[.!]?/gi, ' ')
       .trim();
     return boundedConversationLengthCarry(source);
   }
@@ -3210,7 +3254,6 @@
     const liveURL = currentConversationURL();
     const taskURL = canonicalConversationURL(task.url);
     if (!liveURL || !taskURL || liveURL !== taskURL) return scoped;
-    if (!recoveredFinalIdentityMatches(task, liveURL)) return scoped;
     // If the original marker is still mounted, latestTurn(task) already made
     // the authoritative ownership decision. An unowned result in that state
     // means a newer user turn exists, so recovery must remain fail-closed.
@@ -3219,6 +3262,7 @@
     const foreignTask = tabTasks().find(item => item.id !== task.id && item.token && hasTaskMarker(item));
     if (foreignTask) return scoped;
     const identity = task.recoveredFinalIdentity || {};
+    const hasRecoveredIdentity = recoveredFinalIdentityMatches(task, liveURL);
     const mountedUsers = nodes('[data-message-author-role=user]');
     const latestMountedUser = mountedUsers.at(-1);
     const recoveredContinuation = Boolean(
@@ -3226,6 +3270,11 @@
       && Number(task.continuationCount || 0) > 0
       && normalize(text(latestMountedUser)) === CONTINUATION_PROMPT,
     );
+    // A persisted continuation send plus its exact prompt is a verifiable
+    // current-turn boundary even after ChatGPT virtualizes the original task
+    // marker. Keep this fallback limited to the unique exact route and use
+    // latestTurn() below so an older reply toolbar cannot satisfy it.
+    if (!hasRecoveredIdentity && !recoveredContinuation) return scoped;
     if (latestMountedUser && !recoveredContinuation) {
       if (!identity.allowStaticFinal) return scoped;
       if (recoveryUserBoundaryKey(latestMountedUser) !== String(identity.visibleUserBoundaryKey || '')) return scoped;
@@ -4611,6 +4660,11 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     }
     // An interrupted bound conversation remains the task's working chat.
     // Retry the same turn instead of losing its live work in a fresh chat.
+    const streamPollingTimeout = Boolean(pageBelongsToTask && !approvalVisible && !turn.final
+      && streamRecoveryPollingTimeoutNotice(routeEndedOwned ? activityTurn : turn));
+    if (streamPollingTimeout) {
+      if (queueInterruptedFreshRetry(task, '检测到 ChatGPT stream recovery polling timed out', Date.now(), routeEndedOwned ? activityTurn : turn)) return;
+    }
     const interrupted = Boolean(pageBelongsToTask && !approvalVisible && connectionInterruptedNotice(routeEndedOwned ? activityTurn : turn));
     if (!approvalVisible && (interrupted || task.pendingContinuationReason)) {
       const reason = interrupted
