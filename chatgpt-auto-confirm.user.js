@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.88
+// @version      2.9.89
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.88';
+  const VERSION = '2.9.89';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
   const replacingActiveInstance = Boolean(previousInstance?.active);
@@ -2780,7 +2780,7 @@ async function bootstrapAttempt() {
     return records;
   }
   function sendTimeoutNotice(turn = null, getPageRecords = pageUiTextRecords) {
-    const pattern = /消息(?:发送)?(?:超时|错误|失败)\s*[，,。.!]?\s*请重试|message (?:send|sending) timed out|message (?:error|failed)[\s,:-]*(?:please )?(?:retry|try again)|failed to send/i;
+    const pattern = /消息(?:发送)?(?:超时|错误|失败)\s*[，,。.!]?\s*请重试|message (?:send|sending) timed out|message (?:error|failed)[\s,:-]*(?:please )?(?:retry|try again)|failed to send|(?:a\s+)?network (?:connection )?(?:error|failure)(?: occurred)?|connection (?:error|failed|failure)|(?:check|verify) (?:your )?(?:internet|network|connection)|网络(?:连接)?(?:错误|失败)|连接(?:错误|失败)|(?:请)?检查(?:一下)?(?:你的|您的)?(?:互联网|网络|连接)/i;
     const retryPattern = /^(?:重试|再次尝试|再试一次|retry|try again|again)(?:\b|$)/i;
     const retryControls = 'button,a,[role="button"]';
     const hasRetryControl = node => {
@@ -2952,6 +2952,9 @@ async function bootstrapAttempt() {
       .replace(/连接已中断[。.!]?\s*正在等待完整回复[。.!]?/gi, ' ')
       .replace(/connection (?:was |has been )?interrupted[.!]?\s*(?:we(?:'re| are) )?waiting for (?:the )?full response[.!]?/gi, ' ')
       .replace(/ChatGPT stream recovery polling timed out[.!]?/gi, ' ')
+      .replace(/A network (?:connection )?(?:error|failure)(?: occurred)?[.!]?\s*(?:Please )?(?:check|verify) (?:your )?(?:internet|network|connection)[\s\S]{0,160}?(?:retry|try again)[.!]?/gi, ' ')
+      .replace(/(?:网络(?:连接)?(?:错误|失败)|连接(?:错误|失败))[，,。.!；;\s]*(?:请)?(?:检查(?:一下)?(?:你的|您的)?(?:互联网|网络|连接)[，,。.!；;\s]*)?(?:重试|再次尝试)?/gi, ' ')
+      .replace(/消息(?:发送)?(?:超时|错误|失败)[，,。.!；;\s]*请重试/gi, ' ')
       .trim();
     return boundedConversationLengthCarry(source);
   }
@@ -3221,6 +3224,7 @@ async function bootstrapAttempt() {
       loading:Boolean(sample?.loading),
       blocker:String(sample?.blocker || ''),
       rateLimit:String(sample?.rateLimit || ''),
+      retryableError:Boolean(sample?.retryableError),
       owned:Boolean(sample?.owned),
       routeOwned:Boolean(sample?.routeOwned),
       foreignTaskId:String(sample?.foreignTaskId || ''),
@@ -5084,19 +5088,15 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       }
       return;
     }
-    if (pageBelongsToTask && !turn.final && !pending.length && sendTimeoutNotice(turn, getPageUiRecords)) {
-      await sendContinuation(task, signal, '检测到“消息错误/发送超时，请重试”');
-      return;
-    }
     const stopPresent = (turn.owned || routeEndedOwned) ? Boolean(stopButton()) : false;
     const loadingStartedAt = performance.now();
     const rawLoading = Boolean(pageLoadingState());
     const loadingScanMs = performance.now() - loadingStartedAt;
     const composerNode = composer();
     const composerReady = Boolean(composerNode);
-    const composerDraft = normalize(composerNode?.value || composerNode?.textContent);
-    const composerEmpty = Boolean(composerReady && !composerDraft);
-    const composerHasRecoveryDraft = Boolean(composerReady && composerDraft === CONTINUATION_PROMPT);
+    let composerDraft = normalize(composerNode?.value || composerNode?.textContent);
+    let composerEmpty = Boolean(composerReady && !composerDraft);
+    let composerHasRecoveryDraft = Boolean(composerReady && composerDraft === CONTINUATION_PROMPT);
     const latestMountedUser = nodes('[data-message-author-role=user]').at(-1) || null;
     const userBoundaryKey = recoveryUserBoundaryKey(latestMountedUser);
     // In a bound owned conversation, active generation exposes Stop. A
@@ -5120,6 +5120,34 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
         || (routeEndedOwned && !hasConversationEvidence)
       )
     );
+    const currentBlocker = blocker();
+    const currentRateLimit = rateLimitNotice(getPageUiRecords);
+    const retryableError = Boolean(pageBelongsToTask && !turn.final && !pending.length
+      && sendTimeoutNotice(routeEndedOwned ? activityTurn : turn, getPageUiRecords));
+    const canClearComposerForEndedCheck = Boolean(
+      routeOwned
+      && (turn.owned || routeEndedOwned)
+      && !foreignTask
+      && !otherRouteOwner
+      && !turn.final
+      && !stopPresent
+      && !activityStreaming
+      && !pending.length
+      && !effectiveLoading
+      && !currentBlocker
+      && !currentRateLimit
+      && !task.attempted,
+    );
+    if (canClearComposerForEndedCheck && composerReady && composerDraft) {
+      setInput(composerNode, '');
+      composerDraft = '';
+      composerEmpty = true;
+      composerHasRecoveryDraft = false;
+      task.abnormalNoFinalSince = 0;
+      task.abnormalNoFinalSignature = '';
+      log(task, '当前会话没有最终回复、停止按钮已消失且没有授权卡；为避免输入框残留内容阻挡异常结束恢复，已清空输入框并重新计时。');
+      save();
+    }
     const fingerprintStartedAt = performance.now();
     const conversationTail = visibleConversationProgressFingerprint();
     const fingerprintMs = performance.now() - fingerprintStartedAt;
@@ -5129,8 +5157,9 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       cards:approvalRouteEligible ? pending.length : 0,
       approvalRouteEligible,
       loading:effectiveLoading,
-      blocker:blocker(),
-      rateLimit:rateLimitNotice(getPageUiRecords),
+      blocker:currentBlocker,
+      rateLimit:currentRateLimit,
+      retryableError,
       // A matching URL is only the route boundary. The task marker on the
       // latest user turn is the message boundary; both are required before
       // reading Stop, approval cards, or an assistant reply.
@@ -5181,7 +5210,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && !sample.rateLimit
       && !sample.blocker
       && sample.composerReady
-      && (sample.composerEmpty || sample.composerHasRecoveryDraft)
+      && sample.composerEmpty
       && !task.attempted,
     );
     let abnormalNoFinalChanged = false;
@@ -5283,7 +5312,10 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     if (abnormalNoFinalEligible
       && abnormalNoFinalFor >= ENDED_NO_FINAL_STABILITY_MS
       && now - Number(task.continuationSentAt || 0) >= CONTINUATION_SEND_COOLDOWN_MS) {
-      if (await sendContinuation(task, signal, '检测到当前会话已经结束但没有最终回复', now)) return;
+      const reason = sample.retryableError
+        ? '检测到当前会话出现可重试错误、且停止生成已结束但没有最终回复'
+        : '检测到当前会话已经结束但没有最终回复';
+      if (queueInterruptedFreshRetry(task, reason, now, routeEndedOwned ? activityTurn : turn, { allowExactRouteFallback:true })) return;
     }
     if (stallEligible && refreshStalledConversation(task)) return;
     if (result.state === 'complete') { finish(task, sample.text); return; }
