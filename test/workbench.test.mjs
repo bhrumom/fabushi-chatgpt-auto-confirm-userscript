@@ -1948,6 +1948,31 @@ test('concurrent script injection mounts one workbench instance',async()=>{
   assert.equal(w.document.querySelectorAll('#fabushi-auto-confirm-bootstrap-v1').length,1);
   dom.window.close();
 });
+test('bootstrap retries a failed workspace claim without losing the fabushi-resume ticket',async()=>{
+  const recoveryToken='bootstrap-retry-token';
+  const ownerTabId='bootstrap-retry-owner';
+  let workspaceClaims=0;
+  const {h,w,dom}=await fixture('',window=>{
+    window.localStorage.setItem(`fabushi-workspace-recovery-v1:${recoveryToken}`,JSON.stringify({ownerTabId,at:Date.now()}));
+    const request=window.navigator.locks.request.bind(window.navigator.locks);
+    window.navigator.locks.request=async(name,options,callback)=>{
+      if(name===`fabushi-workspace-v1:${ownerTabId}` && workspaceClaims++===0) throw new Error('temporary Web Locks failure');
+      return request(name,options,callback);
+    };
+  },`https://chatgpt.com/c/resume-after-bootstrap-error#fabushi-resume=${recoveryToken}`);
+  try {
+    assert.ok(w.document.querySelector('#fabushi-auto-confirm-root'));
+    assert.equal(w.document.querySelectorAll('#fabushi-auto-confirm-root').length,1);
+    assert.equal(h.getTabId(),ownerTabId,'retry must claim the ticketed workspace');
+    assert.ok(workspaceClaims>=2,'workspace lock request is retried');
+    assert.equal(w.location.hash,'','recovery fragment is consumed only after the lock succeeds');
+    assert.equal(w.localStorage.getItem(`fabushi-workspace-recovery-v1:${recoveryToken}`),null);
+    assert.equal(w.document.querySelector('#fabushi-auto-confirm-startup-error'),null);
+  } finally {
+    h.pause();
+    dom.window.close();
+  }
+});
 test('a persisted manual pause is made visible after script reload',async()=>{
   const {h,dom}=await fixture();
   const task={id:'reload-paused',goal:'keep paused',state:'generating',phase:'work',round:1,url:'https://chatgpt.com/c/live',token:'owner',messages:[]};
@@ -3451,8 +3476,8 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.83$/m);
-  assert.match(source,/const VERSION = '2\.9\.83'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.84$/m);
+  assert.match(source,/const VERSION = '2\.9\.84'/);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const ENDED_NO_FINAL_STABILITY_MS = 8000/);

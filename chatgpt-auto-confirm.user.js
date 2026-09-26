@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.83
+// @version      2.9.84
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -12,12 +12,53 @@
 // @run-at       document-idle
 // ==/UserScript==
 
-(async () => {
+const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
+const BOOTSTRAP_STALE_MS = 15_000;
+let bootstrapRetryCount = 0;
+let bootstrapAttemptToken = '';
+let bootstrapCleanup = async () => {};
+
+function showBootstrapFailure() {
+  let root = document.getElementById('fabushi-auto-confirm-startup-error');
+  if (root) return;
+  root = document.createElement('div');
+  root.id = 'fabushi-auto-confirm-startup-error';
+  root.setAttribute('role', 'alert');
+  root.style.cssText = 'position:fixed;right:18px;bottom:18px;z-index:2147483647;padding:12px 14px;border:1px solid #705d32;border-radius:12px;background:#24211a;color:#f2e5c6;font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;box-shadow:0 8px 30px #0008';
+  const label = document.createElement('span');
+  label.textContent = 'Fabushi 自动确认脚本启动失败。任务未启动；可以重试。 ';
+  const retry = document.createElement('button');
+  retry.type = 'button';
+  retry.textContent = '重试';
+  retry.style.cssText = 'margin-left:8px;padding:5px 10px;border:0;border-radius:8px;background:#5747b8;color:#fff;cursor:pointer';
+  retry.addEventListener('click', () => {
+    root.remove();
+    bootstrapRetryCount = 0;
+    runBootstrap();
+  }, { once:true });
+  root.append(label, retry);
+  (document.body || document.documentElement).append(root);
+}
+
+function runBootstrap() {
+  return bootstrapAttempt().catch(async () => {
+    if (window.__FABUSHI_AUTO_CONFIRM_INSTANCE__?.active) return;
+    await bootstrapCleanup().catch(() => {});
+    const marker = document.getElementById(BOOTSTRAP_MARKER);
+    if (marker && marker.dataset.token === bootstrapAttemptToken) marker.remove();
+    if (bootstrapRetryCount < 2) {
+      const delay = 300 * (2 ** bootstrapRetryCount++);
+      return new Promise(resolve => window.setTimeout(() => resolve(runBootstrap()), delay));
+    }
+    showBootstrapFailure();
+  });
+}
+
+async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.83';
-  const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
+  const VERSION = '2.9.84';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
   const replacingActiveInstance = Boolean(previousInstance?.active);
@@ -26,12 +67,19 @@
   // workspace-lock setup). Claim a synchronous DOM marker before awaiting so
   // only one instance can mount a workbench and race for the tab workspace.
   const existingBootstrap = document.getElementById(BOOTSTRAP_MARKER);
-  if (existingBootstrap && !replacingActiveInstance) return;
+  if (existingBootstrap && !replacingActiveInstance) {
+    const startedAt = Number(existingBootstrap.dataset.startedAt || 0);
+    const stale = !window[INSTANCE]?.active && (!startedAt || Date.now() - startedAt > BOOTSTRAP_STALE_MS);
+    if (!stale) return;
+    existingBootstrap.remove();
+  }
   if (existingBootstrap) existingBootstrap.remove();
   const bootstrap = document.createElement('meta');
   bootstrap.id = BOOTSTRAP_MARKER;
   bootstrap.dataset.version = VERSION;
   bootstrap.dataset.token = crypto.randomUUID();
+  bootstrap.dataset.startedAt = String(Date.now());
+  bootstrapAttemptToken = bootstrap.dataset.token;
   (document.head || document.documentElement).append(bootstrap);
   await previousInstance?.shutdown?.();
   document.querySelectorAll('#fabushi-auto-confirm-root').forEach(node => node.remove());
@@ -318,6 +366,7 @@
     && Date.now() - Number(handoffTicket.at) < NAV_TICKET_TTL_MS);
   let recoveredWorkspace = '';
   let pendingTaskTransfer = null;
+  const startupRouteHasTicket = Boolean(taskTransferToken || recoveryToken);
   if (taskTransferToken) {
     const candidate = read(TASK_TRANSFER_KEY + taskTransferToken, null);
     if (candidate && candidate.version === 1 && Date.now() - Number(candidate.at || 0) < 60000
@@ -327,21 +376,12 @@
     } else {
       localStorage.removeItem(TASK_TRANSFER_KEY + taskTransferToken);
     }
-    history.replaceState(history.state, '', location.pathname + location.search);
-    window.opener = null;
   }
   if (recoveryToken) {
     const recovery = read(RECOVERY_KEY + recoveryToken, null);
     if (recovery && Date.now() - recovery.at < NAV_TICKET_TTL_MS) {
       recoveredWorkspace = recovery.ownerTabId;
-      localStorage.removeItem(RECOVERY_KEY + recoveryToken);
-      localStorage.removeItem(RECOVERY_KEY + 'pending:' + recoveredWorkspace);
-      const autoKey = WORKSPACE_AUTO_RECOVERY_KEY + recoveredWorkspace;
-      const autoTicket = read(autoKey, null);
-      if (autoTicket?.token === recoveryToken) localStorage.removeItem(autoKey);
     }
-    history.replaceState(history.state, '', location.pathname + location.search);
-    window.opener = null;
   }
   const automaticRecoveryOwner = !recoveryToken && !sessionTabId ? findAutomaticRecoveryOwner() : '';
   let tabId = recoveredWorkspace || sessionTabId || automaticRecoveryOwner || crypto.randomUUID();
@@ -366,6 +406,7 @@
     workspaceRelease = null;
     await released.catch(() => {});
   }
+  bootstrapCleanup = releaseWorkspace;
   async function reclaimReplacedWorkspace(owner) {
     // Web Locks release runs on its own task queue after the old callback's
     // promise settles. Only a proven same-window replacement may wait for that
@@ -408,6 +449,24 @@
     tabId = crypto.randomUUID();
     await claimWorkspace(tabId);
     sessionStorage.removeItem(NAV);
+  }
+  // Keep recovery/transfer evidence intact until a lock request succeeds.
+  // If lock acquisition rejects, the outer bootstrap retry must see the same
+  // task-bound ticket and conversation route rather than silently starting a
+  // fresh, unrelated workspace.
+  if (startupRouteHasTicket) {
+    if (taskTransferToken) localStorage.removeItem(TASK_TRANSFER_KEY + taskTransferToken);
+    if (recoveryToken) {
+      localStorage.removeItem(RECOVERY_KEY + recoveryToken);
+      if (recoveredWorkspace) {
+        localStorage.removeItem(RECOVERY_KEY + 'pending:' + recoveredWorkspace);
+        const autoKey = WORKSPACE_AUTO_RECOVERY_KEY + recoveredWorkspace;
+        const autoTicket = read(autoKey, null);
+        if (autoTicket?.token === recoveryToken) localStorage.removeItem(autoKey);
+      }
+    }
+    history.replaceState(history.state, '', location.pathname + location.search);
+    window.opener = null;
   }
   sessionStorage.setItem(TAB_SESSION_KEY, tabId);
   const data = read(KEY, { tasks: [], selected: '', autoApprove: true });
@@ -6158,4 +6217,6 @@ NaN
       schedule(1000);
     } else scheduleMemoryMonitor(1000);
   });
-})();
+}
+
+runBootstrap();
