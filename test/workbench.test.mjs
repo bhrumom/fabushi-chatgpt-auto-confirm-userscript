@@ -1056,6 +1056,27 @@ test('verified continuation user turn remains owned by the original task until f
   assert.equal(turn.final,true);
   dom.window.close();
 });
+test('virtualized task marker uses the latest visible reply toolbar without accepting an older toolbar',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">继续完成所有</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">final result</div></div><button aria-label="复制回复"></button><button aria-label="评价回复"></button></article><form><textarea id="prompt-textarea"></textarea></form></main>');
+  w.history.pushState({},'', '/c/virtualized-final-toolbar');
+  const task={id:'virtualized-final-toolbar',ownerTabId:h.getTabId(),goal:'goal',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/virtualized-final-toolbar',token:'unmounted-task-marker',attempted:true,continuationCount:1,messages:[]};
+  h.data.tasks.push(task);
+  const completed=h.latestTurn(task);
+  assert.equal(completed.owned,true,'the exact, uniquely owned route recovers the visible boundary after marker virtualization');
+  assert.equal(completed.text,'final result');
+  assert.equal(completed.final,true,'the current reply-local toolbar proves completion');
+
+  const laterUser=w.document.createElement('article');
+  laterUser.innerHTML='<div data-message-author-role="user">继续完成所有</div>';
+  const laterAssistant=w.document.createElement('article');
+  laterAssistant.innerHTML='<div data-message-author-role="assistant"><div class="markdown">still working</div></div>';
+  w.document.querySelector('main').insertBefore(laterUser,w.document.querySelector('form'));
+  w.document.querySelector('main').insertBefore(laterAssistant,w.document.querySelector('form'));
+  const newer=h.latestTurn(task);
+  assert.equal(newer.text,'still working');
+  assert.equal(newer.final,false,'the older reply toolbar cannot complete a newer user turn');
+  dom.window.close();
+});
 test('send timeout recovery recognizes a retryable assistant error card without matching quoted text',async()=>{
   const page=await fixture('<div role="alert">消息发送超时，请重试。</div>');
   assert.equal(page.h.sendTimeoutNotice(),true);
@@ -3485,8 +3506,8 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.87$/m);
-  assert.match(source,/const VERSION = '2\.9\.87'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.88$/m);
+  assert.match(source,/const VERSION = '2\.9\.88'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 \* 60 \* 1000/);

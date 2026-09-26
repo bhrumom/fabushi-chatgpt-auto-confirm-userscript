@@ -1,8 +1,14 @@
-# Fabushi 独立油猴工作台 2.9.87
+# Fabushi 独立油猴工作台 2.9.88
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.87`。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.88`。
+
+## 2.9.88 虚拟化任务标记后的最终回复识别
+
+- 当长会话卸载原始任务标记消息时，仅在精确会话 URL、单一任务归属、没有其他任务标记，并且最新用户消息确认为脚本已发送的“继续完成所有”时，才建立回复边界。
+- 仍只识别该边界之后最新助手回复自己的复制与完成操作栏；旧回复按钮、活动生成和外部任务不会完成当前任务。
+- 详见 [`final-reply-toolbar-virtualized-marker-v2.9.88.md`](docs/specs/final-reply-toolbar-virtualized-marker-v2.9.88.md)。
 
 ## 2.9.87 同标签页加载恢复
 
