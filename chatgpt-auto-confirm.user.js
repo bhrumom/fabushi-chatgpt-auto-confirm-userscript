@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.84
+// @version      2.9.85
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -9,7 +9,7 @@
 // @downloadURL  https://raw.githubusercontent.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/main/chatgpt-auto-confirm.user.js
 // @grant        none
 // @noframes
-// @run-at       document-idle
+// @run-at       document-start
 // ==/UserScript==
 
 const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.84';
+  const VERSION = '2.9.85';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
   const replacingActiveInstance = Boolean(previousInstance?.active);
