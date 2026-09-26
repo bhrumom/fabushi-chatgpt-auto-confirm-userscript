@@ -1,8 +1,13 @@
-# Fabushi 独立油猴工作台 2.9.86
+# Fabushi 独立油猴工作台 2.9.87
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.86`。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.87`。
+
+## 2.9.87 同标签页加载恢复
+
+- 连续两次快速刷新仍未恢复时，继续由当前标签页持有任务并等待 60 秒，再刷新同一会话；不再请求宿主新开标签页交接任务。
+- 详见 [`same-tab-stalled-route-recovery-v2.9.87.md`](docs/specs/same-tab-stalled-route-recovery-v2.9.87.md)。
 
 ## 2.9.86 降低运行时页面卡顿
 
@@ -59,6 +64,7 @@
 
 - 新文档恢复导航在 8 秒内没有卸载旧文档时，旧标签页停止任务监督并释放工作区锁，保留原任务、会话、发送标识和恢复票据，让 Fabushi 宿主打开的带票据恢复标签页能接管，而不是被旧标签页锁挡住后变成空工作区。
 - 普通同会话恢复仍沿用原有监督行为；只有明确的 `document-recovery` 交接会让出所有权，避免误抢活跃会话。
+- 上述跨文档交接仅为历史版本行为；自 `2.9.87` 起页面卡顿恢复固定在当前标签页执行，连续两次失败后等待 60 秒再刷新同一会话。
 - 页面加载识别只遍历一次包含 `main` 与应用级覆盖层的页面范围，减少长会话中重复扫描。
 - `2.9.75` 的恢复交接与重复扫描修复已并入 `2.9.76`。
 
@@ -370,7 +376,7 @@
 - 修复同一 `/c/<id>` 页面长时间加载时只打印“第 1/2 次单次加载恢复”却没有真正刷新、随后 scheduler 完全停止的问题。
 - same-route recovery 现在执行真实 document reload；普通 same-route 导航仍保持 no-op。
 - 导航被拒绝、ticket 过期或取消后会重新唤醒 scheduler；已提交的 reload/replace 若 8 秒内文档没有卸载，也会由 watchdog 自动解除 `navigating` 并继续检查。
-- `routeRecoveryAttempts` / document recovery budget 只有在 loading 真正消失后才清零，因此能稳定推进 1/2 -> 2/2 -> 一次 fresh-document recovery，而不是反复回到 1/2。
+- 历史版本曾在 1/2 -> 2/2 后进入 fresh-document recovery；自 `2.9.87` 起改为当前标签页等待 60 秒后继续刷新。
 
 ### 2.9.46 通用停滞刷新改为 15 分钟
 
