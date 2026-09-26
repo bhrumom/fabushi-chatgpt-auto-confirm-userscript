@@ -321,7 +321,7 @@ test('Stop disappearance with an active assistant busy marker never triggers an 
   }
 });
 
-test('marker-virtualized exact-route waiting task continues after end detection without manual recovery',async()=>{
+test('marker-virtualized exact-route waiting task queues a fresh session after stable abnormal end',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user" data-message-id="older-visible-user">更早的普通用户消息</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div data-testid="tool-call-result">已调用工具</div></div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   try {
     w.history.pushState({},'', '/c/route-ended-without-marker');
@@ -338,9 +338,12 @@ test('marker-virtualized exact-route waiting task continues after end detection 
     task.abnormalNoFinalSince=Date.now()-9_000;
     await h.inspect(task,null);
 
-    assert.equal(task.continuationCount,1);
-    assert.equal(clicks,1);
-    assert.equal(w.document.querySelector('#prompt-textarea').value,'继续完成所有');
+    assert.equal(task.state,'queued');
+    assert.equal(task.url,'');
+    assert.equal(task.token,'');
+    assert.equal(task.connectionInterruptedFreshDispatch,true);
+    assert.equal(task.continuationCount,0);
+    assert.equal(clicks,0);
     assert.match(task.messages.at(-1).text,/检测到当前会话已经结束但没有最终回复/);
     assert.equal(task.stalledRefreshAttempts||0,0);
   } finally {
@@ -349,7 +352,7 @@ test('marker-virtualized exact-route waiting task continues after end detection 
   }
 });
 
-test('route-owned ended detection never overwrites a user draft',async()=>{
+test('route-owned abnormal-end detection clears a blocking composer draft before stable retry',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">older visible user</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div data-testid="tool-call-result">已调用工具</div></div></article><form><textarea id="prompt-textarea">用户正在输入的草稿</textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   try {
     w.history.pushState({},'', '/c/route-ended-draft');
@@ -358,15 +361,17 @@ test('route-owned ended detection never overwrites a user draft',async()=>{
     let clicks=0;
     w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>clicks++);
     await h.start(false);
-    task.abnormalNoFinalSince=Date.now()-9_000;
-    task.abnormalNoFinalSignature='legacy-ended';
     await h.inspect(task,null);
+    assert.equal(w.document.querySelector('#prompt-textarea').value,'','the stale composer contents are cleared only after exact-route idle checks pass');
+    assert.equal(task.state,'waiting','clearing the composer starts a fresh stability interval');
+    assert.match(task.messages.at(-1).text,/已清空输入框并重新计时/);
     await h.inspect(task,null);
 
+    assert.equal(task.state,'waiting','the task waits for a full fresh stability interval');
     assert.equal(task.continuationCount||0,0);
     assert.equal(clicks,0);
-    assert.equal(w.document.querySelector('#prompt-textarea').value,'用户正在输入的草稿');
-    assert.equal(task.abnormalNoFinalSince||0,0,'a non-empty draft disables ended-conversation continuation');
+    assert.equal(w.document.querySelector('#prompt-textarea').value,'');
+    assert.ok(Number(task.abnormalNoFinalSince)>0);
   } finally {
     h.pause();
     dom.window.close();
@@ -396,7 +401,7 @@ test('route-owned ended detection refuses a still-mounted task marker followed b
   }
 });
 
-test('waiting response detects an ended bound conversation and continues after eight stable seconds even with a stale page loader',async()=>{
+test('waiting response queues a fresh session after eight stable seconds despite a stale page loader',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish all [Fabushi:ended-waiting-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div data-testid="tool-call-result">已调用工具</div></div></article><div role="status" class="loading"><svg></svg>Loading history</div><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   try {
     w.history.pushState({},'', '/c/ended-waiting');
@@ -415,13 +420,14 @@ test('waiting response detects an ended bound conversation and continues after e
     task.abnormalNoFinalSince=Date.now()-9_000;
     await h.inspect(task,null);
 
-    assert.equal(task.state,'waiting');
-    assert.equal(task.continuationCount,1);
-    assert.equal(clicks,1);
-    assert.equal(w.document.querySelector('#prompt-textarea').value,'继续完成所有');
+    assert.equal(task.state,'queued');
+    assert.equal(task.url,'');
+    assert.equal(task.continuationCount||0,0);
+    assert.equal(clicks,0);
+    assert.equal(w.document.querySelector('#prompt-textarea').value,'');
     assert.match(task.messages.at(-1).text,/检测到当前会话已经结束但没有最终回复/);
-    assert.match(task.messages.at(-1).text,/原会话输入并发送“继续完成所有”/);
-    assert.equal(task.stalledRefreshAttempts||0,0,'ended-response continuation happens before the fifteen-minute stalled refresh');
+    assert.match(task.messages.at(-1).text,/新的 ChatGPT 会话/);
+    assert.equal(task.stalledRefreshAttempts||0,0,'abnormal-end recovery queues a fresh session before the fifteen-minute stalled refresh');
   } finally {
     h.pause();
     dom.window.close();
@@ -446,9 +452,11 @@ test('manual recovered marker-virtualized tool-only conversation also continues 
     task.abnormalNoFinalSince=Date.now()-9_000;
     await h.inspect(task,null);
 
-    assert.equal(task.continuationCount,1);
-    assert.equal(clicks,1);
-    assert.equal(w.document.querySelector('#prompt-textarea').value,'继续完成所有');
+    assert.equal(task.state,'queued');
+    assert.equal(task.url,'');
+    assert.equal(task.continuationCount,0);
+    assert.equal(clicks,0);
+    assert.equal(w.document.querySelector('#prompt-textarea').value,'');
     assert.equal(task.stalledRefreshAttempts||0,0);
   } finally {
     h.pause();
@@ -772,8 +780,8 @@ test('connection interruption route fallback refuses a foreign task marker on th
   }
 });
 
-test('a stale earlier retry error cannot override a newer final reply',async()=>{
-  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">goal [Fabushi:stale-error-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div>消息错误，请重试。</div><button aria-label="重试"></button></div></article><article data-testid="conversation-turn-user"><div data-message-author-role="user">继续完成所有</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">final result</div><button aria-label="复制回复"></button><button aria-label="评价回复"></button></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
+test('a stale earlier network error cannot override a newer final reply',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">goal [Fabushi:stale-error-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div>A network error occurred. Please check your connection and try again.</div><button aria-label="Retry"></button></div></article><article data-testid="conversation-turn-user"><div data-message-author-role="user">继续完成所有</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">final result</div><button aria-label="复制回复"></button><button aria-label="评价回复"></button></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   w.history.pushState({},'', '/c/stale-error-final');
   const task={id:'stale-error-final',ownerTabId:h.getTabId(),goal:'goal',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/stale-error-final',token:'stale-error-token',continuationCount:1,messages:[]};
   h.data.tasks.push(task);
@@ -1086,6 +1094,18 @@ test('send timeout recovery recognizes a retryable assistant error card without 
   assert.equal(assistantError.h.sendTimeoutNotice(),true,'an assistant error card with a retry control is actionable');
   assistantError.dom.window.close();
 
+  const networkError=await fixture('<article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div>A network error occurred. Please check your connection and try again.</div><button aria-label="Retry"></button></div></article>');
+  assert.equal(networkError.h.sendTimeoutNotice(),true,'the visible generic ChatGPT network error is retryable');
+  networkError.dom.window.close();
+
+  const noRetry=await fixture('<article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div>A network error occurred. Please check your connection and try again.</div></div></article>');
+  assert.equal(noRetry.h.sendTimeoutNotice(),false,'network wording without a retry control is not actionable');
+  noRetry.dom.window.close();
+
+  const localizedNetworkError=await fixture('<article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div>网络连接失败，请检查您的网络后重试。</div><button aria-label="重试"></button></div></article>');
+  assert.equal(localizedNetworkError.h.sendTimeoutNotice(),true,'localized network errors with a retry action are actionable');
+  localizedNetworkError.dom.window.close();
+
   const quoted=await fixture('<div data-message-author-role="assistant">消息发送超时，请重试。</div>');
   assert.equal(quoted.h.sendTimeoutNotice(),false,'task transcript must not trigger a resend');
   const ownNotice=quoted.w.document.createElement('div');
@@ -1094,7 +1114,34 @@ test('send timeout recovery recognizes a retryable assistant error card without 
   assert.equal(quoted.h.sendTimeoutNotice(),false,'workbench logs must not self-trigger');
   quoted.dom.window.close();
 });
-test('inspect appends continuation in the same bound chat after a retryable message error',async()=>{
+test('inspect opens a fresh session after a stable virtualized-task network error',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">继续完成所有</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div>A network error occurred. Please check your connection and try again.</div><button aria-label="Retry"></button></div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">Send</button></form></main>');
+  const task={id:'network-error-inspect',ownerTabId:h.getTabId(),goal:'finish implementation',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/network-error-inspect',token:'virtualized-network-token',attempted:false,continuationCount:1,noFinalReplyAttempts:0,messages:[]};
+  h.data.tasks.push(task);
+  w.history.pushState({},'', '/c/network-error-inspect');
+  let clicks=0;
+  w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>clicks++);
+  await h.start();
+  try {
+    await h.inspect(task,null);
+    assert.equal(task.state,'waiting','the actionable error still passes the stability gate');
+    assert.ok(Number(task.abnormalNoFinalSince)>0);
+    task.abnormalNoFinalSince=Date.now()-9_000;
+    await h.inspect(task,null);
+    assert.equal(task.state,'queued');
+    assert.equal(task.url,'');
+    assert.equal(task.connectionInterruptedFreshDispatch,true);
+    assert.equal(task.continuationCount,0);
+    assert.equal(w.document.querySelector('#prompt-textarea').value,'');
+    assert.equal(clicks,0);
+    assert.equal(task.abnormalFreshCarry||'','', 'the error notice itself is not carried as useful work');
+    assert.match(task.messages.at(-1).text,/可重试错误/);
+  } finally {
+    h.pause();
+    dom.window.close();
+  }
+});
+test('inspect opens a fresh session after a stable retryable message error',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">recover timeout [Fabushi:old-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div>消息错误，请重试。</div><button aria-label="重试"></button></div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   const task={id:'timeout-inspect',ownerTabId:h.getTabId(),goal:'recover timeout',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/timeout-inspect',token:'old-token',attempted:false,noFinalReplyAttempts:0,messages:[]};
   h.data.tasks.push(task);
@@ -1104,13 +1151,18 @@ test('inspect appends continuation in the same bound chat after a retryable mess
   await h.start();
   await h.inspect(task,null);
   assert.equal(task.state,'waiting');
-  assert.equal(task.url,'https://chatgpt.com/c/timeout-inspect');
-  assert.equal(task.token,'old-token');
+  assert.ok(Number(task.abnormalNoFinalSince)>0);
+  task.abnormalNoFinalSince=Date.now()-9_000;
+  await h.inspect(task,null);
+  assert.equal(task.state,'queued');
+  assert.equal(task.url,'');
+  assert.equal(task.token,'');
   assert.equal(task.noFinalReplyAttempts,0);
-  assert.equal(task.continuationCount,1);
-  assert.equal(w.document.querySelector('#prompt-textarea').value,'继续完成所有');
-  assert.equal(clicks,1);
-  assert.match(task.messages.at(-1).text,/原会话输入并发送“继续完成所有”/);
+  assert.equal(task.continuationCount,0);
+  assert.equal(w.document.querySelector('#prompt-textarea').value,'');
+  assert.equal(clicks,0);
+  assert.match(task.messages.at(-1).text,/可重试错误/);
+  assert.match(task.messages.at(-1).text,/新的 ChatGPT 会话/);
   h.pause();
   dom.window.close();
 });
@@ -3506,8 +3558,8 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.88$/m);
-  assert.match(source,/const VERSION = '2\.9\.88'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.89$/m);
+  assert.match(source,/const VERSION = '2\.9\.89'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 \* 60 \* 1000/);
@@ -3620,7 +3672,7 @@ test('turn-sibling extraction excludes hidden content and foreign user turns',as
   } finally {dom.window.close();}
 });
 
-test('resumed ended conversation sends an exact recovery composer draft after the stability gate',async()=>{
+test('resumed ended conversation clears a recovery composer draft and restarts the stability gate',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">resume task [Fabushi:recovery-draft]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div data-testid="tool-call-result">已调用工具</div></div></article><form><textarea id="prompt-textarea">继续完成所有</textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   try {
     w.history.pushState({},'', '/c/recovery-draft');
@@ -3631,14 +3683,14 @@ test('resumed ended conversation sends an exact recovery composer draft after th
     await h.start(false);
     await h.inspect(task,null);
     assert.equal(task.continuationCount||0,0,'the ended state still waits for a stable observation');
+    assert.equal(w.document.querySelector('#prompt-textarea').value,'','script recovery text does not block abnormal-end detection');
     assert.ok(Number(task.abnormalNoFinalSince)>0);
-    task.abnormalNoFinalSince=Date.now()-9000;
     await h.inspect(task,null);
-    assert.equal(clicks,1);
-    assert.equal(task.continuationCount,1);
+    assert.equal(clicks,0);
+    assert.equal(task.state,'waiting');
+    assert.equal(task.continuationCount||0,0);
     assert.equal(task.url,'https://chatgpt.com/c/recovery-draft');
-    assert.equal(w.document.querySelector('#prompt-textarea').value,'继续完成所有');
-    assert.equal(task.pendingContinuationReason,'');
+    assert.ok(Number(task.abnormalNoFinalSince)>0);
   } finally {h.pause();dom.window.close();}
 });
 
