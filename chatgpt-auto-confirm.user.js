@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.86
+// @version      2.9.87
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.86';
+  const VERSION = '2.9.87';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
   const replacingActiveInstance = Boolean(previousInstance?.active);
@@ -137,6 +137,7 @@ async function bootstrapAttempt() {
   const MAX_REVIEW_REPAIR_ATTEMPTS = 2;
   const ROUTE_HYDRATION_TIMEOUT_MS = 30000;
   const ROUTE_RECOVERY_LIMIT = 2;
+  const ROUTE_RECOVERY_RETRY_INTERVAL_MS = 60 * 1000;
   const CONTINUATION_PROMPT = '继续完成所有';
   const MAX_SAME_SESSION_CONTINUATIONS = 3;
   const CONTINUATION_SEND_COOLDOWN_MS = 60 * 1000;
@@ -185,7 +186,6 @@ async function bootstrapAttempt() {
   const WORKSPACE_HEARTBEAT_INTERVAL_MS = 15000;
   const WORKSPACE_HEARTBEAT_STALE_MS = 120000;
   const WORKSPACE_RECOVERY_SCAN_MS = 15000;
-  const WORKSPACE_DOCUMENT_RECOVERY_LIMIT = 1;
   const HOST_RECOVERY_CAPABILITY = 'tab-recovery';
   const HOST_RECOVERY_REQUEST_TYPE = 'recovery-capability.request';
   const HOST_RECOVERY_RELEASE_TYPE = 'recovery-capability.release';
@@ -851,24 +851,8 @@ async function bootstrapAttempt() {
       navigating = false;
       if (task && !terminal.has(task.state) && task.state !== 'paused') {
         task.updatedAt = Date.now();
-        if (reason === 'document-recovery') {
-          log(task, `恢复页面在 ${Math.ceil(delayMs / 1000)} 秒内未完成文档交接；已停止本标签页监督并释放工作区锁，避免与宿主打开的恢复标签页争抢任务。任务与恢复票据保留，由恢复标签页取得唯一执行权。`);
-        } else {
-          log(task, `页面恢复导航已提交但当前文档在 ${Math.ceil(delayMs / 1000)} 秒内没有卸载；已自动解除导航等待并继续监督，不会静默停止。`);
-        }
+        log(task, `页面恢复导航已提交但当前文档在 ${Math.ceil(delayMs / 1000)} 秒内没有卸载；已自动解除导航等待并继续监督，不会静默停止。`);
         save();
-      }
-      if (reason === 'document-recovery') {
-        // A host-created recovery tab carries the same workspace ticket and
-        // must acquire this document's Web Lock before it can resume. If the
-        // failed document navigation did not unload this page, continuing to
-        // supervise here would leave the replacement tab empty (or create a
-        // split-brain sender). Yield only for this explicit, ticketed handoff.
-        haltRunnerForPause();
-        stopWorkspaceHeartbeat('document-recovery-handoff');
-        void releaseWorkspace();
-        paint();
-        return;
       }
       schedule(100);
     }, Math.max(100, Number(delayMs) || NAVIGATION_COMMIT_WATCHDOG_MS));
@@ -878,11 +862,13 @@ async function bootstrapAttempt() {
     const changed = Boolean(task.rendererRecoveryExhausted
       || task.routeRecoveryAttempts
       || task.workspaceDocumentRecoveryAttempts
+      || task.routeRecoveryRetryAt
       || task.sendUiWaitSince);
     if (!changed) return false;
     task.rendererRecoveryExhausted = false;
     task.routeRecoveryAttempts = 0;
     task.workspaceDocumentRecoveryAttempts = 0;
+    task.routeRecoveryRetryAt = 0;
     task.sendUiWaitSince = 0;
     task.updatedAt = Date.now();
     return true;
@@ -4025,45 +4011,6 @@ async function bootstrapAttempt() {
     });
   }
 
-  function recoverThroughFreshDocument(task) {
-    if (!task || Number(task.workspaceDocumentRecoveryAttempts || 0) >= WORKSPACE_DOCUMENT_RECOVERY_LIMIT) return false;
-    const root = new URL('/', location.origin);
-    const ticket = ensureAutomaticRecoveryTicket(task, { force:true, destination:root.href });
-    if (!ticket) return false;
-    const nextAttempt = Number(task.workspaceDocumentRecoveryAttempts || 0) + 1;
-    task.workspaceDocumentRecoveryAttempts = nextAttempt;
-    task.rendererRecoveryExhausted = true;
-    task.state = 'waiting';
-    task.updatedAt = Date.now();
-    sessionStorage.setItem(NAV, JSON.stringify({
-      path:root.pathname,
-      href:root.href,
-      at:Date.now(),
-      task:task.id,
-      attempts:nextAttempt,
-      assigned:true,
-      direct:true,
-      purpose:'recovery',
-      phase:String(task.phase || 'work'),
-      round:Number(task.round || 0),
-      goalRevision:Number(task.goalRevision || 0),
-      recovery:true,
-      documentRecovery:true,
-      resume:true,
-    }));
-    log(task, 'ChatGPT 页面持续卡住；正在通过一次新的文档交接恢复原任务，保留会话、发送标识和附件，不会重复派发。');
-    sameRouteWaitUntil = 0;
-    sameRouteWaitSince = 0;
-    return beginGuardedNavigation(ticket.recoveryURL, task, {
-      replace:true,
-      force:true,
-      recovery:true,
-      ticketPath:root.pathname,
-      ticketHref:root.href,
-      reason:'document-recovery',
-    });
-  }
-
   function recoverStalledRoute(target, task) {
     // Entering route recovery is itself a persisted recovery boundary. Arm a
     // phase/round/token identity before inspecting the live DOM so a completed
@@ -4088,18 +4035,32 @@ async function bootstrapAttempt() {
       navigating = false;
       return false;
     }
+    const now = Date.now();
+    if (task?.rendererRecoveryExhausted) {
+      const retryAt = Number(task.routeRecoveryRetryAt || 0);
+      if (retryAt > now) {
+        sameRouteWaitSince = now;
+        sameRouteWaitUntil = retryAt;
+        navigating = false;
+        return false;
+      }
+      task.rendererRecoveryExhausted = false;
+      task.routeRecoveryRetryAt = 0;
+      task.routeRecoveryAttempts = 0;
+    }
     const attempts = Number(task?.routeRecoveryAttempts || 0);
-    if (task?.rendererRecoveryExhausted || attempts >= ROUTE_RECOVERY_LIMIT) {
-      if (task && !task.rendererRecoveryExhausted) {
-        if (Number(task.workspaceDocumentRecoveryAttempts || 0) < WORKSPACE_DOCUMENT_RECOVERY_LIMIT) {
-          return recoverThroughFreshDocument(task);
-        }
+    if (attempts >= ROUTE_RECOVERY_LIMIT) {
+      if (task) {
+        task.routeRecoveryAttempts = 0;
         task.rendererRecoveryExhausted = true;
-        state(task, 'waiting', 'ChatGPT 页面仍未完成加载；已停止重复刷新，保留当前会话和发送意图，等待页面恢复后继续。');
+        task.routeRecoveryRetryAt = now + ROUTE_RECOVERY_RETRY_INTERVAL_MS;
+        task.updatedAt = now;
+        task.state = 'waiting';
+        log(task, `ChatGPT 页面仍未恢复；保留当前标签页和原任务，${Math.ceil(ROUTE_RECOVERY_RETRY_INTERVAL_MS / 1000)} 秒后在此标签页再次刷新并等待。`);
         save();
       }
-      sameRouteWaitUntil = Date.now() + 5000;
-      sameRouteWaitSince = Date.now();
+      sameRouteWaitUntil = task?.routeRecoveryRetryAt || now + ROUTE_RECOVERY_RETRY_INTERVAL_MS;
+      sameRouteWaitSince = now;
       navigating = false;
       return false;
     }
@@ -4108,9 +4069,8 @@ async function bootstrapAttempt() {
     if (task) {
       task.routeRecoveryAttempts = nextAttempt;
       task.rendererRecoveryExhausted = false;
-      task.updatedAt = Date.now();
+      task.updatedAt = now;
     }
-    const now = Date.now();
     sessionStorage.setItem(NAV, JSON.stringify({
       path: target.pathname,
       href,
@@ -4398,12 +4358,12 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
         if (!loadingReason && !activeAssistantGeneration() && resetRendererRecoveryState(task)) save();
         return true;
       }
+      // Once the bounded quick attempts are exhausted, keep the original
+      // document as the sole owner. Wake at the persisted backoff deadline
+      // and reload this exact route instead of yielding to a host-created tab.
+      if (task?.rendererRecoveryExhausted) return recoverStalledRoute(target, task);
       if (requireComposer && loadingReason) return holdForChatGPTLoading(task, loadingReason);
       const now = Date.now();
-      if (task?.rendererRecoveryExhausted) {
-        sameRouteWaitUntil = now + 5000;
-        return false;
-      }
       if (!sameRouteWaitSince) sameRouteWaitSince = now;
       // The route is already correct, but ChatGPT has not hydrated the input
       // yet. Wait once, then perform at most two explicit recovery loads. Do

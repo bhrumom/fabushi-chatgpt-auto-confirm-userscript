@@ -2763,7 +2763,7 @@ test('same-route recovery is a committed reload path and watchdog re-arms a sche
   }
 });
 
-test('failed fresh-document recovery yields the workspace lock for the ticketed replacement tab',async()=>{
+test('same-tab recovery cooldown retains the runner and workspace lock',async()=>{
   const {h,w,dom}=await fixture('<main><article data-message-author-role="user">goal [Fabushi:document-recovery-yield]</article><div class="animate-spin"></div></main>');
   try {
     w.history.replaceState({},'', '/c/document-recovery-yield');
@@ -2773,16 +2773,13 @@ test('failed fresh-document recovery yields the workspace lock for the ticketed 
     await h.start(false);
     h.recoverStalledRoute(new w.URL(task.url),task);
     await new Promise(resolve=>w.setTimeout(resolve,0));
-    assert.equal(h.getNavigationState().navigating,true);
-    h.armNavigationCommitWatchdog(task,'document-recovery',10);
-    await new Promise(resolve=>w.setTimeout(resolve,300));
-    await new Promise(resolve=>w.setTimeout(resolve,0));
     assert.equal(task.state,'waiting','the persisted task remains resumable');
     assert.equal(task.ownerTabId,owner,'ownership identity remains bound to the recovery ticket');
-    assert.ok(task.messages.some(message=>message.text.includes('释放工作区锁')),`the handoff is visible in task history: ${JSON.stringify({messages:task.messages,state:h.getNavigationState()})}`);
-    assert.equal(h.getNavigationState().timer,false,'the failed page stops supervising instead of racing the replacement');
+    assert.ok(task.messages.some(message=>message.text.includes('当前标签页')&&message.text.includes('再次刷新')));
+    assert.equal(h.getNavigationState().navigating,false,'the recovery interval is a wait, not an attempted document handoff');
+    assert.equal(h.getNavigationState().timer,true,'the original page keeps its supervision timer');
     const locks=await w.navigator.locks.query();
-    assert.equal(locks.held.some(lock=>lock.name===`fabushi-workspace-v1:${owner}`),false,'the replacement can claim the workspace lock');
+    assert.equal(locks.held.some(lock=>lock.name===`fabushi-workspace-v1:${owner}`),true,'the same tab keeps exclusive ownership');
   } finally {
     h.pause();
     dom.window.close();
@@ -2831,7 +2828,7 @@ test('owned route inspection preserves loading recovery counters until loading t
   }
 });
 
-test('loading recovery progresses from second route attempt into one fresh-document handoff',async()=>{
+test('loading recovery backs off and retries the same conversation in the current tab',async()=>{
   const {h,w,dom}=await fixture();
   try {
     const task={id:'loading-budget',ownerTabId:h.getTabId(),goal:'goal',mode:'once',phase:'work',round:1,goalRevision:0,state:'loading',url:'https://chatgpt.com/c/loading-budget',token:'loading-budget',messages:[],routeRecoveryAttempts:1,workspaceDocumentRecoveryAttempts:0,rendererRecoveryExhausted:false};
@@ -2840,8 +2837,14 @@ test('loading recovery progresses from second route attempt into one fresh-docum
     assert.equal(task.routeRecoveryAttempts,2);
     assert.ok(task.messages.some(message=>/第 2\/2 次/.test(message.text)));
     h.recoverStalledRoute(new w.URL(task.url),task);
-    assert.equal(task.workspaceDocumentRecoveryAttempts,1,'after 2/2 the next recovery is the bounded fresh-document handoff');
+    assert.equal(task.workspaceDocumentRecoveryAttempts||0,0,'route recovery no longer requests a replacement document');
     assert.equal(task.rendererRecoveryExhausted,true);
+    assert.equal(task.routeRecoveryAttempts,0,'quick attempts reset for the next delayed retry cycle');
+    assert.ok(task.routeRecoveryRetryAt-Date.now()>=59900);
+    assert.match(task.messages.at(-1).text,/60 秒后在此标签页再次刷新/);
+    const ticket=JSON.parse(w.sessionStorage.getItem('fabushi-workbench-navigation-v2'));
+    assert.equal(ticket.path,'/c/loading-budget');
+    assert.equal(ticket.documentRecovery,undefined);
   } finally {
     h.pause();
     dom.window.close();
@@ -3191,21 +3194,27 @@ test('automatic recovery ignores healthy, paused and ambiguous workspaces',async
   ambiguous.dom.window.close();
 });
 
-test('stalled route hands off once through a fresh document without clearing attachments or dispatch identity',async()=>{
+test('stalled route backs off without changing the current task, attachment, or recovery ticket route',async()=>{
   const {h,w,dom}=await fixture();
+  const originalNow=w.Date.now;
+  let fakeNow=originalNow();
+  w.Date.now=()=>fakeNow;
   const task={id:'stalled-route',ownerTabId:h.getTabId(),goal:'恢复卡住页面',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/stalled-route',token:'stable-token',attempted:true,attachments:[{id:'clip',name:'卡住证据.png',type:'image/png',size:10,lastModified:1}],messages:[],routeRecoveryAttempts:2,rendererRecoveryExhausted:false};
   h.data.tasks.push(task);
   h.recoverStalledRoute(new w.URL(task.url),task);
-  assert.equal(task.workspaceDocumentRecoveryAttempts,1);
+  assert.equal(task.workspaceDocumentRecoveryAttempts||0,0);
   assert.equal(task.rendererRecoveryExhausted,true);
   assert.equal(task.token,'stable-token');
+  assert.equal(task.attempted,true);
   assert.deepEqual(task.attachments,[{id:'clip',name:'卡住证据.png',type:'image/png',size:10,lastModified:1}]);
-  const ticket=JSON.parse(w.sessionStorage.getItem('fabushi-workbench-navigation-v2'));
-  assert.equal(ticket.documentRecovery,true);
-  assert.equal(ticket.path,'/');
-  assert.match(ticket.href,/^https:\/\/chatgpt\.com\/$/);
+  assert.equal(w.sessionStorage.getItem('fabushi-workbench-navigation-v2'),null,'cooldown does not start a new-document handoff');
+  fakeNow+=60000;
   h.recoverStalledRoute(new w.URL(task.url),task);
-  assert.equal(task.workspaceDocumentRecoveryAttempts,1,'a stalled document cannot create repeated handoffs');
+  const ticket=JSON.parse(w.sessionStorage.getItem('fabushi-workbench-navigation-v2'));
+  assert.equal(ticket.documentRecovery,undefined);
+  assert.equal(ticket.path,'/c/stalled-route');
+  assert.equal(ticket.href,task.url);
+  assert.equal(task.routeRecoveryAttempts,1,'the delayed attempt restarts same-route reloads');
   h.pause();
   dom.window.close();
 });
@@ -3476,8 +3485,8 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.86$/m);
-  assert.match(source,/const VERSION = '2\.9\.86'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.87$/m);
+  assert.match(source,/const VERSION = '2\.9\.87'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 \* 60 \* 1000/);
