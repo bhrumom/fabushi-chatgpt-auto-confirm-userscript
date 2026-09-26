@@ -3476,8 +3476,9 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.84$/m);
-  assert.match(source,/const VERSION = '2\.9\.84'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.85$/m);
+  assert.match(source,/const VERSION = '2\.9\.85'/);
+  assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const ENDED_NO_FINAL_STABILITY_MS = 8000/);
@@ -3493,6 +3494,17 @@ test('the packaged userscript declares its stable remote update and download URL
   assert.match(source,/connection-interrupted-fresh-chat/);
   assert.match(source,/^\/\/ @updateURL\s+https:\/\/raw\.githubusercontent\.com\/bhrumom\/fabushi-chatgpt-auto-confirm-userscript\/main\/chatgpt-auto-confirm\.user\.js$/m);
   assert.match(source,/^\/\/ @downloadURL\s+https:\/\/raw\.githubusercontent\.com\/bhrumom\/fabushi-chatgpt-auto-confirm-userscript\/main\/chatgpt-auto-confirm\.user\.js$/m);
+});
+
+test('the workbench mounts while the ChatGPT document is still loading',async()=>{
+  const {w,dom}=await fixture('',window=>{
+    Object.defineProperty(window.document,'readyState',{configurable:true,get:()=> 'loading'});
+  });
+  try {
+    assert.equal(w.document.readyState,'loading');
+    assert.ok(w.document.documentElement.querySelector('#fabushi-auto-confirm-root'));
+    assert.equal(w.document.querySelectorAll('#fabushi-auto-confirm-root').length,1);
+  } finally { dom.window.close(); }
 });
 
 test('live assistant turn extracts sibling Markdown and connection interruption continues in the same chat once',async()=>{
