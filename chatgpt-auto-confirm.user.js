@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.87
+// @version      2.9.88
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.87';
+  const VERSION = '2.9.88';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
   const replacingActiveInstance = Boolean(previousInstance?.active);
@@ -3344,6 +3344,25 @@ async function bootstrapAttempt() {
     const scoped = Boolean(task && typeof task === 'object');
     const markedUser = scoped ? taskMarkerUser(task) : null;
     const latestUser = users.at(-1);
+    // Long conversations can virtualize the original Fabushi marker turn.
+    // When that happens, a recorded scripted continuation is a verifiable
+    // visible boundary, but only on the exact task route and when no other
+    // task owns the route or has a marker mounted in this document. The
+    // assistant/toolbar checks below still decide whether its reply is final.
+    const liveURL = scoped ? currentConversationURL() : '';
+    const routeVirtualizedFallback = Boolean(
+      scoped
+      && !markedUser
+      && task.attempted
+      && task.token
+      && latestUser
+      && Number(task.continuationCount || 0) > 0
+      && normalize(text(latestUser)) === CONTINUATION_PROMPT
+      && liveURL
+      && canonicalConversationURL(task.url) === liveURL
+      && !conversationURLOwner(liveURL, task.id)
+      && !tabTasks().some(item => item.id !== task.id && item.token && taskMarkerUser(item)),
+    );
     // Recovery continuations intentionally do not repeat the Fabushi task
     // marker. Treat the exact continuation prompt as part of the same task
     // only when it follows this task's marked user turn and this task has
@@ -3357,11 +3376,15 @@ async function bootstrapAttempt() {
       && Boolean(markedUser.compareDocumentPosition(latestUser) & Node.DOCUMENT_POSITION_FOLLOWING)
         ? latestUser
         : null;
-    const user = scoped ? (continuationUser || markedUser) : latestUser;
+    const user = scoped ? (continuationUser || markedUser || (routeVirtualizedFallback ? latestUser : null)) : latestUser;
     // A task marker (or a verified continuation after it) is necessary but not
     // sufficient: if a different user turn is newer, fail closed instead of
     // attributing that response to this task.
-    const owned = !scoped || Boolean(user && user === latestUser && (user === markedUser || user === continuationUser));
+    const owned = !scoped || Boolean(user && user === latestUser && (
+      user === markedUser
+      || user === continuationUser
+      || routeVirtualizedFallback
+    ));
     if (scoped && !owned) {
       return {
         user: text(user),
