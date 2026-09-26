@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.85
+// @version      2.9.86
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.85';
+  const VERSION = '2.9.86';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
   const replacingActiveInstance = Boolean(previousInstance?.active);
@@ -1806,39 +1806,66 @@ async function bootstrapAttempt() {
     : [];
   function pageUiTextRecords() {
     const startedAt = performance.now();
-    const root = document.body || document.documentElement;
-    if (!root) {
+    const main = document.querySelector('main,[role="main"]');
+    const body = document.body || document.documentElement;
+    if (!main && !body) {
       scanDiagnostics.pageUiCalls += 1;
       scanDiagnostics.pageUiMs += performance.now() - startedAt;
       return [];
     }
+    // Page notices normally live in the primary surface. Scanning body used
+    // to include the sidebar, hidden menus, and every unrelated page widget on
+    // each runner tick. Keep just the main surface plus compact semantic
+    // overlays that ChatGPT may portal outside main.
+    const roots = [];
+    const addRoot = node => {
+      if (!node || own(node) || roots.some(root => root === node || root.contains(node))) return;
+      for (let index = roots.length - 1; index >= 0; index -= 1) {
+        if (node.contains(roots[index])) roots.splice(index, 1);
+      }
+      roots.push(node);
+    };
+    addRoot(main || body);
+    if (main) {
+      for (const overlay of document.querySelectorAll('[role="alert"],[role="status"],[role="dialog"],[role="alertdialog"],[aria-modal="true"],[aria-live="assertive"],[aria-live="polite"]')) {
+        if (!main.contains(overlay) && !overlay.contains(main)) addRoot(overlay);
+      }
+    }
     const records = [];
     let visited = 0;
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
-      acceptNode(node) {
-        if (node.nodeType === Node.ELEMENT_NODE) {
-          // Rejecting a transcript root skips its entire historical subtree;
-          // the previous body-wide text walker still visited every token even
-          // though every matching node was discarded afterwards.
-          if (own(node) || node.matches?.('[data-message-author-role],blockquote,pre,code')) return NodeFilter.FILTER_REJECT;
-          return NodeFilter.FILTER_ACCEPT;
-        }
-        const parent = node.parentElement;
-        return parent && !own(parent) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
-      },
-    });
-    let current;
-    while ((current = walker.nextNode())) {
-      visited += 1;
-      if (current.nodeType !== Node.TEXT_NODE) continue;
-      const direct = normalize(current.nodeValue);
-      if (direct) records.push({ node:current, parent:current.parentElement, direct });
+    for (const root of roots) {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+        acceptNode(node) {
+          if (node.nodeType === Node.ELEMENT_NODE) {
+            // Reject transcript, quoted/code, and Fabushi subtrees wholesale.
+            if (own(node) || node.matches?.('[data-message-author-role],blockquote,pre,code')) return NodeFilter.FILTER_REJECT;
+            return NodeFilter.FILTER_ACCEPT;
+          }
+          const parent = node.parentElement;
+          return parent && !own(parent) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+        },
+      });
+      let current;
+      while ((current = walker.nextNode())) {
+        visited += 1;
+        if (current.nodeType !== Node.TEXT_NODE) continue;
+        const direct = normalize(current.nodeValue);
+        if (direct) records.push({ node:current, parent:current.parentElement, direct });
+      }
     }
     scanDiagnostics.pageUiCalls += 1;
     scanDiagnostics.pageUiMs += performance.now() - startedAt;
     scanDiagnostics.pageUiVisited += visited;
     scanDiagnostics.pageUiTextNodes += records.length;
     return records;
+  }
+  function createPageScanContext() {
+    let pageRecords = null;
+    let authorizationCards = null;
+    return {
+      pageRecords:() => pageRecords || (pageRecords = pageUiTextRecords()),
+      cards:() => authorizationCards || (authorizationCards = cards()),
+    };
   }
   function boundedTextContent(node, maxChars = 600) {
     if (!node) return '';
@@ -3545,7 +3572,7 @@ async function bootstrapAttempt() {
       article,
     };
   }
-  function taskTurnForInspection(task) {
+  function taskTurnForInspection(task, scanContext = null) {
     const scoped = latestTurn(task);
     if (!task || scoped.owned || task.attempted) return scoped;
     const liveURL = currentConversationURL();
@@ -3584,7 +3611,7 @@ async function bootstrapAttempt() {
     // owned for ended-conversation detection so the queue can send a
     // continuation instead of waiting fifteen minutes.
     const candidate = latestTurn();
-    if (stopButton() || cards().length) return scoped;
+    if (stopButton() || (scanContext?.cards() || cards()).length) return scoped;
     if (!identity.allowStaticFinal) {
       if (!candidate.text || !candidate.final) return scoped;
       return {
@@ -3622,13 +3649,61 @@ async function bootstrapAttempt() {
   }
   const actionMatches = (node, pattern) => [actionText(node), node?.getAttribute('aria-label'), node?.getAttribute('title')]
     .some(value => pattern.test(normalize(value)));
+  function authorizationCardScopes() {
+    const scopes = [];
+    const add = node => {
+      if (node && !own(node) && !scopes.includes(node)) scopes.push(node);
+    };
+    const main = document.querySelector('main,[role="main"]');
+    const dialogs = document.querySelectorAll('[role="dialog"],[role="alertdialog"],[aria-modal="true"],[data-radix-dialog-content],[data-dialog-content]');
+    for (const dialog of dialogs) {
+      if (!main || !dialog.contains(main)) add(dialog);
+    }
+    const messages = main?.querySelectorAll?.('[data-message-author-role=user],[data-message-author-role=assistant]') || [];
+    const recent = Array.from(messages).slice(-8);
+    if (!recent.length) {
+      // On a fresh ChatGPT route there is no transcript to search; the primary
+      // surface is small and may contain a global authorization prompt.
+      add(main || document.body);
+      return scopes;
+    }
+    for (const message of recent) {
+      add(message.closest?.('article,[data-testid^="conversation-turn-"],[data-turn-key],[data-content-search-turn-key]') || message);
+    }
+    // Some renderer builds portal a current approval card beside (rather than
+    // inside) its latest turn. Walk only a small number of following sibling
+    // surfaces; stop before the composer, navigation, or another message.
+    const latest = recent.at(-1);
+    let anchor = latest.closest?.('article,[data-testid^="conversation-turn-"],[data-turn-key],[data-content-search-turn-key]') || latest;
+    for (let depth = 0; anchor && depth < 5 && anchor !== main; depth += 1) {
+      let sibling = anchor.nextElementSibling;
+      for (let count = 0; sibling && count < 8; count += 1, sibling = sibling.nextElementSibling) {
+        if (sibling.matches?.('[data-message-author-role],form,nav,aside,header,textarea,[contenteditable="true"]')) break;
+        add(sibling);
+      }
+      anchor = anchor.parentElement;
+    }
+    return scopes;
+  }
   function cards() {
     const startedAt = performance.now();
     const result = [], seen = new Set();
-    // Read labels first, then perform layout checks only for allow candidates.
-    // The old path called getComputedStyle/getClientRects for every button on
-    // the page before discovering whether it was related to authorization.
-    const allButtons = nodes('button,[role=button]');
+    // Historical response toolbars are numerous and cannot contain a pending
+    // approval. Inspect only the latest bounded conversation surface and
+    // explicit overlays, then layout-check actual Allow candidates.
+    const allButtons = [];
+    const buttonSeen = new Set();
+    for (const scope of authorizationCardScopes()) {
+      if (scope.matches?.('button,[role=button]') && !own(scope) && !buttonSeen.has(scope)) {
+        buttonSeen.add(scope);
+        allButtons.push(scope);
+      }
+      for (const button of nodes('button,[role=button]', scope)) {
+        if (buttonSeen.has(button)) continue;
+        buttonSeen.add(button);
+        allButtons.push(button);
+      }
+    }
     const allowCandidates = allButtons
       .filter(button => actionMatches(button, allowLabel))
       .filter(enabled);
@@ -3690,14 +3765,16 @@ async function bootstrapAttempt() {
       return buttonBounds && buttonBounds.top <= bounds.top + 96 && buttonBounds.right >= bounds.right - 140;
     }) || null;
   }
-  function dismissUnexpectedModals(task = null) {
-    const approvalContainers = cards().map(card => card.container);
+  let lastRunnerOverlayScanAt = 0;
+  function dismissUnexpectedModals(task = null, scanContext = null) {
+    const approvalContainers = (scanContext?.cards() || cards()).map(card => card.container);
+    if (task && running) lastRunnerOverlayScanAt = Date.now();
     let dismissed = 0;
 
     // Handle the history-only request-frequency popup semantically first. The
     // current ChatGPT renderer may not expose role=dialog/aria-modal at all,
     // so relying on popupDialogs() alone leaves the overlay blocking the task.
-    const historyPopup = historyAccessThrottlePopup();
+    const historyPopup = historyAccessThrottlePopup(scanContext?.pageRecords || pageUiTextRecords);
     if (historyPopup && !approvalContainers.some(container => container === historyPopup.container || historyPopup.container.contains(container) || container.contains(historyPopup.container))) {
       activateControl(historyPopup.button);
       dismissed++;
@@ -3740,7 +3817,12 @@ async function bootstrapAttempt() {
     clearTimeout(popupDismissTimer);
     popupDismissTimer = setTimeout(() => {
       popupDismissTimer = null;
-      try { if (running || data.globalAutoApprove) dismissUnexpectedModals(); } catch (error) { console.warn('[Fabushi] ChatGPT 弹窗检查暂未完成', error); }
+      try {
+        // Active task supervision already checks these overlays. Let it own
+        // the work and run this fallback only if the task path has gone quiet.
+        const runnerRecentlyScanned = running && Date.now() - lastRunnerOverlayScanAt < POPUP_DISMISS_SCAN_MS;
+        if ((running || data.globalAutoApprove) && !runnerRecentlyScanned) dismissUnexpectedModals();
+      } catch (error) { console.warn('[Fabushi] ChatGPT 弹窗检查暂未完成', error); }
       schedulePopupDismissScan(document.hidden ? HIDDEN_POPUP_DISMISS_SCAN_MS : POPUP_DISMISS_SCAN_MS);
     }, ms);
   }
@@ -4406,7 +4488,8 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const taskURL = canonicalConversationURL(task.url);
     if (!liveURL || !taskURL || liveURL !== taskURL) return false;
     if (!options.ignoreCooldown && now - Number(task.continuationSentAt || 0) < CONTINUATION_SEND_COOLDOWN_MS) return false;
-    if (cards().length || blocker() || rateLimitNotice()) {
+    const scanContext = createPageScanContext();
+    if ((scanContext.cards().length) || blocker() || rateLimitNotice(scanContext.pageRecords)) {
       task.state = 'waiting';
       return false;
     }
@@ -4591,8 +4674,9 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
   async function send(task, signal) {
     // Dismiss/acknowledge non-blocking overlays before rate-limit detection so
     // a history-only frequency popup cannot suppress a valid new dispatch.
-    dismissUnexpectedModals(task);
-    const rateLimit = rateLimitNotice();
+    const scanContext = createPageScanContext();
+    dismissUnexpectedModals(task, scanContext);
+    const rateLimit = rateLimitNotice(scanContext.pageRecords);
     if (rateLimit) {
       restForRateLimit(task);
       return;
@@ -4600,7 +4684,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     if (!await navigate('/', signal, task, true)) return;
     check(signal);
     if (!holdForChatGPTLoading(task)) return;
-    dismissUnexpectedModals(task);
+    dismissUnexpectedModals(task, createPageScanContext());
     if (stopButton() || cards().length) throw new Error('当前页面仍在生成或等待授权，禁止发送。');
     if (blocker()) throw new Error(blocker());
     const dispatchWait = (task.connectionInterruptedFreshDispatch || task.immediateFreshDispatch) ? 0 : dispatchCooldownRemaining();
@@ -4924,16 +5008,17 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     }
     const begin = performance.now();
     resetScanDiagnostics();
-    // All page-chrome classifiers in this synchronous inspection share one
-    // lazy snapshot. If an earlier owned-turn check returns, no body-wide
-    // traversal is paid for at all.
-    let pageUiRecordsSnapshot = null;
-    const getPageUiRecords = () => pageUiRecordsSnapshot || (pageUiRecordsSnapshot = pageUiTextRecords());
+    // The context is created only after async navigation and route ownership
+    // validation. Popup handling and status classifiers share its lazy page
+    // text and authorization snapshots for this inspection slice.
+    const scanContext = createPageScanContext();
+    const getPageUiRecords = scanContext.pageRecords;
+    dismissUnexpectedModals(task, scanContext);
     const turnStartedAt = performance.now();
-    const turn = taskTurnForInspection(task);
+    const turn = taskTurnForInspection(task, scanContext);
     const turnInspectionMs = performance.now() - turnStartedAt;
     const cardsStartedAt = performance.now();
-    const pending = cards();
+    const pending = scanContext.cards();
     const authorizationScanMs = performance.now() - cardsStartedAt;
     const routeOwned = Boolean(liveURL && taskURL && liveURL === taskURL);
     const foreignTask = tabTasks().find(item => item.id !== task.id && item.token && hasTaskMarker(item));
@@ -5263,12 +5348,6 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
         if (current !== task.id) measurements.switches++;
         current = task.id; lastSwitch = Date.now(); paint();
       }
-      dismissUnexpectedModals(task);
-      const rateLimit = rateLimitNotice();
-      if (rateLimit) {
-        nextScheduleMs = restForRateLimit(task);
-        return;
-      }
       if (task.cooldownUntil) {
         const remaining = task.cooldownUntil - Date.now();
         if (remaining > 0) {
@@ -5325,6 +5404,16 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
           state(task, 'waiting', '已从当前唯一的新会话恢复本轮发送结果；沿用原发送标识和附件，开始检查最终回复，不会重复发送。');
           save();
         } else {
+          // This is the one runner path without send() or inspect() to own its
+          // page checks: keep the ambiguous-send safety guard, but do not pay
+          // for it on ordinary bound-task ticks as well.
+          const scanContext = createPageScanContext();
+          dismissUnexpectedModals(task, scanContext);
+          const rateLimit = rateLimitNotice(scanContext.pageRecords);
+          if (rateLimit) {
+            nextScheduleMs = restForRateLimit(task);
+            return;
+          }
           const confirmationStartedAt = Number(task.recoveryConfirmationStartedAt || task.sentAt || 0);
           if (confirmationStartedAt && Date.now() - confirmationStartedAt < SEND_CONFIRM_TIMEOUT_MS) {
           // Do not abandon an ambiguous click while the SPA is still loading.
