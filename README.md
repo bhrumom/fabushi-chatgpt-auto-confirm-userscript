@@ -1,8 +1,15 @@
-# Fabushi 独立油猴工作台 2.9.85
+# Fabushi 独立油猴工作台 2.9.86
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.85`。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.86`。
+
+## 2.9.86 降低运行时页面卡顿
+
+- 任务监督把弹窗处理与状态分类放到同一检查周期，并共享惰性页面文字快照，删去普通会话扫描前的重复全页检查。
+- 活跃任务处理弹窗时，独立弹窗计时器会让出扫描；页面通知只查 ChatGPT 主内容和语义化弹窗区域。
+- 授权卡识别限制在最近消息与明确弹层，不再读取历史消息工具栏的按钮标签和布局。
+- 详见 [`runner-main-thread-performance-v2.9.86.md`](docs/specs/runner-main-thread-performance-v2.9.86.md)。
 
 ## 2.9.85 页面加载期间提前显示脚本
 
