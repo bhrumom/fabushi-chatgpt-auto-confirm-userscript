@@ -3646,9 +3646,23 @@ test('root dispatch navigation tickets are bound to the current review generatio
   dom.window.close();
 });
 
+test('closing a workspace cannot trigger automatic stale-workspace resurrection',async()=>{
+  const {h,w,dom}=await fixture();
+  try {
+    assert.match(source,/const AUTOMATIC_WORKSPACE_RECOVERY_ENABLED = false/);
+    assert.equal(await h.recoverStaleWorkspaceAutomatically(),false);
+    const requests=[];
+    w.addEventListener('message',event=>{ if(event.data?.type==='recovery-capability.request') requests.push(event.data); });
+    h.writeWorkspaceHeartbeat('test');
+    await new Promise(resolve=>w.setTimeout(resolve,0));
+    assert.equal(requests.length,0,'host recovery bridge must not be armed when self-recovery is disabled');
+    assert.doesNotMatch(source,/scheduleAutomaticWorkspaceRecovery\(1000\)/,'startup must not arm the stale-workspace takeover scanner');
+  } finally {h.pause();dom.window.close();}
+});
+
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.95$/m);
-  assert.match(source,/const VERSION = '2\.9\.95'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.96$/m);
+  assert.match(source,/const VERSION = '2\.9\.96'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 \* 60 \* 1000/);
