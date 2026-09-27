@@ -1,8 +1,16 @@
-# Fabushi 独立油猴工作台 2.9.97
+# Fabushi 独立油猴工作台 2.9.98
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.97`。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.98`。
+
+## 2.9.98 刷新后等待页面稳定，并保证携带上一会话回复
+
+- 修复刷新/重载后的误判：上一份页面虽然已经看见过 Stop，但新页面刚开始恢复时 Stop 可能要几秒才挂载。现在跨 document 的 Stop 观察只作为历史证据；必须等当前会话路由、消息和输入框完成恢复，并且页面指纹连续稳定 8 秒仍没有 Stop，才允许新开会话。若这期间 Stop 重新出现，会立即绑定到当前页面，之后只在这个页面里真正 Stop→消失时接力。
+- 同一页面里的正常 Stop→消失仍然立即接力，不额外等待 8 秒；授权卡、限流、阻塞和任务归属仍然优先。
+- 在页面刷新/卸载前，会把当前任务可安全识别的 assistant 回复持久化为有 phase/round/goalRevision 约束的快照。新会话接力时优先使用实时捕获内容；若刷新期间 DOM 还没恢复完整，则回退到这份快照。
+- 新开的 Work/规划会话会明确携带上一会话已经回复的实际工作内容，不再因为刷新竞态退化成与上一轮完全一样的原始提示词。
+- 详见 [v2.9.98 规格](docs/specs/reload-hydration-and-reply-carry-v2.9.98.md)。
 
 ## 2.9.97 停止按钮消失即新会话接力
 
