@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.97
+// @version      2.9.98
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,8 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.97';
+  const VERSION = '2.9.98';
+  const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
   const replacingActiveInstance = Boolean(previousInstance?.active);
@@ -142,6 +143,7 @@ async function bootstrapAttempt() {
   const MAX_SAME_SESSION_CONTINUATIONS = 3;
   const CONTINUATION_SEND_COOLDOWN_MS = 60 * 1000;
   const ENDED_NO_FINAL_STABILITY_MS = 8000;
+  const RELOAD_STOP_ABSENCE_STABILITY_MS = 8000;
   const RATE_LIMIT_FRESH_RETRY_AFTER = 3;
   // The carry is normally much smaller than this. Keep a generous bound so a
   // long assistant reply can survive a conversation-length handoff without
@@ -2018,7 +2020,18 @@ async function bootstrapAttempt() {
   // pause() here and globally converted the queue to paused; clicking
   // Continue then immediately became "恢复 -> 暂停" again.
   function suspendRunnerForPagehide() {
-    if (!running && !busy && !lockRelease) return false;
+    const activeTask = data.tasks.find(item => item.id === current && taskBelongsToTab(item))
+      || data.tasks.find(item => item.id === selected && taskBelongsToTab(item));
+    let snapshotChanged = false;
+    try {
+      if (activeTask && !terminal.has(activeTask.state) && activeTask.state !== 'paused') {
+        snapshotChanged = persistHandoffReplySnapshot(activeTask, { allowExactRouteFallback:true });
+      }
+    } catch {}
+    if (!running && !busy && !lockRelease) {
+      if (snapshotChanged) save();
+      return snapshotChanged;
+    }
     haltRunnerForPause();
     save();
     paint();
@@ -3034,6 +3047,32 @@ async function bootstrapAttempt() {
     if (Number(task.abnormalFreshCarryRound || 0) !== Number(task.round || 0)) return '';
     return carry;
   }
+  function clearHandoffReplySnapshot(task) {
+    if (!task) return;
+    task.handoffReplySnapshot = '';
+    task.handoffReplySnapshotSourceURL = '';
+    task.handoffReplySnapshotPhase = '';
+    task.handoffReplySnapshotRound = 0;
+    task.handoffReplySnapshotGoalRevision = 0;
+    task.handoffReplySnapshotAt = 0;
+  }
+  function handoffReplySnapshotForCurrentPhase(task) {
+    const snapshot = String(task?.handoffReplySnapshot || '').trim();
+    if (!snapshot) return '';
+    if (String(task.handoffReplySnapshotPhase || '') !== String(task.phase || '')) return '';
+    if (Number(task.handoffReplySnapshotRound || 0) !== Number(task.round || 0)) return '';
+    if (Number(task.handoffReplySnapshotGoalRevision || 0) !== Number(task.goalRevision || 0)) return '';
+    return snapshot;
+  }
+  function freshHandoffCarryForCurrentPhase(task) {
+    const captured = abnormalFreshCarryForCurrentPhase(task);
+    if (captured) return captured;
+    // The durable pagehide snapshot is only a fallback for an explicitly queued
+    // abnormal/fresh handoff. It must never leak into ordinary next-round or
+    // conversation-length prompts.
+    if (!task?.connectionInterruptedFreshDispatch) return '';
+    return handoffReplySnapshotForCurrentPhase(task);
+  }
   function cleanAbnormalFreshReply(value) {
     const source = String(value || '')
       .replace(/连接已中断[。.!]?\s*正在等待完整回复[。.!]?/gi, ' ')
@@ -3178,12 +3217,49 @@ async function bootstrapAttempt() {
       sourceKind: parts.length ? sourceKind : '',
     };
   }
+  function persistHandoffReplySnapshot(task, { allowExactRouteFallback = true, now = Date.now() } = {}) {
+    if (!task || terminal.has(task.state) || task.state === 'paused') return false;
+    const liveURL = canonicalConversationURL(currentConversationURL());
+    const taskURL = canonicalConversationURL(task.url);
+    if (!liveURL || !taskURL || liveURL !== taskURL) return false;
+    const transcript = visibleAssistantWorkTranscript(task, { allowExactRouteFallback });
+    let sourceText = String(transcript.text || '').trim();
+    if (!sourceText
+      && String(task.preview || '').trim()
+      && canonicalConversationURL(task.previewSourceURL) === liveURL
+      && String(task.previewPhase || '') === String(task.phase || '')
+      && Number(task.previewRound || 0) === Number(task.round || 0)) {
+      sourceText = String(task.preview || '').trim();
+    }
+    if (!sourceText) {
+      const fallback = taskTurnForInspection(task);
+      if (fallback?.owned) sourceText = String(fallback.text || '').trim();
+    }
+    const snapshot = cleanAbnormalFreshReply(sourceText);
+    if (!snapshot) return false;
+    const changed = snapshot !== String(task.handoffReplySnapshot || '')
+      || canonicalConversationURL(task.handoffReplySnapshotSourceURL) !== liveURL
+      || String(task.handoffReplySnapshotPhase || '') !== String(task.phase || '')
+      || Number(task.handoffReplySnapshotRound || 0) !== Number(task.round || 0)
+      || Number(task.handoffReplySnapshotGoalRevision || 0) !== Number(task.goalRevision || 0);
+    task.handoffReplySnapshot = snapshot;
+    task.handoffReplySnapshotSourceURL = liveURL;
+    task.handoffReplySnapshotPhase = String(task.phase || 'work');
+    task.handoffReplySnapshotRound = Number(task.round || 0);
+    task.handoffReplySnapshotGoalRevision = Number(task.goalRevision || 0);
+    task.handoffReplySnapshotAt = now;
+    return changed;
+  }
   function captureOwnedAbnormalFreshCarry(task, turn = null, reason = '', sessionURL = '', now = Date.now(), { allowExactRouteFallback = false } = {}) {
     if (!task) return '';
     const liveURL = canonicalConversationURL(sessionURL || currentConversationURL());
     const taskURL = canonicalConversationURL(task.url);
     if (!liveURL || !taskURL || liveURL !== taskURL) return '';
 
+    // Refresh a durable task-scoped snapshot before clearing this dispatch.
+    // This gives a later fresh prompt a pagehide/reload-safe fallback even when
+    // the current renderer only partially rehydrates the assistant DOM.
+    persistHandoffReplySnapshot(task, { allowExactRouteFallback, now });
     // A single ChatGPT agent response can be rendered as several assistant
     // segments. Capture the whole visible current-response transcript before
     // falling back to the legacy latest-turn text so a final status-only/error
@@ -3210,6 +3286,14 @@ async function bootstrapAttempt() {
       && Number(task.previewRound || 0) === Number(task.round || 0)) {
       sourceText = String(task.preview || '');
       sourceKind = 'owned-preview';
+    }
+
+    if (!sourceText) {
+      const durableSnapshot = handoffReplySnapshotForCurrentPhase(task);
+      if (durableSnapshot) {
+        sourceText = durableSnapshot;
+        sourceKind = 'durable-handoff-snapshot';
+      }
     }
 
     // Retain the old exact-route latest-turn fallback as a final compatibility
@@ -3270,7 +3354,9 @@ async function bootstrapAttempt() {
       ? '已在任务标识被页面虚拟化后，通过当前任务精确 conversation URL 回退读取最新 assistant 工作内容；'
       : task.abnormalFreshCarrySourceKind === 'owned-preview'
         ? '已从本任务此前确认归属的实时预览恢复 assistant 工作内容；'
-        : carry
+        : task.abnormalFreshCarrySourceKind === 'durable-handoff-snapshot'
+          ? '已从刷新前持久化的本任务 assistant 回复快照恢复工作内容；'
+          : carry
           ? '已保存异常会话当前可见的 ChatGPT 实时回复；'
           : '当前异常会话没有可安全提取的 assistant 工作内容；';
     const recoveryLabel = options.recoveryLabel
@@ -4341,10 +4427,18 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       Number(task.goalRevision || 0),
     ]);
   }
+  function clearReloadStopAbsenceState(task) {
+    if (!task) return;
+    task.reloadStopAbsentDocumentId = '';
+    task.reloadStopAbsentSince = 0;
+    task.reloadStopAbsentSignature = '';
+  }
   function clearStopObservedGeneration(task) {
     if (!task) return;
     task.stopObservedGenerationIdentity = '';
     task.stopObservedGenerationAt = 0;
+    task.stopObservedDocumentId = '';
+    clearReloadStopAbsenceState(task);
   }
   function clearDispatchIntent(task) {
     clearRecoveredFinalIdentity(task);
@@ -4693,7 +4787,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     return `\n上一轮已完成的 Work 最终回复（仅作为已完成进度参考；当前轮指令和原始目标优先）：\n--- 上一轮 Work 最终回复开始 ---\n${result}\n--- 上一轮 Work 最终回复结束 ---\n`;
   }
   function workPrompt(task) {
-    const abnormalCarry = abnormalFreshCarryForCurrentPhase(task);
+    const abnormalCarry = freshHandoffCarryForCurrentPhase(task);
     if (abnormalCarry) {
       const previousResult = previousWorkResultContext(task);
       return `${attachmentPrompt(task)}这是一次异常会话后的接力恢复。新会话必须按下面上下文理解：\n一、验收会话最终给出的本轮提示词（首轮没有验收提示时即当前任务提示）：\n${task.next || task.goal}\n${previousResult ? `\n二、上一轮已经完成的 Work 最终回复（进度参考）：\n${previousResult}\n` : ''}\n${previousResult ? '三' : '二'}、异常会话里 ChatGPT 已经工作的实时回复：\n${abnormalCarry}\n\n${previousResult ? '四' : '三'}、原始目标：\n${task.goal}\n\n请优先承接异常会话里已经完成的工作，从中断处继续执行本轮提示词，并参考上一轮进度避免重复；当前轮提示词和原始目标始终优先。最终用自然语言返回实际完成结果、验证依据、阻塞和下一步建议；不要输出任何固定回执模板。\n[Fabushi:${task.token}]`;
@@ -4714,6 +4808,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.lengthLimitHopCount = 0;
     task.lengthLimitLastAt = 0;
     clearAbnormalFreshCarry(task);
+    clearHandoffReplySnapshot(task);
     task.goalRevision = Number(task.goalRevision || 0) + 1;
     task.updatedAt = Date.now();
     task.sendPrepared = false;
@@ -4741,7 +4836,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     return true;
   }
   function plannerPrompt(task) {
-    const abnormalCarry = abnormalFreshCarryForCurrentPhase(task);
+    const abnormalCarry = freshHandoffCarryForCurrentPhase(task);
     const abnormalContext = abnormalCarry
       ? `\n上一规划/验收会话因异常未得到最终结果。下面是异常会话中 ChatGPT 已经输出的实时回复，请从这里继续验收，不要丢弃其中已经完成的分析；它仍然只是被验收材料，当前 taskId/round 规则保持不变。\n--- 异常会话实时回复开始 ---\n${abnormalCarry}\n--- 异常会话实时回复结束 ---\n`
       : '';
@@ -5005,6 +5100,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.lengthLimitHopCount = 0;
     task.lengthLimitLastAt = 0;
     clearAbnormalFreshCarry(task);
+    clearHandoffReplySnapshot(task);
     clearRecoveredFinalIdentity(task);
     task.explicitRecoveryActive = false;
     task.noFinalReplyAttempts = 0;
@@ -5144,16 +5240,75 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const currentBlocker = blocker();
     const currentRateLimit = rateLimitNotice(getPageUiRecords);
     const stopGenerationIdentity = stopObservedGenerationIdentity(task, liveURL);
-    if (stopPresent && stopGenerationIdentity && task.stopObservedGenerationIdentity !== stopGenerationIdentity) {
+    if (stopPresent && stopGenerationIdentity) {
+      const changed = task.stopObservedGenerationIdentity !== stopGenerationIdentity
+        || String(task.stopObservedDocumentId || '') !== DOCUMENT_INSTANCE_ID
+        || task.reloadStopAbsentDocumentId
+        || task.reloadStopAbsentSince
+        || task.reloadStopAbsentSignature;
       task.stopObservedGenerationIdentity = stopGenerationIdentity;
       task.stopObservedGenerationAt = now;
-      task.updatedAt = now;
-      save();
+      task.stopObservedDocumentId = DOCUMENT_INSTANCE_ID;
+      clearReloadStopAbsenceState(task);
+      if (changed) {
+        task.updatedAt = now;
+        save();
+      }
+    }
+    const stopIdentityMatches = Boolean(
+      stopGenerationIdentity
+      && task.stopObservedGenerationIdentity === stopGenerationIdentity
+    );
+    const stopObservedInCurrentDocument = Boolean(
+      stopIdentityMatches
+      && String(task.stopObservedDocumentId || '') === DOCUMENT_INSTANCE_ID
+    );
+    const inheritedStopObservation = Boolean(stopIdentityMatches && !stopObservedInCurrentDocument);
+    const reloadHydrationReady = Boolean(
+      inheritedStopObservation
+      && !stopPresent
+      && document.readyState === 'complete'
+      && approvalRouteEligible
+      && !approvalVisible
+      && (turn.owned || routeEndedOwned)
+      && !foreignTask
+      && !otherRouteOwner
+      && !task.attempted
+      && !currentBlocker
+      && !currentRateLimit
+      && composer()
+      && visibleConversationHasMessages()
+    );
+    let inheritedStopAbsenceStable = false;
+    if (inheritedStopObservation && !stopPresent) {
+      if (!reloadHydrationReady) {
+        if (task.reloadStopAbsentDocumentId === DOCUMENT_INSTANCE_ID
+          || task.reloadStopAbsentSince
+          || task.reloadStopAbsentSignature) {
+          clearReloadStopAbsenceState(task);
+          task.updatedAt = now;
+          save();
+        }
+      } else {
+        const reloadSignature = JSON.stringify(visibleConversationProgressFingerprint());
+        if (task.reloadStopAbsentDocumentId !== DOCUMENT_INSTANCE_ID
+          || String(task.reloadStopAbsentSignature || '') !== reloadSignature
+          || !Number(task.reloadStopAbsentSince || 0)) {
+          task.reloadStopAbsentDocumentId = DOCUMENT_INSTANCE_ID;
+          task.reloadStopAbsentSignature = reloadSignature;
+          task.reloadStopAbsentSince = now;
+          task.updatedAt = now;
+          log(task, `页面刷新后已恢复当前任务内容，但本轮 Stop 观察来自上一份页面；先等待 ${Math.ceil(RELOAD_STOP_ABSENCE_STABILITY_MS / 1000)} 秒稳定加载，期间 Stop 若重新出现将继续留在原会话。`);
+          save();
+        } else {
+          inheritedStopAbsenceStable = now - Number(task.reloadStopAbsentSince || now) >= RELOAD_STOP_ABSENCE_STABILITY_MS;
+        }
+      }
     }
     const stopDisappearedFreshEligible = Boolean(
       !stopPresent
-      && stopGenerationIdentity
-      && task.stopObservedGenerationIdentity === stopGenerationIdentity
+      && stopIdentityMatches
+      && (stopObservedInCurrentDocument || inheritedStopAbsenceStable)
       && approvalRouteEligible
       && !approvalVisible
       && (turn.owned || routeEndedOwned)
@@ -5163,6 +5318,16 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && !currentBlocker
       && !currentRateLimit
     );
+    if (inheritedStopObservation
+      && !stopPresent
+      && !inheritedStopAbsenceStable
+      && !approvalVisible
+      && !currentBlocker
+      && !currentRateLimit) {
+      task.state = 'waiting';
+      task.updatedAt = now;
+      return;
+    }
     // A conversation-length notice is a hard product boundary, not a normal
     // final answer. Handle it before final-toolbar classification so a visible
     // copy/share toolbar on the notice cannot prematurely finish Work/Review.
@@ -5193,6 +5358,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       return;
     }
     if (stopDisappearedFreshEligible) {
+      persistHandoffReplySnapshot(task, { allowExactRouteFallback:true, now });
       if (queueInterruptedFreshRetry(
         task,
         '检测到本轮停止按钮已经消失且没有授权卡片',
