@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.94
+// @version      2.9.95
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.94';
+  const VERSION = '2.9.95';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
   const replacingActiveInstance = Boolean(previousInstance?.active);
@@ -5213,10 +5213,33 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       || latestMountedUser
       || nodes('[data-message-author-role=assistant]').some(visible)
     );
+    // A manually/recovered-owned static reply is normally allowed to finish
+    // through the bounded static-final fallback. However, when ChatGPT also
+    // leaves a page-global loading marker behind, that stale loader previously
+    // kept the task in "loading" until the 15-minute watchdog refreshed the
+    // page. Treat this narrow state as an abnormal end instead: exact route,
+    // recovered ownership, idle composer, no Stop/streaming/approval/blocker/
+    // rate-limit, and no active ambiguous send. The eight-second abnormal-end
+    // timer still decides the transition; this signal never declares success.
+    const recoveredStaticStaleLoadingEnd = Boolean(
+      rawLoading
+      && turn.recoveredStaticCandidate
+      && routeOwned
+      && turn.owned
+      && !foreignTask
+      && !otherRouteOwner
+      && !stopPresent
+      && !observedActivityStreaming
+      && !pending.length
+      && !currentBlocker
+      && !currentRateLimit
+      && composerReady
+      && !task.attempted
+    );
     const effectiveLoading = Boolean(
       rawLoading
       && (
-        (turn.recoveredStaticCandidate && !retryableErrorEnded)
+        (turn.recoveredStaticCandidate && !retryableErrorEnded && !recoveredStaticStaleLoadingEnd)
         || (!turn.owned && !routeEndedOwned)
         || stopPresent
         || activityStreaming
@@ -5274,6 +5297,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       responseActionsComplete:turn.responseActionsComplete,
       explicitFinal:turn.explicitFinal,
       recoveredStaticCandidate:Boolean(turn.recoveredStaticCandidate),
+      recoveredStaticStaleLoadingEnd,
       routeEndedOwned,
       activityText,
       activityTextStableSince,
@@ -5315,7 +5339,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       sample.routeOwned
       && (sample.owned || sample.routeEndedOwned)
       && !sample.final
-      && (!sample.recoveredStaticCandidate || Boolean(cacheRetry))
+      && (!sample.recoveredStaticCandidate || Boolean(cacheRetry) || sample.recoveredStaticStaleLoadingEnd)
       && !cacheRetryAttempted
       && !sample.stop
       && !sample.streaming
