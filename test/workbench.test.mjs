@@ -1259,73 +1259,60 @@ test('stream recovery timeout is ignored when quoted, stale, final, or missing R
     dom.window.close();
   }
 });
-test('continuation waits for an asynchronously rendered Send message control and sends exactly once',async()=>{
-  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">recover [Fabushi:dynamic-send-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">tool output only</div></article><form id="composer-form"><textarea id="prompt-textarea"></textarea></form></main>');
+
+test('legacy continuation with Stop absent queues a fresh session without touching the old composer',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">recover [Fabushi:dynamic-send-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">已完成当前修复的一半，下一步继续测试。</div></div></article><form id="composer-form"><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   try {
     const task={id:'dynamic-send',ownerTabId:h.getTabId(),goal:'recover',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/dynamic-send',token:'dynamic-send-token',attempted:false,messages:[]};
     h.data.tasks.push(task);
     w.history.pushState({},'', '/c/dynamic-send');
     const input=w.document.querySelector('#prompt-textarea');
     let clicks=0;
-    let created=false;
-    input.addEventListener('input',()=>{
-      if (created || input.value!=='继续完成所有') return;
-      created=true;
-      w.setTimeout(()=>{
-        const button=w.document.createElement('button');
-        button.type='button';
-        button.setAttribute('aria-label','Send message');
-        button.addEventListener('click',()=>clicks++);
-        w.document.querySelector('#composer-form').append(button);
-      },150);
-    });
-
-    assert.equal(await h.sendContinuation(task,null,'检测到当前会话已经结束但没有最终回复',Date.now(),{ignoreCooldown:true}),true);
-    assert.equal(clicks,1);
-    assert.equal(task.continuationCount,1);
-    assert.ok(Number(task.continuationSentAt)>0);
-    assert.equal(input.value,'继续完成所有');
-    assert.match(task.messages.at(-1).text,/已在原会话输入并发送“继续完成所有”/);
-  } finally {
-    h.pause();
-    dom.window.close();
-  }
+    w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>clicks++);
+    assert.equal(await h.sendContinuation(task,null,'检测到当前会话已经结束',Date.now(),{}),true);
+    assert.equal(clicks,0,'old-conversation Send must never be clicked');
+    assert.equal(input.value,'','old composer must never be filled with the legacy continuation phrase');
+    assert.equal(task.state,'queued');
+    assert.equal(task.url,'');
+    assert.equal(task.token,'');
+    assert.match(task.abnormalFreshCarry,/已完成当前修复的一半/);
+    assert.match(h.workPrompt(task),/已完成当前修复的一半/);
+  } finally { h.pause(); dom.window.close(); }
 });
 
-test('the first three same-chat continuation attempts remain in the bound conversation',async()=>{
+test('legacy continuation queues one fresh handoff and clears the old dispatch identity',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue implementation [Fabushi:continuation-three]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">partial work</div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   try {
     w.history.pushState({},'', '/c/continuation-three');
-    const task={id:'continuation-three',ownerTabId:h.getTabId(),goal:'continue implementation',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/continuation-three',token:'continuation-three',attempted:true,messages:[]};
+    const task={id:'continuation-three',ownerTabId:h.getTabId(),goal:'continue implementation',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/continuation-three',token:'continuation-three',attempted:false,messages:[]};
     h.data.tasks.push(task);
     let sends=0;
     w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>sends++);
-    for(let attempt=1;attempt<=3;attempt++){
-      assert.equal(await h.sendContinuation(task,null,'异常中断',Date.now()+attempt,{ignoreCooldown:true}),true);
-      assert.equal(task.url,'https://chatgpt.com/c/continuation-three');
-      assert.equal(task.continuationCount,attempt);
-    }
-    assert.equal(sends,3);
-    assert.equal(task.state,'waiting');
+    assert.equal(await h.sendContinuation(task,null,'异常中断',Date.now(),{}),true);
+    assert.equal(sends,0);
+    assert.equal(task.state,'queued');
+    assert.equal(task.url,'');
+    assert.equal(task.token,'');
+    assert.equal(task.continuationCount||0,0);
+    assert.equal(task.connectionInterruptedFreshDispatch,true);
   } finally {h.pause();dom.window.close();}
 });
 
-test('a fourth same-chat continuation hands visible work to a fresh conversation without sending',async()=>{
+test('legacy continuation preserves visible work in a fresh handoff regardless of old continuation counter',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue implementation [Fabushi:continuation-cap]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">已完成运行时修复；下一步补充集成测试并验证。</div><div role="alert">ChatGPT stream recovery polling timed out</div></div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   try {
     w.history.pushState({},'', '/c/continuation-cap');
-    const task={id:'continuation-cap',ownerTabId:h.getTabId(),goal:'continue implementation',next:'finish integration tests',mode:'once',phase:'work',round:2,state:'waiting',url:'https://chatgpt.com/c/continuation-cap',token:'continuation-cap',attempted:true,continuationCount:3,attachments:[{name:'evidence.txt',type:'text/plain',size:12}],messages:[]};
+    const task={id:'continuation-cap',ownerTabId:h.getTabId(),goal:'continue implementation',next:'finish integration tests',mode:'once',phase:'work',round:2,state:'waiting',url:'https://chatgpt.com/c/continuation-cap',token:'continuation-cap',attempted:false,continuationCount:3,attachments:[{name:'evidence.txt',type:'text/plain',size:12}],messages:[]};
     h.data.tasks.push(task);
     let sends=0;
     w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>sends++);
-
-    assert.equal(await h.sendContinuation(task,null,'异常中断',Date.now(),{ignoreCooldown:true}),false);
-    assert.equal(sends,0,'the fourth continuation is never sent in the old chat');
+    assert.equal(await h.sendContinuation(task,null,'异常中断',Date.now(),{}),true);
+    assert.equal(sends,0);
     assert.equal(w.document.querySelector('#prompt-textarea').value,'');
     assert.equal(task.state,'queued');
     assert.equal(task.url,'');
     assert.equal(task.token,'');
-    assert.equal(task.continuationCount,0,'fresh chat begins with a new per-session counter');
+    assert.equal(task.continuationCount,0);
     assert.equal(task.phase,'work');
     assert.equal(task.round,2);
     assert.deepEqual(task.attachments,[{name:'evidence.txt',type:'text/plain',size:12}]);
@@ -1334,7 +1321,7 @@ test('a fourth same-chat continuation hands visible work to a fresh conversation
   } finally {h.pause();dom.window.close();}
 });
 
-test('continuation recognizes the current blue-arrow Send control labelled 发送',async()=>{
+test('legacy continuation never clicks the old blue-arrow Send control',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">recover [Fabushi:zh-send-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">tool output only</div></article><form><textarea id="prompt-textarea"></textarea><button type="button" aria-label="发送"><svg></svg></button></form></main>');
   try {
     const task={id:'zh-send',ownerTabId:h.getTabId(),goal:'recover',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/zh-send',token:'zh-send-token',attempted:false,messages:[]};
@@ -1342,49 +1329,35 @@ test('continuation recognizes the current blue-arrow Send control labelled 发�
     w.history.pushState({},'', '/c/zh-send');
     let clicks=0;
     w.document.querySelector('button[aria-label="发送"]').addEventListener('click',()=>clicks++);
-
-    assert.equal(await h.sendContinuation(task,null,'检测到当前会话已经结束但没有最终回复',Date.now(),{ignoreCooldown:true}),true);
-    assert.equal(clicks,1);
-    assert.equal(task.continuationCount,1);
-  } finally {
-    h.pause();
-    dom.window.close();
-  }
+    assert.equal(await h.sendContinuation(task,null,'检测到当前会话已经结束',Date.now(),{}),true);
+    assert.equal(clicks,0);
+    assert.equal(task.state,'queued');
+    assert.equal(task.url,'');
+  } finally { h.pause(); dom.window.close(); }
 });
 
-test('connection interruption stops the stuck generation before revealing and clicking Send',async()=>{
-  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">recover [Fabushi:stop-before-send]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">连接已中断，正在等待完整回复</div></article><form id="composer-form"><textarea id="prompt-textarea"></textarea><button data-testid="stop-button" type="button">Stop</button></form></main>');
+test('connection interruption waits for Stop to disappear without clicking it, then queues fresh',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">recover [Fabushi:stop-before-send]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">已完成 A，正在做 B。</div><div>连接已中断，正在等待完整回复</div></div></article><form id="composer-form"><textarea id="prompt-textarea"></textarea><button data-testid="stop-button" type="button">Stop</button><button data-testid="send-button" type="button">发送</button></form></main>');
   try {
     const task={id:'stop-before-send',ownerTabId:h.getTabId(),goal:'recover',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/stop-before-send',token:'stop-before-send',attempted:false,messages:[]};
     h.data.tasks.push(task);
     w.history.pushState({},'', '/c/stop-before-send');
-    const form=w.document.querySelector('#composer-form');
-    const stop=form.querySelector('[data-testid="stop-button"]');
-    const input=form.querySelector('textarea');
-    const order=[];
-    let sends=0;
-    stop.addEventListener('click',()=>{
-      order.push('stop');
-      w.setTimeout(()=>stop.remove(),150);
-    });
-    input.addEventListener('input',()=>{
-      order.push('prompt');
-      if(form.querySelector('[data-testid="send-button"]'))return;
-      const send=w.document.createElement('button');
-      send.type='button';
-      send.dataset.testid='send-button';
-      send.textContent='发送';
-      send.addEventListener('click',()=>{order.push('send');sends++;});
-      form.append(send);
-    });
-
-    assert.equal(await h.sendContinuation(task,null,'检测到“连接已中断，正在等待完整回复”',Date.now(),{ignoreCooldown:true,stopInterruptedGeneration:true}),true);
-    assert.deepEqual(order,['stop','prompt','send']);
-    assert.equal(sends,1);
-    assert.equal(task.continuationCount,1);
+    let stops=0,sends=0;
+    const stop=w.document.querySelector('[data-testid="stop-button"]');
+    stop.addEventListener('click',()=>stops++);
+    w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>sends++);
+    assert.equal(await h.sendContinuation(task,null,'检测到连接中断',Date.now(),{}),false);
+    assert.equal(stops,0);
+    assert.equal(sends,0);
+    assert.equal(w.document.querySelector('#prompt-textarea').value,'');
     assert.equal(task.url,'https://chatgpt.com/c/stop-before-send');
-    assert.equal(task.pendingContinuationReason,'');
-    assert.match(task.messages.at(-1).text,/已在原会话输入并发送“继续完成所有”/);
+    stop.remove();
+    assert.equal(await h.sendContinuation(task,null,'检测到连接中断',Date.now()+10,{}),true);
+    assert.equal(stops,0);
+    assert.equal(sends,0);
+    assert.equal(task.state,'queued');
+    assert.equal(task.url,'');
+    assert.match(task.abnormalFreshCarry,/已完成 A/);
   } finally {h.pause();dom.window.close();}
 });
 
@@ -1396,14 +1369,15 @@ test('ordinary continuation never clicks a visible Stop control',async()=>{
     h.data.tasks.push(task);
     let stops=0;
     w.document.querySelector('[data-testid="stop-button"]').addEventListener('click',()=>stops++);
-    assert.equal(await h.sendContinuation(task,null,'ordinary continuation',Date.now(),{ignoreCooldown:true}),false);
+    assert.equal(await h.sendContinuation(task,null,'ordinary continuation',Date.now(),{}),false);
     assert.equal(stops,0);
     assert.equal(w.document.querySelector('#prompt-textarea').value,'');
     assert.equal(task.pendingContinuationStopClickedAt||0,0);
+    assert.equal(task.pendingContinuationReason,'ordinary continuation');
   } finally {h.pause();dom.window.close();}
 });
 
-test('interrupted continuation clicks Stop once and does not send while Stop remains visible',async()=>{
+test('interrupted legacy continuation never clicks Stop or Send while Stop remains visible',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">recover [Fabushi:stop-stuck]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">连接已中断。正在等待完整回复。</div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="stop-button" type="button">Stop</button><button data-testid="send-button" type="button">发送</button></form></main>');
   try {
     w.history.pushState({},'', '/c/stop-stuck');
@@ -1412,15 +1386,14 @@ test('interrupted continuation clicks Stop once and does not send while Stop rem
     let stops=0,sends=0;
     w.document.querySelector('[data-testid="stop-button"]').addEventListener('click',()=>stops++);
     w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>sends++);
-    assert.equal(await h.sendContinuation(task,null,'连接中断',Date.now(),{ignoreCooldown:true,stopInterruptedGeneration:true}),false);
-    assert.equal(stops,1);
+    assert.equal(await h.sendContinuation(task,null,'连接中断',Date.now(),{}),false);
+    assert.equal(stops,0);
     assert.equal(sends,0);
     assert.equal(w.document.querySelector('#prompt-textarea').value,'');
-    assert.ok(Number(task.pendingContinuationStopClickedAt)>0);
-    assert.equal(task.pendingContinuationStopRecovery,true);
+    assert.equal(task.pendingContinuationStopClickedAt||0,0);
+    assert.equal(task.pendingContinuationStopRecovery||false,false);
   } finally {h.pause();dom.window.close();}
 });
-
 test('exhausted abnormal retries enter persisted backoff and reset after success',async()=>{
   const {h,dom}=await fixture();
   const task=h.enqueue('keep recovering','once');
@@ -3657,9 +3630,77 @@ test('closing a workspace cannot trigger automatic stale-workspace resurrection'
   } finally {h.pause();dom.window.close();}
 });
 
+
+test('observed Stop disappearance with no authorization immediately carries work to a fresh session even with a final toolbar',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <article data-testid="conversation-turn-user"><div data-message-author-role="user">finish architecture [Fabushi:stop-handoff]</div></article>
+    <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">已完成模块 A；模块 B 已实现一半，下一步继续 B 并跑 CI。</div></div><button aria-label="Copy response"></button><button aria-label="Share response"></button></article>
+    <button data-testid="stop-button" aria-label="Stop generating">Stop</button>
+    <form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/stop-handoff');
+    const task={id:'stop-handoff',ownerTabId:h.getTabId(),goal:'finish architecture',next:'complete B and CI',mode:'goal',phase:'work',round:6,state:'waiting',url:'https://chatgpt.com/c/stop-handoff',token:'stop-handoff',attempted:false,attachments:[{name:'spec.txt',type:'text/plain',size:10}],messages:[]};
+    h.data.tasks.push(task);
+    let sends=0;
+    w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>sends++);
+    await h.start(false);
+    await h.inspect(task,null);
+    assert.equal(task.state,'generating');
+    assert.ok(task.stopObservedGenerationIdentity,'Stop observation is persisted for this dispatch');
+    assert.equal(sends,0);
+    w.document.querySelector('[data-testid="stop-button"]').remove();
+    await h.inspect(task,null);
+    assert.equal(sends,0,'old conversation Send is never clicked');
+    assert.equal(task.state,'queued');
+    assert.equal(task.url,'');
+    assert.equal(task.token,'');
+    assert.equal(task.phase,'work');
+    assert.equal(task.round,6);
+    assert.deepEqual(task.attachments,[{name:'spec.txt',type:'text/plain',size:10}]);
+    assert.match(task.abnormalFreshCarry,/模块 A/);
+    assert.match(task.abnormalFreshCarry,/模块 B/);
+    const prompt=h.workPrompt(task);
+    assert.match(prompt,/complete B and CI/);
+    assert.match(prompt,/模块 A/);
+    assert.match(prompt,/finish architecture/);
+    assert.equal(task.stopObservedGenerationIdentity||'','');
+  } finally {h.pause();dom.window.close();}
+});
+
+test('authorization card blocks Stop-disappearance handoff until the card is gone',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <article data-testid="conversation-turn-user"><div data-message-author-role="user">approve then continue [Fabushi:approval-stop]</div></article>
+    <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">已准备执行下一步。</div></div></article>
+    <button data-testid="stop-button" aria-label="Stop generating">Stop</button>
+    <form><textarea id="prompt-textarea"></textarea></form>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/approval-stop');
+    const task={id:'approval-stop',ownerTabId:h.getTabId(),goal:'approve then continue',mode:'goal',phase:'work',round:2,state:'waiting',url:'https://chatgpt.com/c/approval-stop',token:'approval-stop',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    h.data.autoApprove=false;
+    await h.start(false);
+    await h.inspect(task,null);
+    w.document.querySelector('[data-testid="stop-button"]').remove();
+    const card=w.document.createElement('div');
+    card.id='approval-card';
+    card.innerHTML='<button>拒绝</button><button>允许一次</button><button aria-haspopup="menu" aria-label="审批选项">⌄</button>';
+    w.document.querySelector('main').insertBefore(card,w.document.querySelector('form'));
+    await h.inspect(task,null);
+    assert.equal(task.url,'https://chatgpt.com/c/approval-stop');
+    assert.equal(task.state,'approval');
+    card.remove();
+    await h.inspect(task,null);
+    assert.equal(task.state,'queued');
+    assert.equal(task.url,'');
+    assert.match(task.abnormalFreshCarry,/已准备执行下一步/);
+  } finally {h.pause();dom.window.close();}
+});
+
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.96$/m);
-  assert.match(source,/const VERSION = '2\.9\.96'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.97$/m);
+  assert.match(source,/const VERSION = '2\.9\.97'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 \* 60 \* 1000/);
@@ -3674,6 +3715,8 @@ test('the packaged userscript declares its stable remote update and download URL
   assert.match(source,/connectionInterruptedFreshDispatch/);
   assert.match(source,/function queueInterruptedFreshRetry/);
   assert.match(source,/connection-interrupted-fresh-chat/);
+  assert.match(source,/stop-disappeared-fresh-chat/);
+  assert.doesNotMatch(source,/setInput\(input,\s*CONTINUATION_PROMPT\)/,'runtime must not fill the old conversation with the legacy phrase');
   assert.match(source,/^\/\/ @updateURL\s+https:\/\/raw\.githubusercontent\.com\/bhrumom\/fabushi-chatgpt-auto-confirm-userscript\/main\/chatgpt-auto-confirm\.user\.js$/m);
   assert.match(source,/^\/\/ @downloadURL\s+https:\/\/raw\.githubusercontent\.com\/bhrumom\/fabushi-chatgpt-auto-confirm-userscript\/main\/chatgpt-auto-confirm\.user\.js$/m);
 });
@@ -3689,7 +3732,8 @@ test('the workbench mounts while the ChatGPT document is still loading',async()=
   } finally { dom.window.close(); }
 });
 
-test('live assistant turn extracts sibling Markdown and connection interruption continues in the same chat once',async()=>{
+
+test('live assistant turn extracts sibling Markdown and connection interruption hands it to a fresh chat',async()=>{
   const {h,w,dom}=await fixture(`<main>
     <section data-testid="conversation-turn-1"><div data-message-author-role="user">goal [Fabushi:live-shape]</div></section>
     <section data-testid="conversation-turn-2">
@@ -3707,26 +3751,25 @@ test('live assistant turn extracts sibling Markdown and connection interruption 
     assert.match(transcript.text,/PR #3 已前移/);
     assert.match(transcript.text,/Ledger 共 2046 行/);
     assert.doesNotMatch(transcript.text,/连接已中断/);
-    assert.match(h.latestTurn(task).text,/Ledger 共 2046 行/);
     let sends=0;
     w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>sends++);
     await h.start();
     await h.inspect(task,null);
-    assert.equal(sends,1);
-    assert.equal(task.url,'https://chatgpt.com/c/live-shape');
-    assert.equal(task.token,'live-shape');
+    assert.equal(sends,0);
+    assert.equal(task.state,'queued');
+    assert.equal(task.url,'');
+    assert.equal(task.token,'');
     assert.equal(task.phase,'work');
     assert.equal(task.round,40);
-    assert.equal(task.continuationCount,1);
-    await h.inspect(task,null);
-    assert.equal(sends,1,'the same status node must not cause another send');
+    assert.match(task.abnormalFreshCarry,/PR #3 已前移/);
+    assert.match(task.abnormalFreshCarry,/Ledger 共 2046 行/);
   } finally {h.pause();dom.window.close();}
 });
 
-test('a second interruption after a continuation sends again in the same conversation',async()=>{
+test('connection interruption without Stop queues a fresh session and never sends the legacy phrase',async()=>{
   const {h,w,dom}=await fixture(`<main>
     <section data-testid="conversation-turn-1"><div data-message-author-role="user">goal [Fabushi:repeat-interrupt]</div></section>
-    <section data-testid="conversation-turn-2"><div data-message-author-role="assistant" data-message-id="status-first">连接已中断。正在等待完整回复。</div></section>
+    <section data-testid="conversation-turn-2"><div class="markdown">当前会话已经完成第一步。</div><div data-message-author-role="assistant" data-message-id="status-first">连接已中断。正在等待完整回复。</div></section>
     <form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form>
   </main>`);
   try {
@@ -3737,23 +3780,14 @@ test('a second interruption after a continuation sends again in the same convers
     w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>sends++);
     await h.start();
     await h.inspect(task,null);
-    assert.equal(sends,1);
-    const nextUser=w.document.createElement('section');
-    nextUser.dataset.testid='conversation-turn-3';
-    nextUser.innerHTML='<div data-message-author-role="user">继续完成所有</div>';
-    w.document.querySelector('main').insertBefore(nextUser,w.document.querySelector('form'));
-    const nextAssistant=w.document.createElement('section');
-    nextAssistant.dataset.testid='conversation-turn-4';
-    nextAssistant.innerHTML='<div data-message-author-role="assistant" data-message-id="status-second">连接已中断。正在等待完整回复。</div>';
-    w.document.querySelector('main').insertBefore(nextAssistant,w.document.querySelector('form'));
-    task.continuationSentAt=0;
-    await h.inspect(task,null);
-    assert.equal(sends,2);
-    assert.equal(task.url,'https://chatgpt.com/c/repeat-interrupt');
+    assert.equal(sends,0);
+    assert.equal(task.state,'queued');
+    assert.equal(task.url,'');
     assert.equal(task.round,3);
+    assert.match(task.abnormalFreshCarry,/完成第一步/);
+    assert.equal(w.document.querySelector('#prompt-textarea').value,'');
   } finally {h.pause();dom.window.close();}
 });
-
 test('turn-sibling extraction excludes hidden content and foreign user turns',async()=>{
   const {h,w,dom}=await fixture(`<main>
     <section data-testid="conversation-turn-1"><div data-message-author-role="user">goal [Fabushi:scope-check]</div></section>
@@ -3794,26 +3828,25 @@ test('resumed ended conversation clears a recovery composer draft and restarts t
   } finally {h.pause();dom.window.close();}
 });
 
-test('continuation intent is persisted before composer fill and unrelated drafts are preserved',async()=>{
-  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">recover [Fabushi:pending-intent]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">partial</div></article><form><textarea id="prompt-textarea"></textarea></form></main>');
+
+test('legacy continuation preserves an unrelated old-chat draft while switching to a fresh session',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">recover [Fabushi:pending-intent]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">partial</div></div></article><form><textarea id="prompt-textarea"></textarea></form></main>');
   try {
     w.history.pushState({},'', '/c/pending-intent');
     const task={id:'pending-intent',ownerTabId:h.getTabId(),goal:'recover',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/pending-intent',token:'pending-intent',attempted:false,messages:[]};
     h.data.tasks.push(task);
     const input=w.document.querySelector('#prompt-textarea');
     input.value='leave my draft';
-    assert.equal(await h.sendContinuation(task,null,'test recovery intent',Date.now(),{ignoreCooldown:true}),false);
-    assert.equal(input.value,'leave my draft');
-    assert.equal(task.pendingContinuationReason,undefined);
-    input.value='';
-    assert.equal(await h.sendContinuation(task,null,'test recovery intent',Date.now(),{ignoreCooldown:true}),false,'no Send control means the durable intent remains queued');
-    assert.equal(input.value,'继续完成所有');
-    assert.equal(task.pendingContinuationReason,'test recovery intent');
-    assert.equal(task.pendingContinuationURL,'https://chatgpt.com/c/pending-intent');
+    assert.equal(await h.sendContinuation(task,null,'test recovery intent',Date.now(),{}),true);
+    assert.equal(input.value,'leave my draft','the old conversation composer is not mutated');
+    assert.equal(task.state,'queued');
+    assert.equal(task.url,'');
+    assert.equal(task.pendingContinuationReason||'','');
+    assert.match(task.abnormalFreshCarry,/partial/);
   } finally {h.pause();dom.window.close();}
 });
 
-test('interrupted recovery tolerates a null task article after refresh and keeps the same conversation',async()=>{
+test('interrupted recovery with a virtualized task article opens a fresh session without old-chat send',async()=>{
   const {h,w,dom}=await fixture(`<main>
     <article data-testid="conversation-turn-user"><div data-message-author-role="user">another task [Fabushi:foreign]</div></article>
     <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">partial reply</div></article>
@@ -3829,15 +3862,15 @@ test('interrupted recovery tolerates a null task article after refresh and keeps
     w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>sends++);
     await h.start(false);
     await h.inspect(task,null);
-    assert.equal(sends,1);
-    assert.equal(task.url,'https://chatgpt.com/c/null-article-recovery');
-    assert.equal(task.token,'expected-owner');
+    assert.equal(sends,0);
+    assert.equal(task.state,'queued');
+    assert.equal(task.url,'');
+    assert.equal(task.token,'');
     assert.equal(task.phase,'work');
     assert.equal(task.round,7);
-    assert.equal(w.document.querySelector('#prompt-textarea').value,'继续完成所有');
+    assert.equal(w.document.querySelector('#prompt-textarea').value,'');
   } finally {h.pause();dom.window.close();}
 });
-
 test('automatic memory recovery never asks the host or reloads when there is no uniquely owned task',async()=>{
   const gib=1024*1024*1024;
   const requests=[];
