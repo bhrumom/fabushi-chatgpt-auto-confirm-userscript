@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.96
+// @version      2.9.97
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.96';
+  const VERSION = '2.9.97';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
   const replacingActiveInstance = Boolean(previousInstance?.active);
@@ -3246,7 +3246,7 @@ async function bootstrapAttempt() {
         url:sessionURL,
         phase:task.phase,
         round:task.round,
-        reason:'connection-interrupted-fresh-chat',
+        reason:String(options.historyReason || 'connection-interrupted-fresh-chat'),
       });
       task.history = task.history.slice(-40);
     }
@@ -3420,7 +3420,7 @@ async function bootstrapAttempt() {
     task.pendingContinuationStopClickedAt = 0;
     if (!refreshStalledConversation(task, perform, now, {
       force:true,
-      message:`点击停止后 ChatGPT 连续 15 分钟仍未恢复；正在刷新当前会话并保留“${CONTINUATION_PROMPT}”恢复意图（第 ${Number(task.stalledRefreshAttempts || 0) + 1} 次），页面恢复后会重新停止卡住的生成并重试。`,
+      message:`连接中断后 ChatGPT 连续 15 分钟仍未恢复；正在刷新当前会话并保留新会话接力意图（第 ${Number(task.stalledRefreshAttempts || 0) + 1} 次），页面恢复后继续等待停止按钮消失并转入新会话。`,
     })) {
       task.pendingContinuationStopClickedAt = stopClickedAt;
       return false;
@@ -4059,11 +4059,10 @@ async function bootstrapAttempt() {
       && now - Number(previous.recoveredStaticSince || previous.since || 0) >= RECOVERED_STATIC_FINAL_STABILITY_MS
     );
     if (finalStayedStable || recoveredStaticStayedStable) return { state:'complete' };
-    // No Stop button is only an intermediate observation. Connector approval,
-    // tool execution and renderer transitions all legitimately hide Stop.
-    // Without the current reply toolbar, stay bound to this conversation. The
-    // independent stalled-conversation watchdog may refresh this same URL, but
-    // classification must never create a fresh chat from Stop disappearance.
+    // Stop-disappearance handoff is handled before classification whenever this
+    // dispatch actually observed Stop. Reaching this fallback therefore means
+    // there is no verified Stop transition for this dispatch (for example a
+    // static/manual recovery after reload), so remain bound and fail closed.
     return { state:'waiting' };
   }
   function ownedFinalReplyReady(task) {
@@ -4278,6 +4277,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.workspaceDocumentRecoveryAttempts = 0;
     task.continuationSentAt = 0;
     task.continuationCount = 0;
+    clearStopObservedGeneration(task);
     task.connectionInterruptedSince = 0;
     task.connectionInterruptedURL = '';
     task.connectionInterruptedRefreshAttempts = 0;
@@ -4329,6 +4329,23 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const round = Math.max(1, Number(cycle || 1));
     return Math.min(NO_FINAL_REPLY_BACKOFF_BASE_MS * (2 ** Math.min(round - 1, 4)), NO_FINAL_REPLY_BACKOFF_MAX_MS);
   }
+  function stopObservedGenerationIdentity(task, route = '') {
+    if (!task) return '';
+    const url = canonicalConversationURL(route || currentConversationURL() || task.url);
+    if (!url || !task.token) return '';
+    return JSON.stringify([
+      url,
+      String(task.phase || 'work'),
+      Number(task.round || 0),
+      String(task.token || ''),
+      Number(task.goalRevision || 0),
+    ]);
+  }
+  function clearStopObservedGeneration(task) {
+    if (!task) return;
+    task.stopObservedGenerationIdentity = '';
+    task.stopObservedGenerationAt = 0;
+  }
   function clearDispatchIntent(task) {
     clearRecoveredFinalIdentity(task);
     task.explicitRecoveryActive = false;
@@ -4352,6 +4369,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.workspaceDocumentRecoveryAttempts = 0;
     task.continuationSentAt = 0;
     task.continuationCount = 0;
+    clearStopObservedGeneration(task);
     task.connectionInterruptedSince = 0;
     task.connectionInterruptedURL = '';
     task.connectionInterruptedRefreshAttempts = 0;
@@ -4439,10 +4457,17 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     if (!task) return '';
     const boundURL = canonicalConversationURL(task.url);
     if (boundURL) {
+      const queued = queueInterruptedFreshRetry(
+        task,
+        reason,
+        Date.now(),
+        taskTurnForInspection(task),
+        { allowExactRouteFallback:true, recoveryLabel:'无最终回复接力', historyReason:'no-final-fresh-chat' },
+      );
+      if (queued) return 'queued';
       task.state = 'waiting';
-      task.abnormalNoFinalSince = Number(task.abnormalNoFinalSince || Date.now());
       task.updatedAt = Date.now();
-      log(task, `${reason}；本轮已有明确会话链接，已保留当前会话，不再走 fresh-session 异常重发。后续会在同一会话追加“${CONTINUATION_PROMPT}”，直到得到真正最终回复。`);
+      log(task, `${reason}；当前会话仍不能安全接力，继续等待；不会在旧会话发送“${CONTINUATION_PROMPT}”。`);
       save();
       return 'waiting';
     }
@@ -4595,115 +4620,48 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.pendingContinuationLastWaitLogAt = 0;
   }
   async function sendContinuation(task, signal, reason = '当前会话异常中断', now = Date.now(), options = {}) {
+    // Compatibility entry point for legacy persisted recovery state. Automatic
+    // recovery no longer types or sends “继续完成所有” in the old conversation.
+    // While Stop exists, keep supervising. Once Stop is absent and there is no
+    // authorization card, hand the current work to a fresh session.
     if (!task || terminal.has(task.state) || task.state === 'paused') return false;
     const liveURL = currentConversationURL();
     const taskURL = canonicalConversationURL(task.url);
     if (!liveURL || !taskURL || liveURL !== taskURL) return false;
-    if (!options.ignoreCooldown && now - Number(task.continuationSentAt || 0) < CONTINUATION_SEND_COOLDOWN_MS) return false;
     const scanContext = createPageScanContext();
-    if ((scanContext.cards().length) || blocker() || rateLimitNotice(scanContext.pageRecords)) {
-      task.state = 'waiting';
+    const pending = scanContext.cards();
+    if (pending.length || blocker() || rateLimitNotice(scanContext.pageRecords)) {
+      task.state = pending.length ? 'approval' : 'waiting';
       return false;
     }
-    const stop = stopButton();
-    const stopRecoveryAllowed = options.stopInterruptedGeneration === true
-      || task.pendingContinuationStopRecovery === true;
-    if (stop && !stopRecoveryAllowed) {
-      task.state = 'waiting';
-      return false;
-    }
-    if (options.stopInterruptedGeneration === true) task.pendingContinuationStopRecovery = true;
-    if (stop) {
+    if (stopButton()) {
       task.pendingContinuationReason = String(reason || '当前会话异常中断').slice(0, 1000);
       task.pendingContinuationURL = liveURL;
       task.pendingContinuationSince ||= now;
-      if (!Number(task.pendingContinuationStopClickedAt || 0)) {
-        task.pendingContinuationStopProgressSignature = visibleConversationProgressFingerprint();
-        activateControl(stop);
-        task.pendingContinuationStopClickedAt = Date.now();
-        task.state = 'waiting';
-        log(task, `${reason}；ChatGPT 仍显示停止生成按钮，已先停止异常生成，并等待该按钮消失后再发送“${CONTINUATION_PROMPT}”。`);
-        save();
-      }
-      if (!await waitForStopButtonGone(signal)) {
-        task.state = 'waiting';
-        if (refreshInterruptedStopStall(task, Date.now())) return false;
-        const lastWaitLogAt = Number(task.pendingContinuationLastWaitLogAt || 0);
-        if (!lastWaitLogAt || Date.now() - lastWaitLogAt >= 5000) {
-          task.pendingContinuationLastWaitLogAt = Date.now();
-          log(task, `${reason}；已请求停止异常生成，但停止按钮仍在，继续等待；不会重复点击、发送或切换会话。`);
-          save();
-        }
-        return false;
-      }
-    }
-    if (Number(task.continuationCount || 0) >= MAX_SAME_SESSION_CONTINUATIONS) {
-      const handoffReason = `同一会话“${CONTINUATION_PROMPT}”已发送 ${MAX_SAME_SESSION_CONTINUATIONS} 次，达到上限`;
-      const turn = taskTurnForInspection(task);
-      const queued = queueInterruptedFreshRetry(task, handoffReason, now, turn, { allowExactRouteFallback:true });
-      if (queued) {
-        log(task, `${handoffReason}；已将当前可归属的 assistant 工作内容带到新的会话继续，不会在旧会话发送第 ${MAX_SAME_SESSION_CONTINUATIONS + 1} 次续发。`);
-        save();
-      }
-      return false;
-    }
-    const input = composer();
-    if (!input) {
+      task.pendingContinuationStopClickedAt = 0;
+      task.pendingContinuationStopProgressSignature = '';
+      task.pendingContinuationStopRecovery = false;
       task.state = 'waiting';
-      return false;
-    }
-    let draft = normalize(input.value || input.textContent);
-    if (draft && draft !== CONTINUATION_PROMPT) {
-      const lastLogAt = Number(task.continuationDraftBlockedLogAt || 0);
-      if (!lastLogAt || now - lastLogAt >= 30000) {
-        task.continuationDraftBlockedLogAt = now;
-        task.state = 'waiting';
-        log(task, `${reason}；检测到 composer 里有非自动恢复文本，已保留草稿并等待，不会覆盖或发送它。`);
+      const lastWaitLogAt = Number(task.pendingContinuationLastWaitLogAt || 0);
+      if (!lastWaitLogAt || now - lastWaitLogAt >= 5000) {
+        task.pendingContinuationLastWaitLogAt = now;
+        log(task, `${reason}；停止按钮仍在，继续等待它自然消失；不会点击停止，也不会在旧会话发送“${CONTINUATION_PROMPT}”。`);
         save();
       }
       return false;
     }
-    task.pendingContinuationReason = String(reason || '当前会话异常中断').slice(0, 1000);
-    task.pendingContinuationURL = liveURL;
-    task.pendingContinuationSince ||= now;
-    if (!draft) {
-      save();
-      setInput(input, CONTINUATION_PROMPT);
-    }
-    const button = await waitForSendButton(input, signal, 3000);
-    if (!button) {
-      task.state = 'waiting';
-      const lastWaitLogAt = Number(task.continuationSendUiWaitLogAt || 0);
-      if (!lastWaitLogAt || Date.now() - lastWaitLogAt >= 5000) {
-        task.continuationSendUiWaitLogAt = Date.now();
-        log(task, `已输入“${CONTINUATION_PROMPT}”，但 ChatGPT 发送按钮尚未出现或尚未可用；保留原会话与输入内容并继续重试，不刷新页面、不新开会话。`);
-        save();
-      }
-      return false;
-    }
-    if (signal?.aborted || task.state === 'paused' || task.state === 'cancelled') throw new Error('已暂停');
-    // Commit the UI action first. Any legacy pending-continuation state is
-    // cleared only after the Send activation has actually been issued.
-    activateControl(button);
-    measurements.sends++;
-    const sentAt = Date.now();
-    task.continuationSentAt = sentAt;
-    task.continuationCount = Number(task.continuationCount || 0) + 1;
-    task.continuationSendUiWaitLogAt = 0;
-    task.connectionInterruptedSince = 0;
-    task.connectionInterruptedURL = '';
-    task.connectionInterruptedRefreshAttempts = 0;
-    task.connectionInterruptedRefreshAt = 0;
-    task.connectionInterruptedRefreshExhausted = false;
-    task.abnormalNoFinalSince = 0;
-    task.abnormalNoFinalSignature = '';
-    clearPendingContinuation(task);
-    task.updatedAt = sentAt;
-    observations.delete(task.id);
-    task.state = 'waiting';
-    log(task, `${reason}；已在原会话输入并发送“${CONTINUATION_PROMPT}”（第 ${task.continuationCount} 次）。继续等待真正最终回复；在最终回复操作栏出现并稳定前绝不新开下一会话。`);
-    save();
-    return true;
+    const turn = taskTurnForInspection(task, scanContext);
+    return queueInterruptedFreshRetry(
+      task,
+      reason,
+      now,
+      turn,
+      {
+        allowExactRouteFallback:true,
+        recoveryLabel:options.recoveryLabel || '停止按钮消失接力',
+        historyReason:options.historyReason || 'stop-disappeared-fresh-chat',
+      },
+    );
   }
   function waitForSendUI(task, reason) {
     const now = Date.now();
@@ -5150,8 +5108,9 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     // Reply ownership stays strict. Ended-conversation detection gets a
     // narrower route-only fallback when ChatGPT has virtualized this task's
     // marker: exact route, no competing task/marker, and no contradictory
-    // still-mounted own marker. This fallback may only send a continuation in
-    // the same chat; it never attributes assistant text as a final result.
+    // still-mounted own marker. This fallback may participate in a guarded
+    // fresh-session handoff, but it never attributes assistant text as a final
+    // result without the normal final-evidence rules.
     const routeEndedOwned = Boolean(
       routeOwned
       && !turn.owned
@@ -5182,6 +5141,28 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     );
     const observedActivityStreaming = Boolean(activityTurn?.streaming && !activityTurn?.final && !staleActivityStreaming);
     const approvalVisible = approvalRouteEligible && pending.length > 0;
+    const currentBlocker = blocker();
+    const currentRateLimit = rateLimitNotice(getPageUiRecords);
+    const stopGenerationIdentity = stopObservedGenerationIdentity(task, liveURL);
+    if (stopPresent && stopGenerationIdentity && task.stopObservedGenerationIdentity !== stopGenerationIdentity) {
+      task.stopObservedGenerationIdentity = stopGenerationIdentity;
+      task.stopObservedGenerationAt = now;
+      task.updatedAt = now;
+      save();
+    }
+    const stopDisappearedFreshEligible = Boolean(
+      !stopPresent
+      && stopGenerationIdentity
+      && task.stopObservedGenerationIdentity === stopGenerationIdentity
+      && approvalRouteEligible
+      && !approvalVisible
+      && (turn.owned || routeEndedOwned)
+      && !foreignTask
+      && !otherRouteOwner
+      && !task.attempted
+      && !currentBlocker
+      && !currentRateLimit
+    );
     // A conversation-length notice is a hard product boundary, not a normal
     // final answer. Handle it before final-toolbar classification so a visible
     // copy/share toolbar on the notice cannot prematurely finish Work/Review.
@@ -5211,8 +5192,18 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       save();
       return;
     }
-    // An interrupted bound conversation remains the task's working chat.
-    // Retry the same turn instead of losing its live work in a fresh chat.
+    if (stopDisappearedFreshEligible) {
+      if (queueInterruptedFreshRetry(
+        task,
+        '检测到本轮停止按钮已经消失且没有授权卡片',
+        now,
+        routeEndedOwned ? activityTurn : turn,
+        { allowExactRouteFallback:true, recoveryLabel:'停止按钮消失接力', historyReason:'stop-disappeared-fresh-chat' },
+      )) return;
+    }
+    // Connection errors no longer inject a same-chat continuation. If Stop is
+    // still present, wait for the same Stop-disappearance boundary; if it is
+    // already gone (for example after reload), use the same fresh-session path.
     const streamPollingTimeout = Boolean(pageBelongsToTask && !approvalVisible && !turn.final
       && streamRecoveryPollingTimeoutNotice(routeEndedOwned ? activityTurn : turn));
     if (streamPollingTimeout) {
@@ -5223,19 +5214,23 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       const reason = interrupted
         ? '检测到“连接已中断，正在等待完整回复”'
         : '检测到旧版本遗留的连接中断强制续发状态';
-      const statusNode = nodes('[data-message-author-role=assistant]', turn.article).at(-1)
-        || nodes('[data-message-author-role=assistant]').at(-1);
-      const statusKey = statusNode?.getAttribute?.('data-message-id')
-        || statusNode?.closest?.('[data-turn-key],[data-content-search-turn-key]')?.getAttribute?.('data-turn-key')
-        || `${recoveryUserBoundaryKey(nodes('[data-message-author-role=user]').at(-1))}:${normalize(text(statusNode)).slice(-300)}`;
-      if (interrupted && task.connectionInterruptedContinuationStatusKey === statusKey) {
+      if (stopPresent) {
+        task.pendingContinuationReason = reason;
+        task.pendingContinuationURL = liveURL;
+        task.pendingContinuationSince ||= now;
         task.state = 'waiting';
+        task.updatedAt = now;
+        save();
         return;
       }
-      if (await sendContinuation(task, signal, reason, Date.now(), { stopInterruptedGeneration:interrupted })) {
-        task.connectionInterruptedContinuationStatusKey = statusKey;
-        save();
-      }
+      if (queueInterruptedFreshRetry(
+        task,
+        reason,
+        now,
+        routeEndedOwned ? activityTurn : turn,
+        { allowExactRouteFallback:true, recoveryLabel:'连接中断接力', historyReason:'connection-interrupted-fresh-chat' },
+      )) return;
+      task.state = 'waiting';
       return;
     }
     const loadingStartedAt = performance.now();
@@ -5248,8 +5243,6 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     let composerHasRecoveryDraft = Boolean(composerReady && composerDraft === CONTINUATION_PROMPT);
     const latestMountedUser = nodes('[data-message-author-role=user]').at(-1) || null;
     const userBoundaryKey = recoveryUserBoundaryKey(latestMountedUser);
-    const currentBlocker = blocker();
-    const currentRateLimit = rateLimitNotice(getPageUiRecords);
     const cacheRetry = routeOwned && (turn.owned || routeEndedOwned) && !foreignTask && !otherRouteOwner
       && !turn.final && !pending.length && !task.attempted
       ? streamCacheExpiredRetry(activityTurn, getPageUiRecords) : null;
