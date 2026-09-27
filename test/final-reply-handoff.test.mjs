@@ -262,7 +262,7 @@ test('static completion markers are diagnostic only and never replace the final 
   }
 });
 
-test('a stalled conversation refresh preserves the active task and continues every fifteen minutes', async () => {
+test('a stalled conversation refresh preserves the task twice then queues a fresh carried session', async () => {
   const { dom, window, hooks } = await createHarness('<main></main>');
   try {
     window.history.pushState({}, '', '/c/stalled-conversation');
@@ -291,20 +291,23 @@ test('a stalled conversation refresh preserves the active task and continues eve
     assert.equal(hooks.refreshStalledConversation(task, false, 1_800_999), false, 'the fifteen-minute interval prevents an immediate second reload');
     assert.equal(hooks.refreshStalledConversation(task, false, 1_801_000), true);
     assert.equal(task.stalledRefreshAttempts, 2);
-    assert.equal(hooks.refreshStalledConversation(task, false, 1_801_001), false, 'the next interval starts after the second reload');
-    assert.equal(hooks.refreshStalledConversation(task, false, 2_701_000), true);
-    assert.equal(task.stalledRefreshAttempts, 3);
-    assert.equal(hooks.refreshStalledConversation(task, false, 3_601_000), true, 'a fourth reload remains allowed');
-    assert.equal(task.stalledRefreshAttempts, 4);
+    assert.equal(hooks.refreshStalledConversation(task, false, 1_801_001), false, 'the next window starts after the second reload');
+    assert.equal(hooks.refreshStalledConversation(task, false, 2_701_000), true, 'the third quiet window hands off to a fresh session');
+    assert.equal(task.state, 'queued');
+    assert.equal(task.url, '');
+    assert.equal(task.phase, 'work');
+    assert.equal(task.round, 1);
+    assert.match(task.messages.at(-1).text, /连续三段 15 分钟/);
+    assert.match(task.messages.at(-1).text, /切换到新的 ChatGPT 会话/);
+    assert.equal(task.stalledRefreshAttempts, 0, 'the fresh session starts its own no-progress streak');
     assert.equal(task.stalledRefreshExhausted, false);
-    assert.ok(task.messages.every(message => !/刷新上限/u.test(message.text)));
     assert.equal(task.result || '', '');
   } finally {
     dom.window.close();
   }
 });
 
-test('a legacy stalled-refresh exhaustion flag is migrated without blocking recovery', async () => {
+test('a legacy stalled-refresh count at two migrates directly to the bounded fresh-session recovery', async () => {
   const { dom, window, hooks } = await createHarness('<main></main>');
   try {
     window.history.pushState({}, '', '/c/legacy-stalled-conversation');
@@ -327,9 +330,10 @@ test('a legacy stalled-refresh exhaustion flag is migrated without blocking reco
     hooks.data.tasks.push(task);
 
     assert.equal(hooks.refreshStalledConversation(task, false, 901_000), true);
-    assert.equal(task.stalledRefreshAttempts, 3);
+    assert.equal(task.state, 'queued');
+    assert.equal(task.url, '');
     assert.equal(task.stalledRefreshExhausted, false);
-    assert.ok(task.messages.some(message => /已解除历史停滞刷新次数上限/u.test(message.text)));
+    assert.ok(task.messages.some(message => /已迁移旧版停滞恢复计数/u.test(message.text)));
   } finally {
     dom.window.close();
   }

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.91
+// @version      2.9.92
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.91';
+  const VERSION = '2.9.92';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
   const replacingActiveInstance = Boolean(previousInstance?.active);
@@ -3162,10 +3162,12 @@ async function bootstrapAttempt() {
       });
       task.history = task.history.slice(-40);
     }
-    const recoveryCount = Number(task.connectionInterruptedFreshRetryCount || 0) + 1;
+    const recoveryCount = options.recoveryLabel
+      ? Math.min(3, Number(task.stalledRefreshAttempts || 0) + 1)
+      : Number(task.connectionInterruptedFreshRetryCount || 0) + 1;
     const carry = captureOwnedAbnormalFreshCarry(task, turn, reason, sessionURL, now, options);
     clearDispatchIntent(task);
-    task.connectionInterruptedFreshRetryCount = recoveryCount;
+    if (!options.recoveryLabel) task.connectionInterruptedFreshRetryCount = recoveryCount;
     task.connectionInterruptedFreshDispatch = true;
     task.noFinalReplyRecoveryUntil = 0;
     task.cooldownUntil = 0;
@@ -3183,7 +3185,10 @@ async function bootstrapAttempt() {
         : carry
           ? '已保存异常会话当前可见的 ChatGPT 实时回复；'
           : '当前异常会话没有可安全提取的 assistant 工作内容；';
-    log(task, `${reason}；已立即结束旧会话派发并切换到新的 ChatGPT 会话恢复当前${task.phase === 'review' ? '规划/验收' : 'Work'}阶段（连接中断自动恢复第 ${recoveryCount} 次）。${carrySourceNote}${carry ? '新会话提示词会把它作为已完成工作现场继续承接；' : ''}保留任务、phase、round、目标/next 和附件；新会话会生成新的发送标识与会话链接，不再等待 15 分钟、不刷新旧会话，也不在旧会话发送“${CONTINUATION_PROMPT}”。`);
+    const recoveryLabel = options.recoveryLabel
+      ? `${options.recoveryLabel}第 ${recoveryCount} 次`
+      : `连接中断自动恢复第 ${recoveryCount} 次`;
+    log(task, `${reason}；已立即结束旧会话派发并切换到新的 ChatGPT 会话恢复当前${task.phase === 'review' ? '规划/验收' : 'Work'}阶段（${recoveryLabel}）。${carrySourceNote}${carry ? '新会话提示词会把它作为已完成工作现场继续承接；' : ''}保留任务、phase、round、目标/next 和附件；新会话会生成新的发送标识与会话链接，不再等待 15 分钟、不刷新旧会话，也不在旧会话发送“${CONTINUATION_PROMPT}”。`);
     save();
     return true;
   }
@@ -3242,6 +3247,22 @@ async function bootstrapAttempt() {
       conversationTail:sample?.conversationTail || [],
     });
   }
+  function stalledConversationContentHash(sample) {
+    const tail = Array.isArray(sample?.conversationTail) ? sample.conversationTail.slice(-8) : [];
+    if (!tail.some(item => String(item?.text || '').trim())) return '';
+    // Persist only a compact checksum, never the transcript used for recovery.
+    const source = JSON.stringify(tail.map(item => ({
+      role:String(item?.role || ''),
+      id:String(item?.id || ''),
+      text:String(item?.text || '').slice(-3000),
+    }))).slice(-24_000);
+    let hash = 2166136261;
+    for (let index = 0; index < source.length; index += 1) {
+      hash ^= source.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(16).padStart(8, '0');
+  }
   function refreshStalledConversation(task, perform = true, now = Date.now(), options = {}) {
     if (!task || task.state === 'paused' || task.state === 'cancelled' || (task.attempted && options.force !== true)) return false;
     const conversationURL = currentConversationURL() || canonicalConversationURL(task.url);
@@ -3255,23 +3276,32 @@ async function bootstrapAttempt() {
       task.stalledRefreshExhausted = false;
     }
     const attempts = Number(task.stalledRefreshAttempts || 0);
-    // Older builds persisted this terminal-looking flag after the second
-    // reload. It is now only a migration marker and must never block a later
-    // fifteen-minute retry cycle.
+    // Clear the old terminal-looking marker; the persisted attempt count is
+    // now the consecutive no-progress window count.
     if (task.stalledRefreshExhausted) {
       task.stalledRefreshExhausted = false;
       task.state = 'waiting';
-      log(task, '已解除历史停滞刷新次数上限；会话若继续无变化，将每 15 分钟自动刷新，直到任务完成或被暂停。');
+      log(task, '已迁移旧版停滞恢复计数；连续无进展达到三段 15 分钟后将转入新会话接力。');
       save();
     }
     if (now - Number(task.stalledRefreshAt || 0) < STALLED_REFRESH_COOLDOWN_MS) return false;
+    if (attempts >= 2) {
+      return queueInterruptedFreshRetry(
+        task,
+        '当前会话连续三段 15 分钟没有可见进展',
+        now,
+        options.turn || null,
+        { allowExactRouteFallback:true, recoveryLabel:'连续停滞接力' },
+      );
+    }
     const nextAttempt = attempts + 1;
     task.stalledRefreshAttempts = nextAttempt;
     task.stalledRefreshAt = now;
+    task.stalledRefreshProgressHash = stalledConversationContentHash(options.sample);
     task.stalledRefreshExhausted = false;
     task.state = 'waiting';
     observations.delete(task.id);
-    log(task, options.message || `当前会话连续 15 分钟没有可见变化；正在刷新当前页面（第 ${nextAttempt} 次，后续仍无变化时每 15 分钟继续刷新），保留会话、发送标识、附件和当前阶段，不会重复发送。`);
+    log(task, options.message || `当前会话连续 15 分钟没有可见变化；正在刷新当前页面（第 ${nextAttempt}/2 次），保留会话、发送标识、附件和当前阶段，不会重复发送。若连续三段 15 分钟仍无进展，将在当前标签页新开会话并接力已完成的工作。`);
     save();
     if (!perform) return true;
     navigating = true;
@@ -4237,6 +4267,11 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.connectionInterruptedRefreshAttempts = 0;
     task.connectionInterruptedRefreshAt = 0;
     task.connectionInterruptedRefreshExhausted = false;
+    task.stalledRefreshURL = '';
+    task.stalledRefreshAttempts = 0;
+    task.stalledRefreshAt = 0;
+    task.stalledRefreshProgressHash = '';
+    task.stalledRefreshExhausted = false;
     task.immediateFreshDispatch = false;
     task.abnormalNoFinalSince = 0;
     task.abnormalNoFinalSignature = '';
@@ -5037,13 +5072,32 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     );
     const pageBelongsToTask = routeOwned && (turn.owned || routeEndedOwned || !foreignTask);
     const activityTurn = routeEndedOwned ? latestTurn() : turn;
+    const stopPresent = (turn.owned || routeEndedOwned) ? Boolean(stopButton()) : false;
+    const previous = observations.get(task.id);
+    const now = Date.now();
+    const activityText = String(activityTurn?.text || '');
+    const activityTextStableSince = previous && String(previous.activityText || '') === activityText
+      ? Number(previous.activityTextStableSince || now)
+      : now;
+    // ChatGPT can leave `aria-busy` / `data-is-streaming` and a “thinking”
+    // status behind after generation has actually stopped. Without the Stop
+    // control, treat those markers as active only while assistant text is
+    // still changing; after the ordinary ended-state stability window, they
+    // must not hold recovery indefinitely.
+    const staleActivityStreaming = Boolean(
+      !stopPresent
+      && activityTurn?.streaming
+      && !activityTurn?.final
+      && now - activityTextStableSince >= ENDED_NO_FINAL_STABILITY_MS,
+    );
+    const observedActivityStreaming = Boolean(activityTurn?.streaming && !activityTurn?.final && !staleActivityStreaming);
     const approvalVisible = approvalRouteEligible && pending.length > 0;
     // A conversation-length notice is a hard product boundary, not a normal
     // final answer. Handle it before final-toolbar classification so a visible
     // copy/share toolbar on the notice cannot prematurely finish Work/Review.
     const lengthLimitNotice = pageBelongsToTask && !approvalVisible ? conversationLengthLimitNotice(turn, getPageUiRecords) : '';
     if (lengthLimitNotice) {
-      if (turn.streaming || stopButton()) {
+      if (observedActivityStreaming || stopPresent) {
         const waitKey = `${taskURL}:${normalize(lengthLimitNotice).slice(0, 200)}:generating`;
         task.state = 'waiting';
         task.updatedAt = Date.now();
@@ -5094,7 +5148,6 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       }
       return;
     }
-    const stopPresent = (turn.owned || routeEndedOwned) ? Boolean(stopButton()) : false;
     const loadingStartedAt = performance.now();
     const rawLoading = Boolean(pageLoadingState());
     const loadingScanMs = performance.now() - loadingStartedAt;
@@ -5117,7 +5170,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     // In a bound owned conversation, active generation exposes Stop. A
     // decorative/stale spinner must not mask an abnormal stop; neither should
     // stale stream markers attached to an explicit retryable failure card.
-    const activityStreaming = Boolean(activityTurn?.streaming && !activityTurn?.final && !retryableErrorEnded);
+    const activityStreaming = Boolean(observedActivityStreaming && !retryableErrorEnded);
     const hasConversationEvidence = Boolean(
       String(activityTurn?.text || '').trim()
       || latestMountedUser
@@ -5185,7 +5238,8 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       explicitFinal:turn.explicitFinal,
       recoveredStaticCandidate:Boolean(turn.recoveredStaticCandidate),
       routeEndedOwned,
-      activityText:String(activityTurn?.text || ''),
+      activityText,
+      activityTextStableSince,
       userBoundaryKey,
       composerReady,
       composerEmpty,
@@ -5198,14 +5252,28 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       streaming:activityStreaming,
       sentAt:task.sentAt,
     };
-    const previous = observations.get(task.id);
-    const now = Date.now();
     const progressSignature = stalledProgressSignature(sample);
     const progressUnchanged = previous?.progressSignature === progressSignature;
     const progressSince = progressUnchanged && Number.isFinite(Number(previous.progressSince))
       ? Number(previous.progressSince)
       : now;
     const stalledFor = progressUnchanged ? now - progressSince : 0;
+    const transcriptHash = stalledConversationContentHash(sample);
+    let stalledCounterChanged = false;
+    if (previous && !progressUnchanged && Number(task.stalledRefreshAttempts || 0) > 0) {
+      task.stalledRefreshAttempts = 0;
+      task.stalledRefreshAt = 0;
+      task.stalledRefreshProgressHash = transcriptHash;
+      stalledCounterChanged = true;
+    } else if (previous && progressUnchanged && task.stalledRefreshProgressHash && transcriptHash) {
+      if (task.stalledRefreshProgressHash !== transcriptHash) {
+        task.stalledRefreshAttempts = 0;
+        task.stalledRefreshAt = 0;
+      }
+      task.stalledRefreshProgressHash = '';
+      stalledCounterChanged = true;
+    }
+    if (stalledCounterChanged) save();
     const abnormalNoFinalEligible = Boolean(
       sample.routeOwned
       && (sample.owned || sample.routeEndedOwned)
@@ -5234,7 +5302,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       }
     } else if (task.abnormalNoFinalSignature !== progressSignature) {
       task.abnormalNoFinalSignature = progressSignature;
-      task.abnormalNoFinalSince = now;
+      task.abnormalNoFinalSince = staleActivityStreaming ? activityTextStableSince : now;
       abnormalNoFinalChanged = true;
     } else if (!Number(task.abnormalNoFinalSince || 0)) {
       task.abnormalNoFinalSince = now;
@@ -5298,6 +5366,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       loading:Boolean(sample.loading),
       routeEndedOwned:Boolean(sample.routeEndedOwned),
       activityText:String(sample.activityText || ''),
+      activityTextStableSince,
       userBoundaryKey:String(sample.userBoundaryKey || ''),
       composerEmpty:Boolean(sample.composerEmpty),
       clear,
@@ -5329,7 +5398,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
         : '检测到当前会话已经结束但没有最终回复';
       if (queueInterruptedFreshRetry(task, reason, now, routeEndedOwned ? activityTurn : turn, { allowExactRouteFallback:true })) return;
     }
-    if (stallEligible && refreshStalledConversation(task)) return;
+    if (stallEligible && refreshStalledConversation(task, true, now, { sample, turn:routeEndedOwned ? activityTurn : turn })) return;
     if (result.state === 'complete') { finish(task, sample.text); return; }
     if (result.state === 'cooldown') {
       restForRateLimit(task);
