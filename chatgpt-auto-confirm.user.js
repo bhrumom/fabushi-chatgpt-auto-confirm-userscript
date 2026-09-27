@@ -2204,6 +2204,9 @@ async function bootstrapAttempt() {
   function cancelTask(task) {
     if (!taskBelongsToTab(task) || terminal.has(task.state)) return false;
     if (task.state !== 'paused') task.pausedState = task.state;
+    clearHandoffReplySnapshot(task);
+    clearAbnormalFreshCarry(task);
+    clearStopObservedGeneration(task);
     task.state = 'cancelled';
     task.updatedAt = Date.now();
     log(task, '已取消当前任务；其他任务继续运行。');
