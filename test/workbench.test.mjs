@@ -3802,7 +3802,7 @@ test('pagehide persists the current assistant reply and fresh prompt falls back 
     assert.match(prompt,/已完成模块 A 和 B/,'fresh Work prompt must include the durable previous-page reply');
     assert.match(prompt,/当前正在补模块 C 的集成验证/);
     assert.match(prompt,/原始目标/);
-    assert.doesNotEqual(prompt.trim(),'finish all remaining work');
+    assert.notEqual(prompt.trim(),'finish all remaining work');
   } finally {h.pause();dom.window.close();}
 });
 
