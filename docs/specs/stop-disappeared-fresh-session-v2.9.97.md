@@ -1,6 +1,6 @@
 # Stop disappearance always hands current work to a fresh session — v2.9.97
 
-Status: implementation-verified  
+Status: completed  
 Owner: Fabushi ChatGPT Auto-confirm  
 Last updated: 2026-09-27  
 Related request: user explicitly replaced same-chat “继续完成所有” continuation with fresh-session handoff
@@ -95,4 +95,16 @@ Pre-merge implementation head `63832d1754123d10fe4cb27e73bddf2ea86ab3b9` passed 
 | R9-R10 | passed | Existing ownership/foreign/ambiguous/rate-limit/blocker tests and conversation-length fresh-handoff tests remained green in the full suite. |
 | R13 | passed | Required Stop-removal, final-toolbar, authorization, interruption, and no-legacy-send regressions are present and passed. |
 | R14 | passed | Userscript metadata/runtime, README, and version assertions are 2.9.97. |
-| R15 / AC-7 | partial | Exact-head Test `36298028332` passed. Merge, canonical-main Test, Release workflow, and v2.9.97 asset readback remain to be completed after this compliance-only commit is re-tested. |
+| R15 / AC-7 | passed | Final PR head `b6c1c2fbb35194670377228b0d9161ff77e0a059` passed exact-head Test `36298111018`; PR #103 merged as `3098c30a01763d2e1e8fe048eb02a8b4f892a0f0`; canonical-main Test `36298149021` succeeded; Release `36298172930` succeeded and published `v2.9.97`. Release asset `chatgpt-auto-confirm.user.js` is 351602 bytes with SHA-256 `633049284f64280d1103553257ca2e286a14d8b1fe28bb26d83eb4e3482531f2`; canonical main readback reports metadata/runtime 2.9.97. |
+
+## 10. Final delivery evidence
+
+- Implementation PR: #103.
+- Final PR head: `b6c1c2fbb35194670377228b0d9161ff77e0a059`.
+- Final exact-head Test: `36298111018`, success.
+- Merge SHA: `3098c30a01763d2e1e8fe048eb02a8b4f892a0f0`.
+- Canonical-main Test: `36298149021`, success.
+- Release workflow: `36298172930`, success.
+- GitHub Release: `v2.9.97`, published 2026-09-27T05:46:39Z.
+- Release asset: `chatgpt-auto-confirm.user.js`, 351602 bytes, SHA-256 `633049284f64280d1103553257ca2e286a14d8b1fe28bb26d83eb4e3482531f2`.
+- Release target/source commit: `6637528f4364ffb87cb97a0b6ee0f70688981bdc`; release workflow validates that the userscript file at tested canonical main is byte-identical to that source commit.
