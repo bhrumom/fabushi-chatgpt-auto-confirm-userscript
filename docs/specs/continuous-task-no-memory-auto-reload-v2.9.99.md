@@ -1,6 +1,6 @@
 # Continuous task processing without automatic memory reload — v2.9.99
 
-Status: implementation-verified  
+Status: completed  
 Owner: Fabushi ChatGPT Auto-confirm  
 Last updated: 2026-09-28  
 Related incident: the userscript interrupted an active task after the page JS-heap estimate reached 1.75 GiB and logged that it was releasing the old page supervisor and reloading the same ChatGPT conversation.
@@ -91,4 +91,16 @@ Implementation head `d906bd91e68f7afb357866166675073447d1a93d` passed GitHub Act
 | R8-R9 | passed | Regressions verify 1.8 GiB and >2 GiB never create memory recovery tickets or host discard requests and never write `memoryPressureReloadAt` / `memoryPressureReloadURL`. |
 | R10 | passed | Existing Stop disappearance, reload hydration, pagehide reply snapshot and fresh-session carry regressions remain green in the full suite. |
 | R11 | passed | Userscript metadata/runtime, README and package assertions report 2.9.99. |
-| R12 / AC-5 | partial | Exact behavior head Test `36339772553` passed. A compliance-only Spec commit will be re-tested before merge; canonical-main Test, Release workflow and release asset readback remain pending. |
+| R12 / AC-5 | passed | Final PR head `541cf765638834034f7c0e6fc0365d8a394c52ff` passed exact-head Test `36339834317`; PR #107 merged as `df1bd5de18b5d4a9ee4605d7d2a1df899ff2a1c2`; canonical-main Test `36339874667` succeeded; Release `36339908061` succeeded and published `v2.9.99`. Release asset `chatgpt-auto-confirm.user.js` is 353333 bytes with SHA-256 `b272b4a14ebb42b0cbf1fb404e8408438fef6d807ecab74d459b7713b4e51661`; canonical main readback reports metadata/runtime 2.9.99. |
+
+## 10. Final delivery evidence
+
+- Implementation PR: #107.
+- Final exact-head SHA: `541cf765638834034f7c0e6fc0365d8a394c52ff`.
+- Final exact-head Test: `36339834317`, success.
+- Merge SHA: `df1bd5de18b5d4a9ee4605d7d2a1df899ff2a1c2`.
+- Canonical-main Test: `36339874667`, success.
+- Release workflow: `36339908061`, success.
+- GitHub Release: `v2.9.99`, published 2026-09-27T18:14:38Z.
+- Release asset: `chatgpt-auto-confirm.user.js`, 353333 bytes, SHA-256 `b272b4a14ebb42b0cbf1fb404e8408438fef6d807ecab74d459b7713b4e51661`.
+- Release target/source commit: `c1ec8363c0340e7bc1a4135d0d22f8ea810f5c7a`; the release workflow verified the userscript file on tested canonical main is byte-identical to that source commit.
