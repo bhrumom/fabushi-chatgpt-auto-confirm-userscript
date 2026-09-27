@@ -3467,7 +3467,7 @@ test('sustained memory pressure reloads the exact task session in the same tab w
     assert.equal(heartbeat.taskId,task.id);
     assert.equal(heartbeat.taskURL,task.url);
     assert.ok(heartbeat.recoveryToken);
-    const nav=JSON.parse(w.sessionStorage.getItem('fabushi-auto-confirm-nav-v3')||w.sessionStorage.getItem('fabushi-auto-confirm-navigation-v1')||'null');
+    const nav=JSON.parse(w.sessionStorage.getItem('fabushi-workbench-navigation-v2')||'null');
     assert.ok(nav===null || nav.task===task.id,'the memory handoff keeps the same task-bound recovery navigation evidence');
   } finally {h.pause();dom.window.close();}
 });
