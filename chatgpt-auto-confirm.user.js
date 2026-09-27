@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.98
+// @version      2.9.99
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.98';
+  const VERSION = '2.9.99';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -200,18 +200,16 @@ async function bootstrapAttempt() {
   const HOST_RECOVERY_RENEW_MS = 30000;
   const HOST_RECOVERY_RESPONSE_TTL_MS = 10000;
   // A userscript cannot read the renderer's RSS or force V8 to collect the
-  // whole ChatGPT page. It bounds its own retained state and reloads the exact
-  // conversation in place when sustained pressure and task safety permit.
+  // whole ChatGPT page. Heap sampling is diagnostic-only: automatic monitoring
+  // may compact script-owned stale state, but it never reloads/navigates/releases
+  // the active task because of a memory threshold. Host discard remains manual.
   const HOST_MEMORY_CAPABILITY = 'tab-memory-discard';
   const HOST_MEMORY_REQUEST_TYPE = 'tab-memory.request';
   const HOST_MEMORY_RESPONSE_TYPE = 'tab-memory.response';
   const HOST_MEMORY_PLUGIN_ID = 'chatgpt-auto-confirm';
   const MEMORY_MONITOR_INTERVAL_MS = 30000;
-  const MEMORY_PRESSURE_SAMPLES = 2;
-  const MEMORY_HOST_REQUEST_MIN_BYTES = 1792 * 1024 * 1024;
   const MEMORY_LOCAL_CLEANUP_COOLDOWN_MS = 60000;
   const MEMORY_HOST_REQUEST_COOLDOWN_MS = 5 * 60 * 1000;
-  const MEMORY_SAME_TAB_RELOAD_COOLDOWN_MS = 5 * 60 * 1000;
   const MEMORY_HOST_RESPONSE_TTL_MS = 10000;
   // Full ChatGPT document navigations are expensive. The host guard adds a
   // second, cross-document budget; these local limits remain effective when
@@ -231,11 +229,13 @@ async function bootstrapAttempt() {
   const LOCAL_NAVIGATION_BURST_WINDOW_MS = 5 * 60 * 1000;
   const LOCAL_NAVIGATION_BURST_LIMIT = 6;
   const LOCAL_NAVIGATION_BREAK_MS = 60000;
-  const MEMORY_SOFT_LIMIT_BYTES = 1536 * 1024 * 1024;
-  const MEMORY_HARD_LIMIT_BYTES = 1792 * 1024 * 1024;
-  const MEMORY_RATIO_MIN_BYTES = 256 * 1024 * 1024;
-  const MEMORY_SOFT_RATIO = 0.5;
-  const MEMORY_HARD_RATIO = 0.7;
+  // These values only label diagnostics and decide when to run non-disruptive
+  // local housekeeping. They are not execution limits and never trigger reload.
+  const MEMORY_DIAGNOSTIC_ELEVATED_BYTES = 1536 * 1024 * 1024;
+  const MEMORY_DIAGNOSTIC_HIGH_BYTES = 1792 * 1024 * 1024;
+  const MEMORY_DIAGNOSTIC_RATIO_MIN_BYTES = 256 * 1024 * 1024;
+  const MEMORY_DIAGNOSTIC_ELEVATED_RATIO = 0.5;
+  const MEMORY_DIAGNOSTIC_HIGH_RATIO = 0.7;
   // Keep the durable workbench small even when a task runs for days. The
   // current goal/result/attachment metadata remain separate fields and are
   // never removed by this log compaction.
@@ -279,9 +279,9 @@ async function bootstrapAttempt() {
     if (!snapshot?.supported) return 'unsupported';
     const used = Number(snapshot.usedBytes || 0);
     const ratio = Number(snapshot.ratio || 0);
-    const ratioEligible = used >= MEMORY_RATIO_MIN_BYTES;
-    if (used >= MEMORY_HARD_LIMIT_BYTES || (ratioEligible && ratio >= MEMORY_HARD_RATIO)) return 'high';
-    if (used >= MEMORY_SOFT_LIMIT_BYTES || (ratioEligible && ratio >= MEMORY_SOFT_RATIO)) return 'elevated';
+    const ratioEligible = used >= MEMORY_DIAGNOSTIC_RATIO_MIN_BYTES;
+    if (used >= MEMORY_DIAGNOSTIC_HIGH_BYTES || (ratioEligible && ratio >= MEMORY_DIAGNOSTIC_HIGH_RATIO)) return 'high';
+    if (used >= MEMORY_DIAGNOSTIC_ELEVATED_BYTES || (ratioEligible && ratio >= MEMORY_DIAGNOSTIC_ELEVATED_RATIO)) return 'elevated';
     return 'normal';
   }
   function formatMemoryBytes(value) {
@@ -599,7 +599,6 @@ async function bootstrapAttempt() {
   let navigationRequestPending = false;
   let memoryMonitorTimer = null;
   let memoryMonitorBusy = false;
-  let memoryPressureStreak = 0;
   let memoryLastCleanupAt = 0;
   let memoryLastHostRequestAt = 0;
   let memoryHostCooldownMs = MEMORY_HOST_REQUEST_COOLDOWN_MS;
@@ -1004,105 +1003,6 @@ async function bootstrapAttempt() {
       activeTaskId:activeTask?.id || '',
     };
   }
-  function memoryReloadSafety() {
-    const transient = readTransientUIState();
-    const owned = tabTasks().filter(task => !terminal.has(task.state) && task.state !== 'paused');
-    const activeTask = owned.length === 1 ? owned[0] : null;
-    const liveURL = currentConversationURL();
-    const hasDraft = Boolean(transient.hasDraft || hasUnsavedComposerInput());
-    const hasPendingAttachment = Boolean(transient.hasFiles || tabTasks().some(task => task.attachmentUploadPending));
-    const unsafeTaskState = !activeTask || !['waiting','generating','reviewing'].includes(String(activeTask.state || ''))
-      || activeTask.attachmentUploadPending === true;
-    const safe = data.autoResume !== false && !busy && !navigating && !hasDraft
-      && !hasPendingAttachment && !cards().length && !stopButton()
-      && !unsafeTaskState && canonicalConversationURL(activeTask?.url) === liveURL;
-    return { safe, hidden:document.visibilityState === 'hidden', hasDraft, hasPendingAttachment,
-      activeTask, liveURL, reason:unsafeTaskState ? 'task-not-resumable' : '' };
-  }
-  async function reloadTaskForMemoryPressure(task, now = Date.now()) {
-    const liveURL = currentConversationURL();
-    const taskURL = canonicalConversationURL(task?.url);
-    if (!task || !liveURL || !taskURL || liveURL !== taskURL || data.autoResume === false) return false;
-    // Reloading a very long conversation can reconstruct the same large React
-    // transcript and immediately recreate the heap pressure. Never turn that
-    // into a periodic same-route reload loop; another route gets its own gate.
-    if (task.memoryPressureReloadURL === liveURL) return false;
-    if (now - Number(task.memoryPressureReloadAt || 0) < MEMORY_SAME_TAB_RELOAD_COOLDOWN_MS) return false;
-
-    task.memoryPressureReloadAt = now;
-    task.memoryPressureReloadURL = liveURL;
-    task.state = 'waiting';
-    task.updatedAt = now;
-    // Snapshot the visible response boundary before the old renderer is
-    // released. The replacement document can then resume inspection without
-    // depending on the hidden Fabushi marker surviving virtualization.
-    armWorkspaceRecoveryIdentity(task);
-    ensureAutomaticRecoveryTicket(task, { force:true, destination:liveURL });
-    log(task, `网页 JS 堆估算已连续达到 ${formatMemoryBytes(MEMORY_HOST_REQUEST_MIN_BYTES)}；已保存当前会话和任务状态，正在释放旧页面任务监督器并在同一标签页恢复 ${taskURL}。恢复后继续此任务，不新开标签页、不重复发送。`);
-    save();
-
-    // Do not wait for pagehide to release ownership. Under memory pressure the
-    // old document can stall long enough that the replacement page cannot
-    // reclaim the Web Locks. Perform the same lifecycle handoff explicitly:
-    // stop the runner, persist a direct same-route recovery ticket, stop the
-    // heartbeat loop, then release the workspace lock before reload.
-    suspendRunnerForPagehide();
-    const target = new URL(liveURL);
-    sessionStorage.setItem(NAV, JSON.stringify({
-      path:target.pathname,
-      href:liveURL,
-      at:now,
-      task:task.id,
-      assigned:true,
-      direct:true,
-      purpose:'recovery',
-      phase:String(task.phase || 'work'),
-      round:Number(task.round || 0),
-      goalRevision:Number(task.goalRevision || 0),
-      recovery:true,
-      resume:true,
-      memoryPressure:true,
-    }));
-    ensureAutomaticRecoveryTicket(task, { force:true, destination:liveURL });
-    stopMemoryMonitor();
-    stopWorkspaceHeartbeat('memory-pressure-handoff');
-    save();
-    await releaseWorkspace();
-
-    navigating = true;
-    // If a browser refuses the reload without unloading this document, reclaim
-    // the released locks and resume locally instead of leaving the task dead.
-    const fallback = window.setTimeout(async () => {
-      if (!navigating) return;
-      navigating = false;
-      const reclaimed = await claimWorkspace(tabId).catch(() => false);
-      if (reclaimed) {
-        scheduleWorkspaceHeartbeat(50);
-        scheduleMemoryMonitor(1000);
-        autoStart(task.id);
-        log(task, '内存压力页面重载未提交；已重新取得当前任务锁并继续监督，任务没有丢失。');
-        save();
-      }
-    }, NAVIGATION_COMMIT_WATCHDOG_MS);
-    try {
-      location.reload();
-    } catch (error) {
-      clearTimeout(fallback);
-      navigating = false;
-      const reclaimed = await claimWorkspace(tabId).catch(() => false);
-      if (reclaimed) {
-        scheduleWorkspaceHeartbeat(50);
-        scheduleMemoryMonitor(1000);
-        autoStart(task.id);
-      }
-      task.state = 'waiting';
-      log(task, `内存压力恢复刷新失败：${String(error?.message || error).slice(0, 180)}；已恢复当前任务锁并继续监督。`);
-      save();
-      return false;
-    }
-    memoryLastAction = '已释放旧页面任务锁并在原标签页提交恢复重载；替换页面会按持久化恢复票据继续同一任务。';
-    return true;
-  }
   function cleanupLocalMemory({ reason = 'memory-pressure' } = {}) {
     const now = Date.now();
     if (now - memoryLastCleanupAt < MEMORY_LOCAL_CLEANUP_COOLDOWN_MS) {
@@ -1142,7 +1042,7 @@ async function bootstrapAttempt() {
     const ratio = Number(memorySnapshot.ratio || 0);
     const level = memoryPressure === 'high' ? '高' : memoryPressure === 'elevated' ? '偏高' : '正常';
     const action = memoryLastAction ? ` · ${memoryLastAction.slice(0, 96)}` : '';
-    return `网页 JS 堆估算 ${formatMemoryBytes(memorySnapshot.usedBytes)} / ${formatMemoryBytes(memorySnapshot.limitBytes)}（${Math.round(ratio * 100)}%，${level}）${action}`;
+    return `网页 JS 堆估算 ${formatMemoryBytes(memorySnapshot.usedBytes)} / ${formatMemoryBytes(memorySnapshot.limitBytes)}（${Math.round(ratio * 100)}%，${level}；仅诊断，不会自动刷新或中断任务）${action}`;
   }
   function settleHostMemoryRequest(requestId, result) {
     const pending = hostMemoryPending.get(requestId);
@@ -1157,27 +1057,12 @@ async function bootstrapAttempt() {
     const snapshot = readMemorySnapshot();
     memorySnapshot = snapshot;
     memoryPressure = memoryPressureLevel(snapshot);
-    const safety = userInitiated ? memoryDiscardSafety() : memoryReloadSafety();
-    if (!userInitiated && !['elevated','high'].includes(memoryPressure)) {
-      return { ok:false, discarded:false, reason:'pressure-not-elevated', safety };
-    }
+    const safety = memoryDiscardSafety();
     if (!userInitiated) {
       cleanupLocalMemory({ reason });
-      if (!safety.safe) {
-        memoryLastAction = `内存压力达到阈值，但当前状态不适合刷新（${safety.reason || (safety.hasDraft ? '有未保存输入' : safety.hasPendingAttachment ? '附件处理中' : '任务/会话状态不安全')}）；保留原页面并稍后重试。`;
-        paint?.();
-        return { ok:false, discarded:false, reason:'unsafe-state', safety };
-      }
-      const reloaded = await reloadTaskForMemoryPressure(safety.activeTask, now);
-      if (reloaded) return { ok:true, reloaded:true, reason:'same-tab-reload', safety };
-      if (safety.activeTask?.memoryPressureReloadURL === safety.liveURL) {
-        memoryLastAction = '此会话已执行过一次内存恢复重载；页面重建后仍偏高，为避免循环刷新，本会话不会再次自动重载。';
-        paint?.();
-        return { ok:false, reloaded:false, reason:'same-route-already-reloaded', safety };
-      }
-      memoryLastAction = '内存压力恢复刷新处于冷却期或未能提交；任务仍保留在当前标签页。';
+      memoryLastAction = '自动内存恢复已禁用；内存监测仅保留诊断与脚本本地清理，当前任务持续运行且不会因内存阈值刷新页面。';
       paint?.();
-      return { ok:false, discarded:false, reason:'reload-cooldown-or-failed', safety };
+      return { ok:false, discarded:false, reloaded:false, reason:'automatic-memory-recovery-disabled', safety };
     }
     if (now - memoryLastHostRequestAt < memoryHostCooldownMs) {
       return { ok:false, discarded:false, reason:'cooldown', safety };
@@ -1240,14 +1125,10 @@ async function bootstrapAttempt() {
       const snapshot = readMemorySnapshot();
       memorySnapshot = snapshot;
       memoryPressure = memoryPressureLevel(snapshot);
-      if (['elevated','high'].includes(memoryPressure)) memoryPressureStreak += 1;
-      else memoryPressureStreak = 0;
+      // Diagnostic-only monitoring: high heap estimates may trigger bounded
+      // cleanup of script-owned stale state, but never navigation, reload,
+      // workspace release, runner suspension, tab discard, or task handoff.
       if (memoryPressure === 'elevated' || memoryPressure === 'high') cleanupLocalMemory({ reason:'memory-pressure' });
-      if (['elevated','high'].includes(memoryPressure)
-        && Number(snapshot.usedBytes || 0) >= MEMORY_HOST_REQUEST_MIN_BYTES
-        && memoryPressureStreak >= MEMORY_PRESSURE_SAMPLES) {
-        await requestHostMemoryCleanup({ reason:'memory-pressure', userInitiated:false });
-      }
       paint?.();
       return snapshot;
     } finally {

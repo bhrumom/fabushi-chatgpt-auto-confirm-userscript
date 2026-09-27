@@ -3402,63 +3402,79 @@ test('memory diagnostics identify a bounded JS heap estimate and pressure level'
   dom.window.close();
 });
 
-test('automatic memory handoff stays below the 2 GiB ceiling but does not trigger at 1.70 GiB',async()=>{
+test('automatic memory monitoring never reloads or interrupts an active task at 1.8 GiB',async()=>{
   const gib=1024*1024*1024;
-  const {h,w,dom}=await fixture('',window=>Object.defineProperty(window.performance,'memory',{configurable:true,value:{usedJSHeapSize:1.70*gib,totalJSHeapSize:1.9*gib,jsHeapSizeLimit:4*gib}}));
+  const requests=[];
+  const {h,w,dom}=await fixture('',window=>{
+    Object.defineProperty(window.performance,'memory',{configurable:true,value:{usedJSHeapSize:1.8*gib,totalJSHeapSize:2.0*gib,jsHeapSizeLimit:4*gib}});
+    window.addEventListener('message',event=>{if(event.data?.source==='fabushi-userscript'&&event.data?.type==='tab-memory.request')requests.push(event.data);});
+  });
   try {
-    w.history.pushState({},'', '/c/memory-under-threshold');
-    const task={id:'memory-under-threshold',ownerTabId:h.getTabId(),goal:'preserve task',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/memory-under-threshold',token:'dispatch',attempted:false,attachments:[],messages:[]};
+    w.history.pushState({},'', '/c/memory-continuous');
+    const task={id:'memory-continuous',ownerTabId:h.getTabId(),goal:'keep processing',mode:'goal',phase:'work',round:4,state:'waiting',url:'https://chatgpt.com/c/memory-continuous',token:'keep-token',attempted:false,attachments:[],messages:[]};
     h.data.tasks.push(task);
     await h.inspectMemoryPressure();
     await h.inspectMemoryPressure();
-    assert.equal(task.memoryPressureReloadAt||0,0,'1.70 GiB remains below the 1.75 GiB automatic handoff threshold');
-    assert.equal(task.url,'https://chatgpt.com/c/memory-under-threshold');
+    await h.inspectMemoryPressure();
+    assert.equal(h.memoryPressure(),'high');
+    assert.equal(requests.length,0,'automatic monitoring must never ask the host to discard/recover the tab');
+    assert.equal(task.state,'waiting');
+    assert.equal(task.url,'https://chatgpt.com/c/memory-continuous');
+    assert.equal(task.token,'keep-token');
+    assert.equal(task.phase,'work');
+    assert.equal(task.round,4);
+    assert.equal(task.memoryPressureReloadAt,undefined);
+    assert.equal(task.memoryPressureReloadURL,undefined);
+    assert.equal(h.getNavigationState().navigating,false);
+    assert.equal(w.sessionStorage.getItem('fabushi-workbench-navigation-v2'),null,'memory monitoring must not create a recovery navigation ticket');
+    assert.match(h.memoryStatusText(),/仅诊断，不会自动刷新或中断任务/);
   } finally {h.pause();dom.window.close();}
 });
 
-test('sustained memory pressure reloads the exact task session in the same tab without requiring the host',async()=>{
+test('automatic memory monitoring remains non-disruptive above 2 GiB',async()=>{
   const gib=1024*1024*1024;
-  const {h,w,dom}=await fixture('',window=>Object.defineProperty(window.performance,'memory',{configurable:true,value:{usedJSHeapSize:1.8*gib,totalJSHeapSize:2.0*gib,jsHeapSizeLimit:4*gib}}));
+  const requests=[];
+  const {h,w,dom}=await fixture('',window=>{
+    Object.defineProperty(window.performance,'memory',{configurable:true,value:{usedJSHeapSize:2.4*gib,totalJSHeapSize:2.7*gib,jsHeapSizeLimit:4*gib}});
+    window.addEventListener('message',event=>{if(event.data?.source==='fabushi-userscript'&&event.data?.type==='tab-memory.request')requests.push(event.data);});
+  });
   try {
-    w.history.pushState({},'', '/c/memory-takeover');
-    const task={id:'memory-task',ownerTabId:h.getTabId(),goal:'private task goal',mode:'once',phase:'work',round:2,state:'waiting',url:'https://chatgpt.com/c/memory-takeover',token:'dispatch',attempted:true,attachments:[],messages:[]};
+    w.history.pushState({},'', '/c/memory-over-two');
+    const task={id:'memory-over-two',ownerTabId:h.getTabId(),goal:'continue despite heap estimate',mode:'once',phase:'work',round:1,state:'generating',url:'https://chatgpt.com/c/memory-over-two',token:'over-two-token',attempted:false,attachments:[],messages:[]};
     h.data.tasks.push(task);
-    let hostRequests=0;
-    w.addEventListener('message',event=>{if(event.data?.source==='fabushi-userscript'&&event.data?.type==='tab-memory.request')hostRequests++;});
+    await h.inspectMemoryPressure();
+    await h.inspectMemoryPressure();
+    assert.equal(h.memoryPressure(),'high');
+    assert.equal(requests.length,0);
+    assert.equal(task.state,'generating');
+    assert.equal(task.url,'https://chatgpt.com/c/memory-over-two');
+    assert.equal(task.token,'over-two-token');
+    assert.equal(h.getNavigationState().navigating,false);
+    assert.equal(w.sessionStorage.getItem('fabushi-workbench-navigation-v2'),null);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('non-user memory cleanup requests fail closed without reloading or contacting the host',async()=>{
+  const gib=1024*1024*1024;
+  const requests=[];
+  const {h,w,dom}=await fixture('',window=>{
+    Object.defineProperty(window.performance,'memory',{configurable:true,value:{usedJSHeapSize:2.1*gib,totalJSHeapSize:2.3*gib,jsHeapSizeLimit:4*gib}});
+    window.addEventListener('message',event=>{if(event.data?.source==='fabushi-userscript'&&event.data?.type==='tab-memory.request')requests.push(event.data);});
+  });
+  try {
+    w.history.pushState({},'', '/c/memory-disabled-direct');
+    const task={id:'memory-disabled-direct',ownerTabId:h.getTabId(),goal:'stay on this task',mode:'once',phase:'work',round:2,state:'waiting',url:'https://chatgpt.com/c/memory-disabled-direct',token:'same-token',attempted:false,attachments:[],messages:[]};
+    h.data.tasks.push(task);
     const result=await h.requestHostMemoryCleanup({reason:'memory-pressure'});
-    assert.equal(result.reason,'same-tab-reload');
-    assert.equal(result.reloaded,true);
-    assert.equal(hostRequests,0,'automatic renderer reset no longer depends on the host discard bridge');
+    assert.equal(result.reason,'automatic-memory-recovery-disabled');
+    assert.equal(result.reloaded,false);
+    assert.equal(requests.length,0);
+    assert.equal(task.url,'https://chatgpt.com/c/memory-disabled-direct');
+    assert.equal(task.token,'same-token');
     assert.equal(task.state,'waiting');
-    assert.equal(task.url,'https://chatgpt.com/c/memory-takeover');
-    assert.ok(Number(task.memoryPressureReloadAt)>0);
-    assert.equal(task.memoryPressureReloadURL,task.url);
-    const heartbeat=JSON.parse(w.localStorage.getItem(`fabushi-workspace-heartbeat-v1:${h.getTabId()}`));
-    assert.equal(heartbeat.taskId,task.id);
-    assert.equal(heartbeat.taskURL,task.url);
-    assert.ok(heartbeat.recoveryToken);
-    const nav=JSON.parse(w.sessionStorage.getItem('fabushi-workbench-navigation-v2')||'null');
-    assert.equal(nav?.task,task.id,'the memory handoff persists the same task-bound recovery navigation ticket');
-    assert.equal(nav?.purpose,'recovery');
-    assert.equal(nav?.memoryPressure,true);
-  } finally {h.pause();dom.window.close();}
-});
-
-test('sustained heap pressure never reloads the same conversation route repeatedly',async()=>{
-  const gib=1024*1024*1024;
-  const {h,w,dom}=await fixture('',window=>Object.defineProperty(window.performance,'memory',{configurable:true,value:{usedJSHeapSize:1.8*gib,totalJSHeapSize:2.0*gib,jsHeapSizeLimit:4*gib}}));
-  try {
-    w.history.pushState({},'', '/c/memory-reload-once');
-    const task={id:'memory-once',ownerTabId:h.getTabId(),goal:'preserve task',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/memory-reload-once',token:'dispatch',attempted:true,attachments:[],messages:[]};
-    h.data.tasks.push(task);
-    const first=await h.requestHostMemoryCleanup({reason:'memory-pressure'});
-    assert.equal(first.reason,'same-tab-reload');
-    w.dispatchEvent(new w.PageTransitionEvent('pageshow',{persisted:true}));
-    const later=await h.requestHostMemoryCleanup({reason:'memory-pressure'});
-    assert.equal(later.reason,'same-route-already-reloaded');
-    assert.match(h.memoryStatusText(),/避免循环刷新/);
-    assert.equal(task.memoryPressureReloadURL,task.url);
-    assert.equal(task.state,'waiting');
+    assert.equal(h.getNavigationState().navigating,false);
+    assert.equal(w.sessionStorage.getItem('fabushi-workbench-navigation-v2'),null);
+    assert.match(h.memoryStatusText(),/自动内存恢复已禁用/);
   } finally {h.pause();dom.window.close();}
 });
 
@@ -3831,13 +3847,17 @@ test('durable handoff snapshot is phase round and goal-revision bound and cannot
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.98$/m);
-  assert.match(source,/const VERSION = '2\.9\.98'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.99$/m);
+  assert.match(source,/const VERSION = '2\.9\.99'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const ENDED_NO_FINAL_STABILITY_MS = 8000/);
   assert.match(source,/const RELOAD_STOP_ABSENCE_STABILITY_MS = 8000/);
+  assert.doesNotMatch(source,/MEMORY_PRESSURE_SAMPLES|MEMORY_HOST_REQUEST_MIN_BYTES|MEMORY_SAME_TAB_RELOAD_COOLDOWN_MS/);
+  assert.doesNotMatch(source,/function memoryReloadSafety|function reloadTaskForMemoryPressure|memoryPressureReloadAt|memoryPressureReloadURL/);
+  assert.doesNotMatch(source,/网页 JS 堆估算已连续达到/);
+  assert.match(source,/automatic-memory-recovery-disabled/);
   assert.doesNotMatch(source,/ABNORMAL_NO_FINAL_CONTINUE_AFTER_MS/);
   assert.doesNotMatch(source,/AMBIGUOUS_SEND_REFRESH_MS|AMBIGUOUS_SEND_REFRESH_LIMIT/);
   assert.doesNotMatch(source,/STOP_MISSING_CONTINUE_GRACE_MS|stopMissingSince|stopMissingSignature/);
@@ -4004,24 +4024,20 @@ test('interrupted recovery with a virtualized task article opens a fresh session
     assert.equal(w.document.querySelector('#prompt-textarea').value,'');
   } finally {h.pause();dom.window.close();}
 });
-test('automatic memory recovery never asks the host or reloads when there is no uniquely owned task',async()=>{
+test('automatic memory diagnostics never ask the host even when no task is active',async()=>{
   const gib=1024*1024*1024;
   const requests=[];
   const {h,w,dom}=await fixture('',window=>{
     Object.defineProperty(window.performance,'memory',{configurable:true,value:{usedJSHeapSize:1.8*gib,totalJSHeapSize:2.0*gib,jsHeapSizeLimit:4*gib}});
-    window.addEventListener('message',event=>{
-      if(event.data?.source!=='fabushi-userscript'||event.data?.type!=='tab-memory.request')return;
-      requests.push(event.data);
-      window.setTimeout(()=>window.dispatchEvent(new window.MessageEvent('message',{data:{source:'fabushi-extension',type:'tab-memory.response',requestId:event.data.requestId,ok:true,result:{ok:true,discarded:false,reason:'active-tab'}},source:window})),0);
-    });
+    window.addEventListener('message',event=>{if(event.data?.source==='fabushi-userscript'&&event.data?.type==='tab-memory.request')requests.push(event.data);});
   });
   try {
     await h.inspectMemoryPressure();
     await h.inspectMemoryPressure();
-    assert.equal(requests.length,0,'automatic recovery is now in-place and does not call tabs.discard through the host');
+    assert.equal(requests.length,0);
     assert.equal(h.memorySnapshot().usedBytes,1.8*gib);
     assert.match(h.memoryStatusText(),/网页 JS 堆估算/);
-    assert.match(h.memoryStatusText(),/task-not-resumable/);
+    assert.match(h.memoryStatusText(),/仅诊断，不会自动刷新或中断任务/);
   } finally {h.pause();dom.window.close();}
 });
 

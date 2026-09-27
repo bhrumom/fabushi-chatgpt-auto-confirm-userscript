@@ -1,7 +1,8 @@
 # Memory-pressure same-tab recovery and same-chat continuation cap
 
-Status: active
+Status: partially superseded
 Owner: Fabushi ChatGPT auto-confirm userscript
+Superseded memory behavior: `continuous-task-no-memory-auto-reload-v2.9.99.md` removes the automatic heap-triggered reload requirements (R1-R4, R8-R9 and the 2026-09-27 threshold correction). Historical release evidence below is retained; it is no longer the current runtime requirement for memory pressure.
 Last updated: 2026-09-27
 Related task: user screenshot showing JS heap above 1 GiB and unavailable host recovery
 
