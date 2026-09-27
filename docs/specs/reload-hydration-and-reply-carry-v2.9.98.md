@@ -1,6 +1,6 @@
 # Reload hydration gate and durable reply carry — v2.9.98
 
-Status: active  
+Status: implementation-verified  
 Owner: Fabushi ChatGPT Auto-confirm  
 Last updated: 2026-09-27  
 Related incident: a refreshed ChatGPT conversation temporarily has no Stop control, causing an immediate false fresh-session handoff; the replacement prompt can also lose the old page's assistant reply and repeat the same task text.
@@ -100,8 +100,14 @@ Focused tests must cover:
 
 ## 9. Compliance record
 
+Implementation head `66fdc657bb037da82750b383940a95e81dacf700` passed GitHub Actions Test run `36306258914`: 258 tests, 251 passed, 0 failed, 7 skipped. Focused regressions passed for reload hydration, fingerprint stability, Stop reappearance, same-document immediate handoff, pagehide reply persistence, Work prompt snapshot fallback, Review prompt snapshot fallback, phase/round/goal-revision isolation, foreign-route rejection, authorization priority, and the existing no-`继续完成所有` behavior.
+
 | Requirement / AC | Status | Evidence / reason |
 | --- | --- | --- |
-| R1-R14 / AC-1-AC-6 | pending | Implementation and regression evidence pending. |
-| R15 | pending | Version bump pending. |
-| R16 / AC-7 | pending | CI, merge and release evidence pending. |
+| R1-R6 / AC-1, AC-2, AC-5 | passed | Each userscript document has an ephemeral id. Stop observations persist that id. A historical observation from an older document cannot hand off until readyState is complete, the exact conversation/composer is hydrated and the visible conversation fingerprint remains unchanged for 8 seconds. Stop reappearance binds the current document and restores immediate same-document Stop→absent behavior. |
+| R7-R9, R11 / AC-3, AC-4 | passed | `suspendRunnerForPagehide()` captures a bounded exact-route assistant snapshot before saving/unload; fresh handoff capture refreshes it again; Work/Review fresh prompts use live abnormal carry first and the durable same-phase/round snapshot as fallback. Pagehide+DOM-loss regression proves the previous reply remains in the next prompt. |
+| R10 | passed | Snapshot identity includes phase, round and goal revision; successful finish, manual goal edit and cancellation clear stale snapshot/carry/Stop identity. Regression proves round/revision mismatch returns no snapshot. |
+| R12 / AC-6 | passed | Existing authorization/rate-limit/blocker/ownership/ambiguous-send/memory/manual-recovery regressions remain green; foreign-route snapshot writes are rejected. |
+| R13-R14 | passed | Reload-delay, Stop-return, pagehide-carry, prompt fallback and isolation regressions are present and passed. |
+| R15 | passed | Userscript metadata/runtime, README and version assertions report 2.9.98. |
+| R16 / AC-7 | partial | Exact-head behavior Test `36306258914` passed. A compliance-only Spec commit will be re-tested before merge; canonical-main Test, Release workflow and release asset readback remain pending. |
