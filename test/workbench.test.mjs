@@ -296,7 +296,7 @@ test('a lost Stop control stays in the same conversation until the final toolbar
   assert.equal(h.classify({...sample,stop:true},previous,901_000).state,'generating');
   dom.window.close();
 });
-test('Stop disappearance with an active assistant busy marker never triggers an abnormal continuation',async()=>{
+test('a stale assistant busy marker cannot block abnormal-end recovery after reply text stops changing',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish all [Fabushi:stop-transition-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant" aria-busy="true">normal reply is still active even though Stop is temporarily absent</div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   try {
     w.history.pushState({},'', '/c/stop-transition');
@@ -304,17 +304,22 @@ test('Stop disappearance with an active assistant busy marker never triggers an 
     h.data.tasks.push(task);
     let clicks=0;
     w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>clicks++);
-    await h.start();
-    task.abnormalNoFinalSince=Date.now()-60_000;
-    task.abnormalNoFinalSignature='legacy-ended-candidate';
+    await h.start(false);
     await h.inspect(task,null);
+    const observation=h.observations.get(task.id);
+    h.observations.set(task.id,{...observation,activityText:'older partial text',activityTextStableSince:Date.now()-10_000});
     await h.inspect(task,null);
-    assert.equal(task.state,'generating','assistant-local busy state remains active generation');
+    assert.equal(task.state,'generating','a changed assistant reply restarts the stability window while the streaming marker remains fresh');
+    assert.equal(task.abnormalNoFinalSince||0,0);
+    const updatedObservation=h.observations.get(task.id);
+    h.observations.set(task.id,{...updatedObservation,activityTextStableSince:Date.now()-10_000});
+    await h.inspect(task,null);
+    assert.equal(task.state,'queued','stale aria-busy is ignored after the assistant text has been stable for the bounded interval');
     assert.equal(task.continuationCount||0,0);
     assert.equal(clicks,0);
     assert.equal(w.document.querySelector('#prompt-textarea').value,'');
-    assert.equal(task.abnormalNoFinalSince||0,0,'the active assistant busy marker clears the ended-conversation timer');
-    assert.equal(task.messages.some(item=>/Stop 已消失.*异常停止/.test(item.text||'')),false);
+    assert.match(task.messages.at(-1).text,/检测到当前会话已经结束但没有最终回复/);
+    assert.equal(task.connectionInterruptedFreshDispatch,true);
   } finally {
     h.pause();
     dom.window.close();
@@ -2514,7 +2519,7 @@ test('generic stalled conversation refresh cooldown is fifteen minutes while amb
   assert.equal(h.refreshStalledConversation(task,false,1_000_000),true);
   assert.equal(task.stalledRefreshAttempts,1);
   assert.match(task.messages.at(-1).text,/连续 15 分钟/);
-  assert.match(task.messages.at(-1).text,/每 15 分钟/);
+  assert.match(task.messages.at(-1).text,/三段 15 分钟/);
   assert.equal(h.refreshStalledConversation(task,false,1_899_999),false,'generic stall refresh must not recur before 15 minutes');
   assert.equal(task.stalledRefreshAttempts,1);
   assert.equal(h.refreshStalledConversation(task,false,1_900_000),true,'15 minutes permits the next same-chat stalled refresh');
@@ -3623,8 +3628,8 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.91$/m);
-  assert.match(source,/const VERSION = '2\.9\.91'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.92$/m);
+  assert.match(source,/const VERSION = '2\.9\.92'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 \* 60 \* 1000/);

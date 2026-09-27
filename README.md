@@ -1,8 +1,15 @@
-# Fabushi 独立油猴工作台 2.9.91
+# Fabushi 独立油猴工作台 2.9.92
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.91`。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.92`。
+
+## 2.9.92 三段停滞后接力到新会话
+
+- 同一会话连续三段 15 分钟没有可见进展时，在当前标签页新开 ChatGPT 会话接着当前工作继续；前两段仍刷新原会话等待恢复。
+- 真实可见进展会清零连续停滞计数；仅刷新页面不会清零。新会话会携带可安全识别的当前助手工作、原任务、阶段、轮次、上一轮结果、下一步和附件。
+- 停止按钮消失后，不再把“正在思考”或残留的助手忙碌标记当作无限期生成证据；助手回复文本稳定 8 秒后，异常结束检测可以继续，回复文字仍在变化时会继续等待。
+- 详见 [`three-stalled-windows-fresh-chat-carry-v2.9.92.md`](docs/specs/three-stalled-windows-fresh-chat-carry-v2.9.92.md)。
 
 ## 2.9.91 下一轮 Work 携带上一轮结果
 
