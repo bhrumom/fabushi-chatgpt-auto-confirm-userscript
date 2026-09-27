@@ -92,4 +92,4 @@ Prompt-contract tests prove the prior result and current interruption are distin
 | Requirement / AC | Status | Evidence / reason |
 | --- | --- | --- |
 | R1-R5 / AC-1-AC-3 | passed | `previousWorkResultContext()` gates on later Work rounds and a non-empty bounded `task.result`; `test/workbench.test.mjs` verifies normal and abnormal carry, exactly-once inclusion, and round-one/empty omission. |
-| AC-4 | pending | Exact-HEAD CI and v2.9.91 release not yet complete. |
+| AC-4 | passed | Main Test run #298 for `9de05c4…` succeeded; Release run #110 succeeded; stable `main` userscript metadata and versioned v2.9.91 source both report `2.9.91`. |
