@@ -1,8 +1,14 @@
-# Fabushi 独立油猴工作台 2.9.90
+# Fabushi 独立油猴工作台 2.9.91
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.90`。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.91`。
+
+## 2.9.91 下一轮 Work 携带上一轮结果
+
+- 验收要求继续处理时，下一轮 Work 会话会收到上一轮已经完成的 Work 最终回复、当前验收给出的具体下一步和原始目标。
+- 异常恢复的新会话会同时收到上一轮完成结果和当前中断会话的实时进度，避免重复工作或丢失上下文。
+- 详见 [`previous-work-result-next-round-carry-v2.9.91.md`](docs/specs/previous-work-result-next-round-carry-v2.9.91.md)。
 
 ## 2.9.90 网络错误后清除残留活动标记
 
