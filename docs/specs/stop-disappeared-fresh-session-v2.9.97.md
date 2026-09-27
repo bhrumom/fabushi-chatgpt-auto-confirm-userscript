@@ -1,6 +1,6 @@
 # Stop disappearance always hands current work to a fresh session — v2.9.97
 
-Status: active  
+Status: implementation-verified  
 Owner: Fabushi ChatGPT Auto-confirm  
 Last updated: 2026-09-27  
 Related request: user explicitly replaced same-chat “继续完成所有” continuation with fresh-session handoff
@@ -85,8 +85,14 @@ The handoff requires the exact canonical task route with no competing task owner
 
 ## 9. Compliance record
 
+Pre-merge implementation head `63832d1754123d10fe4cb27e73bddf2ea86ab3b9` passed GitHub Actions Test run `36298028332`: 254 tests, 247 passed, 0 failed, 7 skipped. Focused regressions passed for Stop→absent handoff with a final toolbar already mounted, authorization-card blocking/unblocking, connection-interruption fresh handoff, legacy continuation migration without touching the old composer/Send/Stop controls, current-work carry, and the v2.9.96 no-self-resurrection behavior. Memory-pressure same-tab recovery regressions also remained green.
+
 | Requirement / AC | Status | Evidence / reason |
 | --- | --- | --- |
-| R1-R13 / AC-1-AC-6 | pending | Implementation and regression evidence pending. |
-| R14 | pending | Version bump pending. |
-| R15 / AC-7 | pending | Exact-head CI, merge, canonical-main CI and release readback pending. |
+| R1-R4, R8, R12 / AC-2, AC-3, AC-5, AC-6 | passed | The runtime persists an exact dispatch Stop-observed identity, evaluates Stop disappearance before final classification, captures task-scoped visible assistant work, then clears the old dispatch and queues the same task/phase/round for a fresh conversation. The focused final-toolbar regression passed. |
+| R5, R7, R11 / AC-1 | passed | `sendContinuation()` is now a legacy compatibility wrapper that never writes the old composer or clicks old Stop/Send controls. Source regression rejects `setInput(input, CONTINUATION_PROMPT)`; interruption tests prove zero old-chat sends/clicks. |
+| R6 / AC-4 | passed | Authorization-card regression proves Stop disappearance retains the old route in approval state until the card is removed, then queues the fresh handoff. |
+| R9-R10 | passed | Existing ownership/foreign/ambiguous/rate-limit/blocker tests and conversation-length fresh-handoff tests remained green in the full suite. |
+| R13 | passed | Required Stop-removal, final-toolbar, authorization, interruption, and no-legacy-send regressions are present and passed. |
+| R14 | passed | Userscript metadata/runtime, README, and version assertions are 2.9.97. |
+| R15 / AC-7 | partial | Exact-head Test `36298028332` passed. Merge, canonical-main Test, Release workflow, and v2.9.97 asset readback remain to be completed after this compliance-only commit is re-tested. |
