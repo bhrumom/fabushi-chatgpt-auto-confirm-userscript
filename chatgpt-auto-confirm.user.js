@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.93
+// @version      2.9.94
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.93';
+  const VERSION = '2.9.94';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
   const replacingActiveInstance = Boolean(previousInstance?.active);
@@ -2783,6 +2783,29 @@ async function bootstrapAttempt() {
     scanDiagnostics.responseTextNodes += records.length;
     return records;
   }
+  function streamCacheExpiredRetry(turn, getPageRecords = pageUiTextRecords) {
+    const article = turn?.article;
+    if (!article) return null;
+    const follows = (a, b) => Boolean(a && b && (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING));
+    const user = nodes('[data-message-author-role="user"]').at(-1);
+    for (const record of [...responseTextNodes(turn), ...getPageRecords()]) {
+      const parent = record.parent;
+      if (!parent || !/^stream cache expired[.!]?$/i.test(record.direct) || !visible(parent)
+        || own(parent) || parent.closest('blockquote,pre,code,[data-message-author-role="user"]')) continue;
+      if (!article.contains(parent) && !follows(article, parent)) continue;
+      if (user && !follows(user, parent)) continue;
+      // Stop at the local card/turn: an unrelated Retry elsewhere on the page
+      // must not turn quoted or historical text into an actionable failure.
+      for (let scope = parent, depth = 0; scope && depth < 4; scope = scope.parentElement, depth += 1) {
+        if (scope.matches('main,[role="main"],body') || own(scope)) break;
+        const retry = nodes('button,[role="button"]', scope).find(control =>
+          visible(control) && enabled(control) && /^(?:重试|再次尝试|再试一次|retry|try again)$/i.test(label(control)));
+        if (retry) return retry;
+        if (scope === article) break;
+      }
+    }
+    return null;
+  }
   function sendTimeoutNotice(turn = null, getPageRecords = pageUiTextRecords) {
     const pattern = /消息(?:发送)?(?:超时|错误|失败)\s*[，,。.!]?\s*请重试|message (?:send|sending) timed out|message (?:error|failed)[\s,:-]*(?:please )?(?:retry|try again)|failed to send|(?:a\s+)?network (?:connection )?(?:error|failure)(?: occurred)?|connection (?:error|failed|failure)|(?:check|verify) (?:your )?(?:internet|network|connection)|网络(?:连接)?(?:错误|失败)|连接(?:错误|失败)|(?:请)?检查(?:一下)?(?:你的|您的)?(?:互联网|网络|连接)/i;
     const retryPattern = /^(?:重试|再次尝试|再试一次|retry|try again|again)(?:\b|$)/i;
@@ -2956,6 +2979,7 @@ async function bootstrapAttempt() {
       .replace(/连接已中断[。.!]?\s*正在等待完整回复[。.!]?/gi, ' ')
       .replace(/connection (?:was |has been )?interrupted[.!]?\s*(?:we(?:'re| are) )?waiting for (?:the )?full response[.!]?/gi, ' ')
       .replace(/ChatGPT stream recovery polling timed out[.!]?/gi, ' ')
+      .replace(/Stream cache expired[.!]?/gi, ' ')
       .replace(/A network (?:connection )?(?:error|failure)(?: occurred)?[.!]?\s*(?:Please )?(?:check|verify) (?:your )?(?:internet|network|connection)[\s\S]{0,160}?(?:retry|try again)[.!]?/gi, ' ')
       .replace(/(?:网络(?:连接)?(?:错误|失败)|连接(?:错误|失败))[，,。.!；;\s]*(?:请)?(?:检查(?:一下)?(?:你的|您的)?(?:互联网|网络|连接)[，,。.!；;\s]*)?(?:重试|再次尝试)?/gi, ' ')
       .replace(/消息(?:发送)?(?:超时|错误|失败)[，,。.!；;\s]*请重试/gi, ' ')
@@ -5166,8 +5190,15 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const userBoundaryKey = recoveryUserBoundaryKey(latestMountedUser);
     const currentBlocker = blocker();
     const currentRateLimit = rateLimitNotice(getPageUiRecords);
-    const retryableError = Boolean(pageBelongsToTask && !turn.final && !pending.length
-      && sendTimeoutNotice(routeEndedOwned ? activityTurn : turn, getPageUiRecords));
+    const cacheRetry = routeOwned && (turn.owned || routeEndedOwned) && !foreignTask && !otherRouteOwner
+      && !turn.final && !pending.length && !task.attempted
+      ? streamCacheExpiredRetry(activityTurn, getPageUiRecords) : null;
+    const cacheRetryKey = cacheRetry ? JSON.stringify([liveURL, userBoundaryKey,
+      activityTurn.article?.getAttribute('data-turn-key') || '',
+      stalledConversationContentHash({ conversationTail:[{ role:'assistant', text:activityText }] })]) : '';
+    const cacheRetryAttempted = Boolean(cacheRetry && task.streamCacheRetryKey === cacheRetryKey);
+    const retryableError = Boolean(cacheRetry || (pageBelongsToTask && !turn.final && !pending.length
+      && sendTimeoutNotice(routeEndedOwned ? activityTurn : turn, getPageUiRecords)));
     // ChatGPT can leave aria-busy/stream markers behind after it has rendered
     // an actionable network-error card. The error is terminal evidence only
     // after Stop disappears; the normal ownership, approval, blocker, rate
@@ -5284,7 +5315,8 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       sample.routeOwned
       && (sample.owned || sample.routeEndedOwned)
       && !sample.final
-      && !sample.recoveredStaticCandidate
+      && (!sample.recoveredStaticCandidate || Boolean(cacheRetry))
+      && !cacheRetryAttempted
       && !sample.stop
       && !sample.streaming
       && !sample.cards
@@ -5399,6 +5431,16 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     if (abnormalNoFinalEligible
       && abnormalNoFinalFor >= ENDED_NO_FINAL_STABILITY_MS
       && now - Number(task.continuationSentAt || 0) >= CONTINUATION_SEND_COOLDOWN_MS) {
+      if (cacheRetry) {
+        task.streamCacheRetryKey = cacheRetryKey;
+        task.abnormalNoFinalSince = 0;
+        task.abnormalNoFinalSignature = '';
+        task.state = 'waiting';
+        save();
+        activateControl(cacheRetry);
+        log(task, '检测到 Stream cache expired：本轮异常结束，已在当前会话点击重试，等待恢复。');
+        return;
+      }
       const reason = sample.retryableError
         ? `检测到当前会话出现可重试错误、且停止生成已结束但没有最终回复${rawLoading || activityTurn?.streaming ? '（已忽略错误卡片残留的加载/流式状态）' : ''}`
         : '检测到当前会话已经结束但没有最终回复';
