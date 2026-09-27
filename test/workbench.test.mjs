@@ -1394,21 +1394,18 @@ test('interrupted legacy continuation never clicks Stop or Send while Stop remai
     assert.equal(task.pendingContinuationStopRecovery||false,false);
   } finally {h.pause();dom.window.close();}
 });
-test('exhausted abnormal retries enter persisted backoff and reset after success',async()=>{
+test('unbound exhausted abnormal retries still enter persisted backoff and reset after success',async()=>{
   const {h,dom}=await fixture();
   const task=h.enqueue('keep recovering','once');
-  Object.assign(task,{state:'waiting',phase:'work',url:'https://chatgpt.com/c/exhausted',token:'old-token',attempted:false,noFinalReplyAttempts:4});
-  const before=Date.now();
+  Object.assign(task,{state:'waiting',phase:'work',url:'',token:'',attempted:false,noFinalReplyAttempts:4});
   assert.equal(h.noFinalReplyBackoffMs(1),5*60*1000);
   assert.equal(h.noFinalReplyBackoffMs(2),10*60*1000);
   assert.equal(h.noFinalReplyBackoffMs(5),30*60*1000);
-  assert.equal(h.queueNoFinalReplyRetry(task,'检测到“消息发送超时，请重试”'),'waiting');
+  assert.equal(h.queueNoFinalReplyRetry(task,'检测到“消息发送超时，请重试”'),'backoff');
   assert.equal(task.state,'waiting');
-  assert.equal(task.noFinalReplyAttempts,4);
-  assert.equal(task.noFinalReplyRecoveryCycles,undefined);
-  assert.equal(task.noFinalReplyRecoveryUntil,undefined);
-  assert.equal(task.url,'https://chatgpt.com/c/exhausted');
-  assert.match(task.messages.at(-1).text,/保留当前会话/);
+  assert.equal(task.noFinalReplyAttempts,0);
+  assert.equal(task.noFinalReplyRecoveryCycles,1);
+  assert.ok(task.noFinalReplyRecoveryUntil>Date.now());
   h.finish(task,'final answer');
   assert.equal(task.state,'done');
   assert.equal(task.noFinalReplyAttempts,0);
@@ -1416,15 +1413,18 @@ test('exhausted abnormal retries enter persisted backoff and reset after success
   assert.equal(task.noFinalReplyRecoveryUntil,0);
   dom.window.close();
 });
-test('a bound abnormal retry remains in the same conversation',async()=>{
-  const {h,dom}=await fixture();
+test('a bound abnormal retry switches to a fresh session instead of same-chat continuation',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">retry once [Fabushi:old-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">当前会话已经完成一部分。</div></div></article></main>');
   const task=h.enqueue('retry once','once');
-  Object.assign(task,{state:'waiting',phase:'work',url:'https://chatgpt.com/c/ended',token:'old-token',noFinalReplyAttempts:0});
-  assert.equal(h.queueNoFinalReplyRetry(task),'waiting');
-  assert.equal(task.state,'waiting');
+  Object.assign(task,{state:'waiting',phase:'work',url:'https://chatgpt.com/c/ended',token:'old-token',attempted:false,noFinalReplyAttempts:0});
+  w.history.pushState({},'', '/c/ended');
+  assert.equal(h.queueNoFinalReplyRetry(task),'queued');
+  assert.equal(task.state,'queued');
   assert.equal(task.noFinalReplyAttempts,0);
-  assert.equal(task.url,'https://chatgpt.com/c/ended');
-  assert.match(task.messages.at(-1).text,/同一会话追加“继续完成所有”/);
+  assert.equal(task.url,'');
+  assert.equal(task.token,'');
+  assert.match(task.abnormalFreshCarry,/完成一部分/);
+  assert.doesNotMatch(task.messages.at(-1).text,/同一会话追加/);
   dom.window.close();
 });
 test('legacy exhausted abnormal records are revived after upgrading',async()=>{
@@ -2515,7 +2515,7 @@ test('stuck Stop after interruption refreshes the same session after fifteen qui
     assert.equal(task.pendingContinuationStopClickedAt,0,'the recovered page can request Stop again if needed');
     assert.equal(task.pendingContinuationReason,'连接中断');
     assert.equal(task.url,'https://chatgpt.com/c/stuck-stop-reload');
-    assert.match(task.messages.at(-1).text,/点击停止后 ChatGPT 连续 15 分钟仍未恢复/);
+    assert.match(task.messages.at(-1).text,/连接中断后 ChatGPT 连续 15 分钟仍未恢复/);
     assert.equal(h.refreshInterruptedStopStall(task,2_799_999,false),false,'reload retries also observe the 15 minute cooldown');
   } finally {h.pause();dom.window.close();}
 });
