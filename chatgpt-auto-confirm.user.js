@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.89
+// @version      2.9.90
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.89';
+  const VERSION = '2.9.90';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
   const replacingActiveInstance = Boolean(previousInstance?.active);
@@ -5099,9 +5099,19 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     let composerHasRecoveryDraft = Boolean(composerReady && composerDraft === CONTINUATION_PROMPT);
     const latestMountedUser = nodes('[data-message-author-role=user]').at(-1) || null;
     const userBoundaryKey = recoveryUserBoundaryKey(latestMountedUser);
+    const currentBlocker = blocker();
+    const currentRateLimit = rateLimitNotice(getPageUiRecords);
+    const retryableError = Boolean(pageBelongsToTask && !turn.final && !pending.length
+      && sendTimeoutNotice(routeEndedOwned ? activityTurn : turn, getPageUiRecords));
+    // ChatGPT can leave aria-busy/stream markers behind after it has rendered
+    // an actionable network-error card. The error is terminal evidence only
+    // after Stop disappears; the normal ownership, approval, blocker, rate
+    // limit, empty-composer, and eight-second stability checks still apply.
+    const retryableErrorEnded = Boolean(retryableError && !stopPresent && !approvalVisible);
     // In a bound owned conversation, active generation exposes Stop. A
-    // decorative/stale spinner without Stop must not mask an abnormal stop.
-    const activityStreaming = Boolean(activityTurn?.streaming && !activityTurn?.final);
+    // decorative/stale spinner must not mask an abnormal stop; neither should
+    // stale stream markers attached to an explicit retryable failure card.
+    const activityStreaming = Boolean(activityTurn?.streaming && !activityTurn?.final && !retryableErrorEnded);
     const hasConversationEvidence = Boolean(
       String(activityTurn?.text || '').trim()
       || latestMountedUser
@@ -5110,7 +5120,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const effectiveLoading = Boolean(
       rawLoading
       && (
-        turn.recoveredStaticCandidate
+        (turn.recoveredStaticCandidate && !retryableErrorEnded)
         || (!turn.owned && !routeEndedOwned)
         || stopPresent
         || activityStreaming
@@ -5120,10 +5130,6 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
         || (routeEndedOwned && !hasConversationEvidence)
       )
     );
-    const currentBlocker = blocker();
-    const currentRateLimit = rateLimitNotice(getPageUiRecords);
-    const retryableError = Boolean(pageBelongsToTask && !turn.final && !pending.length
-      && sendTimeoutNotice(routeEndedOwned ? activityTurn : turn, getPageUiRecords));
     const canClearComposerForEndedCheck = Boolean(
       routeOwned
       && (turn.owned || routeEndedOwned)
@@ -5313,7 +5319,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && abnormalNoFinalFor >= ENDED_NO_FINAL_STABILITY_MS
       && now - Number(task.continuationSentAt || 0) >= CONTINUATION_SEND_COOLDOWN_MS) {
       const reason = sample.retryableError
-        ? '检测到当前会话出现可重试错误、且停止生成已结束但没有最终回复'
+        ? `检测到当前会话出现可重试错误、且停止生成已结束但没有最终回复${rawLoading || activityTurn?.streaming ? '（已忽略错误卡片残留的加载/流式状态）' : ''}`
         : '检测到当前会话已经结束但没有最终回复';
       if (queueInterruptedFreshRetry(task, reason, now, routeEndedOwned ? activityTurn : turn, { allowExactRouteFallback:true })) return;
     }

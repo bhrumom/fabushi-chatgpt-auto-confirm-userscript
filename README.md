@@ -1,8 +1,15 @@
-# Fabushi 独立油猴工作台 2.9.89
+# Fabushi 独立油猴工作台 2.9.90
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.89`。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.90`。
+
+## 2.9.90 网络错误后清除残留活动标记
+
+- 当前任务的网络错误卡带有可见 Retry/重试按钮且停止按钮已消失时，将错误视为本轮已结束；过期的流式/加载标记不再阻止异常结束识别。
+- 仍要求精确会话归属、8 秒稳定观察、无最终回复/授权/阻塞/限流、发送状态不含糊；若停止按钮仍在则继续等待。
+- 输入框草稿只会在安全归属条件成立后清理，并重新开始完整稳定计时。
+- 详见 [`stale-activity-on-network-error-v2.9.90.md`](docs/specs/stale-activity-on-network-error-v2.9.90.md)。
 
 ## 2.9.89 异常结束自动转新会话恢复
 

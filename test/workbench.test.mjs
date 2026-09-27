@@ -1141,6 +1141,46 @@ test('inspect opens a fresh session after a stable virtualized-task network erro
     dom.window.close();
   }
 });
+test('a stable retryable network error overrides stale stream and loading markers after Stop disappears',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue task [Fabushi:stale-network-token]</div></article><article data-testid="conversation-turn-assistant" data-is-streaming="true" aria-busy="true"><div data-message-author-role="assistant"><div>A network error occurred. Please check your connection and try again.</div><button aria-label="Retry"></button></div></article><div role="status" class="loading"><svg></svg>Loading</div><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">Send</button></form></main>');
+  const task={id:'network-error-stale-stream',ownerTabId:h.getTabId(),goal:'continue task',mode:'once',phase:'work',round:1,state:'loading',url:'https://chatgpt.com/c/network-error-stale-stream',token:'stale-network-token',attempted:false,continuationCount:0,noFinalReplyAttempts:0,messages:[]};
+  h.data.tasks.push(task);
+  w.history.pushState({},'', '/c/network-error-stale-stream');
+  try {
+    assert.equal(h.latestTurn(task).streaming,true,'fixture retains the stale stream marker');
+    assert.ok(h.pageLoadingState(),'fixture retains the stale loading marker');
+    await h.start();
+    await h.inspect(task,null);
+    assert.equal(task.state,'waiting');
+    assert.ok(Number(task.abnormalNoFinalSince)>0,'the actionable error starts the stable ended-state timer');
+    task.abnormalNoFinalSince=Date.now()-9_000;
+    await h.inspect(task,null);
+    assert.equal(task.state,'queued');
+    assert.equal(task.url,'');
+    assert.equal(task.connectionInterruptedFreshDispatch,true);
+    assert.match(task.messages.at(-1).text,/已忽略错误卡片残留的加载\/流式状态/);
+  } finally {
+    h.pause();
+    dom.window.close();
+  }
+});
+test('an active Stop control still blocks retryable network-error recovery',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue task [Fabushi:active-stop-token]</div></article><article data-testid="conversation-turn-assistant" data-is-streaming="true"><div data-message-author-role="assistant"><div>A network error occurred. Please check your connection and try again.</div><button aria-label="Retry"></button></div></article><button data-testid="stop-button" aria-label="Stop generating">Stop</button><form><textarea id="prompt-textarea"></textarea></form></main>');
+  const task={id:'network-error-active-stop',ownerTabId:h.getTabId(),goal:'continue task',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/network-error-active-stop',token:'active-stop-token',attempted:false,messages:[]};
+  h.data.tasks.push(task);
+  w.history.pushState({},'', '/c/network-error-active-stop');
+  try {
+    await h.start();
+    task.abnormalNoFinalSince=Date.now()-9_000;
+    await h.inspect(task,null);
+    assert.equal(task.state,'generating');
+    assert.equal(task.url,'https://chatgpt.com/c/network-error-active-stop');
+    assert.equal(task.connectionInterruptedFreshDispatch||false,false);
+  } finally {
+    h.pause();
+    dom.window.close();
+  }
+});
 test('inspect opens a fresh session after a stable retryable message error',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">recover timeout [Fabushi:old-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div>消息错误，请重试。</div><button aria-label="重试"></button></div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   const task={id:'timeout-inspect',ownerTabId:h.getTabId(),goal:'recover timeout',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/timeout-inspect',token:'old-token',attempted:false,noFinalReplyAttempts:0,messages:[]};
@@ -3558,8 +3598,8 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.89$/m);
-  assert.match(source,/const VERSION = '2\.9\.89'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.90$/m);
+  assert.match(source,/const VERSION = '2\.9\.90'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 \* 60 \* 1000/);
