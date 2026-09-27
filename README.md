@@ -1,8 +1,15 @@
-# Fabushi 独立油猴工作台 2.9.94
+# Fabushi 独立油猴工作台 2.9.95
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.94`。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.95`。
+
+## 2.9.95 异常结束优先于残留加载刷新
+
+- 修复“回复已经异常停止，但页面残留 Loading，脚本仍等 15 分钟并反复刷新”的路径：精确会话下的恢复静态回复在无 Stop/流式/授权/阻塞/限流且输入框可用时，残留页面加载标记不再压住异常结束识别。
+- 保留现有 8 秒稳定门槛；稳定后转到新的 ChatGPT 会话接力当前可安全提取的 assistant 工作，不会先触发 15 分钟同会话刷新，也不会把异常停止的静态文本误判为成功完成。
+- 没有残留加载标记时，原有人工恢复静态最终回复判定保持不变；最终工具栏、任务归属、草稿清理和安全保护均保持原规则。
+- 详见 [修复规格](docs/specs/abnormal-end-stale-loader-v2.9.95.md)。
 
 ## 2.9.94 识别 Stream cache expired 异常结束
 
