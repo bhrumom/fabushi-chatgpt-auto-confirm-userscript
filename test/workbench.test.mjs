@@ -3195,26 +3195,24 @@ test('completed task records remain recoverable after their tab closes',async()=
   original.dom.window.close();personal.dom.window.close();
 });
 
-test('a fresh ChatGPT document automatically adopts the only stale running workspace',async()=>{
-  const owner='crashed-renderer-owner';
-  const task={id:'crashed-task',ownerTabId:owner,goal:'继续执行崩溃前目标',mode:'goal',phase:'work',round:2,state:'waiting',url:'https://chatgpt.com/c/crashed-conversation',token:'crashed-token',attempted:false,attachments:[{id:'crashed-file',name:'证据.png',type:'image/png',size:12,lastModified:1}],messages:[]};
+test('a fresh ChatGPT document does not adopt a stale workspace after its original tab closes',async()=>{
+  const owner='closed-tab-owner';
+  const task={id:'closed-tab-task',ownerTabId:owner,goal:'不要自动恢复',mode:'goal',phase:'work',round:2,state:'waiting',url:'https://chatgpt.com/c/closed-tab-conversation',token:'closed-tab-token',attempted:false,attachments:[{id:'closed-file',name:'证据.png',type:'image/png',size:12,lastModified:1}],messages:[]};
   const stored={tasks:[task],selectedByTab:{[owner]:task.id},tabControls:{[owner]:{autoResume:true,autoApprove:true,controlRevision:4}}};
-  const heartbeat={ownerTabId:owner,at:Date.now()-180000,autoResume:true,running:true,taskId:task.id,taskState:task.state,taskURL:task.url,recoveryURL:'https://chatgpt.com/c/crashed-conversation#fabushi-resume=crashed'};
-  const {h,w,dom}=await fixture('',window=>{
+  const heartbeat={ownerTabId:owner,at:Date.now()-180000,autoResume:true,running:true,taskId:task.id,taskState:task.state,taskURL:task.url,recoveryURL:'https://chatgpt.com/c/closed-tab-conversation#fabushi-resume=closed'};
+  const {h,dom}=await fixture('',window=>{
     window.localStorage.setItem('fabushi-workbench-v2',JSON.stringify(stored));
     window.localStorage.setItem('fabushi-workspace-heartbeat-v1:'+owner,JSON.stringify(heartbeat));
   });
-  assert.equal(h.getTabId(),owner);
-  assert.equal(h.tabTasks().length,1);
-  assert.equal(h.tabTasks()[0].url,task.url);
-  assert.equal(h.tabTasks()[0].token,task.token);
-  assert.deepEqual(JSON.parse(JSON.stringify(h.tabTasks()[0].attachments)),task.attachments);
-  const persistedHeartbeat=JSON.parse(w.localStorage.getItem('fabushi-workspace-heartbeat-v1:'+owner));
-  assert.equal(persistedHeartbeat.taskId,task.id);
-  assert.deepEqual(persistedHeartbeat.attachmentIds,['crashed-file']);
-  assert.equal(persistedHeartbeat.goal,undefined,'heartbeat must not persist task text');
-  h.pause();
-  dom.window.close();
+  try {
+    assert.notEqual(h.getTabId(),owner,'a new ChatGPT tab must keep its own workspace identity');
+    assert.equal(h.tabTasks().length,0,'the closed workspace remains stored but is not auto-adopted');
+    assert.equal(h.findAutomaticRecoveryOwner(),owner,'stale evidence may remain discoverable for manual Restore only');
+    assert.equal(await h.recoverStaleWorkspaceAutomatically(),false,'automatic stale-workspace takeover is disabled');
+  } finally {
+    h.pause();
+    dom.window.close();
+  }
 });
 
 test('startup auto-resume arms recovered-final identity for the exact persisted conversation',async()=>{
@@ -3363,26 +3361,25 @@ test('stalled route backs off without changing the current task, attachment, or 
   dom.window.close();
 });
 
-test('active work explicitly requests the host recovery capability without task text or file bytes',async()=>{
+test('active work does not arm the host stale-tab recovery capability',async()=>{
   const requests=[];
+  const releases=[];
   const {h,w,dom}=await fixture('',window=>{
     window.addEventListener('message',event=>{
-      if(event.data?.source==='fabushi-userscript'&&event.data?.type==='recovery-capability.request') requests.push(event.data);
+      if(event.data?.source!=='fabushi-userscript') return;
+      if(event.data?.type==='recovery-capability.request') requests.push(event.data);
+      if(event.data?.type==='recovery-capability.release') releases.push(event.data);
     });
   });
-  const task=h.enqueue('恢复页面后继续处理','once',[{id:'proof',name:'证据.png',type:'image/png',size:12,lastModified:1}]);
-  await new Promise(resolve=>w.setTimeout(resolve,0));
-  const request=requests.at(-1);
-  assert.ok(request);
-  assert.equal(request.payload.capability,'tab-recovery');
-  assert.equal(request.payload.taskId,task.id);
-  assert.equal(request.payload.attachmentIds[0],'proof');
-  assert.equal(request.payload.goal,undefined);
-  assert.equal(request.payload.prompt,undefined);
-  assert.equal(request.payload.file,undefined);
-  assert.equal(request.payload.recoveryEligible,true);
-  h.releaseHostRecoveryCapability();
-  dom.window.close();
+  try {
+    h.enqueue('关闭标签页后不要自动恢复','once',[{id:'proof',name:'证据.png',type:'image/png',size:12,lastModified:1}]);
+    await new Promise(resolve=>w.setTimeout(resolve,0));
+    assert.equal(requests.length,0,'active work must not ask the host to resurrect a closed workspace');
+    assert.ok(releases.length>=1,'the disabled path explicitly releases any prior host recovery lease');
+  } finally {
+    h.pause();
+    dom.window.close();
+  }
 });
 
 test('blocked ambiguous send can adopt the only new conversation and resume without a duplicate send',async()=>{
