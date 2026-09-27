@@ -1,8 +1,16 @@
-# Fabushi 独立油猴工作台 2.9.96
+# Fabushi 独立油猴工作台 2.9.97
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.96`。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.97`。
+
+## 2.9.97 停止按钮消失即新会话接力
+
+- 不再在旧会话自动发送“继续完成所有”。当前任务本轮一旦观察到 Stop，之后检测到 Stop 消失且没有授权卡片，就立即提取当前可归属的 assistant 工作内容，清理旧 URL/发送标识，并在同一标签页新开 ChatGPT 会话接力。
+- 新会话提示词继续携带当前 phase/round、当前提示词/next、上一轮 Work 结果（如有）、原始目标、附件和刚刚结束会话的实时工作内容；不会只发送一句续发口令。
+- 最终回复工具栏不再覆盖这个边界：如果本轮已经看见过 Stop，那么 Stop→消失会先进入新会话接力，即使 Copy/Share 等最终操作栏已经出现。
+- 授权卡片优先：授权仍在时不切会话；授权消失后若 Stop 已经消失，则继续执行新会话接力。连接中断也不再点击 Stop 或在旧会话续发。
+- 详见 [v2.9.97 规格](docs/specs/stop-disappeared-fresh-session-v2.9.97.md)。
 
 ## 2.9.96 关闭标签页不再自动自恢复
 
