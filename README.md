@@ -1,8 +1,15 @@
-# Fabushi 独立油猴工作台 2.9.93
+# Fabushi 独立油猴工作台 2.9.94
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.93`。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.94`。
+
+## 2.9.94 识别 Stream cache expired 异常结束
+
+- 识别当前回复及其旁边的缓存过期错误卡；停止生成后稳定 8 秒，自动点击当前会话的“重试”。
+- 残留加载/流式标记不会掩盖该错误；同一失败回复仅点击一次，未恢复时保留原有 15 分钟停滞恢复。
+- 错误不会被当作成功完成；仍保留最终回复、任务归属与授权检查。
+- 详见 [修复规格](docs/specs/stream-cache-expired-v2.9.94.md)。
 
 ## 2.9.93 恢复会话正确识别最终回复
 

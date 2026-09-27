@@ -3629,8 +3629,8 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.93$/m);
-  assert.match(source,/const VERSION = '2\.9\.93'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.94$/m);
+  assert.match(source,/const VERSION = '2\.9\.94'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 \* 60 \* 1000/);
@@ -3829,3 +3829,29 @@ test('automatic memory recovery never asks the host or reloads when there is no 
     assert.match(h.memoryStatusText(),/task-not-resumable/);
   } finally {h.pause();dom.window.close();}
 });
+
+for (const variant of ['owned','virtualized','inside','sibling','stop','quote','history','disabled','unrelated','foreign','final','approval','ambiguous']) {
+  test(`cache expiry screenshot regression: ${variant}`,async()=>{
+    const error=`<div class="cache-error"><span>Stream cache expired</span><button ${variant==='disabled'?'disabled':''}>重试</button></div>`;
+    const current=variant==='quote'?`<blockquote>${error}</blockquote>`:variant==='history'?'':variant==='unrelated'?'<div><span>Stream cache expired</span></div>':error;
+    const {h,w,dom}=await fixture(`<main>${variant==='history'?`<article><div data-message-author-role="assistant">${error}</div></article>`:''}<article><div data-message-author-role="user">continue ${['virtualized','ambiguous'].includes(variant)?'':'[Fabushi:cache-token]'}</div></article><article data-testid="conversation-turn-assistant" data-is-streaming="${variant==='final'?'false':'true'}"><div data-message-author-role="assistant">Partial useful work${variant==='inside'?current:''}</div>${['inside','sibling'].includes(variant)?'':current}${variant==='final'?'<button aria-label="Copy response"></button><button aria-label="Share response"></button>':''}</article>${variant==='sibling'?current:''}${variant==='approval'?'<div><button>拒绝</button><button>允许一次</button><button aria-haspopup="menu" aria-label="审批选项">⌄</button></div>':''}<div role="status" class="loading">Loading</div>${variant==='stop'?'<button data-testid="stop-button">Stop</button>':''}<form><textarea id="prompt-textarea"></textarea></form>${variant==='unrelated'?'<aside><button>重试</button></aside>':''}</main>`);
+    const task={id:'cache-task',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:2,state:'loading',url:'https://chatgpt.com/c/cache',token:'cache-token',attempted:false,messages:[]};
+    if(variant==='ambiguous')task.attempted=true;
+    h.data.tasks.push(task);w.history.pushState({},'',variant==='foreign'?'/c/foreign':'/c/cache');
+    let clicks=0;for(const b of w.document.querySelectorAll('.cache-error button,aside button'))b.onclick=()=>clicks++;
+    try {
+      await h.start();if(variant==='ambiguous')task.attempted=true;
+      if(variant==='approval')assert.equal(h.cards().length,1);
+      await h.inspect(task,null);assert.equal(clicks,0);
+      task.abnormalNoFinalSince=Date.now()-9000;await h.inspect(task,null);
+      const positive=['owned','virtualized','inside','sibling'].includes(variant);
+      assert.equal(clicks,positive?1:0);
+      if(positive){
+        assert.equal(task.url,'https://chatgpt.com/c/cache');assert.equal(task.state,'waiting');
+        assert.equal(task.phase,'work');assert.equal(task.round,2);assert.equal(task.rendererRecoveryAttempts||0,0);
+        await h.inspect(task,null);task.abnormalNoFinalSince=Date.now()-9000;await h.inspect(task,null);
+        assert.equal(clicks,1,'same failed response only retries once');assert.equal(task.url,'https://chatgpt.com/c/cache');
+      }
+    } finally {h.pause();dom.window.close();}
+  });
+}
