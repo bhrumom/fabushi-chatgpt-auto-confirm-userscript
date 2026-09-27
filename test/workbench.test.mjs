@@ -12,7 +12,7 @@ async function fixture(body='', setup=()=>{}, url='https://chatgpt.com/') {
   const held = new Set();
   w.navigator.locks = {query:async()=>({held:[...held].map(name=>({name}))}),request:async(name,options,callback)=>{callback ||= options;if(held.has(name))return callback(null);held.add(name);try{return await callback({name});}finally{held.delete(name);}}};
   setup(w);
-  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, visibleAssistantWorkTranscript, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, refreshInterruptedStopStall, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), getTabId:()=>tabId, getCurrent:()=>current };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, refreshInterruptedStopStall, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('runtime blocked transition immediately becomes a fresh queued resend',async()=>{
@@ -3698,13 +3698,146 @@ test('authorization card blocks Stop-disappearance handoff until the card is gon
   } finally {h.pause();dom.window.close();}
 });
 
+
+test('reload inherited Stop observation waits for full hydration and stable absence before fresh handoff',async()=>{
+  let readyState='loading';
+  const {h,w,dom}=await fixture(`<main>
+    <article data-testid="conversation-turn-user"><div data-message-author-role="user">continue architecture [Fabushi:reload-hydration]</div></article>
+    <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">上一页面正在执行 CI 和剩余 wiring。</div></div><button aria-label="Copy response"></button><button aria-label="Share response"></button></article>
+    <form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form>
+  </main>`,window=>{
+    Object.defineProperty(window.document,'readyState',{configurable:true,get:()=>readyState});
+  });
+  try {
+    w.history.pushState({},'', '/c/reload-hydration');
+    const task={id:'reload-hydration',ownerTabId:h.getTabId(),goal:'continue architecture',mode:'goal',phase:'work',round:8,state:'waiting',url:'https://chatgpt.com/c/reload-hydration',token:'reload-hydration',attempted:false,goalRevision:0,messages:[]};
+    h.data.tasks.push(task);
+    task.stopObservedGenerationIdentity=h.stopObservedGenerationIdentity(task);
+    task.stopObservedDocumentId='previous-document';
+    await h.start(false);
+
+    await h.inspect(task,null);
+    assert.equal(task.url,'https://chatgpt.com/c/reload-hydration','loading document must retain the current conversation');
+    assert.equal(task.state,'waiting');
+    assert.equal(task.reloadStopAbsentSince||0,0,'stability timer does not start before document hydration');
+
+    readyState='complete';
+    await h.inspect(task,null);
+    assert.equal(task.url,'https://chatgpt.com/c/reload-hydration');
+    assert.ok(Number(task.reloadStopAbsentSince)>0,'hydrated page starts the stable Stop-absence window');
+    const firstSince=task.reloadStopAbsentSince;
+
+    w.document.querySelector('.markdown').textContent='上一页面正在执行 CI；现在又恢复出新的进度。';
+    await h.inspect(task,null);
+    assert.ok(task.reloadStopAbsentSince>=firstSince,'visible reply changes restart the stability window');
+    assert.equal(task.url,'https://chatgpt.com/c/reload-hydration');
+
+    task.reloadStopAbsentSince=Date.now()-9000;
+    await h.inspect(task,null);
+    assert.equal(task.state,'queued','only stable hydrated Stop absence may hand off');
+    assert.equal(task.url,'');
+    assert.match(task.abnormalFreshCarry,/恢复出新的进度/);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('Stop reappearing after reload binds the current document and cancels inherited absence timer',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:reload-stop-return]</div></article>
+    <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">正在继续当前实现。</div></div></article>
+    <form><textarea id="prompt-textarea"></textarea></form>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/reload-stop-return');
+    const task={id:'reload-stop-return',ownerTabId:h.getTabId(),goal:'continue',mode:'goal',phase:'work',round:3,state:'waiting',url:'https://chatgpt.com/c/reload-stop-return',token:'reload-stop-return',attempted:false,goalRevision:0,messages:[]};
+    h.data.tasks.push(task);
+    task.stopObservedGenerationIdentity=h.stopObservedGenerationIdentity(task);
+    task.stopObservedDocumentId='old-document';
+    await h.start(false);
+
+    await h.inspect(task,null);
+    assert.ok(Number(task.reloadStopAbsentSince)>0);
+    const stop=w.document.createElement('button');
+    stop.dataset.testid='stop-button';
+    stop.setAttribute('aria-label','Stop generating');
+    stop.textContent='Stop';
+    w.document.querySelector('main').insertBefore(stop,w.document.querySelector('form'));
+    await h.inspect(task,null);
+    assert.equal(task.stopObservedDocumentId,h.getDocumentInstanceId());
+    assert.equal(task.reloadStopAbsentSince||0,0);
+    assert.equal(task.state,'generating');
+
+    stop.remove();
+    await h.inspect(task,null);
+    assert.equal(task.state,'queued','real same-document Stop disappearance remains immediate');
+    assert.equal(task.url,'');
+    assert.match(task.abnormalFreshCarry,/正在继续当前实现/);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('pagehide persists the current assistant reply and fresh prompt falls back to it after DOM loss',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <article data-testid="conversation-turn-user"><div data-message-author-role="user">finish all remaining work [Fabushi:pagehide-carry]</div></article>
+    <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">已完成模块 A 和 B；当前正在补模块 C 的集成验证，下一步跑完整 CI。</div></div></article>
+    <button data-testid="stop-button" aria-label="Stop generating">Stop</button>
+    <form><textarea id="prompt-textarea"></textarea></form>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/pagehide-carry');
+    const task=h.enqueue('finish all remaining work','goal');
+    Object.assign(task,{phase:'work',round:5,state:'generating',url:'https://chatgpt.com/c/pagehide-carry',token:'pagehide-carry',attempted:false,goalRevision:0,next:'继续完成模块 C 并跑完整 CI'});
+    await h.start(false);
+    w.dispatchEvent(new w.Event('pagehide'));
+    assert.match(task.handoffReplySnapshot||'',/已完成模块 A 和 B/);
+    assert.equal(task.handoffReplySnapshotPhase,'work');
+    assert.equal(task.handoffReplySnapshotRound,5);
+
+    // Simulate the new document before the old assistant DOM has rehydrated.
+    w.document.querySelector('[data-message-author-role="assistant"]').remove();
+    task.abnormalFreshCarry='';
+    task.abnormalFreshCarryPhase='';
+    task.abnormalFreshCarryRound=0;
+    task.connectionInterruptedFreshDispatch=true;
+    const prompt=h.workPrompt(task);
+    assert.match(prompt,/继续完成模块 C 并跑完整 CI/);
+    assert.match(prompt,/已完成模块 A 和 B/,'fresh Work prompt must include the durable previous-page reply');
+    assert.match(prompt,/当前正在补模块 C 的集成验证/);
+    assert.match(prompt,/原始目标/);
+    assert.notEqual(prompt.trim(),'finish all remaining work');
+  } finally {h.pause();dom.window.close();}
+});
+
+test('durable handoff snapshot is phase round and goal-revision bound and cannot cross a foreign route',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <article data-testid="conversation-turn-user"><div data-message-author-role="user">review [Fabushi:snapshot-scope]</div></article>
+    <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">本规划会话已检查证据并列出剩余项。</div></div></article>
+    <form><textarea id="prompt-textarea"></textarea></form>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/snapshot-scope');
+    const task={id:'snapshot-scope',ownerTabId:h.getTabId(),goal:'goal',result:'work result',mode:'goal',phase:'review',round:4,state:'waiting',url:'https://chatgpt.com/c/snapshot-scope',token:'snapshot-scope',attempted:false,goalRevision:2,messages:[]};
+    h.data.tasks.push(task);
+    assert.equal(h.persistHandoffReplySnapshot(task),true);
+    assert.match(h.handoffReplySnapshotForCurrentPhase(task),/已检查证据/);
+    task.connectionInterruptedFreshDispatch=true;
+    assert.match(h.plannerPrompt(task),/已检查证据/,'fresh Review prompt includes the same-phase durable reply snapshot');
+    task.round=5;
+    assert.equal(h.handoffReplySnapshotForCurrentPhase(task),'','snapshot cannot cross rounds');
+    task.round=4; task.goalRevision=3;
+    assert.equal(h.handoffReplySnapshotForCurrentPhase(task),'','snapshot cannot cross goal revisions');
+    task.goalRevision=2;
+    w.history.pushState({},'', '/c/foreign-route');
+    assert.equal(h.persistHandoffReplySnapshot(task),false,'foreign route cannot overwrite the task snapshot');
+  } finally {h.pause();dom.window.close();}
+});
+
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.97$/m);
-  assert.match(source,/const VERSION = '2\.9\.97'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.98$/m);
+  assert.match(source,/const VERSION = '2\.9\.98'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const ENDED_NO_FINAL_STABILITY_MS = 8000/);
+  assert.match(source,/const RELOAD_STOP_ABSENCE_STABILITY_MS = 8000/);
   assert.doesNotMatch(source,/ABNORMAL_NO_FINAL_CONTINUE_AFTER_MS/);
   assert.doesNotMatch(source,/AMBIGUOUS_SEND_REFRESH_MS|AMBIGUOUS_SEND_REFRESH_LIMIT/);
   assert.doesNotMatch(source,/STOP_MISSING_CONTINUE_GRACE_MS|stopMissingSince|stopMissingSignature/);
