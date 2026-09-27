@@ -3432,9 +3432,23 @@ test('memory diagnostics identify a bounded JS heap estimate and pressure level'
   dom.window.close();
 });
 
+test('automatic memory handoff stays below the 2 GiB ceiling but does not trigger at 1.70 GiB',async()=>{
+  const gib=1024*1024*1024;
+  const {h,w,dom}=await fixture('',window=>Object.defineProperty(window.performance,'memory',{configurable:true,value:{usedJSHeapSize:1.70*gib,totalJSHeapSize:1.9*gib,jsHeapSizeLimit:4*gib}}));
+  try {
+    w.history.pushState({},'', '/c/memory-under-threshold');
+    const task={id:'memory-under-threshold',ownerTabId:h.getTabId(),goal:'preserve task',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/memory-under-threshold',token:'dispatch',attempted:false,attachments:[],messages:[]};
+    h.data.tasks.push(task);
+    await h.inspectMemoryPressure();
+    await h.inspectMemoryPressure();
+    assert.equal(task.memoryPressureReloadAt||0,0,'1.70 GiB remains below the 1.75 GiB automatic handoff threshold');
+    assert.equal(task.url,'https://chatgpt.com/c/memory-under-threshold');
+  } finally {h.pause();dom.window.close();}
+});
+
 test('sustained memory pressure reloads the exact task session in the same tab without requiring the host',async()=>{
   const gib=1024*1024*1024;
-  const {h,w,dom}=await fixture('',window=>Object.defineProperty(window.performance,'memory',{configurable:true,value:{usedJSHeapSize:1.2*gib,totalJSHeapSize:1.5*gib,jsHeapSizeLimit:4*gib}}));
+  const {h,w,dom}=await fixture('',window=>Object.defineProperty(window.performance,'memory',{configurable:true,value:{usedJSHeapSize:1.8*gib,totalJSHeapSize:2.0*gib,jsHeapSizeLimit:4*gib}}));
   try {
     w.history.pushState({},'', '/c/memory-takeover');
     const task={id:'memory-task',ownerTabId:h.getTabId(),goal:'private task goal',mode:'once',phase:'work',round:2,state:'waiting',url:'https://chatgpt.com/c/memory-takeover',token:'dispatch',attempted:true,attachments:[],messages:[]};
@@ -3453,12 +3467,16 @@ test('sustained memory pressure reloads the exact task session in the same tab w
     assert.equal(heartbeat.taskId,task.id);
     assert.equal(heartbeat.taskURL,task.url);
     assert.ok(heartbeat.recoveryToken);
+    const nav=JSON.parse(w.sessionStorage.getItem('fabushi-workbench-navigation-v2')||'null');
+    assert.equal(nav?.task,task.id,'the memory handoff persists the same task-bound recovery navigation ticket');
+    assert.equal(nav?.purpose,'recovery');
+    assert.equal(nav?.memoryPressure,true);
   } finally {h.pause();dom.window.close();}
 });
 
 test('sustained heap pressure never reloads the same conversation route repeatedly',async()=>{
   const gib=1024*1024*1024;
-  const {h,w,dom}=await fixture('',window=>Object.defineProperty(window.performance,'memory',{configurable:true,value:{usedJSHeapSize:1.2*gib,totalJSHeapSize:1.5*gib,jsHeapSizeLimit:4*gib}}));
+  const {h,w,dom}=await fixture('',window=>Object.defineProperty(window.performance,'memory',{configurable:true,value:{usedJSHeapSize:1.8*gib,totalJSHeapSize:2.0*gib,jsHeapSizeLimit:4*gib}}));
   try {
     w.history.pushState({},'', '/c/memory-reload-once');
     const task={id:'memory-once',ownerTabId:h.getTabId(),goal:'preserve task',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/memory-reload-once',token:'dispatch',attempted:true,attachments:[],messages:[]};
@@ -3629,8 +3647,8 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.94$/m);
-  assert.match(source,/const VERSION = '2\.9\.94'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.95$/m);
+  assert.match(source,/const VERSION = '2\.9\.95'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 \* 60 \* 1000/);
@@ -3813,7 +3831,7 @@ test('automatic memory recovery never asks the host or reloads when there is no 
   const gib=1024*1024*1024;
   const requests=[];
   const {h,w,dom}=await fixture('',window=>{
-    Object.defineProperty(window.performance,'memory',{configurable:true,value:{usedJSHeapSize:1.2*gib,totalJSHeapSize:1.5*gib,jsHeapSizeLimit:4*gib}});
+    Object.defineProperty(window.performance,'memory',{configurable:true,value:{usedJSHeapSize:1.8*gib,totalJSHeapSize:2.0*gib,jsHeapSizeLimit:4*gib}});
     window.addEventListener('message',event=>{
       if(event.data?.source!=='fabushi-userscript'||event.data?.type!=='tab-memory.request')return;
       requests.push(event.data);
@@ -3824,9 +3842,57 @@ test('automatic memory recovery never asks the host or reloads when there is no 
     await h.inspectMemoryPressure();
     await h.inspectMemoryPressure();
     assert.equal(requests.length,0,'automatic recovery is now in-place and does not call tabs.discard through the host');
-    assert.equal(h.memorySnapshot().usedBytes,1.2*gib);
+    assert.equal(h.memorySnapshot().usedBytes,1.8*gib);
     assert.match(h.memoryStatusText(),/网页 JS 堆估算/);
     assert.match(h.memoryStatusText(),/task-not-resumable/);
+  } finally {h.pause();dom.window.close();}
+});
+
+
+test('recovered static reply with stale page loader takes abnormal-end recovery before fifteen-minute refresh',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user" data-message-id="stable-visible-user">继续完成架构重构</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown" data-message-content>当前 HEAD 已自动推进，manifest 已同步；仍有剩余项目需要继续完成。</div></div></article><div role="status" class="loading"><svg></svg>Loading history</div><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
+  try {
+    w.history.pushState({},'', '/c/recovered-static-stale-loader');
+    const task={id:'recovered-static-stale-loader',ownerTabId:h.getTabId(),goal:'完成所有架构重构',mode:'goal',phase:'work',round:6,state:'blocked',url:'https://chatgpt.com/c/recovered-static-stale-loader',token:'virtualized-recovered-token',attempted:false,messages:[],attachments:[],next:'继续完成所有'};
+    h.data.tasks.push(task);
+    assert.equal(h.prepareTaskForRecovery(task),true);
+    assert.equal(task.recoveredFinalIdentity.allowStaticFinal,true);
+    assert.match(h.pageLoadingState(),/正在加载/,'the stale page-global loader is deliberately present');
+    await h.start(false);
+
+    await h.inspect(task,null);
+    assert.equal(task.state,'waiting');
+    assert.ok(Number(task.abnormalNoFinalSince)>0,'stale loading must start the eight-second abnormal-end timer');
+    assert.equal(task.stalledRefreshAttempts||0,0,'the fifteen-minute refresh path must not run first');
+
+    task.abnormalNoFinalSince=Date.now()-9_000;
+    await h.inspect(task,null);
+
+    assert.equal(task.state,'queued');
+    assert.equal(task.url,'');
+    assert.equal(task.token,'');
+    assert.equal(task.connectionInterruptedFreshDispatch,true);
+    assert.equal(task.stalledRefreshAttempts||0,0);
+    assert.match(task.abnormalFreshCarry||'',/当前 HEAD 已自动推进/,'visible assistant work is carried to the fresh session');
+    assert.match(task.messages.at(-1).text,/检测到当前会话已经结束但没有最终回复/);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('recovered static reply without stale loading keeps the bounded static-final fallback',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user" data-message-id="stable-visible-user-2">继续完成架构重构</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown" data-message-content>这是恢复后的静态最终回复。</div></div></article><form><textarea id="prompt-textarea"></textarea></form></main>');
+  try {
+    w.history.pushState({},'', '/c/recovered-static-final-no-loader');
+    const task={id:'recovered-static-final-no-loader',ownerTabId:h.getTabId(),goal:'完成所有架构重构',mode:'once',phase:'work',round:1,state:'blocked',url:'https://chatgpt.com/c/recovered-static-final-no-loader',token:'virtualized-static-token',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    assert.equal(h.prepareTaskForRecovery(task),true);
+    await h.start(false);
+    await h.inspect(task,null);
+    const observation=h.observations.get(task.id);
+    assert.ok(observation?.recoveredStaticCandidate,'manual recovery still recognizes the bounded static candidate');
+    h.observations.set(task.id,{...observation,recoveredStaticCandidate:true,recoveredStaticSince:Date.now()-9_000,text:'这是恢复后的静态最终回复。',clear:true});
+    await h.inspect(task,null);
+    assert.equal(task.state,'done','without stale loading the existing static-final completion remains unchanged');
+    assert.equal(task.connectionInterruptedFreshDispatch||false,false);
   } finally {h.pause();dom.window.close();}
 });
 

@@ -2,7 +2,7 @@
 
 Status: active
 Owner: Fabushi ChatGPT auto-confirm userscript
-Last updated: 2026-09-25
+Last updated: 2026-09-27
 Related task: user screenshot showing JS heap above 1 GiB and unavailable host recovery
 
 ## 1. Context / problem
@@ -13,7 +13,7 @@ Separately, an ended bound conversation can send `继续完成所有` repeatedly
 
 ## 2. Goal
 
-When a recoverable current task's JS-heap estimate remains at least 1 GiB, reload the exact current task conversation in the same tab after persisting its workspace/dispatch identity. Never automatically reload the same conversation route more than once: long-chat hydration can recreate the same heap pressure, so repeated same-route reloads would worsen the incident rather than recover it. In any one bound conversation, send at most three `继续完成所有` messages; before a fourth send, capture visible assistant work and queue a fresh conversation with that carry.
+When a recoverable current task's JS-heap estimate remains above a bounded threshold below 2 GiB, perform an orderly same-tab task handoff: persist task identity, arm recovery identity/tickets, stop and release the current runner/workspace locks, then reload the exact current task conversation so the replacement document can reclaim and resume it. Never automatically reload the same conversation route more than once: long-chat hydration can recreate the same heap pressure, so repeated same-route reloads would worsen the incident rather than recover it. In any one bound conversation, send at most three `继续完成所有` messages; before a fourth send, capture visible assistant work and queue a fresh conversation with that carry.
 
 ## 3. Non-goals
 
@@ -25,9 +25,9 @@ When a recoverable current task's JS-heap estimate remains at least 1 GiB, reloa
 
 ## 4. Requirements
 
-- R1: At >=1 GiB sustained over two samples, the userscript may reload in place only when one unique task owns the exact live `/c/<id>` route, auto-resume is enabled, and there is no draft, pending local file/upload, approval, send, or navigation transition.
-- R2: Before reload, persist the exact task/workspace/dispatch identity and a recoverable heartbeat; do not create another tab or send task contents to the extension host.
-- R3: After same-tab reload, reclaim the persisted workspace and resume the same task, phase, round, dispatch token, conversation, and attachment metadata without duplicate sending.
+- R1: Automatic memory handoff triggers only after two sustained samples at or above 1.75 GiB (1792 MiB), leaving headroom below 2 GiB. It may run only when one unique task owns the exact live `/c/<id>` route, auto-resume is enabled, and there is no draft, pending local file/upload, approval, send, or navigation transition.
+- R2: Before reload, persist the exact task/workspace/dispatch identity, recovered-final boundary, same-route navigation/recovery ticket, and recoverable heartbeat; do not create another tab or send task contents to the extension host.
+- R3: The old document must orderly release its runner lock and workspace Web Lock before requesting the reload. After same-tab reload, the replacement document reclaims the same workspace and resumes the same task, phase, round, dispatch token, conversation, recovered-final identity, and attachment metadata without duplicate sending.
 - R4: When the host bridge is absent or times out, distinguish that from the page's heap estimate and use the same-tab reload path rather than claiming host reclamation.
 - R5: A bound session may issue at most 3 successful `继续完成所有` sends. Before a fourth attempt, capture visible current assistant work, strip status notices, queue a new conversation for the same task/phase/round, and preserve goal/next/attachments.
 - R6: The new conversation resets its per-session continuation count to zero through the existing dispatch reset.
@@ -41,7 +41,7 @@ The userscript owns task/turn identity, JS heap sampling, persistence, and safet
 
 ## 6. Data flow / contracts
 
-Repeated >=1 GiB samples → validate one safe exact-route task → persist waiting state, recovery ticket/heartbeat and reload timestamp → reload the same conversation URL in place → new document reclaims the workspace lock and resumes.
+Repeated >=1.75 GiB samples → validate one safe exact-route task → persist waiting state + recovered-final identity + automatic recovery ticket + direct same-route recovery NAV ticket + heartbeat → suspend/release the runner → release the workspace Web Lock → reload the same conversation URL in place → replacement document validates the persisted ticket, reclaims the same workspace/runner locks and resumes.
 
 Continuation count reaches 3 → reject a fourth same-chat send → visible assistant transcript extraction → strip status text → persist phase/round-bound `abnormalFreshCarry` → clear old dispatch and reset count → fresh Work prompt carries current instruction, previous work and original goal.
 
@@ -56,7 +56,7 @@ Continuation count reaches 3 → reject a fourth same-chat send → visible assi
 
 ## 8. Verification / acceptance
 
-- Unit tests assert the exact threshold, two-sample trigger, persisted same-tab reload state, and explicit host-unavailable reporting.
+- Unit tests assert 1.75 GiB is the automatic threshold, 1.70 GiB does not trigger reload, two-sample triggering remains required, the old runner/workspace are released before reload, and the persisted recovery/NAV evidence is sufficient for the replacement document to resume.
 - DOM tests assert first three continuation sends occur in the old URL; the next continuation condition queues a fresh URL and carries work without error/status text; phase/round/attachments persist and count resets.
 - Existing task ownership, final reply, authorization, user draft, attachment, and workspace lock tests stay green.
 - Run repository tests and syntax/diff checks. Release/integration occurs only through the canonical-main workflow; live Chrome verification remains separate acceptance.
@@ -69,3 +69,7 @@ Continuation count reaches 3 → reject a fourth same-chat send → visible assi
 | R5-R6 | implemented | `sendContinuation()` rejects attempt 4, captures owned assistant work, strips timeout/status text, and queues the same task with dispatch count reset. |
 | R7 | released; live acceptance pending | `npm test`: 220 total, 213 passed, 0 failed, 7 skipped; syntax check and `git diff --check` pass. Canonical-main Test run [36090932461](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/actions/runs/36090932461) and automatic Release run [36090980390](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/actions/runs/36090980390) succeeded for v2.9.77. Real Chrome reload/resume still needs live acceptance. |
 | R8-R9 | released; live acceptance pending | `memoryPressureReloadURL` is persisted per task and blocks a second same-route reload; `sustained heap pressure never reloads the same conversation route repeatedly` verifies the refusal after simulated same-document recovery. Full suite: 220 total, 213 passed, 0 failed, 7 skipped; exact-source GitHub Test run [36093974738](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/actions/runs/36093974738) succeeded. [v2.9.78 Release](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/releases/tag/v2.9.78), asset SHA-256 `43240530a14083d758594c117ec012786f02656aea8e78155cf9db14913c38b4`. Live Chrome reload/resume and performance acceptance remain pending. |
+
+## 10. 2026-09-27 correction
+
+The previous 1 GiB automatic threshold was too aggressive for long ChatGPT sessions and could fire immediately after unrelated renderer recovery. The automatic same-tab memory handoff threshold is now 1.75 GiB, explicitly below 2 GiB. The handoff also stops relying on `pagehide` as the first moment that locks are released: it persists recovery state, suspends the runner, writes the direct recovery ticket, releases the workspace lock, and only then requests the same-tab reload. This makes the release/resume sequence deterministic and avoids leaving the replacement document waiting on the old task owner.

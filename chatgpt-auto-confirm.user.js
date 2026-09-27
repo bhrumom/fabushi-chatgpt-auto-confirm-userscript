@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.94
+// @version      2.9.95
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.94';
+  const VERSION = '2.9.95';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
   const replacingActiveInstance = Boolean(previousInstance?.active);
@@ -202,7 +202,7 @@ async function bootstrapAttempt() {
   const HOST_MEMORY_PLUGIN_ID = 'chatgpt-auto-confirm';
   const MEMORY_MONITOR_INTERVAL_MS = 30000;
   const MEMORY_PRESSURE_SAMPLES = 2;
-  const MEMORY_HOST_REQUEST_MIN_BYTES = 1024 * 1024 * 1024;
+  const MEMORY_HOST_REQUEST_MIN_BYTES = 1792 * 1024 * 1024;
   const MEMORY_LOCAL_CLEANUP_COOLDOWN_MS = 60000;
   const MEMORY_HOST_REQUEST_COOLDOWN_MS = 5 * 60 * 1000;
   const MEMORY_SAME_TAB_RELOAD_COOLDOWN_MS = 5 * 60 * 1000;
@@ -225,8 +225,8 @@ async function bootstrapAttempt() {
   const LOCAL_NAVIGATION_BURST_WINDOW_MS = 5 * 60 * 1000;
   const LOCAL_NAVIGATION_BURST_LIMIT = 6;
   const LOCAL_NAVIGATION_BREAK_MS = 60000;
-  const MEMORY_SOFT_LIMIT_BYTES = 768 * 1024 * 1024;
-  const MEMORY_HARD_LIMIT_BYTES = 1536 * 1024 * 1024;
+  const MEMORY_SOFT_LIMIT_BYTES = 1536 * 1024 * 1024;
+  const MEMORY_HARD_LIMIT_BYTES = 1792 * 1024 * 1024;
   const MEMORY_RATIO_MIN_BYTES = 256 * 1024 * 1024;
   const MEMORY_SOFT_RATIO = 0.5;
   const MEMORY_HARD_RATIO = 0.7;
@@ -1012,7 +1012,7 @@ async function bootstrapAttempt() {
     return { safe, hidden:document.visibilityState === 'hidden', hasDraft, hasPendingAttachment,
       activeTask, liveURL, reason:unsafeTaskState ? 'task-not-resumable' : '' };
   }
-  function reloadTaskForMemoryPressure(task, now = Date.now()) {
+  async function reloadTaskForMemoryPressure(task, now = Date.now()) {
     const liveURL = currentConversationURL();
     const taskURL = canonicalConversationURL(task?.url);
     if (!task || !liveURL || !taskURL || liveURL !== taskURL || data.autoResume === false) return false;
@@ -1021,24 +1021,79 @@ async function bootstrapAttempt() {
     // into a periodic same-route reload loop; another route gets its own gate.
     if (task.memoryPressureReloadURL === liveURL) return false;
     if (now - Number(task.memoryPressureReloadAt || 0) < MEMORY_SAME_TAB_RELOAD_COOLDOWN_MS) return false;
+
     task.memoryPressureReloadAt = now;
     task.memoryPressureReloadURL = liveURL;
     task.state = 'waiting';
     task.updatedAt = now;
+    // Snapshot the visible response boundary before the old renderer is
+    // released. The replacement document can then resume inspection without
+    // depending on the hidden Fabushi marker surviving virtualization.
+    armWorkspaceRecoveryIdentity(task);
     ensureAutomaticRecoveryTicket(task, { force:true, destination:liveURL });
-    writeWorkspaceHeartbeat('memory-pressure-reload');
-    log(task, `网页 JS 堆估算已连续达到 1 GiB；已保存当前会话和任务状态，正在同一标签页重新加载 ${taskURL} 以释放旧页面内存。恢复后继续此任务，不新开标签页、不重复发送。`);
+    log(task, `网页 JS 堆估算已连续达到 ${formatMemoryBytes(MEMORY_HOST_REQUEST_MIN_BYTES)}；已保存当前会话和任务状态，正在释放旧页面任务监督器并在同一标签页恢复 ${taskURL}。恢复后继续此任务，不新开标签页、不重复发送。`);
     save();
+
+    // Do not wait for pagehide to release ownership. Under memory pressure the
+    // old document can stall long enough that the replacement page cannot
+    // reclaim the Web Locks. Perform the same lifecycle handoff explicitly:
+    // stop the runner, persist a direct same-route recovery ticket, stop the
+    // heartbeat loop, then release the workspace lock before reload.
+    suspendRunnerForPagehide();
+    const target = new URL(liveURL);
+    sessionStorage.setItem(NAV, JSON.stringify({
+      path:target.pathname,
+      href:liveURL,
+      at:now,
+      task:task.id,
+      assigned:true,
+      direct:true,
+      purpose:'recovery',
+      phase:String(task.phase || 'work'),
+      round:Number(task.round || 0),
+      goalRevision:Number(task.goalRevision || 0),
+      recovery:true,
+      resume:true,
+      memoryPressure:true,
+    }));
+    ensureAutomaticRecoveryTicket(task, { force:true, destination:liveURL });
+    stopMemoryMonitor();
+    stopWorkspaceHeartbeat('memory-pressure-handoff');
+    save();
+    await releaseWorkspace();
+
     navigating = true;
-    try { location.reload(); }
-    catch (error) {
+    // If a browser refuses the reload without unloading this document, reclaim
+    // the released locks and resume locally instead of leaving the task dead.
+    const fallback = window.setTimeout(async () => {
+      if (!navigating) return;
       navigating = false;
+      const reclaimed = await claimWorkspace(tabId).catch(() => false);
+      if (reclaimed) {
+        scheduleWorkspaceHeartbeat(50);
+        scheduleMemoryMonitor(1000);
+        autoStart(task.id);
+        log(task, '内存压力页面重载未提交；已重新取得当前任务锁并继续监督，任务没有丢失。');
+        save();
+      }
+    }, NAVIGATION_COMMIT_WATCHDOG_MS);
+    try {
+      location.reload();
+    } catch (error) {
+      clearTimeout(fallback);
+      navigating = false;
+      const reclaimed = await claimWorkspace(tabId).catch(() => false);
+      if (reclaimed) {
+        scheduleWorkspaceHeartbeat(50);
+        scheduleMemoryMonitor(1000);
+        autoStart(task.id);
+      }
       task.state = 'waiting';
-      log(task, `内存压力恢复刷新失败：${String(error?.message || error).slice(0, 180)}；任务已保留，稍后再尝试。`);
+      log(task, `内存压力恢复刷新失败：${String(error?.message || error).slice(0, 180)}；已恢复当前任务锁并继续监督。`);
       save();
       return false;
     }
-    memoryLastAction = '已在原标签页重载当前会话；任务状态已保存，页面恢复后继续。';
+    memoryLastAction = '已释放旧页面任务锁并在原标签页提交恢复重载；替换页面会按持久化恢复票据继续同一任务。';
     return true;
   }
   function cleanupLocalMemory({ reason = 'memory-pressure' } = {}) {
@@ -1106,7 +1161,7 @@ async function bootstrapAttempt() {
         paint?.();
         return { ok:false, discarded:false, reason:'unsafe-state', safety };
       }
-      const reloaded = reloadTaskForMemoryPressure(safety.activeTask, now);
+      const reloaded = await reloadTaskForMemoryPressure(safety.activeTask, now);
       if (reloaded) return { ok:true, reloaded:true, reason:'same-tab-reload', safety };
       if (safety.activeTask?.memoryPressureReloadURL === safety.liveURL) {
         memoryLastAction = '此会话已执行过一次内存恢复重载；页面重建后仍偏高，为避免循环刷新，本会话不会再次自动重载。';
@@ -5213,10 +5268,33 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       || latestMountedUser
       || nodes('[data-message-author-role=assistant]').some(visible)
     );
+    // A manually/recovered-owned static reply is normally allowed to finish
+    // through the bounded static-final fallback. However, when ChatGPT also
+    // leaves a page-global loading marker behind, that stale loader previously
+    // kept the task in "loading" until the 15-minute watchdog refreshed the
+    // page. Treat this narrow state as an abnormal end instead: exact route,
+    // recovered ownership, idle composer, no Stop/streaming/approval/blocker/
+    // rate-limit, and no active ambiguous send. The eight-second abnormal-end
+    // timer still decides the transition; this signal never declares success.
+    const recoveredStaticStaleLoadingEnd = Boolean(
+      rawLoading
+      && turn.recoveredStaticCandidate
+      && routeOwned
+      && turn.owned
+      && !foreignTask
+      && !otherRouteOwner
+      && !stopPresent
+      && !observedActivityStreaming
+      && !pending.length
+      && !currentBlocker
+      && !currentRateLimit
+      && composerReady
+      && !task.attempted
+    );
     const effectiveLoading = Boolean(
       rawLoading
       && (
-        (turn.recoveredStaticCandidate && !retryableErrorEnded)
+        (turn.recoveredStaticCandidate && !retryableErrorEnded && !recoveredStaticStaleLoadingEnd)
         || (!turn.owned && !routeEndedOwned)
         || stopPresent
         || activityStreaming
@@ -5274,6 +5352,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       responseActionsComplete:turn.responseActionsComplete,
       explicitFinal:turn.explicitFinal,
       recoveredStaticCandidate:Boolean(turn.recoveredStaticCandidate),
+      recoveredStaticStaleLoadingEnd,
       routeEndedOwned,
       activityText,
       activityTextStableSince,
@@ -5315,7 +5394,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       sample.routeOwned
       && (sample.owned || sample.routeEndedOwned)
       && !sample.final
-      && (!sample.recoveredStaticCandidate || Boolean(cacheRetry))
+      && (!sample.recoveredStaticCandidate || Boolean(cacheRetry) || sample.recoveredStaticStaleLoadingEnd)
       && !cacheRetryAttempted
       && !sample.stop
       && !sample.streaming
