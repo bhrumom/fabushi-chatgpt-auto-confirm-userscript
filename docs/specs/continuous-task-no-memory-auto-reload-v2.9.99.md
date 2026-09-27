@@ -1,6 +1,6 @@
 # Continuous task processing without automatic memory reload — v2.9.99
 
-Status: active  
+Status: implementation-verified  
 Owner: Fabushi ChatGPT Auto-confirm  
 Last updated: 2026-09-28  
 Related incident: the userscript interrupted an active task after the page JS-heap estimate reached 1.75 GiB and logged that it was releasing the old page supervisor and reloading the same ChatGPT conversation.
@@ -81,8 +81,14 @@ Focused regressions must verify:
 
 ## 9. Compliance record
 
+Implementation head `d906bd91e68f7afb357866166675073447d1a93d` passed GitHub Actions Test run `36339772553`: 258 tests, 251 passed, 0 failed, 7 skipped. Focused regressions passed for repeated 1.8 GiB monitoring without reload/host requests, >2 GiB monitoring without interruption, fail-closed non-user cleanup calls, manual cleanup host requests, diagnostic-only status, and the v2.9.98 Stop/reload-hydration + reply-carry regressions.
+
 | Requirement / AC | Status | Evidence / reason |
 | --- | --- | --- |
-| R1-R10 / AC-1-AC-4 | pending | Implementation and regression evidence pending. |
-| R11 | pending | Version bump pending. |
-| R12 / AC-5 | pending | CI, merge and release evidence pending. |
+| R1-R4 / AC-1-AC-3 | passed | The automatic threshold/reload constants, pressure streak, `memoryReloadSafety()`, `reloadTaskForMemoryPressure()`, legacy reload-field writes, and the “网页 JS 堆估算已连续达到…” runtime message are removed. Automatic sampling never creates a NAV ticket, changes the task URL/token/state, releases the runner/workspace, reloads, or contacts the host. |
+| R5-R6 | passed | Memory pressure remains diagnostic-only; status explicitly says it will not automatically refresh or interrupt tasks. Elevated/high estimates may only run bounded local cleanup of script-owned stale state. |
+| R7 / AC-4 | passed | Explicit `cleanup_memory` / `requestHostMemoryCleanup(..., userInitiated:true)` remains available and its regression still verifies the redacted host request. Non-user calls return `automatic-memory-recovery-disabled`. |
+| R8-R9 | passed | Regressions verify 1.8 GiB and >2 GiB never create memory recovery tickets or host discard requests and never write `memoryPressureReloadAt` / `memoryPressureReloadURL`. |
+| R10 | passed | Existing Stop disappearance, reload hydration, pagehide reply snapshot and fresh-session carry regressions remain green in the full suite. |
+| R11 | passed | Userscript metadata/runtime, README and package assertions report 2.9.99. |
+| R12 / AC-5 | partial | Exact behavior head Test `36339772553` passed. A compliance-only Spec commit will be re-tested before merge; canonical-main Test, Release workflow and release asset readback remain pending. |
