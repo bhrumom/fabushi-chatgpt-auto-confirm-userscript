@@ -3701,11 +3701,11 @@ test('authorization card blocks Stop-disappearance handoff until the card is gon
 
 test('reload inherited Stop observation waits for full hydration and stable absence before fresh handoff',async()=>{
   let readyState='loading';
-  const {h,w,dom}=await fixture(\`<main>
+  const {h,w,dom}=await fixture(`<main>
     <article data-testid="conversation-turn-user"><div data-message-author-role="user">continue architecture [Fabushi:reload-hydration]</div></article>
     <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">上一页面正在执行 CI 和剩余 wiring。</div></div><button aria-label="Copy response"></button><button aria-label="Share response"></button></article>
     <form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form>
-  </main>\`,window=>{
+  </main>`,window=>{
     Object.defineProperty(window.document,'readyState',{configurable:true,get:()=>readyState});
   });
   try {
@@ -3741,11 +3741,11 @@ test('reload inherited Stop observation waits for full hydration and stable abse
 });
 
 test('Stop reappearing after reload binds the current document and cancels inherited absence timer',async()=>{
-  const {h,w,dom}=await fixture(\`<main>
+  const {h,w,dom}=await fixture(`<main>
     <article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:reload-stop-return]</div></article>
     <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">正在继续当前实现。</div></div></article>
     <form><textarea id="prompt-textarea"></textarea></form>
-  </main>\`);
+  </main>`);
   try {
     w.history.pushState({},'', '/c/reload-stop-return');
     const task={id:'reload-stop-return',ownerTabId:h.getTabId(),goal:'continue',mode:'goal',phase:'work',round:3,state:'waiting',url:'https://chatgpt.com/c/reload-stop-return',token:'reload-stop-return',attempted:false,goalRevision:0,messages:[]};
@@ -3775,12 +3775,12 @@ test('Stop reappearing after reload binds the current document and cancels inher
 });
 
 test('pagehide persists the current assistant reply and fresh prompt falls back to it after DOM loss',async()=>{
-  const {h,w,dom}=await fixture(\`<main>
+  const {h,w,dom}=await fixture(`<main>
     <article data-testid="conversation-turn-user"><div data-message-author-role="user">finish all remaining work [Fabushi:pagehide-carry]</div></article>
     <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">已完成模块 A 和 B；当前正在补模块 C 的集成验证，下一步跑完整 CI。</div></div></article>
     <button data-testid="stop-button" aria-label="Stop generating">Stop</button>
     <form><textarea id="prompt-textarea"></textarea></form>
-  </main>\`);
+  </main>`);
   try {
     w.history.pushState({},'', '/c/pagehide-carry');
     const task=h.enqueue('finish all remaining work','goal');
@@ -3807,11 +3807,11 @@ test('pagehide persists the current assistant reply and fresh prompt falls back 
 });
 
 test('durable handoff snapshot is phase round and goal-revision bound and cannot cross a foreign route',async()=>{
-  const {h,w,dom}=await fixture(\`<main>
+  const {h,w,dom}=await fixture(`<main>
     <article data-testid="conversation-turn-user"><div data-message-author-role="user">review [Fabushi:snapshot-scope]</div></article>
     <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">本规划会话已检查证据并列出剩余项。</div></div></article>
     <form><textarea id="prompt-textarea"></textarea></form>
-  </main>\`);
+  </main>`);
   try {
     w.history.pushState({},'', '/c/snapshot-scope');
     const task={id:'snapshot-scope',ownerTabId:h.getTabId(),goal:'goal',result:'work result',mode:'goal',phase:'review',round:4,state:'waiting',url:'https://chatgpt.com/c/snapshot-scope',token:'snapshot-scope',attempted:false,goalRevision:2,messages:[]};
