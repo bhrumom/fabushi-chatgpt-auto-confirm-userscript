@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.92
+// @version      2.9.93
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.92';
+  const VERSION = '2.9.93';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
   const replacingActiveInstance = Boolean(previousInstance?.active);
@@ -1649,9 +1649,13 @@ async function bootstrapAttempt() {
       phase:String(task.phase || 'work'),
       round:Number(task.round || 0),
       goalRevision:Number(task.goalRevision || 0),
+      // Automatic recovery may accept only the existing strong final toolbar,
+      // but it still needs a stable message boundary when the hidden Fabushi
+      // marker was virtualized or never mounted. Snapshot that boundary for
+      // every recovery identity; allowStaticFinal remains manual-only.
+      visibleUserBoundaryKey:recoveryUserBoundaryKey(latestMountedUser),
       ...(allowRecoveredStatic ? {
         allowStaticFinal:true,
-        visibleUserBoundaryKey:recoveryUserBoundaryKey(latestMountedUser),
       } : {}),
     };
     return true;
@@ -3643,7 +3647,9 @@ async function bootstrapAttempt() {
     // latestTurn() below so an older reply toolbar cannot satisfy it.
     if (!hasRecoveredIdentity && !recoveredContinuation) return scoped;
     if (latestMountedUser && !recoveredContinuation) {
-      if (!identity.allowStaticFinal) return scoped;
+      // A stable visible user boundary plus the exact recorded route lets an
+      // automatically recovered task accept only a real final toolbar. Any
+      // later manual user message changes this key and fails closed.
       if (recoveryUserBoundaryKey(latestMountedUser) !== String(identity.visibleUserBoundaryKey || '')) return scoped;
     }
 

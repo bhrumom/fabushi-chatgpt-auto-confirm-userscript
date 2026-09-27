@@ -6,7 +6,7 @@ import { JSDOM } from 'jsdom';
 const source = await fs.readFile(new URL('../chatgpt-auto-confirm.user.js', import.meta.url), 'utf8');
 const instrumentedSource = source.replace(
   '  mount();',
-  `  window.__fabushiFinalReplyTestHooks = Object.freeze({ latestTurn, taskTurnForInspection, armRecoveredFinalIdentity, ownedFinalReplyReady, recoverStalledRoute, prepareTaskForRecovery, restoreWorkspace, resumeTask, classify, stalledProgressSignature, refreshStalledConversation, queueReviewRepair, parseReview, finish, workPrompt, plannerPrompt, inspect, data, tabId, start, pause });
+  `  window.__fabushiFinalReplyTestHooks = Object.freeze({ latestTurn, taskTurnForInspection, armRecoveredFinalIdentity, ownedFinalReplyReady, recoverStalledRoute, prepareTaskForRecovery, restoreWorkspace, resumeTask, classify, stalledProgressSignature, refreshStalledConversation, queueReviewRepair, parseReview, finish, workPrompt, plannerPrompt, pageLoadingState, inspect, data, observations, tabId, start, pause });
   mount();`,
 );
 
@@ -893,6 +893,100 @@ test('manual resume accepts a marker-virtualized static reply after the recovery
   }
 });
 
+test('automatic recovery accepts a strong final toolbar across stale page loading when the user boundary is unchanged', async () => {
+  const { dom, window, hooks } = await createHarness(`
+    <main>
+      <div role="status" class="loading"><svg></svg>Loading history</div>
+      <article data-testid="conversation-turn-user">
+        <div data-message-author-role="user" data-message-id="recovered-user-boundary">继续完成原任务</div>
+      </article>
+      <article data-testid="conversation-turn-assistant">
+        <div data-message-author-role="assistant" data-message-id="recovered-final-reply">
+          <div class="markdown">已完成当前工作并给出最终结果。</div>
+        </div>
+      </article>
+      <div id="recovered-response-actions">
+        <button aria-label="复制回复"></button>
+        <button aria-label="分享回复"></button>
+        <button aria-label="更多操作"></button>
+      </div>
+      <form><textarea id="prompt-textarea"></textarea></form>
+    </main>
+  `);
+  try {
+    window.history.pushState({}, '', '/c/automatic-recovered-final');
+    const task = {
+      id:'automatic-recovered-final',
+      ownerTabId:hooks.tabId,
+      goal:'继续原任务',
+      goalRevision:2,
+      mode:'once',
+      phase:'work',
+      round:1,
+      state:'waiting',
+      url:'https://chatgpt.com/c/automatic-recovered-final',
+      token:'virtualized-automatic-token',
+      attempted:false,
+      messages:[],
+      routeRecoveryAttempts:1,
+    };
+    hooks.data.tasks.push(task);
+    assert.equal(hooks.armRecoveredFinalIdentity(task), true);
+    assert.equal(task.recoveredFinalIdentity.allowStaticFinal, undefined);
+    assert.match(task.recoveredFinalIdentity.visibleUserBoundaryKey, /^id:/);
+
+    const recovered = hooks.taskTurnForInspection(task);
+    assert.equal(recovered.owned, true);
+    assert.equal(recovered.final, true);
+    assert.equal(recovered.recoveredRouteOwned, true);
+    assert.equal(hooks.ownedFinalReplyReady(task), true);
+    assert.ok(hooks.pageLoadingState(), 'the fixture keeps a broad page loading marker visible');
+    assert.equal(hooks.recoverStalledRoute(new window.URL(task.url), task), false);
+    assert.equal(task.routeRecoveryAttempts, 0, 'strong final evidence clears stale route recovery instead of refreshing');
+    const completed = hooks.classify({
+      owned:true,
+      final:true,
+      text:recovered.text,
+      stop:false,
+      streaming:false,
+      cards:0,
+      loading:false,
+      blocker:'',
+      rateLimit:'',
+    }, { text:recovered.text, final:true, finalSince:1_000, since:1_000, clear:true }, 5_001);
+    assert.equal(completed.state, 'complete');
+  } finally {
+    hooks.pause();
+    dom.window.close();
+  }
+});
+
+test('automatic recovered final ownership is invalidated by a newer user boundary', async () => {
+  const { dom, window, hooks } = await createHarness(`
+    <main id="chat">
+      <article data-testid="conversation-turn-user"><div data-message-author-role="user" data-message-id="original-user">原任务</div></article>
+      <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">原任务结果</div></div></article>
+      <div><button aria-label="复制回复"></button><button aria-label="分享回复"></button></div>
+      <form><textarea id="prompt-textarea"></textarea></form>
+    </main>
+  `);
+  try {
+    window.history.pushState({}, '', '/c/recovered-boundary-change');
+    const task={id:'recovered-boundary-change',ownerTabId:hooks.tabId,goal:'原任务',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/recovered-boundary-change',token:'missing-marker-token',attempted:false,messages:[]};
+    hooks.data.tasks.push(task);
+    assert.equal(hooks.armRecoveredFinalIdentity(task), true);
+    const newer=window.document.createElement('article');
+    newer.innerHTML='<div data-message-author-role="user" data-message-id="later-manual-user">后来手动发送的新消息</div>';
+    window.document.querySelector('#chat').insertBefore(newer, window.document.querySelector('form'));
+    const recovered=hooks.taskTurnForInspection(task);
+    assert.equal(recovered.owned, false);
+    assert.equal(recovered.final, false);
+  } finally {
+    hooks.pause();
+    dom.window.close();
+  }
+});
+
 test('manual recovery rejects a user boundary that changes after recovery was armed', async () => {
   const { dom, window, hooks } = await createHarness(`
     <main id="chat">
@@ -1106,7 +1200,7 @@ test('recovered final fallback refuses a foreign task marker on the same route',
   }
 });
 
-test('recovered final fallback refuses a visible non-task user turn even on the exact route', async () => {
+test('automatic recovery still refuses a bare static reply without final toolbar evidence', async () => {
   const { dom, window, hooks } = await createHarness(`
     <main>
       <article data-testid="conversation-turn-user">
@@ -1114,8 +1208,6 @@ test('recovered final fallback refuses a visible non-task user turn even on the 
       </article>
       <article data-testid="conversation-turn-assistant">
         <div data-message-author-role="assistant"><div class="markdown">手动问题的完整回复</div></div>
-        <button aria-label="复制回复"></button>
-        <button aria-label="评价回复"></button>
       </article>
     </main>
   `);
