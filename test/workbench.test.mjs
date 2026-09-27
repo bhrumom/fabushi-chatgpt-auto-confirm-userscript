@@ -3432,9 +3432,23 @@ test('memory diagnostics identify a bounded JS heap estimate and pressure level'
   dom.window.close();
 });
 
+test('automatic memory handoff stays below the 2 GiB ceiling but does not trigger at 1.70 GiB',async()=>{
+  const gib=1024*1024*1024;
+  const {h,w,dom}=await fixture('',window=>Object.defineProperty(window.performance,'memory',{configurable:true,value:{usedJSHeapSize:1.70*gib,totalJSHeapSize:1.9*gib,jsHeapSizeLimit:4*gib}}));
+  try {
+    w.history.pushState({},'', '/c/memory-under-threshold');
+    const task={id:'memory-under-threshold',ownerTabId:h.getTabId(),goal:'preserve task',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/memory-under-threshold',token:'dispatch',attempted:false,attachments:[],messages:[]};
+    h.data.tasks.push(task);
+    await h.inspectMemoryPressure();
+    await h.inspectMemoryPressure();
+    assert.equal(task.memoryPressureReloadAt||0,0,'1.70 GiB remains below the 1.75 GiB automatic handoff threshold');
+    assert.equal(task.url,'https://chatgpt.com/c/memory-under-threshold');
+  } finally {h.pause();dom.window.close();}
+});
+
 test('sustained memory pressure reloads the exact task session in the same tab without requiring the host',async()=>{
   const gib=1024*1024*1024;
-  const {h,w,dom}=await fixture('',window=>Object.defineProperty(window.performance,'memory',{configurable:true,value:{usedJSHeapSize:1.2*gib,totalJSHeapSize:1.5*gib,jsHeapSizeLimit:4*gib}}));
+  const {h,w,dom}=await fixture('',window=>Object.defineProperty(window.performance,'memory',{configurable:true,value:{usedJSHeapSize:1.8*gib,totalJSHeapSize:2.0*gib,jsHeapSizeLimit:4*gib}}));
   try {
     w.history.pushState({},'', '/c/memory-takeover');
     const task={id:'memory-task',ownerTabId:h.getTabId(),goal:'private task goal',mode:'once',phase:'work',round:2,state:'waiting',url:'https://chatgpt.com/c/memory-takeover',token:'dispatch',attempted:true,attachments:[],messages:[]};
@@ -3453,12 +3467,14 @@ test('sustained memory pressure reloads the exact task session in the same tab w
     assert.equal(heartbeat.taskId,task.id);
     assert.equal(heartbeat.taskURL,task.url);
     assert.ok(heartbeat.recoveryToken);
+    const nav=JSON.parse(w.sessionStorage.getItem('fabushi-auto-confirm-nav-v3')||w.sessionStorage.getItem('fabushi-auto-confirm-navigation-v1')||'null');
+    assert.ok(nav===null || nav.task===task.id,'the memory handoff keeps the same task-bound recovery navigation evidence');
   } finally {h.pause();dom.window.close();}
 });
 
 test('sustained heap pressure never reloads the same conversation route repeatedly',async()=>{
   const gib=1024*1024*1024;
-  const {h,w,dom}=await fixture('',window=>Object.defineProperty(window.performance,'memory',{configurable:true,value:{usedJSHeapSize:1.2*gib,totalJSHeapSize:1.5*gib,jsHeapSizeLimit:4*gib}}));
+  const {h,w,dom}=await fixture('',window=>Object.defineProperty(window.performance,'memory',{configurable:true,value:{usedJSHeapSize:1.8*gib,totalJSHeapSize:2.0*gib,jsHeapSizeLimit:4*gib}}));
   try {
     w.history.pushState({},'', '/c/memory-reload-once');
     const task={id:'memory-once',ownerTabId:h.getTabId(),goal:'preserve task',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/memory-reload-once',token:'dispatch',attempted:true,attachments:[],messages:[]};
@@ -3813,7 +3829,7 @@ test('automatic memory recovery never asks the host or reloads when there is no 
   const gib=1024*1024*1024;
   const requests=[];
   const {h,w,dom}=await fixture('',window=>{
-    Object.defineProperty(window.performance,'memory',{configurable:true,value:{usedJSHeapSize:1.2*gib,totalJSHeapSize:1.5*gib,jsHeapSizeLimit:4*gib}});
+    Object.defineProperty(window.performance,'memory',{configurable:true,value:{usedJSHeapSize:1.8*gib,totalJSHeapSize:2.0*gib,jsHeapSizeLimit:4*gib}});
     window.addEventListener('message',event=>{
       if(event.data?.source!=='fabushi-userscript'||event.data?.type!=='tab-memory.request')return;
       requests.push(event.data);
@@ -3824,7 +3840,7 @@ test('automatic memory recovery never asks the host or reloads when there is no 
     await h.inspectMemoryPressure();
     await h.inspectMemoryPressure();
     assert.equal(requests.length,0,'automatic recovery is now in-place and does not call tabs.discard through the host');
-    assert.equal(h.memorySnapshot().usedBytes,1.2*gib);
+    assert.equal(h.memorySnapshot().usedBytes,1.8*gib);
     assert.match(h.memoryStatusText(),/网页 JS 堆估算/);
     assert.match(h.memoryStatusText(),/task-not-resumable/);
   } finally {h.pause();dom.window.close();}
