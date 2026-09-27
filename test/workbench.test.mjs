@@ -1528,6 +1528,31 @@ test('abnormal fresh-chat Work prompt has the required three parts and ignores s
   dom.window.close();
 });
 
+test('later Work rounds carry the prior completed Work result exactly once',async()=>{
+  const {h,dom}=await fixture();
+  const task={id:'previous-work-result',round:2,goal:'original target',next:'reviewer next step',phase:'work',result:'previous round verified progress',token:'next-round-token'};
+  const prompt=h.workPrompt(task);
+  assert.match(prompt,/reviewer next step/);
+  assert.match(prompt,/原始目标：original target/);
+  assert.match(prompt,/上一轮已完成的 Work 最终回复/);
+  assert.equal(prompt.split('previous round verified progress').length-1,1);
+  assert.doesNotMatch(h.workPrompt({...task,round:1}),/previous round verified progress/);
+  assert.doesNotMatch(h.workPrompt({...task,result:''}),/上一轮已完成的 Work 最终回复/);
+  dom.window.close();
+});
+
+test('abnormal later-round recovery preserves both prior completed result and interrupted Work',async()=>{
+  const {h,dom}=await fixture();
+  const task={id:'abnormal-previous-work',round:3,goal:'original target',next:'continue the reviewer step',phase:'work',result:'round two finished baseline',token:'abnormal-next-token',abnormalFreshCarry:'round three interrupted progress',abnormalFreshCarryPhase:'work',abnormalFreshCarryRound:3};
+  const prompt=h.workPrompt(task);
+  assert.match(prompt,/round two finished baseline/);
+  assert.match(prompt,/round three interrupted progress/);
+  assert.match(prompt,/continue the reviewer step/);
+  assert.match(prompt,/原始目标/);
+  assert.ok(prompt.indexOf('round two finished baseline') < prompt.indexOf('round three interrupted progress'));
+  dom.window.close();
+});
+
 test('work prompt stays natural while the fresh planner alone receives the report contract',async()=>{
   const {h,dom}=await fixture();
   const task={id:'a',round:1,goal:'do work',next:'',result:'natural result',token:'t'};
@@ -3598,8 +3623,8 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.90$/m);
-  assert.match(source,/const VERSION = '2\.9\.90'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.91$/m);
+  assert.match(source,/const VERSION = '2\.9\.91'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 \* 60 \* 1000/);

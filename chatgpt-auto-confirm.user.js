@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.90
+// @version      2.9.91
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.90';
+  const VERSION = '2.9.91';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
   const replacingActiveInstance = Boolean(previousInstance?.active);
@@ -4604,12 +4604,18 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const hop = Math.max(1, Number(task.lengthLimitHopCount || 1));
     return `\n上一会话因达到 ChatGPT 对话长度上限而被系统结束。下面是上一会话页面最后显示的 assistant 回复（${phase} 接力第 ${hop} 次）。请把它当作同一任务已经完成到这里的工作现场，从停止处继续，不要重新从头执行已经完成的步骤，也不要只总结这段内容；继续实际推进，直到本轮得到真正最终回复。\n--- 上一会话实时回复开始 ---\n${carry}\n--- 上一会话实时回复结束 ---\n`;
   }
+  function previousWorkResultContext(task) {
+    const result = String(task?.result || '').trim();
+    if (task?.phase !== 'work' || Number(task?.round || 0) <= 1 || !result) return '';
+    return `\n上一轮已完成的 Work 最终回复（仅作为已完成进度参考；当前轮指令和原始目标优先）：\n--- 上一轮 Work 最终回复开始 ---\n${result}\n--- 上一轮 Work 最终回复结束 ---\n`;
+  }
   function workPrompt(task) {
     const abnormalCarry = abnormalFreshCarryForCurrentPhase(task);
     if (abnormalCarry) {
-      return `${attachmentPrompt(task)}这是一次异常会话后的接力恢复。新会话必须按下面三部分理解上下文：\n一、验收会话最终给出的本轮提示词（首轮没有验收提示时即当前任务提示）：\n${task.next || task.goal}\n\n二、异常会话里 ChatGPT 已经工作的实时回复：\n${abnormalCarry}\n\n三、原始目标：\n${task.goal}\n\n请优先承接第二部分已经完成的工作，从中断处继续执行第一部分要求，并始终以第三部分原始目标为边界；不要从头重复已经完成的步骤。最终用自然语言返回实际完成结果、验证依据、阻塞和下一步建议；不要输出任何固定回执模板。\n[Fabushi:${task.token}]`;
+      const previousResult = previousWorkResultContext(task);
+      return `${attachmentPrompt(task)}这是一次异常会话后的接力恢复。新会话必须按下面上下文理解：\n一、验收会话最终给出的本轮提示词（首轮没有验收提示时即当前任务提示）：\n${task.next || task.goal}\n${previousResult ? `\n二、上一轮已经完成的 Work 最终回复（进度参考）：\n${previousResult}\n` : ''}\n${previousResult ? '三' : '二'}、异常会话里 ChatGPT 已经工作的实时回复：\n${abnormalCarry}\n\n${previousResult ? '四' : '三'}、原始目标：\n${task.goal}\n\n请优先承接异常会话里已经完成的工作，从中断处继续执行本轮提示词，并参考上一轮进度避免重复；当前轮提示词和原始目标始终优先。最终用自然语言返回实际完成结果、验证依据、阻塞和下一步建议；不要输出任何固定回执模板。\n[Fabushi:${task.token}]`;
     }
-    return `${attachmentPrompt(task)}${task.next || task.goal}\n${task.round > 1 ? `原始目标：${task.goal}\n` : ''}${conversationLengthContinuationContext(task)}请直接执行上述任务，最终用自然语言返回实际完成结果、验证依据、阻塞和下一步建议；不要输出任何固定回执模板。\n[Fabushi:${task.token}]`;
+    return `${attachmentPrompt(task)}${task.next || task.goal}\n${task.round > 1 ? `原始目标：${task.goal}\n` : ''}${previousWorkResultContext(task)}${conversationLengthContinuationContext(task)}请直接执行上述任务，最终用自然语言返回实际完成结果、验证依据、阻塞和下一步建议；不要输出任何固定回执模板。\n[Fabushi:${task.token}]`;
   }
   function editGoal(task, value) {
     if (!task || task.state === 'done') return false;
