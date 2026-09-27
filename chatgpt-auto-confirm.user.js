@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.99
+// @version      2.10.0
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.99';
+  const VERSION = '2.10.0';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -5202,14 +5202,63 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && !currentBlocker
       && !currentRateLimit
     );
+    // A historical Stop observation protects a reloaded document from a
+    // false Stop-disappearance handoff. It must not, however, hide a final
+    // reply that explicit pause/resume recovery has already attributed to
+    // this exact task and route. Finality still uses the ordinary strong
+    // toolbar/static-copy evidence plus all ownership and approval guards.
+    const recoveredOwnedFinal = Boolean(
+      inheritedStopObservation
+      && !stopPresent
+      && routeOwned
+      && turn.owned
+      && turn.final
+      && turn.text
+      && !foreignTask
+      && !otherRouteOwner
+      && !approvalVisible
+      && !currentBlocker
+      && !currentRateLimit
+      && !task.attempted
+    );
     if (inheritedStopObservation
       && !stopPresent
       && !inheritedStopAbsenceStable
       && !approvalVisible
       && !currentBlocker
-      && !currentRateLimit) {
+      && !currentRateLimit
+      && !recoveredOwnedFinal) {
       task.state = 'waiting';
       task.updatedAt = now;
+      // This used to return before scan accounting, leaving the workbench at
+      // "扫描 0 次" even though the scheduler was repeatedly checking the
+      // page. Persist a bounded observation and count the pass so an
+      // unresolved hydration gate is visible instead of becoming a silent
+      // zero-scan loop.
+      observations.set(task.id, {
+        ...(previous || {}),
+        text:String(turn.text || ''),
+        since:Number(previous?.since || now),
+        idleSince:Number(previous?.idleSince || now),
+        final:Boolean(turn.final),
+        finalSince:turn.final ? Number(previous?.finalSince || now) : 0,
+        recoveredStaticCandidate:Boolean(turn.recoveredStaticCandidate),
+        recoveredStaticSince:turn.recoveredStaticCandidate ? Number(previous?.recoveredStaticSince || now) : 0,
+        stop:false,
+        streaming:Boolean(turn.streaming),
+        loading:true,
+        routeEndedOwned:Boolean(routeEndedOwned),
+        activityText:String(activityText || ''),
+        activityTextStableSince,
+        clear:false,
+        identityMismatchSince:0,
+      });
+      const inspectionMs = performance.now() - begin;
+      measurements.scans++;
+      measurements.totalScanMs += inspectionMs;
+      if (!reloadHydrationReady) {
+        log(task, '页面刷新后仍在恢复当前任务内容；已保留会话并继续监督，等待消息区和输入框完成加载。');
+      }
       return;
     }
     // A conversation-length notice is a hard product boundary, not a normal
