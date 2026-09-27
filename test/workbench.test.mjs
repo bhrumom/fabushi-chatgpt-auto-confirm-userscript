@@ -3468,7 +3468,9 @@ test('sustained memory pressure reloads the exact task session in the same tab w
     assert.equal(heartbeat.taskURL,task.url);
     assert.ok(heartbeat.recoveryToken);
     const nav=JSON.parse(w.sessionStorage.getItem('fabushi-workbench-navigation-v2')||'null');
-    assert.ok(nav===null || nav.task===task.id,'the memory handoff keeps the same task-bound recovery navigation evidence');
+    assert.equal(nav?.task,task.id,'the memory handoff persists the same task-bound recovery navigation ticket');
+    assert.equal(nav?.purpose,'recovery');
+    assert.equal(nav?.memoryPressure,true);
   } finally {h.pause();dom.window.close();}
 });
 
@@ -3645,8 +3647,8 @@ test('root dispatch navigation tickets are bound to the current review generatio
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.94$/m);
-  assert.match(source,/const VERSION = '2\.9\.94'/);
+  assert.match(source,/^\/\/ @version\s+2\.9\.95$/m);
+  assert.match(source,/const VERSION = '2\.9\.95'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 \* 60 \* 1000/);
@@ -3871,7 +3873,7 @@ test('recovered static reply with stale page loader takes abnormal-end recovery 
     assert.equal(task.token,'');
     assert.equal(task.connectionInterruptedFreshDispatch,true);
     assert.equal(task.stalledRefreshAttempts||0,0);
-    assert.match(task.abnormalFreshCarryText||'',/当前 HEAD 已自动推进/,'visible assistant work is carried to the fresh session');
+    assert.match(task.abnormalFreshCarry||'',/当前 HEAD 已自动推进/,'visible assistant work is carried to the fresh session');
     assert.match(task.messages.at(-1).text,/检测到当前会话已经结束但没有最终回复/);
   } finally {h.pause();dom.window.close();}
 });
