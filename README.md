@@ -1,8 +1,14 @@
-# Fabushi 独立油猴工作台 2.9.95
+# Fabushi 独立油猴工作台 2.9.96
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.95`。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.96`。
+
+## 2.9.96 关闭标签页不再自动自恢复
+
+- 用户主动关闭原任务标签页后，不再扫描陈旧 workspace 并自动接管，也不再通过 host recovery capability 请求外部恢复，因此不会自己重新打开/接管标签页。
+- 内存压力的“同一标签页释放并恢复”保留：它是当前页面主动发起的显式 reload handoff，不属于关闭标签页后的自恢复。
+- 手动“恢复工作区”以及手动“拖到新标签页处理”仍保留，只有用户显式操作才会打开/接管标签页。
 
 ## 2.9.95 异常结束优先于残留加载刷新
 

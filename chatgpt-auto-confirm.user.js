@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.9.95
+// @version      2.9.96
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.9.95';
+  const VERSION = '2.9.96';
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
   const replacingActiveInstance = Boolean(previousInstance?.active);
@@ -186,6 +186,10 @@ async function bootstrapAttempt() {
   const WORKSPACE_HEARTBEAT_INTERVAL_MS = 15000;
   const WORKSPACE_HEARTBEAT_STALE_MS = 120000;
   const WORKSPACE_RECOVERY_SCAN_MS = 15000;
+  // Closing a task tab is an explicit user action. Never resurrect that
+  // workspace automatically in another/current tab or through the host bridge.
+  // Explicit same-document reload handoffs and manual Restore remain supported.
+  const AUTOMATIC_WORKSPACE_RECOVERY_ENABLED = false;
   const HOST_RECOVERY_CAPABILITY = 'tab-recovery';
   const HOST_RECOVERY_REQUEST_TYPE = 'recovery-capability.request';
   const HOST_RECOVERY_RELEASE_TYPE = 'recovery-capability.release';
@@ -383,8 +387,8 @@ async function bootstrapAttempt() {
       recoveredWorkspace = recovery.ownerTabId;
     }
   }
-  const automaticRecoveryOwner = !recoveryToken && !sessionTabId ? findAutomaticRecoveryOwner() : '';
-  let tabId = recoveredWorkspace || sessionTabId || automaticRecoveryOwner || crypto.randomUUID();
+  const automaticRecoveryOwner = '';
+  let tabId = recoveredWorkspace || sessionTabId || crypto.randomUUID();
   // A lifetime lock distinguishes duplicate tabs even when the browser copies
   // sessionStorage. It remains held while paused, so recovery cannot steal a
   // personal or paused tab. Browser closure releases it without heartbeat races.
@@ -644,6 +648,7 @@ async function bootstrapAttempt() {
     };
   }
   function requestHostRecoveryCapability(record) {
+    if (!AUTOMATIC_WORKSPACE_RECOVERY_ENABLED) { releaseHostRecoveryCapability(); return false; }
     if (!record || data.autoResume === false || typeof window.postMessage !== 'function') return false;
     const now = Date.now();
     if (hostRecoveryGranted(now + HOST_RECOVERY_RENEW_MS)
@@ -6060,6 +6065,7 @@ NaN
     });
   }
   async function recoverStaleWorkspaceAutomatically() {
+    if (!AUTOMATIC_WORKSPACE_RECOVERY_ENABLED) return false;
     if (automaticRecoveryBusy || data.autoResume === false || tabTasks().length) return false;
     const ownerTabId = findAutomaticRecoveryOwner();
     if (!ownerTabId || ownerTabId === tabId) return false;
@@ -6082,6 +6088,7 @@ NaN
   }
   function scheduleAutomaticWorkspaceRecovery(delayMs = WORKSPACE_RECOVERY_SCAN_MS) {
     clearTimeout(automaticRecoveryTimer);
+    if (!AUTOMATIC_WORKSPACE_RECOVERY_ENABLED) { automaticRecoveryTimer = null; return; }
     automaticRecoveryTimer = setTimeout(() => {
       automaticRecoveryTimer = null;
       void recoverStaleWorkspaceAutomatically().finally(() => scheduleAutomaticWorkspaceRecovery());
@@ -6471,7 +6478,6 @@ NaN
   scheduleMemoryMonitor(2000);
   writeWorkspaceHeartbeat();
   scheduleWorkspaceHeartbeat(50);
-  scheduleAutomaticWorkspaceRecovery(1000);
   scheduleGlobalApprovalScan(50);
   schedulePopupDismissScan(50);
   recoveredTaskId = recoverLegacyNavigationFailures();
