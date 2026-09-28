@@ -1,8 +1,16 @@
-# Fabushi 独立自动确认工作台 2.10.1
+# Fabushi 独立自动确认工作台 2.10.2
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.1`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.2`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+
+## 2.10.2 识别已显示但 role 宿主为零矩形的消息区
+
+- 修复 ChatGPT 消息已经完整显示，但 `[data-message-author-role]` 只是 `display: contents` / 零尺寸布局宿主时，脚本仍误报“消息区仍未挂载”的问题。
+- 消息可见性现在不再只看 role 宿主自己的 `getClientRects()`：宿主本身可见、已知语义消息子节点可见，或所属 conversation turn 可见且 role 宿主确实包含文本，都会被认定为消息已经挂载。
+- 页面加载判断、活跃 assistant 判断、消息区恢复判断和最近进度指纹统一使用同一套 renderer-aware 判定，因此已经显示的消息不会再错误进入 2.10.1 的 30 秒空壳恢复路径。
+- hidden / inert / `display:none` / `visibility:hidden` 内容仍然不会算作可见消息；任务归属、最终回复工具栏、授权、限流和阻塞安全边界不变。
+- 详见 [v2.10.2 规格](docs/specs/zero-rect-visible-message-hosts-v2.10.2.md)。
 
 ## 2.10.1 修复刷新后空会话壳永久等待
 
