@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.5
+// @version      2.10.6
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.5';
+  const VERSION = '2.10.6';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -1506,6 +1506,14 @@ async function bootstrapAttempt() {
     }
     return false;
   }
+  function transientConversationId(value) {
+    const conversationId = String(value || '').trim();
+    // ChatGPT can expose local-chatgpt:<uuid> immediately after Send while
+    // the server conversation is still being created. Like the older WEB:
+    // pseudo route, this is renderer-local state and must never become a
+    // durable task identity or recovery destination.
+    return /^(?:WEB:|local-chatgpt:)/i.test(conversationId);
+  }
   function parseConversationURL(value) {
     let target;
     try { target = new URL(value, location.origin); } catch { return null; }
@@ -1517,7 +1525,7 @@ async function bootstrapAttempt() {
     if (!conversationId || /^(?:undefined|null)$/i.test(conversationId)) return null;
     return {
       id: conversationId,
-      synthetic: /^WEB:/i.test(conversationId),
+      synthetic: transientConversationId(conversationId),
       href: `${target.origin}${target.pathname}`,
       pathname: target.pathname,
     };
@@ -1525,6 +1533,9 @@ async function bootstrapAttempt() {
   function canonicalConversationURL(value) {
     const parsed = parseConversationURL(value);
     return parsed && !parsed.synthetic ? parsed.href : '';
+  }
+  function transientConversationURL(value) {
+    return Boolean(parseConversationURL(value)?.synthetic);
   }
   function currentConversationURL() { return canonicalConversationURL(location.href); }
   function taskMarkerUser(task) {
@@ -2122,6 +2133,96 @@ async function bootstrapAttempt() {
     paint();
     return true;
   }
+  function quarantineTransientConversationBindings() {
+    let recoveredTaskId = '';
+    const liveURL = currentConversationURL();
+    let changed = false;
+    for (const task of data.tasks) {
+      if (!taskBelongsToTab(task)) continue;
+      const parsed = parseConversationURL(task.url);
+      // WEB: has long-standing migration semantics elsewhere. This migration
+      // is specifically for the newly observed post-Send local-chatgpt route.
+      if (!parsed?.synthetic || !/^local-chatgpt:/i.test(String(parsed.id || ''))) continue;
+      const badURL = String(task.url || parsed.href || '');
+      const canBindLive = Boolean(
+        liveURL
+        && task.token
+        && hasTaskMarker(task)
+        && !conversationURLOwner(liveURL, task.id)
+      );
+
+      task.transientConversationURLLast = badURL;
+      if (transientConversationURL(task.sessionUrl)) task.sessionUrl = '';
+      if (Array.isArray(task.sessionUrls)) {
+        task.sessionUrls = task.sessionUrls.filter(url => !transientConversationURL(url));
+      }
+      if (Array.isArray(task.history)) {
+        task.history = task.history.filter(item => !transientConversationURL(item?.url));
+      }
+      if (transientConversationURL(task.recoveredFinalIdentity?.url)) clearRecoveredFinalIdentity(task);
+
+      if (canBindLive) {
+        task.url = '';
+        recordConversationURL(task, liveURL);
+        task.attempted = false;
+        task.dispatchOriginURL = '';
+        task.dispatchStartedAt = 0;
+        task.recoveryConfirmationStartedAt = 0;
+        resetAmbiguousSendRecovery(task);
+        task.updatedAt = Date.now();
+        log(task, `检测到旧版本误记录的 ChatGPT 本地临时会话链接，已丢弃该临时链接并绑定当前已确认的真实会话：${liveURL}。不会重复发送。`);
+        changed = true;
+        continue;
+      }
+
+      task.url = '';
+      task.rendererRecoveryExhausted = false;
+      task.routeRecoveryAttempts = 0;
+      task.workspaceDocumentRecoveryAttempts = 0;
+      task.navigationGuardRetryAt = 0;
+      resetAmbiguousSendRecovery(task);
+
+      const sentButUnbound = Boolean(task.token && Number(task.sentAt || 0) > 0 && !terminal.has(task.state));
+      if (sentButUnbound) {
+        task.attempted = true;
+        task.dispatchOriginURL = '';
+        task.dispatchStartedAt = Number(task.sentAt || 0);
+        if (task.state === 'paused') {
+          // Preserve the user's pause. The confirmation clock starts only
+          // when they explicitly resume so a long pause can never cause an
+          // immediate timeout/resend.
+          task.pausedState = 'sending';
+          task.recoveryConfirmationStartedAt = 0;
+        } else {
+          task.state = 'sending';
+          task.recoveryConfirmationStartedAt = Date.now();
+          recoveredTaskId ||= task.id;
+        }
+        task.updatedAt = Date.now();
+        log(task, '检测到旧版本误记录了 ChatGPT 的 local-chatgpt 本地临时链接；已隔离该链接并恢复为“原消息已发送、等待真实会话链接确认”的状态。保留原发送标识、phase、round、目标和附件，不会导航到临时链接，也不会重复发送。');
+      } else if (!terminal.has(task.state)) {
+        if (task.state === 'paused') {
+          task.pausedState = 'queued';
+        } else {
+          task.state = 'queued';
+          recoveredTaskId ||= task.id;
+        }
+        task.attempted = false;
+        task.token = '';
+        task.sendPrepared = false;
+        task.preparedPrompt = '';
+        task.dispatchOriginURL = '';
+        task.dispatchStartedAt = 0;
+        task.recoveryConfirmationStartedAt = 0;
+        task.updatedAt = Date.now();
+        log(task, '检测到旧版本遗留的 ChatGPT 本地临时链接，但没有可继续确认的原发送标识；已丢弃临时链接并安全返回待发送状态。');
+      }
+      changed = true;
+    }
+    if (changed) save();
+    return recoveredTaskId;
+  }
+
   function restorePausedTask(task, revision = Number(data.controlRevision || 0), { global = false } = {}) {
     if (!taskBelongsToTab(task) || task.state !== 'paused') return false;
     // Only the current phase's URL is resumable. sessionUrl/sessionUrls and
@@ -2140,7 +2241,7 @@ async function bootstrapAttempt() {
         ? (knownURL && (task.token || task.attempted) ? 'waiting' : 'queued')
         : (pausableStates.has(task.pausedState)
           ? task.pausedState
-          : (task.url && task.token ? 'waiting' : 'queued'));
+          : (knownURL && task.token ? 'waiting' : 'queued'));
     if (legacyBlocked && knownURL) {
       task.url = knownURL;
       task.attempted = false;
@@ -2158,6 +2259,11 @@ async function bootstrapAttempt() {
       task.dispatchOriginURL = '';
       task.dispatchStartedAt = 0;
       task.explicitRecoveryActive = false;
+    }
+    if (resumeState === 'sending' && task.attempted && task.token && !knownURL) {
+      // A quarantined local-chatgpt route keeps the original click/token, but
+      // manual pause time must not count toward the ambiguous-send timeout.
+      task.recoveryConfirmationStartedAt = Date.now();
     }
     delete task.pausedState;
     if (global) task.pauseRevision = revision;
@@ -4265,8 +4371,13 @@ async function bootstrapAttempt() {
   function directNavigate(target, task, perform = true) {
     const href = target instanceof URL ? target.href : String(target || '');
     const parsed = parseConversationURL(href);
-    const targetHref = parsed && !parsed.synthetic ? parsed.href : href;
-    const targetPath = parsed && !parsed.synthetic ? parsed.pathname : new URL(href, location.origin).pathname;
+    if (parsed?.synthetic) {
+      sessionStorage.removeItem(NAV);
+      navigating = false;
+      return false;
+    }
+    const targetHref = parsed ? parsed.href : href;
+    const targetPath = parsed ? parsed.pathname : new URL(href, location.origin).pathname;
     const latestURL = canonicalConversationURL(task?.url);
     if (parsed && !parsed.synthetic && latestURL && latestURL !== targetHref) {
       sessionStorage.removeItem(NAV);
@@ -6857,7 +6968,8 @@ NaN
   scheduleWorkspaceHeartbeat(50);
   scheduleGlobalApprovalScan(50);
   schedulePopupDismissScan(50);
-  recoveredTaskId = recoverLegacyNavigationFailures();
+  const transientRouteRecoveryTaskId = quarantineTransientConversationBindings();
+  recoveredTaskId = transientRouteRecoveryTaskId || recoverLegacyNavigationFailures();
   migratePersistedPause();
   const exhaustedLegacyTaskId = recoverLegacyExhaustedNoFinalReplies();
   if (exhaustedLegacyTaskId) recoveredTaskId = exhaustedLegacyTaskId;
