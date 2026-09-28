@@ -12,7 +12,7 @@ async function fixture(body='', setup=()=>{}, url='https://chatgpt.com/') {
   const held = new Set();
   w.navigator.locks = {query:async()=>({held:[...held].map(name=>({name}))}),request:async(name,options,callback)=>{callback ||= options;if(held.has(name))return callback(null);held.add(name);try{return await callback({name});}finally{held.delete(name);}}};
   setup(w);
-  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, refreshInterruptedStopStall, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, refreshInterruptedStopStall, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('runtime blocked transition immediately becomes a fresh queued resend',async()=>{
@@ -1907,6 +1907,36 @@ test('a stale route during SPA send handoff is not recorded before the task mark
   assert.equal(task.sessionUrls,undefined);
   dom.window.close();
 });
+test('post-Send local-chatgpt route is ignored until the durable server route appears',async()=>{
+  const {w,h,dom}=await fixture('<main><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">Send</button></form></main>');
+  const button=w.document.querySelector('[data-testid="send-button"]');
+  button.type='button';
+  let sends=0;
+  button.onclick=()=>{
+    sends++;
+    const task=h.data.tasks.at(-1);
+    w.history.pushState({},'', '/c/local-chatgpt%3A9d4bb335-4fb8-4588-bafd-1403a1a719a6');
+    const user=w.document.createElement('div');
+    user.dataset.messageAuthorRole='user';
+    user.textContent=`[Fabushi:${task.token}]`;
+    w.document.querySelector('main').append(user);
+    setTimeout(()=>{
+      w.history.replaceState({},'', '/c/6aba1ad0-50c0-83e8-9b76-ade67716f47a');
+    },500);
+  };
+  const task={id:'local-route-guard',goal:'capture only durable route',mode:'once',phase:'work',round:1,state:'queued',url:'',token:'',messages:[]};
+  h.data.tasks.push(task);
+  await h.start();
+  const deadline=Date.now()+5000;
+  while(!task.url && Date.now()<deadline) await new Promise(resolve=>setTimeout(resolve,50));
+  h.pause();
+  assert.equal(sends,1,'the scheduler clicks the original Send exactly once');
+  assert.equal(task.url,'https://chatgpt.com/c/6aba1ad0-50c0-83e8-9b76-ade67716f47a');
+  assert.deepEqual(Array.from(task.sessionUrls),['https://chatgpt.com/c/6aba1ad0-50c0-83e8-9b76-ade67716f47a']);
+  assert.equal(task.sessionUrls.some(url=>url.includes('local-chatgpt')),false);
+  dom.window.close();
+});
+
 test('the new route is the only link captured once this task marker appears',async()=>{
   const {w,h,dom}=await fixture('<main><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">Send</button></form></main>');
   const button=w.document.querySelector('[data-testid="send-button"]');
@@ -2099,6 +2129,80 @@ test('continue button starts a paused task instead of restoring a terminal block
   }
   dom.window.close();
 });
+test('upgrade quarantines a persisted local-chatgpt binding without redispatching the original send',async()=>{
+  const {h,dom}=await fixture();
+  const attachments=[{id:'proof',name:'proof.png',type:'image/png',size:12,lastModified:1}];
+  const task={
+    id:'transient-upgrade',
+    ownerTabId:h.getTabId(),
+    goal:'keep original send',
+    mode:'once',
+    phase:'work',
+    round:1,
+    state:'waiting',
+    url:'https://chatgpt.com/c/local-chatgpt%3A9d4bb335-4fb8-4588-bafd-1403a1a719a6',
+    sessionUrl:'https://chatgpt.com/c/local-chatgpt%3A9d4bb335-4fb8-4588-bafd-1403a1a719a6',
+    sessionUrls:[
+      'https://chatgpt.com/c/older-durable-round',
+      'https://chatgpt.com/c/local-chatgpt%3A9d4bb335-4fb8-4588-bafd-1403a1a719a6'
+    ],
+    token:'same-send-token',
+    attempted:false,
+    sentAt:Date.now()-1000,
+    attachments,
+    messages:[]
+  };
+  h.data.tasks.push(task);
+  const recovered=h.quarantineTransientConversationBindings();
+  assert.equal(recovered,task.id);
+  assert.equal(task.state,'sending');
+  assert.equal(task.url,'');
+  assert.equal(task.sessionUrl,'');
+  assert.equal(task.attempted,true,'the existing click returns to confirmation rather than becoming a new send');
+  assert.equal(task.token,'same-send-token');
+  assert.deepEqual(task.attachments,attachments);
+  assert.deepEqual(Array.from(task.sessionUrls),['https://chatgpt.com/c/older-durable-round']);
+  assert.equal(h.recordedConversationURL(task),'','older durable history is never promoted as the current generation');
+  assert.ok(task.recoveryConfirmationStartedAt>0);
+  assert.match(task.messages.at(-1).text,/local-chatgpt/);
+  dom.window.close();
+});
+
+test('paused transient binding stays paused and starts its send-confirmation clock only on resume',async()=>{
+  const {h,dom}=await fixture();
+  const task={
+    id:'paused-transient-upgrade',
+    ownerTabId:h.getTabId(),
+    goal:'resume original send safely',
+    mode:'once',
+    phase:'work',
+    round:1,
+    state:'paused',
+    pausedState:'loading',
+    url:'https://chatgpt.com/c/local-chatgpt%3Atemporary',
+    sessionUrl:'https://chatgpt.com/c/local-chatgpt%3Atemporary',
+    sessionUrls:['https://chatgpt.com/c/old-round','https://chatgpt.com/c/local-chatgpt%3Atemporary'],
+    token:'paused-send-token',
+    attempted:false,
+    sentAt:Date.now()-3600000,
+    messages:[]
+  };
+  h.data.tasks.push(task);
+  assert.equal(h.quarantineTransientConversationBindings(),'');
+  assert.equal(task.state,'paused');
+  assert.equal(task.pausedState,'sending');
+  assert.equal(task.url,'');
+  assert.equal(task.attempted,true);
+  assert.equal(task.recoveryConfirmationStartedAt,0,'time spent paused does not consume the confirmation timeout');
+  h.restorePausedTasks();
+  assert.equal(task.state,'sending');
+  assert.equal(task.token,'paused-send-token');
+  assert.equal(task.attempted,true);
+  assert.ok(task.recoveryConfirmationStartedAt>Date.now()-2000);
+  assert.equal(task.url,'');
+  dom.window.close();
+});
+
 test('a paused task without a real URL resumes as a fresh queued dispatch and keeps attachments',async()=>{
   const {h,dom}=await fixture();
   const task={id:'paused-no-url',goal:'send again safely',state:'paused',pausedState:'blocked',phase:'work',round:1,url:'',token:'stale-token',attempted:true,sendPrepared:true,preparedPrompt:'old prompt',dispatchOriginURL:'https://chatgpt.com/c/old',messages:[],attachments:[{id:'paused-file',name:'paused.png',type:'image/png',size:4,lastModified:1}]};
@@ -2532,6 +2636,9 @@ test('recorded conversation links are canonical identities and direct recovery i
   h.data.tasks.push(task);
   assert.equal(h.canonicalConversationURL('https://chatgpt.com/c/6aa0132a-c708-83e8-812c-818dcfc31876?messageId=ignored'),'https://chatgpt.com/c/6aa0132a-c708-83e8-812c-818dcfc31876');
   assert.equal(h.canonicalConversationURL('https://chatgpt.com/c/WEB:synthetic'),'');
+  assert.equal(h.canonicalConversationURL('https://chatgpt.com/c/local-chatgpt:9d4bb335-4fb8-4588-bafd-1403a1a719a6'),'');
+  assert.equal(h.canonicalConversationURL('https://chatgpt.com/c/local-chatgpt%3A9d4bb335-4fb8-4588-bafd-1403a1a719a6'),'');
+  assert.equal(h.transientConversationURL('https://chatgpt.com/c/local-chatgpt%3A9d4bb335-4fb8-4588-bafd-1403a1a719a6'),true);
   assert.equal(h.recordConversationURL(task,'https://chatgpt.com/c/6aa0132a-c708-83e8-812c-818dcfc31876'),task.url);
   assert.equal(task.sessionUrls.length,1);
   assert.equal(task.sessionUrls[0],'https://chatgpt.com/c/6aa0132a-c708-83e8-812c-818dcfc31876');
@@ -4334,8 +4441,8 @@ test('durable handoff snapshot is phase round and goal-revision bound and cannot
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.10\.5$/m);
-  assert.match(source,/const VERSION = '2\.10\.5'/);
+  assert.match(source,/^\/\/ @version\s+2\.10\.6$/m);
+  assert.match(source,/const VERSION = '2\.10\.6'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 \* 60 \* 1000/);

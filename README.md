@@ -1,8 +1,18 @@
-# Fabushi 独立自动确认工作台 2.10.5
+# Fabushi 独立自动确认工作台 2.10.6
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.5`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.6`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+
+## 2.10.6 修复新会话误记录 `local-chatgpt:` 临时链接
+
+- ChatGPT 新会话发送后可能先短暂进入 `/c/local-chatgpt:<uuid>`，再替换成服务器真实 `/c/<id>`。这个本地临时路由现在与旧的 `WEB:` 一样，永远不能成为任务的持久 conversation identity。
+- `canonicalConversationURL()` 会在 URL decode 后拒绝 `local-chatgpt:`，因此编码形式 `local-chatgpt%3A...` 也不会被记录。
+- Send 后即使当前任务的 `[Fabushi:<token>]` 已经出现在临时路由中，也只保持“原发送待确认”；脚本继续等待服务器真实链接，不会因为临时 marker 提前确认，也不会再次点击 Send。
+- 一旦真正的服务器 `/c/<id>` 出现并能确认本任务归属，只记录这个真实链接；临时链接不会进入 `task.url` / `sessionUrl` / `sessionUrls`。
+- 已被旧版本写入的 `local-chatgpt:` 当前绑定会在升级时自动隔离：保留 token、phase、round、目标、附件和原发送意图，恢复到有界的发送确认状态；不会拿旧 `sessionUrls` 中的历史会话冒充当前会话。
+- 如果任务当时处于暂停，升级后继续保持暂停；只有用户恢复任务时才重新开始 90 秒发送确认窗口，避免长时间暂停后立刻误判超时并重复发送。
+- 规格和验收见 [v2.10.6](docs/specs/transient-local-chatgpt-route-v2.10.6.md)。
 
 ## 2.10.5 按 Mac 真实 ChatGPT DOM 修复 fallback-turn 消息识别
 
