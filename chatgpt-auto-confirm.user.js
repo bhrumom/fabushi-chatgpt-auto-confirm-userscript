@@ -2826,13 +2826,23 @@ async function bootstrapAttempt() {
     const scope = article.closest?.('main,[role="main"]') || article.parentElement || document.body;
     if (!scope) return [article];
     const follows = (from, to) => Boolean(from && to && (from.compareDocumentPosition(to) & Node.DOCUMENT_POSITION_FOLLOWING));
-    const users = nodes('[data-message-author-role="user"]', scope);
+    const users = conversationRoleNodes('user', scope);
     const boundary = users.filter(user => follows(user, article)).at(-1) || null;
     const roots = [];
     const seen = new Set();
-    for (const assistant of nodes('[data-message-author-role="assistant"]', scope)) {
+    for (const assistant of conversationRoleNodes('assistant', scope)) {
       if (boundary && !follows(boundary, assistant)) continue;
-      const root = assistant.closest?.('article,[data-testid^="conversation-turn-"],[data-turn-key],[data-content-search-turn-key]') || assistant;
+      const messageUnit = conversationMessageUnit(assistant, 'assistant') || assistant;
+      const transientPrimary = !contentSearchUnitRole(messageUnit)
+        && messageUnit?.matches?.('[data-markdown-text-style="assistant-message"][data-markdown-text-tone="primary"]')
+        && messageUnit.closest?.(contentSearchTurnSelector)
+          ? messageUnit
+          : null;
+      const root = contentSearchUnitRole(messageUnit) === 'assistant'
+        ? messageUnit
+        : transientPrimary
+          || assistant.closest?.('article,[data-testid^="conversation-turn-"],[data-turn-key],[data-content-search-turn-key]')
+          || assistant;
       if (own(root) || seen.has(root)) continue;
       seen.add(root);
       roots.push(root);
@@ -2850,7 +2860,8 @@ async function bootstrapAttempt() {
       let currentNode;
       while ((currentNode = walker.nextNode())) {
         const parent = currentNode.parentElement;
-        if (!parent || own(parent) || parent.closest?.('blockquote,pre,code,[data-message-author-role="user"]')) continue;
+        if (!parent || own(parent) || parent.closest?.('blockquote,pre,code')
+          || conversationRole(parent.closest?.(conversationRoleSelector)) === 'user') continue;
         records.push({ node:currentNode, parent, direct:normalize(currentNode.nodeValue) });
       }
     }
@@ -2863,11 +2874,12 @@ async function bootstrapAttempt() {
     const article = turn?.article;
     if (!article) return null;
     const follows = (a, b) => Boolean(a && b && (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING));
-    const user = nodes('[data-message-author-role="user"]').at(-1);
+    const user = conversationRoleNodes('user').at(-1);
     for (const record of [...responseTextNodes(turn), ...getPageRecords()]) {
       const parent = record.parent;
       if (!parent || !/^stream cache expired[.!]?$/i.test(record.direct) || !visible(parent)
-        || own(parent) || parent.closest('blockquote,pre,code,[data-message-author-role="user"]')) continue;
+        || own(parent) || parent.closest('blockquote,pre,code')
+        || conversationRole(parent.closest?.(conversationRoleSelector)) === 'user') continue;
       if (!article.contains(parent) && !follows(article, parent)) continue;
       if (user && !follows(user, parent)) continue;
       // Stop at the local card/turn: an unrelated Retry elsewhere on the page
