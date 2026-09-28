@@ -93,3 +93,42 @@ Add `quarantineTransientConversationBindings()` during startup before automatic 
 ## 7. Acceptance
 
 The exact observed failure must be impossible: a log after Send may wait while ChatGPT is on `local-chatgpt:`, but it must not print or persist that route as the recorded conversation. Only the later durable server `/c/<id>` is allowed to become the task identity.
+
+
+## 8. Delivery evidence
+
+Delivered on 2026-09-28.
+
+- Implementation PR: #121 — `fix: reject transient local ChatGPT routes (v2.10.6)`
+- PR tested head: `741d6c438bd5e6b07206adc8f213535c139724e5`
+- PR Test workflow: run #363 / `36396573082` — success
+- Merge commit on canonical `main`: `d6b9bb014717e38fec944d12044ab52550e78b09`
+- Canonical-main Test workflow: run #364 / `36396669837` — success
+- Release workflow: run #176 / `36396729018` — success
+- Published release: `v2.10.6`
+- Release source/tag commit: `9438ef12d6a2f5869783e24c3a2038455d00de0f`
+- Published userscript asset SHA-256: `d9e4f5af6d6631187691f03c8c3d17dd93eb4d1bc5b4f246900fe325d877d169`
+
+### Live Mac verification after release
+
+On `gloria-macbook-air`, the signed-in ChatGPT tab was on the user-confirmed durable route:
+
+`https://chatgpt.com/c/6aba1ad0-50c0-83e8-9b76-ade67716f47a`
+
+After the remote userscript updater ran, the Fabushi bootstrap marker reported `2.10.6`.
+
+The previously affected paused task was automatically quarantined by the new migration:
+
+- old current binding `/c/local-chatgpt%3A9d4bb335-4fb8-4588-bafd-1403a1a719a6` was removed;
+- task token, phase, round, goal and attachments were retained;
+- task remained paused with its resumable state converted to send-confirmation rather than a fresh dispatch;
+- no transient `local-chatgpt:` URL remained in its current binding.
+
+Because the user explicitly supplied the durable server URL for this already-affected task, that one persisted task was then rebound to the confirmed durable route while remaining paused. Its persisted state now has:
+
+- `url = https://chatgpt.com/c/6aba1ad0-50c0-83e8-9b76-ade67716f47a`
+- `sessionUrl` equal to the same durable route
+- `attempted = false`
+- `pausedState = waiting`
+
+Thus resuming the task will inspect the real conversation directly and will not resend the original message.
