@@ -360,6 +360,126 @@ test('task prompts carry attachment names without embedding file contents',async
   assert.match(h.plannerPrompt({...task,id:'task-1',result:'已完成'}),/采访视频\.mp4/);
   dom.window.close();
 });
+test('new tasks default to max and the workbench exposes all five live model tiers',async()=>{
+  const {w,h,dom}=await fixture();
+  try {
+    const task=h.enqueue('model tier default','once',[]);
+    assert.equal(task.modelTier,'max');
+    assert.equal(h.modelTierLabel(task.modelTier),'极高');
+    const picker=w.document.querySelector('#fabushi-auto-confirm-root select[aria-label="模型档位"]');
+    assert.ok(picker,'Fabushi composer exposes a model-tier list');
+    assert.equal(picker.value,'max');
+    assert.equal([...picker.options].map(option=>option.value).join(','),'instant,medium,high,max,pro');
+    assert.equal([...picker.options].map(option=>option.textContent).join(','),'即时,中,高,极高,Pro');
+  } finally {h.pause();dom.window.close();}
+});
+
+test('legacy persisted tasks without a model tier migrate to max',async()=>{
+  const {h,dom}=await fixture('',window=>{
+    window.localStorage.setItem('fabushi-workbench-v2',JSON.stringify({
+      tasks:[{id:'legacy-model-tier',goal:'legacy',mode:'once',state:'paused',phase:'work',round:1,url:'',attachments:[],messages:[],messageVersion:0,goalRevision:0}],
+      selected:'',
+      autoApprove:true,
+    }));
+  });
+  try {
+    assert.equal(h.data.tasks.find(task=>task.id==='legacy-model-tier')?.modelTier,'max');
+  } finally {h.pause();dom.window.close();}
+});
+
+test('already-correct max tier performs no slider key mutation',async()=>{
+  const {w,h,dom}=await fixture();
+  try {
+    const task=h.enqueue('keep max','once',[],'max');
+    assert.equal(await h.ensureTaskModelTier(task,null),true);
+    assert.equal(w.__FABUSHI_TEST_MODEL_KEY_COUNT,0);
+    assert.equal(w.__FABUSHI_TEST_MODEL_PICKER.slider.getAttribute('aria-valuenow'),'3');
+    assert.equal(w.__FABUSHI_TEST_MODEL_PICKER.trigger.getAttribute('data-selected-reasoning-effort'),'max');
+    assert.equal(w.__FABUSHI_TEST_MODEL_PICKER.trigger.getAttribute('aria-expanded'),'false');
+  } finally {h.pause();dom.window.close();}
+});
+
+test('max to high performs exactly one verified ArrowLeft step',async()=>{
+  const {w,h,dom}=await fixture();
+  try {
+    const task=h.enqueue('use high','once',[],'high');
+    assert.equal(await h.ensureTaskModelTier(task,null),true);
+    assert.equal(w.__FABUSHI_TEST_MODEL_KEY_COUNT,1);
+    assert.equal(w.__FABUSHI_TEST_MODEL_PICKER.slider.getAttribute('aria-valuenow'),'2');
+    assert.equal(w.__FABUSHI_TEST_MODEL_PICKER.trigger.getAttribute('data-selected-reasoning-effort'),'high');
+  } finally {h.pause();dom.window.close();}
+});
+
+test('instant to max performs three verified ArrowRight steps',async()=>{
+  const {w,h,dom}=await fixture('',window=>{window.__FABUSHI_TEST_MODEL_TIER=0;});
+  try {
+    const task=h.enqueue('use max','once',[],'max');
+    assert.equal(await h.ensureTaskModelTier(task,null),true);
+    assert.equal(w.__FABUSHI_TEST_MODEL_KEY_COUNT,3);
+    assert.equal(w.__FABUSHI_TEST_MODEL_PICKER.slider.getAttribute('aria-valuenow'),'3');
+    assert.equal(w.__FABUSHI_TEST_MODEL_PICKER.trigger.getAttribute('data-selected-reasoning-effort'),'max');
+  } finally {h.pause();dom.window.close();}
+});
+
+test('max to Pro trusts slider position four even though trigger effort becomes medium',async()=>{
+  const {w,h,dom}=await fixture();
+  try {
+    const task=h.enqueue('use pro','once',[],'pro');
+    assert.equal(await h.ensureTaskModelTier(task,null),true);
+    assert.equal(w.__FABUSHI_TEST_MODEL_KEY_COUNT,1);
+    assert.equal(w.__FABUSHI_TEST_MODEL_PICKER.slider.getAttribute('aria-valuenow'),'4');
+    assert.equal(w.__FABUSHI_TEST_MODEL_PICKER.trigger.getAttribute('data-selected-reasoning-effort'),'medium');
+  } finally {h.pause();dom.window.close();}
+});
+
+test('a non-moving ChatGPT power slider fails closed instead of sending the wrong tier',async()=>{
+  const {w,h,dom}=await fixture('',window=>{window.__FABUSHI_TEST_MODEL_MOVABLE=false;});
+  try {
+    const task=h.enqueue('must be high','once',[],'high');
+    assert.equal(await h.ensureTaskModelTier(task,null),false);
+    assert.equal(task.state,'blocked');
+    assert.equal(w.__FABUSHI_TEST_MODEL_PICKER.slider.getAttribute('aria-valuenow'),'3');
+    assert.match(task.messages.at(-1)?.text||'',/无法把 ChatGPT 模型档位切换到“高”/);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('missing ChatGPT model picker never reports a tier as verified',async()=>{
+  const {h,dom}=await fixture('',window=>{window.__FABUSHI_TEST_NO_MODEL_PICKER=true;});
+  try {
+    const task=h.enqueue('must verify max','once',[],'max');
+    assert.equal(await h.ensureTaskModelTier(task,null),false);
+    assert.equal(task.modelTierLastVerified,undefined);
+    assert.match(task.messages.at(-1)?.text||'',/未找到 ChatGPT 模型\/思考强度选择器/);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('task model tier survives the Work to review phase transition',async()=>{
+  const {h,dom}=await fixture();
+  try {
+    const task=h.enqueue('continue goal','goal',[],'high');
+    task.state='waiting';
+    task.token='model-tier-phase-token';
+    task.dispatchGoalRevision=0;
+    h.finish(task,'work result');
+    assert.equal(task.phase,'review');
+    assert.equal(task.state,'queued');
+    assert.equal(task.modelTier,'high');
+  } finally {h.pause();dom.window.close();}
+});
+
+test('enqueue_tasks API accepts modelTier and reasoningTier',async()=>{
+  const {w,h,dom}=await fixture();
+  try {
+    await w.FabushiUserscript.call('enqueue_tasks',{tasks:[
+      {goal:'api pro',mode:'once',modelTier:'pro'},
+      {goal:'api medium',mode:'once',reasoningTier:'medium'},
+    ]});
+    const added=h.data.tasks.slice(-2);
+    assert.equal(added[0].modelTier,'pro');
+    assert.equal(added[1].modelTier,'medium');
+  } finally {h.pause();dom.window.close();}
+});
+
 test('enqueue persists attachment metadata only and the workbench exposes a multi-file picker',async()=>{
   const {w,h,dom}=await fixture();
   const task=h.enqueue('整理附件','once',[{id:'image-1',name:'产品图.png',type:'image/png',size:2048,lastModified:2}]);
@@ -4496,6 +4616,7 @@ test('durable handoff snapshot is phase round and goal-revision bound and cannot
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
   assert.match(source,/^\/\/ @version\s+2\.10\.7$/m);
   assert.match(source,/const VERSION = '2\.10\.7'/);
+  assert.ok((source.match(/ensureTaskModelTier\(task, signal/g)||[]).length>=2,'dispatch verifies the ChatGPT model tier before preparation and immediately before Send');
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 \* 60 \* 1000/);
