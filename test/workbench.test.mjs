@@ -4000,7 +4000,7 @@ test('live fallback transient primary assistant ignores tertiary activity summar
     assert.equal(turn.streaming,true);
     assert.equal(turn.final,false);
     const fingerprint=h.visibleConversationProgressFingerprint();
-    assert.deepEqual(fingerprint.map(item=>item.role),['user','assistant']);
+    assert.equal(fingerprint.map(item=>item.role).join(','),'user,assistant');
   } finally {h.pause();dom.window.close();}
 });
 
