@@ -1786,7 +1786,23 @@ async function bootstrapAttempt() {
     const wanted = role === 'user' || role === 'assistant' ? role : conversationRole(node);
     if (!wanted) return null;
     const contentUnit = node.matches?.(contentSearchUnitSelector) ? node : node.closest?.(contentSearchUnitSelector);
-    if (contentUnit && contentSearchUnitRole(contentUnit) === wanted) return contentUnit;
+    if (contentUnit && contentSearchUnitRole(contentUnit) === wanted) {
+      // Live fallback DOM can wrap one user message twice with the same key:
+      // an outer data-chatgpt-search-unit-key and an inner
+      // data-content-search-unit-key. Canonicalize both representations to
+      // the innermost content unit so one visible message is never counted
+      // twice and latest-user ownership remains stable.
+      const key = contentUnit.getAttribute?.('data-content-search-unit-key')
+        || contentUnit.getAttribute?.('data-chatgpt-search-unit-key')
+        || '';
+      if (!contentUnit.hasAttribute?.('data-content-search-unit-key') && key) {
+        const nestedContent = nodes('[data-content-search-unit-key]', contentUnit)
+          .find(candidate => candidate.getAttribute('data-content-search-unit-key') === key
+            && contentSearchUnitRole(candidate) === wanted);
+        if (nestedContent) return nestedContent;
+      }
+      return contentUnit;
+    }
     const direct = node.matches?.(`[data-message-author-role="${wanted}"],[data-turn="${wanted}"],[data-author-role="${wanted}"]`)
       ? node
       : node.closest?.(`[data-message-author-role="${wanted}"],[data-turn="${wanted}"],[data-author-role="${wanted}"]`);
