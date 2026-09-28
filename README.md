@@ -1,8 +1,16 @@
-# Fabushi 独立油猴工作台 2.9.99
+# Fabushi 独立自动确认工作台 2.10.0
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.9.99`。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.0`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+
+## 2.10.0 修复恢复后最终回复卡死
+
+- 修复页面刷新后仍保留旧 Stop 观察时，暂停/恢复任务即使已经显示完整最终回复也会一直停在“等待响应”的问题。精确会话、恢复身份和最终回复工具栏均匹配时，现在会进入正常稳定确认，不再被历史 Stop 门槛永久挡住。
+- 刷新保护仍保持严格：其他任务占用同一 URL、外来任务标记、授权卡、Stop、限流、阻塞或发送结果不明确时，都不能接管回复。
+- 修复“监督中但扫描 0 次”的无声提前返回。继承 Stop 的页面恢复等待现在会记录有界观察和扫描计数，并在页面尚未恢复时写入一次可诊断状态。
+- Fabushi 宿主为唯一运行入口时，应移除同页油猴副本，避免旧版本重复注入和重复任务记录。
+- 详见 [v2.10.0 规格](docs/specs/resume-final-reply-before-inherited-stop-gate-v2.10.0.md)。
 
 ## 2.9.99 移除内存自动刷新限制
 

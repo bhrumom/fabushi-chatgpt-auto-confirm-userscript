@@ -3735,6 +3735,8 @@ test('reload inherited Stop observation waits for full hydration and stable abse
     await h.inspect(task,null);
     assert.equal(task.url,'https://chatgpt.com/c/reload-hydration','loading document must retain the current conversation');
     assert.equal(task.state,'waiting');
+    assert.equal(h.measurements.scans,1,'an inherited Stop hydration wait is still an observable scan');
+    assert.ok(h.observations.get(task.id),'the hydration wait persists a bounded observation instead of returning silently');
     assert.equal(task.reloadStopAbsentSince||0,0,'stability timer does not start before document hydration');
 
     readyState='complete';
@@ -3753,6 +3755,54 @@ test('reload inherited Stop observation waits for full hydration and stable abse
     assert.equal(task.state,'queued','only stable hydrated Stop absence may hand off');
     assert.equal(task.url,'');
     assert.match(task.abnormalFreshCarry,/恢复出新的进度/);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('resumed recovered final reply is inspected before an inherited Stop gate',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <article data-testid="conversation-turn-user"><div data-message-author-role="user">continue the architecture work</div></article>
+    <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">The requested architecture work is complete and verified.</div></div><button aria-label="Copy response"></button><button aria-label="Share response"></button></article>
+    <form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/resumed-recovered-final');
+    const task={id:'resumed-recovered-final',ownerTabId:h.getTabId(),goal:'complete the architecture work',mode:'once',phase:'work',round:1,state:'paused',pausedState:'waiting',url:'https://chatgpt.com/c/resumed-recovered-final',token:'virtualized-resume-token',attempted:false,goalRevision:0,messages:[]};
+    h.data.tasks.push(task);
+    task.stopObservedGenerationIdentity=h.stopObservedGenerationIdentity(task);
+    task.stopObservedDocumentId='previous-document';
+
+    await h.resumeTask(task);
+    await h.inspect(task,null);
+    assert.equal(h.measurements.scans,1,'the inherited Stop gate must not create a zero-scan loop');
+    assert.equal(h.observations.get(task.id)?.final,true,'the visible recovered final reply is observed immediately');
+    h.observations.get(task.id).finalSince=Date.now()-5000;
+    h.observations.get(task.id).since=Date.now()-5000;
+    h.observations.get(task.id).idleSince=Date.now()-5000;
+    await h.inspect(task,null);
+    assert.equal(task.state,'done','the recovered owned final reply completes without waiting for historical Stop absence');
+    assert.equal(task.messages.some(item=>item.role==='assistant' && item.text==='The requested architecture work is complete and verified.'),true);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('inherited Stop recovery cannot consume a final toolbar owned by another task record',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <article data-testid="conversation-turn-user"><div data-message-author-role="user">unmarked visible user turn</div></article>
+    <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">A final-looking reply from an ambiguous owner.</div></div><button aria-label="Copy response"></button><button aria-label="Share response"></button></article>
+    <form><textarea id="prompt-textarea"></textarea></form>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/shared-recovery-route');
+    const task={id:'target-recovery-task',ownerTabId:h.getTabId(),goal:'target',mode:'once',phase:'work',round:1,state:'paused',pausedState:'waiting',url:'https://chatgpt.com/c/shared-recovery-route',token:'target-token',attempted:false,goalRevision:0,messages:[]};
+    const competing={id:'competing-record',ownerTabId:h.getTabId(),goal:'other',mode:'once',phase:'work',round:1,state:'paused',pausedState:'waiting',url:'https://chatgpt.com/c/shared-recovery-route',token:'other-token',attempted:false,goalRevision:0,messages:[]};
+    h.data.tasks.push(task,competing);
+    task.stopObservedGenerationIdentity=h.stopObservedGenerationIdentity(task);
+    task.stopObservedDocumentId='previous-document';
+
+    await h.resumeTask(task);
+    await h.inspect(task,null);
+    assert.equal(task.state,'waiting');
+    assert.equal(task.messages.some(item=>item.role==='assistant'),false,'ambiguous response content is never adopted');
+    assert.equal(h.measurements.scans,1,'the rejected ambiguous pass remains observable');
   } finally {h.pause();dom.window.close();}
 });
 
@@ -3847,8 +3897,8 @@ test('durable handoff snapshot is phase round and goal-revision bound and cannot
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.9\.99$/m);
-  assert.match(source,/const VERSION = '2\.9\.99'/);
+  assert.match(source,/^\/\/ @version\s+2\.10\.0$/m);
+  assert.match(source,/const VERSION = '2\.10\.0'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 \* 60 \* 1000/);
