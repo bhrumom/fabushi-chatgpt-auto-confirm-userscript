@@ -12,7 +12,7 @@ async function fixture(body='', setup=()=>{}, url='https://chatgpt.com/') {
   const held = new Set();
   w.navigator.locks = {query:async()=>({held:[...held].map(name=>({name}))}),request:async(name,options,callback)=>{callback ||= options;if(held.has(name))return callback(null);held.add(name);try{return await callback({name});}finally{held.delete(name);}}};
   setup(w);
-  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, refreshInterruptedStopStall, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, refreshInterruptedStopStall, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('runtime blocked transition immediately becomes a fresh queued resend',async()=>{
@@ -130,6 +130,66 @@ test('loading inspection ignores unrelated animated SVGs outside the conversatio
   assert.equal(h.pageLoadingState(),'');
   dom.window.close();
 });
+test('zero-rect role hosts with painted message content count as visible conversation messages',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <article data-testid="conversation-turn-user"><div data-message-author-role="user"><div class="user-bubble">visible user message</div></div></article>
+    <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">visible assistant reply</div></div></article>
+  </main>`,window=>{
+    window.HTMLElement.prototype.getClientRects=function(){
+      if(this.hidden||this.closest?.('[hidden],[inert]'))return [];
+      if(this.hasAttribute?.('data-message-author-role'))return [];
+      return [{}];
+    };
+  });
+  try {
+    const roleHosts=[...w.document.querySelectorAll('[data-message-author-role]')];
+    assert.ok(roleHosts.every(node=>node.getClientRects().length===0),'the regression models layout-neutral role hosts');
+    assert.ok(w.document.querySelector('.markdown').getClientRects().length>0,'assistant content is visibly painted');
+    assert.equal(h.renderedConversationMessage(roleHosts[0]),true,'visible user turn proves a zero-rect user role host is mounted');
+    assert.equal(h.renderedConversationMessage(roleHosts[1]),true,'visible semantic assistant content proves a zero-rect assistant role host is mounted');
+    assert.equal(h.visibleConversationHasMessages(),true);
+    const fingerprint=h.visibleConversationProgressFingerprint();
+    assert.equal(fingerprint.length,2,'visible progress fingerprint keeps zero-rect rendered messages');
+    assert.equal(fingerprint[0].role,'user');
+    assert.match(fingerprint[1].text,/visible assistant reply/);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('hidden or inert zero-rect role hosts remain absent from visible conversation readiness',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <article data-testid="conversation-turn-hidden" hidden><div data-message-author-role="user"><div>hidden user</div></div></article>
+    <article data-testid="conversation-turn-inert" inert><div data-message-author-role="assistant"><div class="markdown">inert assistant</div></div></article>
+  </main>`,window=>{
+    window.HTMLElement.prototype.getClientRects=function(){
+      if(this.hidden||this.closest?.('[hidden],[inert]'))return [];
+      if(this.hasAttribute?.('data-message-author-role'))return [];
+      return [{}];
+    };
+  });
+  try {
+    assert.equal(h.visibleConversationHasMessages(),false);
+    assert.deepEqual(h.visibleConversationProgressFingerprint(),[]);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('loading document recognizes a painted transcript behind zero-rect role hosts',async()=>{
+  let readyState='loading';
+  const {h,w,dom}=await fixture(`<main>
+    <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">already painted during document loading</div></div></article>
+  </main>`,window=>{
+    Object.defineProperty(window.document,'readyState',{configurable:true,get:()=>readyState});
+    window.HTMLElement.prototype.getClientRects=function(){
+      if(this.hidden||this.closest?.('[hidden],[inert]'))return [];
+      if(this.hasAttribute?.('data-message-author-role'))return [];
+      return [{}];
+    };
+  });
+  try {
+    assert.equal(h.pageLoadingState(),'','a rendered transcript prevents the document-loading fallback even when the role host has no rect');
+    readyState='complete';
+  } finally {h.pause();dom.window.close();}
+});
+
 test('a root-page spinner is loading and blocks dispatch until hydration finishes',async()=>{
   const {h,w,dom}=await fixture('<main><div class="animate-spin"></div><form><textarea id="prompt-textarea"></textarea></form></main>');
   const task={id:'root-loading',goal:'wait for root',state:'queued',attachments:[],messages:[]};
@@ -3758,6 +3818,35 @@ test('reload inherited Stop observation waits for full hydration and stable abse
   } finally {h.pause();dom.window.close();}
 });
 
+test('inherited Stop treats zero-rect rendered transcript as hydrated instead of shell-only',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <article data-testid="conversation-turn-user"><div data-message-author-role="user"><div>continue architecture [Fabushi:reload-zero-rect]</div></div></article>
+    <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">消息区已经完整显示，只是 role host 没有布局矩形。</div></div></article>
+    <form><textarea id="prompt-textarea"></textarea></form>
+  </main>`,window=>{
+    window.HTMLElement.prototype.getClientRects=function(){
+      if(this.hidden||this.closest?.('[hidden],[inert]'))return [];
+      if(this.hasAttribute?.('data-message-author-role'))return [];
+      return [{}];
+    };
+  });
+  try {
+    w.history.pushState({},'', '/c/reload-zero-rect');
+    const task={id:'reload-zero-rect',ownerTabId:h.getTabId(),goal:'continue architecture',mode:'goal',phase:'work',round:11,state:'waiting',url:'https://chatgpt.com/c/reload-zero-rect',token:'reload-zero-rect',attempted:false,goalRevision:0,messages:[]};
+    h.data.tasks.push(task);
+    task.stopObservedGenerationIdentity=h.stopObservedGenerationIdentity(task);
+    task.stopObservedDocumentId='previous-document';
+    await h.start(false);
+
+    await h.inspect(task,null);
+    assert.ok(Number(task.reloadStopAbsentSince)>0,'rendered zero-rect transcript starts the normal inherited-Stop stability window');
+    assert.equal(h.observations.get(task.id)?.identityMismatchSince||0,0,'shell-only hydration timer is not started for an already-rendered transcript');
+    assert.equal(task.routeRecoveryAttempts||0,0);
+    assert.equal(task.messages.some(item=>/消息区仍未挂载/.test(item.text||'')),false,'the false shell-only diagnostic is not emitted');
+    assert.equal(task.url,'https://chatgpt.com/c/reload-zero-rect');
+  } finally {h.pause();dom.window.close();}
+});
+
 test('inherited Stop shell-only route recovers the same conversation after the hydration timeout',async()=>{
   const {h,w,dom}=await fixture(`<main>
     <form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form>
@@ -3964,8 +4053,8 @@ test('durable handoff snapshot is phase round and goal-revision bound and cannot
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.10\.1$/m);
-  assert.match(source,/const VERSION = '2\.10\.1'/);
+  assert.match(source,/^\/\/ @version\s+2\.10\.2$/m);
+  assert.match(source,/const VERSION = '2\.10\.2'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 \* 60 \* 1000/);
