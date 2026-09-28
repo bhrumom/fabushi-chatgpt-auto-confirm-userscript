@@ -345,6 +345,101 @@ test('old attachment upload timeout records return to a safe queued retry',async
   assert.match(task.messages.at(-1).text,/重新上传/);
   dom.window.close();
 });
+test('latest owned reply is final when Copy is the only response action',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish [Fabushi:copy-only-final]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">已经完成全部工作。</div></div><button aria-label="复制回复"></button></article><form><textarea id="prompt-textarea"></textarea></form></main>');
+  try {
+    w.history.pushState({},'', '/c/copy-only-final');
+    const task={id:'copy-only-final',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/copy-only-final',token:'copy-only-final',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    const turn=h.latestTurn(task);
+    assert.equal(turn.owned,true);
+    assert.equal(turn.text,'已经完成全部工作。');
+    assert.deepEqual([...turn.responseActions],['copy']);
+    assert.equal(turn.responseActionsComplete,false,'secondary response actions are diagnostic only');
+    assert.equal(turn.final,true,'response-local Copy + Stop absent is sufficient final UI evidence');
+  } finally {h.pause();dom.window.close();}
+});
+
+test('Copy-only sibling response lane completes the latest owned reply',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish [Fabushi:copy-lane-final]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">最终结果。</div></div></article><div id="response-actions"><button aria-label="Copy response"></button></div><form><textarea id="prompt-textarea"></textarea></form></main>');
+  try {
+    w.history.pushState({},'', '/c/copy-lane-final');
+    const task={id:'copy-lane-final',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/copy-lane-final',token:'copy-lane-final',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    const turn=h.latestTurn(task);
+    assert.equal(turn.final,true);
+    assert.ok(turn.responseActions.includes('copy'));
+    assert.equal(turn.responseActionsComplete,false);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('an older Copy-only toolbar cannot complete a newer assistant reply',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish [Fabushi:old-copy-token]</div></article><article data-testid="conversation-turn-assistant-old"><div data-message-author-role="assistant"><div class="markdown">旧回复</div></div><button aria-label="复制回复"></button></article><article data-testid="conversation-turn-assistant-new"><div data-message-author-role="assistant"><div class="markdown">当前回复没有动作栏</div></div></article><form><textarea id="prompt-textarea"></textarea></form></main>');
+  try {
+    w.history.pushState({},'', '/c/old-copy-token');
+    const task={id:'old-copy-token',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/old-copy-token',token:'old-copy-token',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    const turn=h.latestTurn(task);
+    assert.equal(turn.text,'当前回复没有动作栏');
+    assert.equal(turn.final,false,'older Copy control is outside the latest response lane');
+    assert.equal(turn.responseActions.includes('copy'),false);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('stable owned natural reply completes after eight seconds when renderer exposes no action row',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish [Fabushi:natural-final]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">这是已经完成的最终自然语言回复。</div></div></article><form><textarea id="prompt-textarea"></textarea></form></main>');
+  try {
+    w.history.pushState({},'', '/c/natural-final');
+    const task={id:'natural-final',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/natural-final',token:'natural-final',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    await h.start(false);
+    await h.inspect(task,null);
+    let observation=h.observations.get(task.id);
+    assert.equal(task.state,'waiting','natural fallback must not complete immediately');
+    assert.equal(observation.naturalFinalCandidate,true);
+    assert.ok(Number(observation.naturalFinalSince)>0);
+    assert.equal(task.abnormalNoFinalSince||0,0,'natural final candidate must not enter ended-without-final recovery');
+
+    h.observations.set(task.id,{...observation,naturalFinalCandidate:true,naturalFinalSince:Date.now()-9_000,text:'这是已经完成的最终自然语言回复。'});
+    await h.inspect(task,null);
+    assert.equal(task.state,'done');
+    assert.ok(task.messages.some(item=>item.role==='assistant' && /最终自然语言回复/.test(item.text||'')));
+  } finally {h.pause();dom.window.close();}
+});
+
+test('natural final fallback stability resets when reply text changes',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish [Fabushi:natural-changing]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">第一版回复。</div></div></article><form><textarea id="prompt-textarea"></textarea></form></main>');
+  try {
+    w.history.pushState({},'', '/c/natural-changing');
+    const task={id:'natural-changing',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/natural-changing',token:'natural-changing',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    await h.start(false);
+    await h.inspect(task,null);
+    const first=h.observations.get(task.id);
+    h.observations.set(task.id,{...first,naturalFinalCandidate:true,naturalFinalSince:Date.now()-9_000,text:'第一版回复。'});
+    w.document.querySelector('.markdown').textContent='第二版回复，仍在变化。';
+    await h.inspect(task,null);
+    const changed=h.observations.get(task.id);
+    assert.equal(task.state,'waiting');
+    assert.equal(changed.naturalFinalCandidate,true);
+    assert.ok(Date.now()-Number(changed.naturalFinalSince)<2_000,'text change restarts natural final stability window');
+  } finally {h.pause();dom.window.close();}
+});
+
+test('route-only ownership cannot finish through natural final fallback',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">ordinary unmarked user turn</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">Looks final but has no task marker.</div></div></article><form><textarea id="prompt-textarea"></textarea></form></main>');
+  try {
+    w.history.pushState({},'', '/c/route-only-natural');
+    const task={id:'route-only-natural',ownerTabId:h.getTabId(),goal:'target',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/route-only-natural',token:'missing-marker',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    await h.start(false);
+    await h.inspect(task,null);
+    const observation=h.observations.get(task.id);
+    assert.notEqual(observation?.naturalFinalCandidate,true,'route-only ended ownership cannot adopt natural reply as final');
+    assert.notEqual(task.state,'done');
+  } finally {h.pause();dom.window.close();}
+});
+
 test('a lost Stop control stays in the same conversation until the final toolbar appears',async()=>{
   const {h,dom}=await fixture();
   const previous={text:'partial reply',since:1_000,idleSince:1_000,clear:true,stop:false,final:false};
@@ -4053,8 +4148,8 @@ test('durable handoff snapshot is phase round and goal-revision bound and cannot
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.10\.2$/m);
-  assert.match(source,/const VERSION = '2\.10\.2'/);
+  assert.match(source,/^\/\/ @version\s+2\.10\.3$/m);
+  assert.match(source,/const VERSION = '2\.10\.3'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 \* 60 \* 1000/);

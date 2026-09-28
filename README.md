@@ -1,8 +1,16 @@
-# Fabushi 独立自动确认工作台 2.10.2
+# Fabushi 独立自动确认工作台 2.10.3
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.2`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.3`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+
+## 2.10.3 修复会话已结束但最终回复未识别
+
+- 最终回复判定重新对齐产品规则：**当前任务最新 assistant 回复已出现、Stop 已消失、该回复自己的 Copy/复制按钮已出现**，即可作为最终 UI 证据；不再强制要求 Share / 评价 / Like / Source / More 等第二个动作按钮同时存在。
+- Copy 的归属仍严格绑定最新 assistant turn / response lane；旧回复、其他任务或无法关联的动作栏不能把当前回复误判成完成。
+- 对于 ChatGPT 再次改变动作栏、导致 Copy 也无法被现有语义识别的情况，新增严格的 8 秒自然回复兜底：必须是精确任务会话、强任务归属、自然语言回复、Stop/流式/授权/加载/错误/限流全部消失、输入框就绪且为空，且文本连续 8 秒不变化，才会确认完成。
+- 自然回复兜底稳定期间不会再被“会话已经结束但没有最终回复”路径提前新开会话；文本变化会重新计时。
+- 已使用 `htch-runtime` 尝试直接检查真实 ChatGPT DOM；该设备 Chromium 可启动，但 Hatch 沙箱浏览器出口对 ChatGPT 返回 `ERR_EMPTY_RESPONSE`，且设备没有已登录 ChatGPT 会话，因此没有把失败的现场访问伪装成 DOM 证据。具体约束与验收标准见 [v2.10.3 规格](docs/specs/final-reply-structure-recognition-v2.10.3.md)。
 
 ## 2.10.2 识别已显示但 role 宿主为零矩形的消息区
 
