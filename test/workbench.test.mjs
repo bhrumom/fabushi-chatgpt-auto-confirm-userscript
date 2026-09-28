@@ -12,6 +12,28 @@ async function fixture(body='', setup=()=>{}, url='https://chatgpt.com/') {
   const held = new Set();
   w.navigator.locks = {query:async()=>({held:[...held].map(name=>({name}))}),request:async(name,options,callback)=>{callback ||= options;if(held.has(name))return callback(null);held.add(name);try{return await callback({name});}finally{held.delete(name);}}};
   setup(w);
+  // Production now blocks Send until ChatGPT's model/thinking preset is
+  // structurally confirmed. Most historical fixtures predate that UI and are
+  // testing unrelated behavior. Give composer fixtures a minimal realistic
+  // closed Extra-High trigger unless a test explicitly opts out or supplies a
+  // richer picker of its own.
+  const hasComposer = Boolean(w.document.querySelector('#prompt-textarea,textarea,[contenteditable=true]'));
+  const hasPicker = Boolean(w.document.querySelector('[data-codex-intelligence-trigger=true],[data-composer-navigation-target=reasoning]'));
+  const noPickerTest = Boolean(w.document.querySelector('[data-test-no-reasoning-picker]'));
+  if (hasComposer && !hasPicker && !noPickerTest) {
+    const trigger = w.document.createElement('button');
+    trigger.type = 'button';
+    trigger.setAttribute('aria-label','选择 ChatGPT 模型');
+    trigger.setAttribute('aria-haspopup','menu');
+    trigger.setAttribute('aria-expanded','false');
+    trigger.dataset.state = 'closed';
+    trigger.dataset.codexIntelligenceTrigger = 'true';
+    trigger.dataset.composerNavigationTarget = 'reasoning';
+    trigger.dataset.selectedReasoningEffort = 'max';
+    trigger.textContent = '极高';
+    const form = w.document.querySelector('form') || w.document.body;
+    form.append(trigger);
+  }
   await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, normalizeReasoningPreset, reasoningPresetLabel, taskReasoningPreset, reasoningPickerTrigger, reasoningSliderState, ensureTaskReasoningPreset, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, refreshInterruptedStopStall, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), setRunningForTest:value=>{running=Boolean(value);}, getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
@@ -126,7 +148,7 @@ test('Pro preset is selected by slider index rather than medium effort alias',as
 });
 
 test('missing reasoning picker blocks preset enforcement instead of silently sending with page default',async()=>{
-  const {h,dom}=await fixture('<main><form><textarea id="prompt-textarea"></textarea></form></main>');
+  const {h,dom}=await fixture('<main data-test-no-reasoning-picker><form><textarea id="prompt-textarea"></textarea></form></main>');
   try {
     const task={id:'no-reasoning-picker',ownerTabId:h.getTabId(),goal:'do not send',mode:'once',phase:'work',round:1,state:'queued',reasoningPreset:3,messages:[]};
     h.data.tasks.push(task);
