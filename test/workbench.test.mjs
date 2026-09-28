@@ -3927,10 +3927,14 @@ test('live fallback-turn renderer is mounted and binds the assistant Copy outsid
   const {h,w,dom}=await fixture(`<main>
     <div data-content-search-turn-key="fallback-turn-live">
       <div class="block-BQZwFn">
-        <div class="w-full" data-content-search-unit-key="fallback-turn-live:0:user">
-          <div class="group/user-message">
-            <div data-user-message-bubble="true"><div>finish [Fabushi:fallback-live]</div></div>
-            <button aria-label="复制消息"></button>
+        <div class="group/user-message"
+             data-chatgpt-search-unit-key="fallback-turn-live:0:user"
+             data-chatgpt-search-message-ids="user-live">
+          <div class="w-full" data-content-search-unit-key="fallback-turn-live:0:user">
+            <div class="group/user-message">
+              <div data-user-message-bubble="true"><div>finish [Fabushi:fallback-live]</div></div>
+              <button aria-label="复制消息"></button>
+            </div>
           </div>
         </div>
       </div>
@@ -3964,6 +3968,39 @@ test('live fallback-turn renderer is mounted and binds the assistant Copy outsid
     assert.equal(turn.diagnostic.assistantNodes,1);
     assert.equal(turn.final,true,'assistant Copy after :assistant inside the same fallback turn is final UI evidence');
     assert.ok(turn.responseActions.includes('copy'));
+  } finally {h.pause();dom.window.close();}
+});
+
+test('live fallback transient primary assistant ignores tertiary activity summaries and keeps one assistant boundary',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <div data-content-search-turn-key="fallback-turn-transient">
+      <div data-chatgpt-search-unit-key="fallback-turn-transient:0:user">
+        <div data-content-search-unit-key="fallback-turn-transient:0:user">
+          <div data-user-message-bubble="true">finish [Fabushi:fallback-transient]</div>
+        </div>
+      </div>
+      <div class="block-BQZwFn">
+        <div data-markdown-text-style="assistant-message" data-markdown-text-tone="tertiary" data-selected-text-overlay-target="_activity1_">检查页面结构</div>
+        <div data-markdown-text-style="assistant-message" data-markdown-text-tone="tertiary" data-selected-text-overlay-target="_activity2_">运行测试</div>
+        <div data-markdown-text-style="assistant-message" data-markdown-text-tone="primary" data-selected-text-overlay-target="_primary_">这是当前正在流式输出的正文。</div>
+      </div>
+    </div>
+    <form><textarea id="prompt-textarea"></textarea><button data-testid="stop-button" aria-label="停止回答">Stop</button></form>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/fallback-transient');
+    const task={id:'fallback-transient',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/fallback-transient',token:'fallback-transient',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    const turn=h.latestTurn(task);
+    assert.equal(turn.owned,true);
+    assert.equal(turn.diagnostic.userNodes,1,'nested chatgpt/content user wrappers canonicalize to one user message');
+    assert.equal(turn.diagnostic.assistantNodes,1,'tertiary activity summaries are not separate assistant messages');
+    assert.equal(turn.text,'这是当前正在流式输出的正文。');
+    assert.doesNotMatch(turn.text,/检查页面结构|运行测试/);
+    assert.equal(turn.streaming,true);
+    assert.equal(turn.final,false);
+    const fingerprint=h.visibleConversationProgressFingerprint();
+    assert.deepEqual(fingerprint.map(item=>item.role),['user','assistant']);
   } finally {h.pause();dom.window.close();}
 });
 
