@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.3
+// @version      2.10.4
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.3';
+  const VERSION = '2.10.4';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -138,7 +138,7 @@ async function bootstrapAttempt() {
   const MAX_REVIEW_REPAIR_ATTEMPTS = 2;
   const ROUTE_HYDRATION_TIMEOUT_MS = 30000;
   const ROUTE_RECOVERY_LIMIT = 2;
-  const ROUTE_RECOVERY_RETRY_INTERVAL_MS = 60 * 1000;
+  const ROUTE_RECOVERY_RETRY_INTERVAL_MS = 60 * 1000; // legacy persisted-field compatibility; exhaustion no longer auto-retries.
   const CONTINUATION_PROMPT = '继续完成所有';
   const MAX_SAME_SESSION_CONTINUATIONS = 3;
   const CONTINUATION_SEND_COOLDOWN_MS = 60 * 1000;
@@ -1530,7 +1530,7 @@ async function bootstrapAttempt() {
   function taskMarkerUser(task) {
     if (!task?.token) return null;
     const marker = `[Fabushi:${task.token}]`;
-    return nodes('[data-message-author-role=user]').slice().reverse()
+    return conversationRoleNodes('user').slice().reverse()
       .find(node => text(node).includes(marker)) || null;
   }
   function recoveryUserBoundaryKey(node) {
@@ -1585,7 +1585,7 @@ async function bootstrapAttempt() {
     // ownership. Fresh dispatch/finish clears explicitRecoveryActive.
     const allowRecoveredStatic = Boolean(allowStaticFinal || task.explicitRecoveryActive);
     if (allowRecoveredStatic) task.explicitRecoveryActive = true;
-    const latestMountedUser = nodes('[data-message-author-role=user]').at(-1) || null;
+    const latestMountedUser = conversationRoleNodes('user').at(-1) || null;
     task.recoveredFinalIdentity = {
       url,
       token,
@@ -1737,8 +1737,35 @@ async function bootstrapAttempt() {
   const nodes = (selector, scope = document) => scope?.querySelectorAll
     ? [...scope.querySelectorAll(selector)].filter(node => !own(node))
     : [];
-  const conversationTurnSelector = 'article,[data-testid^="conversation-turn-"],[data-turn-key],[data-content-search-turn-key]';
+  const conversationTurnSelector = 'article,[data-testid^="conversation-turn-"],[data-turn-key],[data-content-search-turn-key],[data-turn="user"],[data-turn="assistant"],[data-author-role="user"],[data-author-role="assistant"]';
   const semanticMessageSelector = '.markdown,[data-message-content],[data-selected-text-overlay-target]';
+  const conversationRoleSelector = '[data-message-author-role="user"],[data-message-author-role="assistant"],[data-turn="user"],[data-turn="assistant"],[data-author-role="user"],[data-author-role="assistant"]';
+  function conversationRole(node) {
+    if (!node) return '';
+    for (const attr of ['data-message-author-role','data-turn','data-author-role']) {
+      const value = String(node.getAttribute?.(attr) || '').toLowerCase();
+      if (value === 'user' || value === 'assistant') return value;
+    }
+    return '';
+  }
+  function conversationRoleNodes(role = '', scope = document) {
+    const wanted = role === 'user' || role === 'assistant' ? role : '';
+    const selector = wanted
+      ? `[data-message-author-role="${wanted}"],[data-turn="${wanted}"],[data-author-role="${wanted}"]`
+      : conversationRoleSelector;
+    const result = [];
+    const seenTurns = new Set();
+    for (const node of nodes(selector, scope)) {
+      const resolvedRole = conversationRole(node);
+      if (!resolvedRole || (wanted && resolvedRole !== wanted)) continue;
+      const turn = node.closest?.(conversationTurnSelector) || node;
+      if (seenTurns.has(turn)) continue;
+      seenTurns.add(turn);
+      const preferred = turn?.querySelector?.(`[data-message-author-role="${resolvedRole}"]`) || node;
+      result.push(preferred);
+    }
+    return result;
+  }
   function renderedConversationMessage(node) {
     if (!node?.isConnected || own(node) || node.closest?.('[hidden],[inert]')) return false;
     const css = getComputedStyle(node);
@@ -1791,7 +1818,7 @@ async function bootstrapAttempt() {
         acceptNode(node) {
           if (node.nodeType === Node.ELEMENT_NODE) {
             // Reject transcript, quoted/code, and Fabushi subtrees wholesale.
-            if (own(node) || node.matches?.('[data-message-author-role],blockquote,pre,code')) return NodeFilter.FILTER_REJECT;
+            if (own(node) || node.matches?.(`${conversationRoleSelector},blockquote,pre,code`)) return NodeFilter.FILTER_REJECT;
             return NodeFilter.FILTER_ACCEPT;
           }
           const parent = node.parentElement;
@@ -1867,14 +1894,14 @@ async function bootstrapAttempt() {
     // Class/ARIA/test-id selectors already recognize known loading spinners;
     // enumerating every SVG to inspect computed animation is costly on long
     // transcripts and needlessly treats unrelated animated artwork as loading.
-    const turns = nodes('[data-message-author-role=user],[data-message-author-role=assistant]', scope);
+    const turns = conversationRoleNodes('', scope);
     const hasVisibleTurn = turns.slice(-8).some(renderedConversationMessage);
     const seen = new Set();
     for (const node of candidates) {
       if (seen.has(node)) continue;
       seen.add(node);
       if (!visible(node)) continue;
-      if (node.closest(`#${ROOT},[data-message-author-role],form,nav,aside,header,textarea,[contenteditable="true"]`)) continue;
+      if (node.closest(`#${ROOT},${conversationRoleSelector},form,nav,aside,header,textarea,[contenteditable="true"]`)) continue;
       const attrs = `${label(node)} ${node.getAttribute('class') || String(node.className || '')} ${node.getAttribute('data-testid') || ''}`;
       const semantic = node.matches('[aria-busy="true"],[role="progressbar"],[data-loading="true"],[data-state="loading"]');
       const statusSpinner = node.getAttribute('role') === 'status'
@@ -1892,14 +1919,14 @@ async function bootstrapAttempt() {
   function conversationLoading() { return Boolean(pageLoadingState()); }
   function activeAssistantGeneration() {
     if (stopButton()) return true;
-    const assistant = nodes('[data-message-author-role=assistant]').filter(renderedConversationMessage).at(-1);
+    const assistant = conversationRoleNodes('assistant').filter(renderedConversationMessage).at(-1);
     if (!assistant) return false;
     const article = assistant.closest(conversationTurnSelector) || assistant;
     return Boolean(article.matches?.('[data-is-streaming="true"],[aria-busy="true"]')
       || article.querySelector('[data-is-streaming="true"],[aria-busy="true"]'));
   }
   function visibleConversationHasMessages() {
-    return nodes('[data-message-author-role=user],[data-message-author-role=assistant]').some(renderedConversationMessage);
+    return conversationRoleNodes().some(renderedConversationMessage);
   }
   function haltRunnerForPause() {
     running = false;
@@ -3044,13 +3071,13 @@ async function bootstrapAttempt() {
     return deduped.join('\n\n').trim();
   }
   function assistantTurnContent(roleNode, { tailLimit = 0 } = {}) {
-    const turn = roleNode?.closest?.('article,[data-testid^="conversation-turn-"],[data-turn-key],[data-content-search-turn-key]');
+    const turn = roleNode?.closest?.(conversationTurnSelector);
     if (!turn || own(turn) || turn.closest?.('[hidden],[inert]')) return assistantSegmentContent(roleNode, { tailLimit });
     // Current ChatGPT renders agent progress as Markdown siblings of the
     // assistant-role status node inside one conversation turn. The turn is
     // safe to inspect only because it contains this assistant-role node.
     const semantic = nodes('.markdown,[data-message-content],[data-selected-text-overlay-target]', turn)
-      .filter(node => !node.closest?.('[hidden],[inert],[data-message-author-role="user"],[data-testid*="tool"],[data-type*="tool"],[class*="tool-call"],[class*="toolCall"]'));
+      .filter(node => !node.closest?.(`[hidden],[inert],[data-message-author-role="user"],[data-turn="user"],[data-author-role="user"],[data-testid*="tool"],[data-type*="tool"],[class*="tool-call"],[class*="toolCall"]`));
     const roots = outermostSemanticRoots(semantic).filter(visible);
     let remaining = tailLimit;
     const content = roots.map(node => {
@@ -3066,7 +3093,7 @@ async function bootstrapAttempt() {
     const taskURL = canonicalConversationURL(task.url);
     if (!liveURL || !taskURL || liveURL !== taskURL) return { text:'', sourceKind:'' };
 
-    const users = nodes('[data-message-author-role=user]');
+    const users = conversationRoleNodes('user');
     const markedUser = taskMarkerUser(task);
     const latestUser = users.at(-1);
     const continuationUser = markedUser
@@ -3101,14 +3128,14 @@ async function bootstrapAttempt() {
       sourceKind = 'exact-route-visible-assistant-transcript';
     }
 
-    const assistantNodes = nodes('[data-message-author-role=assistant]')
+    const assistantNodes = conversationRoleNodes('assistant')
       // The role host itself may be layout-neutral. assistantSegmentContent()
       // decides visibility from semantic/rendered descendants.
       .filter(node => !boundary || Boolean(boundary.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING));
     const parts = [];
     const seenTurns = new Set();
     for (const node of assistantNodes) {
-      const turn = node.closest?.('article,[data-testid^="conversation-turn-"],[data-turn-key],[data-content-search-turn-key]') || node;
+      const turn = node.closest?.(conversationTurnSelector) || node;
       if (seenTurns.has(turn)) continue;
       seenTurns.add(turn);
       const part = cleanAbnormalFreshReply(assistantTurnContent(node));
@@ -3276,10 +3303,10 @@ async function bootstrapAttempt() {
     // reply without using that reply as task-owned result/completion evidence.
     // Keep this bounded to the visible transcript tail to limit scan cost on
     // long conversations.
-    const messageNodes = nodes('[data-message-author-role=user],[data-message-author-role=assistant]');
+    const messageNodes = conversationRoleNodes();
     let inspectedTextChars = 0;
     const fingerprint = messageNodes.slice(-8).filter(renderedConversationMessage).map(node => {
-        const role = node.getAttribute('data-message-author-role') || '';
+        const role = conversationRole(node);
         const rawTail = textTail(node, 3000);
         inspectedTextChars += rawTail.length;
         const content = rawTail.replace(/\s+/g, ' ').trim();
@@ -3453,7 +3480,7 @@ async function bootstrapAttempt() {
     return Math.max(1, cooldownUntil - now);
   }
   function latestTurn(task = null) {
-    const users = nodes('[data-message-author-role=user]');
+    const users = conversationRoleNodes('user');
     const scoped = Boolean(task && typeof task === 'object');
     const markedUser = scoped ? taskMarkerUser(task) : null;
     const latestUser = users.at(-1);
@@ -3512,7 +3539,7 @@ async function bootstrapAttempt() {
         article: null,
       };
     }
-    const replies = nodes('[data-message-author-role=assistant]').filter(node => !user || Boolean(user.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING));
+    const replies = conversationRoleNodes('assistant').filter(node => !user || Boolean(user.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING));
     const assistant = replies.at(-1);
     const article = assistant?.closest('article,[data-testid^="conversation-turn-"],[data-turn-key],[data-content-search-turn-key]') || assistant;
     const markdown = article?.querySelector?.('.markdown,[data-message-content],[data-selected-text-overlay-target]');
@@ -3565,7 +3592,7 @@ async function bootstrapAttempt() {
       candidates.push(...nodes(responseControlSelector, scope));
       return candidates.filter(visible).map(node => ({ node, kind: responseControlKind(node) })).filter(item => item.kind);
     };
-    const responseSelector = 'article,[data-testid^="conversation-turn-"],[data-turn-key],[data-content-search-turn-key]';
+    const responseSelector = conversationTurnSelector;
     const hasResponseCompletionAction = kinds => kinds.has('share')
       || kinds.has('feedback')
       || kinds.has('like')
@@ -3582,7 +3609,7 @@ async function bootstrapAttempt() {
       // any subsequent conversation message.
       if (!follows(assistant, node)) return false;
       if (composerNode && !follows(node, composerNode)) return false;
-      const nextMessage = nodes('[data-message-author-role=user],[data-message-author-role=assistant]')
+      const nextMessage = conversationRoleNodes()
         .find(candidate => candidate !== assistant && follows(assistant, candidate));
       if (nextMessage && !follows(node, nextMessage)) return false;
       return !node.closest?.('form,nav,aside,header,[contenteditable="true"]');
@@ -3719,7 +3746,7 @@ async function bootstrapAttempt() {
     if (foreignTask) return scoped;
     const identity = task.recoveredFinalIdentity || {};
     const hasRecoveredIdentity = recoveredFinalIdentityMatches(task, liveURL);
-    const mountedUsers = nodes('[data-message-author-role=user]');
+    const mountedUsers = conversationRoleNodes('user');
     const latestMountedUser = mountedUsers.at(-1);
     const recoveredContinuation = Boolean(
       latestMountedUser
@@ -3793,8 +3820,7 @@ async function bootstrapAttempt() {
     for (const dialog of dialogs) {
       if (!main || !dialog.contains(main)) add(dialog);
     }
-    const messages = main?.querySelectorAll?.('[data-message-author-role=user],[data-message-author-role=assistant]') || [];
-    const recent = Array.from(messages).slice(-8);
+    const recent = conversationRoleNodes('', main).slice(-8);
     if (!recent.length) {
       // On a fresh ChatGPT route there is no transcript to search; the primary
       // surface is small and may contain a global authorization prompt.
@@ -3802,17 +3828,17 @@ async function bootstrapAttempt() {
       return scopes;
     }
     for (const message of recent) {
-      add(message.closest?.('article,[data-testid^="conversation-turn-"],[data-turn-key],[data-content-search-turn-key]') || message);
+      add(message.closest?.(conversationTurnSelector) || message);
     }
     // Some renderer builds portal a current approval card beside (rather than
     // inside) its latest turn. Walk only a small number of following sibling
     // surfaces; stop before the composer, navigation, or another message.
     const latest = recent.at(-1);
-    let anchor = latest.closest?.('article,[data-testid^="conversation-turn-"],[data-turn-key],[data-content-search-turn-key]') || latest;
+    let anchor = latest.closest?.(conversationTurnSelector) || latest;
     for (let depth = 0; anchor && depth < 5 && anchor !== main; depth += 1) {
       let sibling = anchor.nextElementSibling;
       for (let count = 0; sibling && count < 8; count += 1, sibling = sibling.nextElementSibling) {
-        if (sibling.matches?.('[data-message-author-role],form,nav,aside,header,textarea,[contenteditable="true"]')) break;
+        if (sibling.matches?.(`${conversationRoleSelector},form,nav,aside,header,textarea,[contenteditable="true"]`)) break;
         add(sibling);
       }
       anchor = anchor.parentElement;
@@ -4191,29 +4217,26 @@ async function bootstrapAttempt() {
     }
     const now = Date.now();
     if (task?.rendererRecoveryExhausted) {
-      const retryAt = Number(task.routeRecoveryRetryAt || 0);
-      if (retryAt > now) {
-        sameRouteWaitSince = now;
-        sameRouteWaitUntil = retryAt;
-        navigating = false;
-        return false;
-      }
-      task.rendererRecoveryExhausted = false;
-      task.routeRecoveryRetryAt = 0;
-      task.routeRecoveryAttempts = 0;
+      // Exhaustion is durable for this exact dispatch generation. The old
+      // implementation cleared the counter after a timer, creating a real
+      // 1/2 -> 2/2 -> wait -> 1/2 infinite refresh cycle.
+      sameRouteWaitSince = now;
+      sameRouteWaitUntil = 0;
+      navigating = false;
+      return false;
     }
     const attempts = Number(task?.routeRecoveryAttempts || 0);
     if (attempts >= ROUTE_RECOVERY_LIMIT) {
       if (task) {
-        task.routeRecoveryAttempts = 0;
+        task.routeRecoveryAttempts = Math.max(ROUTE_RECOVERY_LIMIT, attempts);
         task.rendererRecoveryExhausted = true;
-        task.routeRecoveryRetryAt = now + ROUTE_RECOVERY_RETRY_INTERVAL_MS;
+        task.routeRecoveryRetryAt = 0;
         task.updatedAt = now;
         task.state = 'waiting';
-        log(task, `ChatGPT 页面仍未恢复；保留当前标签页和原任务，${Math.ceil(ROUTE_RECOVERY_RETRY_INTERVAL_MS / 1000)} 秒后在此标签页再次刷新并等待。`);
+        log(task, `ChatGPT 消息区在 ${ROUTE_RECOVERY_LIMIT} 次同会话恢复后仍未挂载；已停止对此会话自动刷新。插件会继续监督当前页面，只有真实消息进展、新会话/新轮次或明确的新派发才会解除这个恢复上限，不会再进入循环刷新。`);
         save();
       }
-      sameRouteWaitUntil = task?.routeRecoveryRetryAt || now + ROUTE_RECOVERY_RETRY_INTERVAL_MS;
+      sameRouteWaitUntil = 0;
       sameRouteWaitSince = now;
       navigating = false;
       return false;
@@ -4810,7 +4833,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     }
     const input = composer();
     if (!input) return waitForSendUI(task, '未找到 ChatGPT 输入框');
-    if (nodes('[data-message-author-role=user]').length) return waitForSendUI(task, '新会话页面仍保留旧消息');
+    if (conversationRoleNodes('user').length) return waitForSendUI(task, '新会话页面仍保留旧消息');
     if (!await ensureTaskAttachments(task, input, signal)) return;
     const prompt = task.preparedPrompt || (task.phase === 'review' ? plannerPrompt(task) : workPrompt(task));
     let draft = normalize(input.value || input.textContent);
@@ -5428,7 +5451,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     let composerDraft = normalize(composerNode?.value || composerNode?.textContent);
     let composerEmpty = Boolean(composerReady && !composerDraft);
     let composerHasRecoveryDraft = Boolean(composerReady && composerDraft === CONTINUATION_PROMPT);
-    const latestMountedUser = nodes('[data-message-author-role=user]').at(-1) || null;
+    const latestMountedUser = conversationRoleNodes('user').at(-1) || null;
     const userBoundaryKey = recoveryUserBoundaryKey(latestMountedUser);
     const cacheRetry = routeOwned && (turn.owned || routeEndedOwned) && !foreignTask && !otherRouteOwner
       && !turn.final && !pending.length && !task.attempted
@@ -5451,7 +5474,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const hasConversationEvidence = Boolean(
       String(activityTurn?.text || '').trim()
       || latestMountedUser
-      || nodes('[data-message-author-role=assistant]').some(renderedConversationMessage)
+      || conversationRoleNodes('assistant').some(renderedConversationMessage)
     );
     // A manually/recovered-owned static reply is normally allowed to finish
     // through the bounded static-final fallback. However, when ChatGPT also
@@ -5652,8 +5675,13 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && stalledFor >= STALLED_REFRESH_MS,
     );
     const pageGenerationActive = activeAssistantGeneration();
+    const visibleMessagesMounted = visibleConversationHasMessages();
+    if (visibleMessagesMounted && task.rendererRecoveryExhausted) {
+      resetRendererRecoveryState(task);
+      save();
+    }
     const identityMismatchSince = sample.routeOwned && !sample.owned
-      ? (visibleConversationHasMessages() ? 0 : (pageGenerationActive ? now : (previous?.identityMismatchSince || now)))
+      ? (visibleMessagesMounted ? 0 : (pageGenerationActive ? now : (previous?.identityMismatchSince || now)))
       : 0;
     if (identityMismatchSince && !pageGenerationActive && now - identityMismatchSince >= ROUTE_HYDRATION_TIMEOUT_MS) {
       let target;
