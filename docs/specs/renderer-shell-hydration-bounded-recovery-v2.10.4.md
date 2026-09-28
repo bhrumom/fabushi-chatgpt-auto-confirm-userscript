@@ -73,3 +73,30 @@ Focused regressions:
 - No repeated 1/2 → 2/2 → cooldown → 1/2 cycle on the same conversation generation.
 - A visibly rendered turn-level transcript is no longer logged as “消息区仍未挂载”.
 - No weakening of cross-task/old-toolbar ownership rules.
+
+
+## 7. Delivery evidence — 2026-09-28
+
+- PR #117 exact-head Test #348: success on `38898d55aac38f2cf2f03a1a85250ae0ce815b56`.
+- Exact-head regression total: 274 tests / 267 passed / 0 failed / 7 skipped.
+- Focused regressions passed:
+  - `turn-level data-turn roles are mounted messages and support final reply ownership`
+  - `nested data-turn and legacy role hosts are de-duplicated to one user and one assistant turn`
+  - `loading recovery reaches a durable same-route limit and never restarts by time alone`
+  - `stalled route exhaustion preserves the task and cannot restart the refresh loop`
+  - `same-tab recovery exhaustion retains the runner and workspace lock without another reload`
+- PR #117 squash merge: `56e94bb4106ca95a10f02c8fbe249e63ea74cc5c`.
+- Canonical-main Test #349: success.
+- Release #161: success.
+- Tag `v2.10.4` targets the canonical merge commit.
+- Release asset `chatgpt-auto-confirm.user.js`: 362466 bytes.
+- Release asset digest: `sha256:3ec478e20c83a1171efc7e467fec924e0fb288a2683e499536bf3e6ccbe56015`.
+
+### Compliance
+
+| Requirement | Status | Evidence |
+| --- | --- | --- |
+| R1-R5 | passed | Turn-level role support, de-duplication, final Copy ownership, existing zero-rect and toolbar tests all passed in Test #348/#349. |
+| R6-R9 | passed | Durable same-route exhaustion tests prove elapsed time does not re-arm refresh and supervision remains active. |
+| R10-R11 | passed | Full regression suite is green; no duplicate-Send or shell-only fresh-chat behavior introduced. |
+| R12 | passed | v2.10.4 released from tested canonical main. |
