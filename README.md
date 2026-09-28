@@ -1,8 +1,18 @@
-# Fabushi 独立自动确认工作台 2.10.4
+# Fabushi 独立自动确认工作台 2.10.5
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.4`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.5`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+
+## 2.10.5 按 Mac 真实 ChatGPT DOM 修复 fallback-turn 消息识别
+
+- 已在在线 Mac 的真实登录态 Chrome 中复现“页面明明有完整消息，脚本仍判断消息区未挂载”。现场 DOM 中 `data-message-author-role`、`data-turn`、`data-author-role` 都为 **0**，因此 v2.10.4 新增的三类 selector 仍然无法命中当前 renderer。
+- 当前真实结构使用 `data-content-search-turn-key="fallback-turn-N"` 作为一轮外层容器，再用 `data-content-search-unit-key="fallback-turn-N:0:user"` 与 `...:2:assistant` 区分 user / assistant message unit。脚本现在把 **message unit** 作为角色与文本边界，而不是把整个 outer turn 当成一条消息。
+- 同时支持现场可见的 `data-chatgpt-search-unit-key`、`data-conversation-role`、`data-user-message-bubble`、`data-markdown-text-style="assistant-message"` 与 `data-markdown-text-tone="user-message"` 作为结构证据。
+- 真实 renderer 的 assistant Copy 在 assistant unit 外、但仍位于同一个 outer `fallback-turn`；user Copy 则位于 `:user` unit 内。现在明确拒绝 user-unit Copy，只接受当前 assistant unit 自身或其后的同 outer-turn assistant action lane，避免把“复制消息”错当成最终回复按钮。
+- assistant 文本读取严格限制在 `:assistant` message unit，防止同一个 outer turn 中的 rich user Markdown 被拼进 assistant 回复。
+- v2.10.4 已修好的 renderer 恢复上限继续保持：同一会话恢复预算耗尽后不会因时间经过重新开始无限刷新。
+- 真实 DOM、约束与验收记录见 [v2.10.5 规格](docs/specs/live-fallback-turn-renderer-v2.10.5.md)。
 
 ## 2.10.4 修复“消息区未挂载”误判与无限刷新
 
