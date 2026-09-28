@@ -1,8 +1,17 @@
-# Fabushi 独立自动确认工作台 2.10.3
+# Fabushi 独立自动确认工作台 2.10.4
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.3`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.4`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+
+## 2.10.4 修复“消息区未挂载”误判与无限刷新
+
+- 消息结构不再只认 `data-message-author-role`；统一支持 `data-message-author-role`、`data-turn`、`data-author-role` 三类 user/assistant 角色宿主，并按真实 conversation turn 去重。
+- task marker、消息区挂载、页面 loading、当前 assistant、进度指纹、回复 toolbar 归属、恢复边界、授权扫描、发送前旧消息检查统一走同一套 role-node 识别，避免刷新前后 renderer DOM 不同导致互相矛盾。
+- 修复真正的无限刷新：旧逻辑达到 `2/2` 后只等 60 秒就把 `routeRecoveryAttempts` 清零，所以同一会话会永久重新进入 `1/2 → 2/2`。现在同一 conversation / phase / round / goal revision 的恢复预算耗尽后保持 exhausted，时间流逝不会重新武装自动刷新。
+- 达到恢复上限后仍继续监督当前页面；只有真实消息重新挂载/出现进展、进入新的会话/轮次或明确的新派发，才会通过已有 reset 路径解除恢复上限。
+- 不新增重复 Send，也不因为 shell-only 直接新开会话。
+- 规格与验收见 [v2.10.4](docs/specs/renderer-shell-hydration-bounded-recovery-v2.10.4.md)。
 
 ## 2.10.3 修复会话已结束但最终回复未识别
 
