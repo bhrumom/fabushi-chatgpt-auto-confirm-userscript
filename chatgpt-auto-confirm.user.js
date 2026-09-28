@@ -5204,6 +5204,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const input = composer();
     if (!input) return waitForSendUI(task, '未找到 ChatGPT 输入框');
     if (conversationRoleNodes('user').length) return waitForSendUI(task, '新会话页面仍保留旧消息');
+    if (!await ensureTaskModelTier(task, signal, { logSuccess:true })) return;
     if (!await ensureTaskAttachments(task, input, signal)) return;
     const prompt = task.preparedPrompt || (task.phase === 'review' ? plannerPrompt(task) : workPrompt(task));
     let draft = normalize(input.value || input.textContent);
@@ -5222,6 +5223,9 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       setInput(input, prompt);
       draft = normalize(prompt);
     }
+    // Upload/render work can replace the composer subtree. Re-read the actual
+    // ChatGPT power slider immediately before the single Send click.
+    if (!await ensureTaskModelTier(task, signal)) return;
     let button = sendButtonFor(input);
     if (!button) return waitForSendUI(task, '发送按钮暂不可用');
     await delay(300, signal); check(signal);
@@ -6858,10 +6862,13 @@ NaN
     });
     const controls = element('div','','tools'), select = element('select'); select.setAttribute('aria-label','任务模式');
     for (const [value,name] of [['once','单次任务'],['goal','持续目标']]) { const option=element('option',name); option.value=value; select.append(option); }
+    const modelSelect = element('select'); modelSelect.setAttribute('aria-label','模型档位'); modelSelect.title='每次发送前都会在 ChatGPT 页面确认这个档位';
+    for (const key of ['instant','medium','high','max','pro']) { const definition=MODEL_TIERS[key]; const option=element('option',definition.label); option.value=definition.value; modelSelect.append(option); }
+    modelSelect.value=MODEL_TIER_DEFAULT;
     const auto = element('input'); auto.type='checkbox'; auto.checked=data.autoApprove !== false;
     const autoLabel=element('label'); autoLabel.append(auto,document.createTextNode('本次会话自动授权'));
     const submit = element('button','↑','send'); submit.type='submit'; submit.setAttribute('aria-label','发送任务');
-    controls.append(select,autoLabel,submit); compose.append(input,attachmentBox,controls); chat.append(settings,feed,notice,compose); desk.append(sidebar,chat);
+    controls.append(select,modelSelect,autoLabel,submit); compose.append(input,attachmentBox,controls); chat.append(settings,feed,notice,compose); desk.append(sidebar,chat);
     const launch=element('button','⚡ Fabushi 脚本','launch'); root.append(desk,launch); document.documentElement.append(style); (document.body || document.documentElement).append(root);
     let signature='', sidebarSignature='';
     paint = () => {
@@ -6880,7 +6887,7 @@ NaN
       const workspaceSnapshots=recoverableWorkspaces(data);
       const rowSignature=item=>[
         item.id,item.ownerTabId,item.state,Number(item.round||0),Number(item.goalRevision||0),
-        String(item.goal||'').slice(0,80),taskAttachments(item).length,
+        String(item.goal||'').slice(0,80),normalizeModelTier(item.modelTier),taskAttachments(item).length,
         Math.max(0,Math.ceil((Number(item.noFinalReplyRecoveryUntil||0)-Date.now())/60000)),
       ];
       const nextSidebarSignature=JSON.stringify([
@@ -6925,7 +6932,7 @@ NaN
         const meta=element('span','','task-meta');
         if(item.id===current&&running)meta.append(element('span','●','run-indicator'));
         const badge=element('span',statusNames[item.state]||item.state,'state-badge');badge.dataset.state=item.state;
-        meta.append(badge,document.createTextNode(`第 ${item.round} 轮`));
+        meta.append(badge,document.createTextNode(`第 ${item.round} 轮 · 模型 ${modelTierLabel(item.modelTier)}`));
         if (taskAttachments(item).length) meta.append(document.createTextNode(` · 📎 ${taskAttachments(item).length}`));
         const recoveryRemaining = Number(item.noFinalReplyRecoveryUntil || 0) - Date.now();
         if (recoveryRemaining > 0) meta.append(document.createTextNode(' · 异常恢复约 '+Math.ceil(recoveryRemaining / 60000)+' 分钟'));
@@ -6977,7 +6984,7 @@ NaN
         for(const item of workspace.tasks)appendTaskRow(group,item,false);list.append(group);
       });
       }
-      const nextSignature=JSON.stringify([selected,task?.goalRevision,task?.messageVersion,task?.url,task?.state,task?.preview,taskAttachmentSummary(task),task?.attachmentUploadPending,task?.attachmentUploadFailed,task?.attachmentUploadRetryAt,task?.attachmentUploadRetryCount]);
+      const nextSignature=JSON.stringify([selected,task?.goalRevision,task?.messageVersion,task?.url,task?.state,normalizeModelTier(task?.modelTier),task?.preview,taskAttachmentSummary(task),task?.attachmentUploadPending,task?.attachmentUploadFailed,task?.attachmentUploadRetryAt,task?.attachmentUploadRetryCount]);
       if(signature===nextSignature){
         recordPaint(0);
         return;
@@ -6987,6 +6994,7 @@ NaN
       feed.replaceChildren();
       if(!task)feed.append(element('p','在下方输入任务。单次任务等待一次最终回复；持续目标在每轮结束后新开规划/验收会话，由规划结果安排下一轮。会话恢复按已记录的唯一链接进行，不需要手动点击继续。'));
       if(task)feed.append(element('div',`当前目标：${task.goal}`,'goal'));
+      if(task)feed.append(element('div',`模型档位：${modelTierLabel(task.modelTier)}`,'model-tier-summary'));
       if(task?.attachments?.length)feed.append(element('div',`任务附件：${taskAttachmentSummary(task)}`,'attachment-summary'));
       const allMessages=task?.messages||[];
       const renderedMessages=allMessages.slice(-MAX_RENDERED_TASK_MESSAGES);
@@ -7053,7 +7061,7 @@ NaN
         const attachments=files.map(normalizeAttachmentMeta).filter(Boolean);
         if (attachments.length !== files.length) throw new Error('有附件缺少文件名，无法安全保存。');
         if (files.length) await openAttachmentDB();
-        task=enqueue(input.value,select.value,attachments);
+        task=enqueue(input.value,select.value,attachments,modelSelect.value);
         if (files.length) {
           try { await storeTaskAttachmentFiles(task,files,attachments); }
           catch (error) {
@@ -7076,7 +7084,7 @@ NaN
     if(tool==='cleanup_memory')return requestHostMemoryCleanup({reason:'manual-tool',userInitiated:true});
     if(['pause_queue','stop'].includes(tool)){pause();return{running:false};}
     if(['start_queue','resume_queue'].includes(tool))return start();
-    if(tool==='enqueue_tasks'){for(const task of args.tasks||[])enqueue(task.prompt||task.goal||'',task.mode||'once',task.attachments||[]);return tabTasks();}
+    if(tool==='enqueue_tasks'){for(const task of args.tasks||[])enqueue(task.prompt||task.goal||'',task.mode||'once',task.attachments||[],task.modelTier||task.reasoningTier||MODEL_TIER_DEFAULT);return tabTasks();}
     if(tool==='get_reply'){
       const task = data.tasks.find(item => item.id === current && taskBelongsToTab(item))
         || data.tasks.find(item => item.id === selected && taskBelongsToTab(item));
