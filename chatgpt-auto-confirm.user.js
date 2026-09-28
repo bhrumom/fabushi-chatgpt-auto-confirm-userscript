@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.6
+// @version      2.10.7
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.6';
+  const VERSION = '2.10.7';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -586,6 +586,26 @@ async function bootstrapAttempt() {
   const resumableStates = new Set(['queued', 'sending', 'uploading', 'waiting', 'loading', 'generating', 'approval', 'reviewing']);
   const pausableStates = new Set([...resumableStates, 'blocked']);
   const statusNames = { queued:'等待派发', sending:'正在发送', uploading:'正在上传附件', waiting:'等待响应', loading:'正在加载', generating:'正在生成', approval:'等待授权', reviewing:'正在验收', done:'已完成', blocked:'需要处理', paused:'已暂停', cancelled:'已取消' };
+  const REASONING_PRESETS = Object.freeze([
+    Object.freeze({ index:0, key:'instant', label:'即时', effort:'none' }),
+    Object.freeze({ index:1, key:'medium', label:'中', effort:'medium' }),
+    Object.freeze({ index:2, key:'high', label:'高', effort:'high' }),
+    Object.freeze({ index:3, key:'extra-high', label:'极高', effort:'max' }),
+    Object.freeze({ index:4, key:'pro', label:'Pro', effort:'medium' }),
+  ]);
+  const DEFAULT_REASONING_PRESET = 3;
+  function normalizeReasoningPreset(value) {
+    const numeric = Number(value);
+    return Number.isInteger(numeric) && numeric >= 0 && numeric < REASONING_PRESETS.length
+      ? numeric
+      : DEFAULT_REASONING_PRESET;
+  }
+  function reasoningPresetLabel(value) {
+    return REASONING_PRESETS[normalizeReasoningPreset(value)]?.label || '极高';
+  }
+  function taskReasoningPreset(task) {
+    return normalizeReasoningPreset(task?.reasoningPreset);
+  }
   const id = () => crypto.randomUUID();
   let workspaceHeartbeatTimer = null;
   let automaticRecoveryTimer = null;
@@ -2475,6 +2495,98 @@ async function bootstrapAttempt() {
     });
   }
   function composer() { return nodes('#prompt-textarea,textarea,[contenteditable=true]').find(enabled); }
+  function reasoningPickerTrigger() {
+    return nodes('button[data-codex-intelligence-trigger="true"],button[data-composer-navigation-target="reasoning"]')
+      .find(node => enabled(node) && (node.getAttribute('aria-haspopup') === 'menu' || node.hasAttribute('data-selected-reasoning-effort')));
+  }
+  function reasoningSliderState() {
+    const control = nodes('[data-reasoning-slider="true"]').find(visible);
+    const thumb = control?.querySelector?.('[role="slider"]');
+    if (!control || !thumb) return null;
+    const current = Number(thumb.getAttribute('aria-valuenow'));
+    const min = Number(thumb.getAttribute('aria-valuemin'));
+    const max = Number(thumb.getAttribute('aria-valuemax'));
+    if (!Number.isInteger(current) || !Number.isInteger(min) || !Number.isInteger(max)) return null;
+    return { control, thumb, current, min, max };
+  }
+  async function ensureTaskReasoningPreset(task, signal) {
+    const target = taskReasoningPreset(task);
+    let trigger = reasoningPickerTrigger();
+    if (!trigger) {
+      waitForSendUI(task, '未找到 ChatGPT 模型/思考强度选择器');
+      return false;
+    }
+    // Closed-trigger text is a cheap no-mutation fast path. It is not used for
+    // Pro vs Medium identity because both can expose effort=medium.
+    const closedText = normalize(trigger.innerText || trigger.textContent);
+    const effort = trigger.getAttribute('data-selected-reasoning-effort') || '';
+    const unambiguousMatch = target === 0 ? effort === 'none'
+      : target === 2 ? effort === 'high'
+      : target === 3 ? effort === 'max'
+      : false;
+    if (unambiguousMatch && trigger.getAttribute('aria-expanded') !== 'true') {
+      task.reasoningPresetConfirmedAt = Date.now();
+      task.reasoningPresetConfirmedIndex = target;
+      return true;
+    }
+
+    if (trigger.getAttribute('aria-expanded') !== 'true') {
+      trigger.click();
+      await delay(120, signal); check(signal);
+    }
+    let slider = reasoningSliderState();
+    if (!slider) {
+      trigger = reasoningPickerTrigger();
+      if (trigger?.getAttribute('aria-expanded') === 'true') trigger.click();
+      waitForSendUI(task, 'ChatGPT 模型菜单已打开，但未找到思考强度滑块');
+      return false;
+    }
+    if (target < slider.min || target > slider.max) {
+      trigger = reasoningPickerTrigger();
+      if (trigger?.getAttribute('aria-expanded') === 'true') trigger.click();
+      waitForSendUI(task, `ChatGPT 当前模型菜单不支持所选档位：${reasoningPresetLabel(target)}`);
+      return false;
+    }
+
+    const direction = target > slider.current ? 'ArrowRight' : 'ArrowLeft';
+    for (let step = 0; step < 8 && slider.current !== target; step++) {
+      slider.control.focus?.();
+      slider.control.dispatchEvent(new KeyboardEvent('keydown', {
+        key:direction,
+        code:direction,
+        bubbles:true,
+        cancelable:true,
+      }));
+      await delay(120, signal); check(signal);
+      const next = reasoningSliderState();
+      if (!next) {
+        waitForSendUI(task, '调整 ChatGPT 思考强度时滑块消失；本轮不会发送');
+        return false;
+      }
+      if (next.current === slider.current) {
+        trigger = reasoningPickerTrigger();
+        if (trigger?.getAttribute('aria-expanded') === 'true') trigger.click();
+        waitForSendUI(task, `ChatGPT 思考强度未能切换到：${reasoningPresetLabel(target)}`);
+        return false;
+      }
+      slider = next;
+    }
+
+    if (slider.current !== target) {
+      trigger = reasoningPickerTrigger();
+      if (trigger?.getAttribute('aria-expanded') === 'true') trigger.click();
+      waitForSendUI(task, `ChatGPT 思考强度校验失败；目标 ${reasoningPresetLabel(target)}，当前第 ${slider.current + 1} 档`);
+      return false;
+    }
+    task.reasoningPresetConfirmedAt = Date.now();
+    task.reasoningPresetConfirmedIndex = target;
+    trigger = reasoningPickerTrigger();
+    if (trigger?.getAttribute('aria-expanded') === 'true') {
+      trigger.click();
+      await delay(80, signal); check(signal);
+    }
+    return true;
+  }
   function attachmentInputFor(input = composer(), preferredMetas = []) {
     const form = input?.closest?.('form');
     const composerHost = input?.closest?.('[data-testid*="composer"],[data-testid*="Composer"]') || form;
@@ -5082,6 +5194,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const input = composer();
     if (!input) return waitForSendUI(task, '未找到 ChatGPT 输入框');
     if (conversationRoleNodes('user').length) return waitForSendUI(task, '新会话页面仍保留旧消息');
+    if (!await ensureTaskReasoningPreset(task, signal)) return;
     if (!await ensureTaskAttachments(task, input, signal)) return;
     const prompt = task.preparedPrompt || (task.phase === 'review' ? plannerPrompt(task) : workPrompt(task));
     let draft = normalize(input.value || input.textContent);
@@ -6234,11 +6347,11 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     haltRunnerForPause();
     paint();
   }
-  function enqueue(goal, taskMode = mode, attachments = []) {
+  function enqueue(goal, taskMode = mode, attachments = [], reasoningPreset = DEFAULT_REASONING_PRESET) {
     if (!goal.trim()) throw new Error('请输入任务目标');
     if (tabTasks().length >= 50) throw new Error('每个标签页最多保存 50 个任务，请先归档已完成任务。');
     const normalizedAttachments = Array.from(attachments || []).map(normalizeAttachmentMeta).filter(Boolean);
-    const task = { id:id(), ownerTabId:tabId, goal:goal.trim().slice(0,16000), mode:taskMode, state:'queued', phase:'work', round:1, url:'', attachments:normalizedAttachments, messages:[], messageVersion:0, goalRevision:0 };
+    const task = { id:id(), ownerTabId:tabId, goal:goal.trim().slice(0,16000), mode:taskMode, reasoningPreset:normalizeReasoningPreset(reasoningPreset), state:'queued', phase:'work', round:1, url:'', attachments:normalizedAttachments, messages:[], messageVersion:0, goalRevision:0 };
     data.tasks.push(task); selected = task.id;
     // A newly submitted goal must not wait behind an older task whose
     // persisted URL is stale or synthetic. Make it the next scheduler target
@@ -6736,10 +6849,21 @@ NaN
     });
     const controls = element('div','','tools'), select = element('select'); select.setAttribute('aria-label','任务模式');
     for (const [value,name] of [['once','单次任务'],['goal','持续目标']]) { const option=element('option',name); option.value=value; select.append(option); }
+    const reasoningSelect = element('select'); reasoningSelect.setAttribute('aria-label','ChatGPT 模型 / 思考强度');
+    for (const preset of REASONING_PRESETS) {
+      const option = element('option', preset.index === 4 ? 'Pro（第 5 档）' : preset.label);
+      option.value = String(preset.index);
+      reasoningSelect.append(option);
+    }
+    reasoningSelect.value = String(normalizeReasoningPreset(data.defaultReasoningPreset));
+    reasoningSelect.onchange = () => {
+      data.defaultReasoningPreset = normalizeReasoningPreset(reasoningSelect.value);
+      save();
+    };
     const auto = element('input'); auto.type='checkbox'; auto.checked=data.autoApprove !== false;
     const autoLabel=element('label'); autoLabel.append(auto,document.createTextNode('本次会话自动授权'));
     const submit = element('button','↑','send'); submit.type='submit'; submit.setAttribute('aria-label','发送任务');
-    controls.append(select,autoLabel,submit); compose.append(input,attachmentBox,controls); chat.append(settings,feed,notice,compose); desk.append(sidebar,chat);
+    controls.append(select,reasoningSelect,autoLabel,submit); compose.append(input,attachmentBox,controls); chat.append(settings,feed,notice,compose); desk.append(sidebar,chat);
     const launch=element('button','⚡ Fabushi 脚本','launch'); root.append(desk,launch); document.documentElement.append(style); (document.body || document.documentElement).append(root);
     let signature='', sidebarSignature='';
     paint = () => {
@@ -6865,6 +6989,7 @@ NaN
       feed.replaceChildren();
       if(!task)feed.append(element('p','在下方输入任务。单次任务等待一次最终回复；持续目标在每轮结束后新开规划/验收会话，由规划结果安排下一轮。会话恢复按已记录的唯一链接进行，不需要手动点击继续。'));
       if(task)feed.append(element('div',`当前目标：${task.goal}`,'goal'));
+      if(task)feed.append(element('div',`ChatGPT 档位：${reasoningPresetLabel(task.reasoningPreset)}`,'reasoning-preset'));
       if(task?.attachments?.length)feed.append(element('div',`任务附件：${taskAttachmentSummary(task)}`,'attachment-summary'));
       const allMessages=task?.messages||[];
       const renderedMessages=allMessages.slice(-MAX_RENDERED_TASK_MESSAGES);
@@ -6931,7 +7056,8 @@ NaN
         const attachments=files.map(normalizeAttachmentMeta).filter(Boolean);
         if (attachments.length !== files.length) throw new Error('有附件缺少文件名，无法安全保存。');
         if (files.length) await openAttachmentDB();
-        task=enqueue(input.value,select.value,attachments);
+        data.defaultReasoningPreset = normalizeReasoningPreset(reasoningSelect.value);
+        task=enqueue(input.value,select.value,attachments,data.defaultReasoningPreset);
         if (files.length) {
           try { await storeTaskAttachmentFiles(task,files,attachments); }
           catch (error) {
@@ -6954,7 +7080,7 @@ NaN
     if(tool==='cleanup_memory')return requestHostMemoryCleanup({reason:'manual-tool',userInitiated:true});
     if(['pause_queue','stop'].includes(tool)){pause();return{running:false};}
     if(['start_queue','resume_queue'].includes(tool))return start();
-    if(tool==='enqueue_tasks'){for(const task of args.tasks||[])enqueue(task.prompt||task.goal||'',task.mode||'once',task.attachments||[]);return tabTasks();}
+    if(tool==='enqueue_tasks'){for(const task of args.tasks||[])enqueue(task.prompt||task.goal||'',task.mode||'once',task.attachments||[],task.reasoningPreset);return tabTasks();}
     if(tool==='get_reply'){
       const task = data.tasks.find(item => item.id === current && taskBelongsToTab(item))
         || data.tasks.find(item => item.id === selected && taskBelongsToTab(item));

@@ -1,8 +1,18 @@
-# Fabushi 独立自动确认工作台 2.10.6
+# Fabushi 独立自动确认工作台 2.10.7
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.6`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.7`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+
+## 2.10.7 每个任务发送前强制选择 ChatGPT 模型 / 思考档位
+
+- 已在 Mac 真实 ChatGPT 页面检查当前模型选择器：触发器为 `data-codex-intelligence-trigger="true"`，当前选择可见于 `data-selected-reasoning-effort`；菜单内真正的五档选择使用 `data-reasoning-slider="true"`，滑块为 `role="slider"`、`aria-valuemin="0"`、`aria-valuemax="4"`。
+- 真实五档映射为：**即时(0 / none)、中(1 / medium)、高(2 / high)、极高(3 / max)、Pro(4)**。Pro 与“中”不能只靠 effort 属性区分，所以脚本以滑块 index 为最终事实来源。
+- Fabushi 新任务输入区现在增加“ChatGPT 模型 / 思考强度”列表；默认选 **极高**。每个任务都会持久保存自己的档位，后续 Work、规划/验收和下一轮继续使用同一档位。
+- 每次新会话真正发送前，脚本先打开 ChatGPT 模型选择器，逐档用左右方向键事件把真实滑块移动到任务配置的位置，再重新读取 `aria-valuenow` 验证。**只有验证成功才会继续上传附件、填写提示词并点击 Send。**
+- 如果模型选择器、菜单或滑块没有出现，或者滑块无法移动到目标档位，本轮保持等待并显示原因，绝不会静默沿用页面默认值后发送。
+- 旧任务没有保存档位时按 **极高** 迁移解释，不修改旧任务的 token、会话链接或附件。
+- 规格与真实页面结构见 [v2.10.7](docs/specs/per-task-reasoning-preset-v2.10.7.md)。
 
 ## 2.10.6 修复新会话误记录 `local-chatgpt:` 临时链接
 
