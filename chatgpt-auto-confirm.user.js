@@ -2955,7 +2955,8 @@ async function bootstrapAttempt() {
     let currentNode;
     while ((currentNode = walker.nextNode())) {
       const parent = currentNode.parentElement;
-      if (!parent || own(parent) || parent.closest('blockquote,pre,code,[data-message-author-role="user"]')) continue;
+      if (!parent || own(parent) || parent.closest('blockquote,pre,code')
+        || conversationRole(parent.closest?.(conversationRoleSelector)) === 'user') continue;
       const direct = normalize(currentNode.nodeValue);
       if (direct && direct.length <= 160 && streamRecoveryPollingTimeoutPattern.test(direct)
         && visible(parent) && hasVisibleRetryAction(parent)) return true;
