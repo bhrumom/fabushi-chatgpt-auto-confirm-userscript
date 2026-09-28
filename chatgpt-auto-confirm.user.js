@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.2
+// @version      2.10.3
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.2';
+  const VERSION = '2.10.3';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -3312,6 +3312,7 @@ async function bootstrapAttempt() {
       routeOwned:Boolean(sample?.routeOwned),
       foreignTaskId:String(sample?.foreignTaskId || ''),
       recoveredStaticCandidate:Boolean(sample?.recoveredStaticCandidate),
+      naturalFinalCandidate:Boolean(sample?.naturalFinalCandidate),
       routeEndedOwned:Boolean(sample?.routeEndedOwned),
       activityText:String(sample?.activityText || '').slice(-6000),
       userBoundaryKey:String(sample?.userBoundaryKey || ''),
@@ -3661,12 +3662,22 @@ async function bootstrapAttempt() {
       && [markdown, assistant, article].some(hasCompletionMarker),
     );
     const streaming = boundedStreamRead;
+    // Product completion evidence is deliberately smaller than the full
+    // response-action row: once Stop is gone, a Copy control that is bound to
+    // the latest owned assistant lane proves ChatGPT has committed the reply.
+    // Share/feedback/source/more remain useful diagnostics, but renderer
+    // variants may delay or omit them and must not turn a visible final answer
+    // into "conversation ended without final reply".
+    const finalByCopy = Boolean(
+      content
+      && responseActions.has('copy')
+      && !streaming
+      && !stopVisible,
+    );
     const finalByActions = Boolean(content && responseActionsComplete && !stopVisible);
-    // Current ChatGPT builds can finish rendering before every secondary
-    // action button is mounted/labeled. Treat an explicit non-streaming
-    // completion marker plus the response-local Copy action as equivalent
-    // final evidence. A bare static marker or a lone Copy while streaming is
-    // still insufficient.
+    // Keep the explicit marker path for compatibility and diagnostics. Copy is
+    // still response-local and ownership-bound; a bare static marker alone is
+    // never sufficient.
     const finalByStaticCopy = Boolean(
       content
       && explicitFinal
@@ -3683,7 +3694,7 @@ async function bootstrapAttempt() {
       // requires the current assistant turn's visible reply toolbar:
       // copy + share/rate/like/dislike, with no Stop button. Static renderer
       // markers remain diagnostic only and never authorize completion.
-      final: finalByActions || finalByStaticCopy,
+      final: finalByCopy || finalByActions || finalByStaticCopy,
       owned,
       responseActions: [...responseActions],
       responseActionsComplete,
@@ -4048,7 +4059,14 @@ async function bootstrapAttempt() {
       && previous?.text === sample.text
       && now - Number(previous.recoveredStaticSince || previous.since || 0) >= RECOVERED_STATIC_FINAL_STABILITY_MS
     );
-    if (finalStayedStable || recoveredStaticStayedStable) return { state:'complete' };
+    const naturalFinalStayedStable = Boolean(
+      sample.naturalFinalCandidate
+      && sample.text
+      && previous?.naturalFinalCandidate
+      && previous?.text === sample.text
+      && now - Number(previous.naturalFinalSince || previous.since || 0) >= ENDED_NO_FINAL_STABILITY_MS
+    );
+    if (finalStayedStable || recoveredStaticStayedStable || naturalFinalStayedStable) return { state:'complete' };
     // Stop-disappearance handoff is handled before classification whenever this
     // dispatch actually observed Stop. Reaching this fallback therefore means
     // there is no verified Stop transition for this dispatch (for example a
@@ -5499,6 +5517,28 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const conversationTail = visibleConversationProgressFingerprint();
     const fingerprintMs = performance.now() - fingerprintStartedAt;
     const fingerprintStats = lastFingerprintStats;
+    // Some ChatGPT renderer variants can finish a natural-language reply
+    // without exposing a response action row that this build recognizes.
+    // This fallback is intentionally stronger than generic "conversation
+    // ended": it requires exact-route + marker-derived ownership and a fully
+    // idle, safe composer state. Route-only recovery ownership is excluded.
+    const naturalFinalCandidate = Boolean(
+      routeOwned
+      && turn.owned
+      && String(turn.text || '').trim()
+      && turn.hasNaturalReply
+      && !turn.final
+      && !stopPresent
+      && !activityStreaming
+      && !pending.length
+      && !effectiveLoading
+      && !currentBlocker
+      && !currentRateLimit
+      && !retryableError
+      && composerReady
+      && composerEmpty
+      && !task.attempted
+    );
     const sample = {
       stop:stopPresent,
       cards:approvalRouteEligible ? pending.length : 0,
@@ -5519,6 +5559,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       responseActionsComplete:turn.responseActionsComplete,
       explicitFinal:turn.explicitFinal,
       recoveredStaticCandidate:Boolean(turn.recoveredStaticCandidate),
+      naturalFinalCandidate,
       recoveredStaticStaleLoadingEnd,
       routeEndedOwned,
       activityText,
@@ -5561,6 +5602,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       sample.routeOwned
       && (sample.owned || sample.routeEndedOwned)
       && !sample.final
+      && !sample.naturalFinalCandidate
       && (!sample.recoveredStaticCandidate || Boolean(cacheRetry) || sample.recoveredStaticStaleLoadingEnd)
       && !cacheRetryAttempted
       && !sample.stop
@@ -5637,6 +5679,11 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && previous?.text === sample.text
         ? (previous.recoveredStaticSince || previous.since || now)
         : sample.recoveredStaticCandidate ? now : 0;
+    const naturalFinalSince = sample.naturalFinalCandidate
+      && previous?.naturalFinalCandidate
+      && previous?.text === sample.text
+        ? (previous.naturalFinalSince || previous.since || now)
+        : sample.naturalFinalCandidate ? now : 0;
     observations.set(task.id, {
       text:sample.text,
       since:stable ? previous.since : now,
@@ -5645,6 +5692,8 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       finalSince,
       recoveredStaticCandidate:Boolean(sample.recoveredStaticCandidate),
       recoveredStaticSince,
+      naturalFinalCandidate:Boolean(sample.naturalFinalCandidate),
+      naturalFinalSince,
       stop:Boolean(sample.stop),
       streaming:Boolean(sample.streaming),
       loading:Boolean(sample.loading),
