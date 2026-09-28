@@ -5498,9 +5498,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && !stopPresent
       && !activityStreaming
       && !pending.length
-      && !rawLoading
       && !effectiveLoading
-      && !turn.recoveredStaticCandidate
       && !currentBlocker
       && !currentRateLimit
       && !task.attempted,
@@ -5533,7 +5531,9 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && !stopPresent
       && !activityStreaming
       && !pending.length
+      && !rawLoading
       && !effectiveLoading
+      && !turn.recoveredStaticCandidate
       && !currentBlocker
       && !currentRateLimit
       && !retryableError
