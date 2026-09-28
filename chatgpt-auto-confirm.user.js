@@ -2499,6 +2499,104 @@ async function bootstrapAttempt() {
     });
   }
   function composer() { return nodes('#prompt-textarea,textarea,[contenteditable=true]').find(enabled); }
+  function modelPickerTrigger() {
+    const primary = nodes('button[data-codex-intelligence-trigger="true"][data-composer-navigation-target="reasoning"]').find(enabled);
+    if (primary) return primary;
+    return nodes('button[data-selected-reasoning-effort]').find(node => enabled(node)
+      && /chatgpt|模型|model|reasoning|思考/i.test(label(node)));
+  }
+  function reasoningSlider() {
+    const direct = nodes('[data-reasoning-slider="true"] [role="slider"]').find(visible);
+    if (direct) return direct;
+    return nodes('[role="slider"][aria-valuemin][aria-valuemax]').find(node => visible(node)
+      && Boolean(node.closest?.('[data-model-picker-power-slider],[role="menu"]')));
+  }
+  async function openReasoningSlider(trigger, signal) {
+    if (!trigger || !enabled(trigger)) return null;
+    if (trigger.getAttribute('aria-expanded') !== 'true') {
+      trigger.click();
+      for (let attempt = 0; attempt < 12; attempt++) {
+        await delay(100, signal); check(signal);
+        const slider = reasoningSlider();
+        if (slider) return slider;
+      }
+      return null;
+    }
+    return reasoningSlider();
+  }
+  async function closeReasoningSlider(trigger, signal) {
+    if (trigger?.isConnected && trigger.getAttribute('aria-expanded') === 'true') {
+      trigger.click();
+      await delay(80, signal);
+      check(signal);
+    }
+  }
+  function dispatchReasoningSliderKey(slider, key) {
+    slider?.focus?.();
+    const init = { key, code:key, bubbles:true, cancelable:true };
+    slider?.dispatchEvent?.(new KeyboardEvent('keydown', init));
+    slider?.dispatchEvent?.(new KeyboardEvent('keyup', init));
+  }
+  async function ensureTaskModelTier(task, signal, { logSuccess = false } = {}) {
+    const tier = normalizeModelTier(task?.modelTier);
+    if (task) task.modelTier = tier;
+    const definition = modelTierDefinition(tier);
+    const trigger = modelPickerTrigger();
+    if (!trigger) {
+      if (task) state(task, 'sending', '未找到 ChatGPT 模型/思考强度选择器；不会使用未知默认档位发送。等待页面恢复后重试。');
+      return false;
+    }
+    let slider = await openReasoningSlider(trigger, signal);
+    if (!slider) {
+      if (task) state(task, 'sending', 'ChatGPT 模型菜单已打开但未找到思考强度滑块；不会发送到未知档位。等待页面恢复后重试。');
+      await closeReasoningSlider(trigger, signal).catch(() => {});
+      return false;
+    }
+    const min = Number(slider.getAttribute('aria-valuemin'));
+    const max = Number(slider.getAttribute('aria-valuemax'));
+    if (!Number.isFinite(min) || !Number.isFinite(max) || definition.slider < min || definition.slider > max) {
+      if (task) state(task, 'blocked', `所选模型档位“${definition.label}”当前不可用（ChatGPT 滑块范围 ${Number.isFinite(min)?min:'?'}–${Number.isFinite(max)?max:'?'}）；未发送任务。`);
+      await closeReasoningSlider(trigger, signal).catch(() => {});
+      save();
+      return false;
+    }
+    let current = Number(slider.getAttribute('aria-valuenow'));
+    for (let step = 0; step < 8 && current !== definition.slider; step++) {
+      check(signal);
+      const key = current < definition.slider ? 'ArrowRight' : 'ArrowLeft';
+      dispatchReasoningSliderKey(slider, key);
+      let moved = false;
+      for (let wait = 0; wait < 8; wait++) {
+        await delay(100, signal); check(signal);
+        slider = reasoningSlider();
+        const next = Number(slider?.getAttribute?.('aria-valuenow'));
+        if (Number.isFinite(next) && next !== current) {
+          current = next;
+          moved = true;
+          break;
+        }
+      }
+      if (!moved) break;
+    }
+    const verified = Number(reasoningSlider()?.getAttribute?.('aria-valuenow'));
+    if (verified !== definition.slider) {
+      if (task) state(task, 'blocked', `无法把 ChatGPT 模型档位切换到“${definition.label}”；当前滑块停在 ${Number.isFinite(verified)?verified:'未知'}，为避免用错误模型发送，任务已停止发送。`);
+      await closeReasoningSlider(trigger, signal).catch(() => {});
+      save();
+      return false;
+    }
+    await closeReasoningSlider(trigger, signal);
+    if (task) {
+      task.modelTierLastVerified = tier;
+      task.modelTierVerifiedAt = Date.now();
+      if (logSuccess && task.modelTierLastLogged !== tier) {
+        task.modelTierLastLogged = tier;
+        log(task, `已确认 ChatGPT 模型档位：${definition.label}；随后才会发送本轮任务。`);
+      }
+      save();
+    }
+    return true;
+  }
   function attachmentInputFor(input = composer(), preferredMetas = []) {
     const form = input?.closest?.('form');
     const composerHost = input?.closest?.('[data-testid*="composer"],[data-testid*="Composer"]') || form;
