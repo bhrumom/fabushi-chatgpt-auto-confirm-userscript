@@ -1927,9 +1927,10 @@ test('post-Send local-chatgpt route is ignored until the durable server route ap
   const task={id:'local-route-guard',goal:'capture only durable route',mode:'once',phase:'work',round:1,state:'queued',url:'',token:'',messages:[]};
   h.data.tasks.push(task);
   await h.start();
-  await h.send(task,null);
+  const deadline=Date.now()+5000;
+  while(!task.url && Date.now()<deadline) await new Promise(resolve=>setTimeout(resolve,50));
   h.pause();
-  assert.equal(sends,1,'the original Send is clicked exactly once');
+  assert.equal(sends,1,'the scheduler clicks the original Send exactly once');
   assert.equal(task.url,'https://chatgpt.com/c/6aba1ad0-50c0-83e8-9b76-ade67716f47a');
   assert.deepEqual(Array.from(task.sessionUrls),['https://chatgpt.com/c/6aba1ad0-50c0-83e8-9b76-ade67716f47a']);
   assert.equal(task.sessionUrls.some(url=>url.includes('local-chatgpt')),false);
