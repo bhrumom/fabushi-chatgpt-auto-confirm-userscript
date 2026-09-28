@@ -1803,9 +1803,19 @@ async function bootstrapAttempt() {
       }
       return contentUnit;
     }
-    const direct = node.matches?.(`[data-message-author-role="${wanted}"],[data-turn="${wanted}"],[data-author-role="${wanted}"]`)
+    // Legacy/current transitional DOM can put data-turn/data-author-role on
+    // an outer turn and data-message-author-role on an inner host for the same
+    // logical message. Prefer that inner legacy host from either direction so
+    // the two selector families canonicalize to one node instead of doubling
+    // user/assistant counts.
+    const legacyHost = node.matches?.(`[data-message-author-role="${wanted}"]`)
       ? node
-      : node.closest?.(`[data-message-author-role="${wanted}"],[data-turn="${wanted}"],[data-author-role="${wanted}"]`);
+      : node.closest?.(`[data-message-author-role="${wanted}"]`)
+        || node.querySelector?.(`[data-message-author-role="${wanted}"]`);
+    if (legacyHost) return legacyHost;
+    const direct = node.matches?.(`[data-turn="${wanted}"],[data-author-role="${wanted}"]`)
+      ? node
+      : node.closest?.(`[data-turn="${wanted}"],[data-author-role="${wanted}"]`);
     if (direct) return direct;
     const conversationRoleHost = node.matches?.(`[data-conversation-role="${wanted}"]`)
       ? node
