@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.6
+// @version      2.10.7
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.6';
+  const VERSION = '2.10.7';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -475,6 +475,29 @@ async function bootstrapAttempt() {
     window.opener = null;
   }
   sessionStorage.setItem(TAB_SESSION_KEY, tabId);
+  const MODEL_TIER_DEFAULT = 'max';
+  const MODEL_TIERS = Object.freeze({
+    instant:Object.freeze({ value:'instant', label:'即时', slider:0, effort:'none' }),
+    medium:Object.freeze({ value:'medium', label:'中', slider:1, effort:'medium' }),
+    high:Object.freeze({ value:'high', label:'高', slider:2, effort:'high' }),
+    max:Object.freeze({ value:'max', label:'极高', slider:3, effort:'max' }),
+    pro:Object.freeze({ value:'pro', label:'Pro', slider:4, effort:'' }),
+  });
+  function normalizeModelTier(value) {
+    const raw = String(value || '').trim().toLowerCase();
+    if (MODEL_TIERS[raw]) return raw;
+    if (raw === 'none' || raw === 'instantaneous' || raw === 'fast') return 'instant';
+    if (raw === 'mid' || raw === 'normal') return 'medium';
+    if (raw === 'extra-high' || raw === 'extra_high' || raw === 'maximum' || raw === 'extreme' || raw === 'xhigh') return 'max';
+    if (raw === 'professional') return 'pro';
+    return MODEL_TIER_DEFAULT;
+  }
+  function modelTierDefinition(value) {
+    return MODEL_TIERS[normalizeModelTier(value)] || MODEL_TIERS[MODEL_TIER_DEFAULT];
+  }
+  function modelTierLabel(value) {
+    return modelTierDefinition(value).label;
+  }
   const data = read(KEY, { tasks: [], selected: '', autoApprove: true });
   if (!Array.isArray(data.tasks)) data.tasks = [];
   if (!Array.isArray(data.deletedTaskIds)) data.deletedTaskIds = [];
@@ -482,6 +505,7 @@ async function bootstrapAttempt() {
     if (!Array.isArray(task.messages)) task.messages = [];
     if (!Number.isFinite(Number(task.messageVersion))) task.messageVersion = task.messages.length;
     if (!Number.isFinite(Number(task.goalRevision))) task.goalRevision = 0;
+    task.modelTier = normalizeModelTier(task.modelTier);
     task.attachments = Array.isArray(task.attachments)
       ? task.attachments.map(normalizeAttachmentMeta).filter(Boolean)
       : [];
@@ -6234,11 +6258,11 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     haltRunnerForPause();
     paint();
   }
-  function enqueue(goal, taskMode = mode, attachments = []) {
+  function enqueue(goal, taskMode = mode, attachments = [], modelTier = MODEL_TIER_DEFAULT) {
     if (!goal.trim()) throw new Error('请输入任务目标');
     if (tabTasks().length >= 50) throw new Error('每个标签页最多保存 50 个任务，请先归档已完成任务。');
     const normalizedAttachments = Array.from(attachments || []).map(normalizeAttachmentMeta).filter(Boolean);
-    const task = { id:id(), ownerTabId:tabId, goal:goal.trim().slice(0,16000), mode:taskMode, state:'queued', phase:'work', round:1, url:'', attachments:normalizedAttachments, messages:[], messageVersion:0, goalRevision:0 };
+    const task = { id:id(), ownerTabId:tabId, goal:goal.trim().slice(0,16000), mode:taskMode, modelTier:normalizeModelTier(modelTier), state:'queued', phase:'work', round:1, url:'', attachments:normalizedAttachments, messages:[], messageVersion:0, goalRevision:0 };
     data.tasks.push(task); selected = task.id;
     // A newly submitted goal must not wait behind an older task whose
     // persisted URL is stale or synthetic. Make it the next scheduler target
