@@ -2516,7 +2516,7 @@ async function bootstrapAttempt() {
     if (trigger.getAttribute('aria-expanded') !== 'true') {
       trigger.click();
       for (let attempt = 0; attempt < 12; attempt++) {
-        await delay(100, signal); check(signal);
+        await delay(100, signal || null); if (signal) check(signal);
         const slider = reasoningSlider();
         if (slider) return slider;
       }
@@ -2527,8 +2527,8 @@ async function bootstrapAttempt() {
   async function closeReasoningSlider(trigger, signal) {
     if (trigger?.isConnected && trigger.getAttribute('aria-expanded') === 'true') {
       trigger.click();
-      await delay(80, signal);
-      check(signal);
+      await delay(80, signal || null);
+      if (signal) check(signal);
     }
   }
   function dispatchReasoningSliderKey(slider, key) {
@@ -2562,12 +2562,12 @@ async function bootstrapAttempt() {
     }
     let current = Number(slider.getAttribute('aria-valuenow'));
     for (let step = 0; step < 8 && current !== definition.slider; step++) {
-      check(signal);
+      if (signal) check(signal);
       const key = current < definition.slider ? 'ArrowRight' : 'ArrowLeft';
       dispatchReasoningSliderKey(slider, key);
       let moved = false;
       for (let wait = 0; wait < 8; wait++) {
-        await delay(100, signal); check(signal);
+        await delay(100, signal || null); if (signal) check(signal);
         slider = reasoningSlider();
         const next = Number(slider?.getAttribute?.('aria-valuenow'));
         if (Number.isFinite(next) && next !== current) {
