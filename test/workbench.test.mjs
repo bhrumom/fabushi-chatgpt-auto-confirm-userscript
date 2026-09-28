@@ -4,6 +4,58 @@ import { readFileSync } from 'node:fs';
 import { JSDOM } from 'jsdom';
 
 const source = readFileSync(new URL('../chatgpt-auto-confirm.user.js', import.meta.url), 'utf8');
+function installTestModelPicker(w) {
+  if (w.__FABUSHI_TEST_NO_MODEL_PICKER || w.document.querySelector('[data-codex-intelligence-trigger="true"]')) return null;
+  const effort = {0:'none',1:'medium',2:'high',3:'max',4:'medium'};
+  let current = Number.isFinite(Number(w.__FABUSHI_TEST_MODEL_TIER)) ? Number(w.__FABUSHI_TEST_MODEL_TIER) : 3;
+  const max = Number.isFinite(Number(w.__FABUSHI_TEST_MODEL_MAX)) ? Number(w.__FABUSHI_TEST_MODEL_MAX) : 4;
+  current = Math.max(0, Math.min(max, current));
+  const trigger=w.document.createElement('button');
+  trigger.type='button';
+  trigger.setAttribute('aria-label','选择 ChatGPT 模型');
+  trigger.setAttribute('data-codex-intelligence-trigger','true');
+  trigger.setAttribute('data-composer-navigation-target','reasoning');
+  trigger.setAttribute('data-selected-reasoning-effort',effort[current]);
+  trigger.setAttribute('aria-haspopup','menu');
+  trigger.setAttribute('aria-expanded','false');
+  const menu=w.document.createElement('div');
+  menu.setAttribute('role','menu');
+  menu.hidden=true;
+  const control=w.document.createElement('div');
+  control.setAttribute('data-reasoning-slider','true');
+  control.setAttribute('role','menuitem');
+  control.setAttribute('aria-label','强度');
+  const slider=w.document.createElement('span');
+  slider.setAttribute('role','slider');
+  slider.setAttribute('aria-valuemin','0');
+  slider.setAttribute('aria-valuemax',String(max));
+  slider.setAttribute('aria-valuenow',String(current));
+  slider.hidden=true;
+  w.__FABUSHI_TEST_MODEL_KEY_COUNT=0;
+  w.__FABUSHI_TEST_MODEL_OPEN_COUNT=0;
+  const setValue=value=>{
+    current=Math.max(0,Math.min(max,Number(value)));
+    slider.setAttribute('aria-valuenow',String(current));
+    trigger.setAttribute('data-selected-reasoning-effort',effort[current]);
+  };
+  trigger.addEventListener('click',()=>{
+    const open=trigger.getAttribute('aria-expanded')!=='true';
+    trigger.setAttribute('aria-expanded',open?'true':'false');
+    menu.hidden=!open;
+    slider.hidden=!open;
+    if(open)w.__FABUSHI_TEST_MODEL_OPEN_COUNT++;
+  });
+  slider.addEventListener('keydown',event=>{
+    if(w.__FABUSHI_TEST_MODEL_MOVABLE===false)return;
+    if(event.key==='ArrowLeft'&&current>0){w.__FABUSHI_TEST_MODEL_KEY_COUNT++;setValue(current-1);}
+    if(event.key==='ArrowRight'&&current<max){w.__FABUSHI_TEST_MODEL_KEY_COUNT++;setValue(current+1);}
+  });
+  control.append(slider);
+  menu.append(control);
+  w.document.body.append(trigger,menu);
+  w.__FABUSHI_TEST_MODEL_PICKER={trigger,menu,slider,setValue};
+  return w.__FABUSHI_TEST_MODEL_PICKER;
+}
 async function fixture(body='', setup=()=>{}, url='https://chatgpt.com/') {
   const dom = new JSDOM(`<body>${body}</body>`, { url, runScripts:'outside-only' });
   const w = dom.window;
@@ -12,7 +64,8 @@ async function fixture(body='', setup=()=>{}, url='https://chatgpt.com/') {
   const held = new Set();
   w.navigator.locks = {query:async()=>({held:[...held].map(name=>({name}))}),request:async(name,options,callback)=>{callback ||= options;if(held.has(name))return callback(null);held.add(name);try{return await callback({name});}finally{held.delete(name);}}};
   setup(w);
-  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, refreshInterruptedStopStall, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
+  installTestModelPicker(w);
+  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, enqueue, normalizeModelTier, modelTierLabel, modelPickerTrigger, reasoningSlider, ensureTaskModelTier, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, refreshInterruptedStopStall, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('runtime blocked transition immediately becomes a fresh queued resend',async()=>{
@@ -4441,8 +4494,8 @@ test('durable handoff snapshot is phase round and goal-revision bound and cannot
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.10\.6$/m);
-  assert.match(source,/const VERSION = '2\.10\.6'/);
+  assert.match(source,/^\/\/ @version\s+2\.10\.7$/m);
+  assert.match(source,/const VERSION = '2\.10\.7'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 \* 60 \* 1000/);
