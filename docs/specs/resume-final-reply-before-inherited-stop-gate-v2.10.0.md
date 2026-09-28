@@ -93,6 +93,8 @@ No data migration is required. Rollback is the previous userscript asset; persis
 
 Use the workbench scan counter, task status log, focused regression names, full test totals, exact commit, CI run, and live Fabushi reproduction result.
 
+Delivery evidence (2026-09-28): PR #109 Test #328 passed on exact head `c6c2c4167bf6fe13e3079ae4044da7be7bc927bb`; merge `7be10cba16d6f20731d6a4fd2b7104af7586289d` passed canonical-main Test #329 and Release #141; GitHub Release `v2.10.0` exposes the userscript asset with the size and digest recorded below. Live Fabushi reproduction remains blocked until an account-scoped device is online.
+
 ## 16. References / provenance
 
 - `docs/specs/reload-hydration-and-reply-carry-v2.9.98.md`
@@ -109,5 +111,6 @@ Use the workbench scan counter, task status log, focused regression names, full 
 | R5 / AC-3 | passed | Existing `reload inherited Stop observation waits for full hydration and stable absence before fresh handoff` and `Stop reappearing after reload binds the current document and cancels inherited absence timer` remain green. |
 | R6-R7 / AC-2 | passed | The inherited-wait branch stores a bounded observation, increments scan timing/count, and logs the unhydrated wait once through existing duplicate-log suppression; regression asserts the first wait scan is observable. |
 | R8 | passed | Full local suite: 260 tests, 253 passed, 0 failed, 7 explicitly skipped; pause/resume, authorization, route ownership, reply carry and diagnostic-only memory regressions remain green. |
-| R9 / AC-6 | pending | v2.10.0 metadata/runtime/README are prepared; exact-head CI, merge, canonical-main Test, Release and asset readback are not yet complete. |
+| R9 | passed | PR #109 exact-head Test #328 (run `36360922744`) succeeded on `c6c2c4167bf6fe13e3079ae4044da7be7bc927bb`; squash merge `7be10cba16d6f20731d6a4fd2b7104af7586289d` reached canonical `main`; canonical-main Test #329 (run `36360989704`) succeeded; Release #141 (run `36361026966`) succeeded; tag `v2.10.0` targets the merge commit. |
+| AC-6 | blocked | GitHub Release `v2.10.0` is published with `chatgpt-auto-confirm.user.js` (355488 bytes, `sha256:73ce13b0a74e93a95141e1c00dc43a0514a1ff76595510542ff277daba13f6ff`). The connected Fabushi account currently reports no online device, so a live Fabushi-host install/retest of the original incident cannot be verified in this turn; release existence is not treated as proof of live installation. |
 | AC-5 | passed | `node --check chatgpt-auto-confirm.user.js`, focused regressions, `npm test`, and `git diff --check` pass locally. |
