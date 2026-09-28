@@ -61,10 +61,12 @@ Important properties:
 
 1. The user and assistant messages share one `data-content-search-turn-key` container.
 2. User and assistant message identity is carried by separate `data-content-search-unit-key` values ending in `:user` / `:assistant`.
-3. The assistant Copy toolbar is outside the assistant unit but inside the same outer turn.
-4. The user Copy button is inside the user unit. It must never satisfy assistant finality.
-5. The assistant unit can also expose `data-conversation-role="assistant"` and `data-markdown-text-style="assistant-message"`.
-6. A user unit can expose `data-user-message-bubble="true"` and, for rich text, `data-markdown-text-tone="user-message"`.
+3. A live user message can have an outer `data-chatgpt-search-unit-key="...:user"` wrapper containing an inner `data-content-search-unit-key="...:user"` with the same key. Both are visible; they must canonicalize to one message.
+4. The assistant Copy toolbar is outside the assistant unit but inside the same outer turn.
+5. The user Copy button is inside the user unit. It must never satisfy assistant finality.
+6. The assistant unit can also expose `data-conversation-role="assistant"` and `data-markdown-text-style="assistant-message"`.
+7. A user unit can expose `data-user-message-bubble="true"` and, for rich text, `data-markdown-text-tone="user-message"`.
+8. During an active response, primary assistant Markdown can temporarily live directly under the outer fallback turn without a committed content-search unit. Agent/activity summaries use the same `data-markdown-text-style="assistant-message"` but `data-markdown-text-tone="tertiary"`; only `tone="primary"` is a transient assistant message boundary.
 
 ## 3. Root cause
 
@@ -93,7 +95,7 @@ There is a second structural trap: one `data-content-search-turn-key` contains b
   - `data-markdown-text-style="assistant-message"`
   - `data-markdown-text-tone="user-message"`
 - R2: For the fallback renderer, the canonical message boundary is the content-search unit, not the outer content-search turn.
-- R3: De-duplication is by message boundary + role, not by outer turn.
+- R3: De-duplication is by canonical message boundary + role, not by outer turn. An outer `data-chatgpt-search-unit-key` and inner `data-content-search-unit-key` with the same role/key canonicalize to the inner content unit.
 - R4: `visibleConversationHasMessages()` returns true when a rendered fallback user or assistant unit is present.
 - R5: `pageLoadingState()` does not classify a complete fallback transcript as a shell-only page.
 - R6: `taskMarkerUser()` can find a Fabushi marker inside a fallback user unit.
@@ -102,7 +104,7 @@ There is a second structural trap: one `data-content-search-turn-key` contains b
 - R9: A user Copy control inside the user unit cannot mark the assistant reply final.
 - R10: An assistant Copy control after the assistant unit but inside the same outer fallback turn is valid final UI evidence when Stop/streaming are absent.
 - R11: Existing old/foreign toolbar protections remain fail-closed.
-- R12: Progress fingerprinting and transcript handoff use canonical message units.
+- R12: Progress fingerprinting and transcript handoff use canonical message units. Transient assistant discovery excludes tertiary activity summaries and accepts only primary assistant Markdown outside committed units.
 - R13: Approval-card scanning remains bounded to recent conversation surfaces and does not regress.
 - R14: Existing durable renderer-recovery exhaustion from v2.10.4 remains unchanged.
 - R15: Release as v2.10.5 only after exact-head and canonical-main tests succeed.
@@ -136,7 +138,9 @@ Add regression fixtures matching the live DOM:
 5. user Copy inside user unit cannot complete an assistant reply when assistant Copy is absent.
 6. rich user Markdown is excluded from assistant text.
 7. legacy `data-message-author-role` and v2.10.4 `data-turn` paths remain green.
-8. full regression suite remains green.
+8. nested `data-chatgpt-search-unit-key` + `data-content-search-unit-key` wrappers count once.
+9. transient primary assistant Markdown counts as one assistant boundary while tertiary activity summaries are excluded.
+10. full regression suite remains green.
 
 ## 8. Acceptance
 
