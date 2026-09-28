@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.1
+// @version      2.10.2
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.1';
+  const VERSION = '2.10.2';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -1737,6 +1737,26 @@ async function bootstrapAttempt() {
   const nodes = (selector, scope = document) => scope?.querySelectorAll
     ? [...scope.querySelectorAll(selector)].filter(node => !own(node))
     : [];
+  const conversationTurnSelector = 'article,[data-testid^="conversation-turn-"],[data-turn-key],[data-content-search-turn-key]';
+  const semanticMessageSelector = '.markdown,[data-message-content],[data-selected-text-overlay-target]';
+  function renderedConversationMessage(node) {
+    if (!node?.isConnected || own(node) || node.closest?.('[hidden],[inert]')) return false;
+    const css = getComputedStyle(node);
+    if (css.display === 'none' || css.visibility === 'hidden') return false;
+    if (node.getClientRects().length > 0) return true;
+    // ChatGPT can make the role host layout-neutral (for example
+    // display:contents) while the actual message child remains painted.
+    const semantic = [];
+    if (node.matches?.(semanticMessageSelector)) semantic.push(node);
+    semantic.push(...nodes(semanticMessageSelector, node));
+    if (semantic.some(visible)) return true;
+    // User-message renderer variants do not always expose one of the semantic
+    // assistant-content selectors. A visibly painted owning turn plus text in
+    // the non-hidden role host is sufficient proof that this role is mounted;
+    // role/ownership still come exclusively from data-message-author-role.
+    const turn = node.closest?.(conversationTurnSelector);
+    return Boolean(turn && visible(turn) && hasTextNode(node));
+  }
   function pageUiTextRecords() {
     const startedAt = performance.now();
     const main = document.querySelector('main,[role="main"]');
@@ -1848,7 +1868,7 @@ async function bootstrapAttempt() {
     // enumerating every SVG to inspect computed animation is costly on long
     // transcripts and needlessly treats unrelated animated artwork as loading.
     const turns = nodes('[data-message-author-role=user],[data-message-author-role=assistant]', scope);
-    const hasVisibleTurn = turns.slice(-8).some(visible);
+    const hasVisibleTurn = turns.slice(-8).some(renderedConversationMessage);
     const seen = new Set();
     for (const node of candidates) {
       if (seen.has(node)) continue;
@@ -1872,14 +1892,14 @@ async function bootstrapAttempt() {
   function conversationLoading() { return Boolean(pageLoadingState()); }
   function activeAssistantGeneration() {
     if (stopButton()) return true;
-    const assistant = nodes('[data-message-author-role=assistant]').filter(visible).at(-1);
+    const assistant = nodes('[data-message-author-role=assistant]').filter(renderedConversationMessage).at(-1);
     if (!assistant) return false;
-    const article = assistant.closest('article,[data-testid^="conversation-turn-"],[data-turn-key],[data-content-search-turn-key]') || assistant;
+    const article = assistant.closest(conversationTurnSelector) || assistant;
     return Boolean(article.matches?.('[data-is-streaming="true"],[aria-busy="true"]')
       || article.querySelector('[data-is-streaming="true"],[aria-busy="true"]'));
   }
   function visibleConversationHasMessages() {
-    return nodes('[data-message-author-role=user],[data-message-author-role=assistant]').some(visible);
+    return nodes('[data-message-author-role=user],[data-message-author-role=assistant]').some(renderedConversationMessage);
   }
   function haltRunnerForPause() {
     running = false;
@@ -3258,7 +3278,7 @@ async function bootstrapAttempt() {
     // long conversations.
     const messageNodes = nodes('[data-message-author-role=user],[data-message-author-role=assistant]');
     let inspectedTextChars = 0;
-    const fingerprint = messageNodes.slice(-8).filter(visible).map(node => {
+    const fingerprint = messageNodes.slice(-8).filter(renderedConversationMessage).map(node => {
         const role = node.getAttribute('data-message-author-role') || '';
         const rawTail = textTail(node, 3000);
         inspectedTextChars += rawTail.length;
@@ -5413,7 +5433,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const hasConversationEvidence = Boolean(
       String(activityTurn?.text || '').trim()
       || latestMountedUser
-      || nodes('[data-message-author-role=assistant]').some(visible)
+      || nodes('[data-message-author-role=assistant]').some(renderedConversationMessage)
     );
     // A manually/recovered-owned static reply is normally allowed to finish
     // through the bounded static-final fallback. However, when ChatGPT also
