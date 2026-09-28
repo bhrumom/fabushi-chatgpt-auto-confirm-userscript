@@ -1567,13 +1567,12 @@ async function bootstrapAttempt() {
     return Boolean(taskMarkerUser(task));
   }
   function recordedConversationURL(task) {
-    const candidates = [
-      task?.url,
-      task?.sessionUrl,
-      ...(Array.isArray(task?.sessionUrls) ? task.sessionUrls : []),
-      ...(Array.isArray(task?.history) ? task.history.map(item => item?.url) : []),
-    ];
-    return candidates.map(canonicalConversationURL).find(Boolean) || '';
+    // Only the current-generation binding is resumable. sessionUrls/history
+    // are audit history across prior rounds/handoffs and must never be silently
+    // promoted when the current binding is absent or transient.
+    return canonicalConversationURL(task?.url)
+      || canonicalConversationURL(task?.sessionUrl)
+      || '';
   }
   function recordConversationURL(task, value) {
     if (!task) return '';
@@ -1581,7 +1580,9 @@ async function bootstrapAttempt() {
     if (!canonical) return '';
     task.url = canonical;
     task.sessionUrl = canonical;
-    const urls = Array.isArray(task.sessionUrls) ? task.sessionUrls.filter(Boolean) : [];
+    const urls = Array.isArray(task.sessionUrls)
+      ? task.sessionUrls.map(canonicalConversationURL).filter(Boolean)
+      : [];
     if (!urls.includes(canonical)) urls.push(canonical);
     task.sessionUrls = urls.slice(-40);
     return canonical;
