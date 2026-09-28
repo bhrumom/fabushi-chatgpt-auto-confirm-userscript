@@ -2380,7 +2380,7 @@ async function bootstrapAttempt() {
     let current = node;
     for (let depth = 0; current && depth <= maxDepth; depth++, current = current.parentElement) {
       if (own(current)) break;
-      if (depth > 0 && current.matches?.('main,body,html,nav,aside,header,footer,[role="navigation"],[role="banner"],[role="contentinfo"],[data-message-author-role]')) break;
+      if (depth > 0 && current.matches?.(`main,body,html,nav,aside,header,footer,[role="navigation"],[role="banner"],[role="contentinfo"],${conversationRoleSelector}`)) break;
       result.push(current);
     }
     return result;
@@ -2422,7 +2422,7 @@ async function bootstrapAttempt() {
   }
   function attachmentSurfaceExcluded(node) {
     return Boolean(node?.matches?.('textarea,[contenteditable="true"],input[type="file"]')
-      || node?.closest?.('[data-message-author-role],nav,aside,header,footer,[role="navigation"],[role="banner"],[role="contentinfo"]'));
+      || node?.closest?.(`${conversationRoleSelector},nav,aside,header,footer,[role="navigation"],[role="banner"],[role="contentinfo"]`));
   }
   function attachmentFileMatches(meta, file) {
     if (!meta || !file) return false;
@@ -2871,8 +2871,11 @@ async function bootstrapAttempt() {
       return false;
     };
     const responseTurn = turn || (() => {
-      const assistant = nodes('[data-message-author-role="assistant"]').at(-1);
-      const article = assistant?.closest?.('article,[data-testid^="conversation-turn-"],[data-turn-key],[data-content-search-turn-key]') || assistant;
+      const assistant = conversationRoleNodes('assistant').at(-1);
+      const assistantUnit = conversationMessageUnit(assistant, 'assistant') || assistant;
+      const article = contentSearchUnitRole(assistantUnit) === 'assistant'
+        ? assistantUnit
+        : assistant?.closest?.('article,[data-testid^="conversation-turn-"],[data-turn-key],[data-content-search-turn-key]') || assistant;
       return article ? { article } : null;
     })();
     // A visible assistant error is actionable only when it belongs to the
@@ -2889,7 +2892,7 @@ async function bootstrapAttempt() {
     for (const record of getPageRecords()) {
       const parent = record.parent;
       if (!parent || !pattern.test(record.direct) || !visible(parent)) continue;
-      const message = parent.closest('[data-message-author-role]');
+      const message = parent.closest(conversationRoleSelector);
       if (!message) return true;
     }
     return false;
