@@ -3923,6 +3923,109 @@ test('reload inherited Stop observation waits for full hydration and stable abse
   } finally {h.pause();dom.window.close();}
 });
 
+test('live fallback-turn renderer is mounted and binds the assistant Copy outside its message unit',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <div data-content-search-turn-key="fallback-turn-live">
+      <div class="block-BQZwFn">
+        <div class="w-full" data-content-search-unit-key="fallback-turn-live:0:user">
+          <div class="group/user-message">
+            <div data-user-message-bubble="true"><div>finish [Fabushi:fallback-live]</div></div>
+            <button aria-label="复制消息"></button>
+          </div>
+        </div>
+      </div>
+      <div class="block-BQZwFn">
+        <div data-content-search-unit-key="fallback-turn-live:2:assistant"
+             data-chatgpt-search-unit-key="fallback-turn-live:2:assistant"
+             data-chatgpt-search-message-ids="assistant-live assistant-live">
+          <h4 data-conversation-role="assistant">ChatGPT 说：</h4>
+          <div class="group flex min-w-0 flex-col"
+               data-chatgpt-selection-conversation-id="local-chatgpt:test"
+               data-chatgpt-selection-message-id="assistant-live">
+            <div data-selected-text-overlay-target="_live_"
+                 data-markdown-text-style="assistant-message">真实 fallback renderer 的最终回复。</div>
+          </div>
+        </div>
+      </div>
+      <div class="turn-action-controls"><button aria-label="复制"></button><button aria-label="分享"></button></div>
+    </div>
+    <form><textarea id="prompt-textarea"></textarea></form>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/fallback-live');
+    const task={id:'fallback-live',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/fallback-live',token:'fallback-live',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    assert.equal(h.visibleConversationHasMessages(),true,'content-search message units are mounted transcript');
+    assert.equal(h.pageLoadingState(),'','rendered fallback transcript is not a shell-only page');
+    const turn=h.latestTurn(task);
+    assert.equal(turn.owned,true,'Fabushi marker inside fallback user unit establishes ownership');
+    assert.equal(turn.text,'真实 fallback renderer 的最终回复。','assistant read is scoped to :assistant unit');
+    assert.equal(turn.diagnostic.userNodes,1);
+    assert.equal(turn.diagnostic.assistantNodes,1);
+    assert.equal(turn.final,true,'assistant Copy after :assistant inside the same fallback turn is final UI evidence');
+    assert.ok(turn.responseActions.includes('copy'));
+  } finally {h.pause();dom.window.close();}
+});
+
+test('fallback user Copy cannot complete an assistant reply when assistant action row is absent',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <div data-content-search-turn-key="fallback-turn-user-copy-only">
+      <div data-content-search-unit-key="fallback-turn-user-copy-only:0:user">
+        <div data-user-message-bubble="true">finish [Fabushi:fallback-user-copy-only]</div>
+        <button aria-label="复制消息"></button>
+      </div>
+      <div data-content-search-unit-key="fallback-turn-user-copy-only:2:assistant"
+           data-chatgpt-search-unit-key="fallback-turn-user-copy-only:2:assistant">
+        <h4 data-conversation-role="assistant">ChatGPT 说：</h4>
+        <div data-markdown-text-style="assistant-message"
+             data-selected-text-overlay-target="_assistant_">回复已经显示，但没有 assistant 动作栏。</div>
+      </div>
+    </div>
+    <form><textarea id="prompt-textarea"></textarea></form>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/fallback-user-copy-only');
+    const task={id:'fallback-user-copy-only',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/fallback-user-copy-only',token:'fallback-user-copy-only',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    const turn=h.latestTurn(task);
+    assert.equal(turn.owned,true);
+    assert.equal(turn.text,'回复已经显示，但没有 assistant 动作栏。');
+    assert.equal(turn.responseActions.includes('copy'),false,'user Copy inside :user must not bind to assistant');
+    assert.equal(turn.final,false);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('fallback rich user Markdown never leaks into assistant reply extraction',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <div data-content-search-turn-key="fallback-turn-rich-user">
+      <div data-content-search-unit-key="fallback-turn-rich-user:0:user">
+        <div data-user-message-bubble="true">
+          <div data-markdown-text-tone="user-message" data-selected-text-overlay-target="_user_">USER-RICH-TEXT [Fabushi:fallback-rich-user]</div>
+        </div>
+        <button aria-label="复制消息"></button>
+      </div>
+      <div data-content-search-unit-key="fallback-turn-rich-user:2:assistant"
+           data-chatgpt-search-unit-key="fallback-turn-rich-user:2:assistant">
+        <h4 data-conversation-role="assistant">ChatGPT 说：</h4>
+        <div data-markdown-text-style="assistant-message" data-selected-text-overlay-target="_assistant_">ASSISTANT-ONLY-TEXT</div>
+      </div>
+      <div class="turn-action-controls"><button aria-label="复制"></button></div>
+    </div>
+    <form><textarea id="prompt-textarea"></textarea></form>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/fallback-rich-user');
+    const task={id:'fallback-rich-user',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/fallback-rich-user',token:'fallback-rich-user',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    const turn=h.latestTurn(task);
+    assert.equal(turn.text,'ASSISTANT-ONLY-TEXT');
+    assert.doesNotMatch(turn.text,/USER-RICH-TEXT/);
+    assert.equal(turn.final,true);
+    const fingerprint=h.visibleConversationProgressFingerprint();
+    assert.deepEqual(fingerprint.map(item=>item.role),['user','assistant']);
+  } finally {h.pause();dom.window.close();}
+});
+
 test('turn-level data-turn roles are mounted messages and support final reply ownership',async()=>{
   const {h,w,dom}=await fixture(`<main>
     <article data-testid="conversation-turn-1" data-turn="user"><div>finish [Fabushi:turn-level-role]</div></article>
@@ -4194,8 +4297,8 @@ test('durable handoff snapshot is phase round and goal-revision bound and cannot
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.10\.4$/m);
-  assert.match(source,/const VERSION = '2\.10\.4'/);
+  assert.match(source,/^\/\/ @version\s+2\.10\.5$/m);
+  assert.match(source,/const VERSION = '2\.10\.5'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 \* 60 \* 1000/);
