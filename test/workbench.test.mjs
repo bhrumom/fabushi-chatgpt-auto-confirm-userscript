@@ -3034,7 +3034,7 @@ test('same-route recovery is a committed reload path and watchdog re-arms a sche
   }
 });
 
-test('same-tab recovery cooldown retains the runner and workspace lock',async()=>{
+test('same-tab recovery exhaustion retains the runner and workspace lock without another reload',async()=>{
   const {h,w,dom}=await fixture('<main><article data-message-author-role="user">goal [Fabushi:document-recovery-yield]</article><div class="animate-spin"></div></main>');
   try {
     w.history.replaceState({},'', '/c/document-recovery-yield');
@@ -3045,9 +3045,11 @@ test('same-tab recovery cooldown retains the runner and workspace lock',async()=
     h.recoverStalledRoute(new w.URL(task.url),task);
     await new Promise(resolve=>w.setTimeout(resolve,0));
     assert.equal(task.state,'waiting','the persisted task remains resumable');
-    assert.equal(task.ownerTabId,owner,'ownership identity remains bound to the recovery ticket');
-    assert.ok(task.messages.some(message=>message.text.includes('当前标签页')&&message.text.includes('再次刷新')));
-    assert.equal(h.getNavigationState().navigating,false,'the recovery interval is a wait, not an attempted document handoff');
+    assert.equal(task.ownerTabId,owner,'ownership identity remains bound to the same workspace');
+    assert.equal(task.rendererRecoveryExhausted,true);
+    assert.equal(task.routeRecoveryAttempts,2);
+    assert.ok(task.messages.some(message=>message.text.includes('已停止对此会话自动刷新')));
+    assert.equal(h.getNavigationState().navigating,false,'exhaustion is supervision-only, not another document handoff');
     assert.equal(h.getNavigationState().timer,true,'the original page keeps its supervision timer');
     const locks=await w.navigator.locks.query();
     assert.equal(locks.held.some(lock=>lock.name===`fabushi-workspace-v1:${owner}`),true,'the same tab keeps exclusive ownership');
