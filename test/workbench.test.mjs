@@ -3099,7 +3099,7 @@ test('owned route inspection preserves loading recovery counters until loading t
   }
 });
 
-test('loading recovery backs off and retries the same conversation in the current tab',async()=>{
+test('loading recovery reaches a durable same-route limit and never restarts by time alone',async()=>{
   const {h,w,dom}=await fixture();
   try {
     const task={id:'loading-budget',ownerTabId:h.getTabId(),goal:'goal',mode:'once',phase:'work',round:1,goalRevision:0,state:'loading',url:'https://chatgpt.com/c/loading-budget',token:'loading-budget',messages:[],routeRecoveryAttempts:1,workspaceDocumentRecoveryAttempts:0,rendererRecoveryExhausted:false};
@@ -3107,15 +3107,23 @@ test('loading recovery backs off and retries the same conversation in the curren
     h.recoverStalledRoute(new w.URL(task.url),task);
     assert.equal(task.routeRecoveryAttempts,2);
     assert.ok(task.messages.some(message=>/第 2\/2 次/.test(message.text)));
+
     h.recoverStalledRoute(new w.URL(task.url),task);
-    assert.equal(task.workspaceDocumentRecoveryAttempts||0,0,'route recovery no longer requests a replacement document');
+    assert.equal(task.workspaceDocumentRecoveryAttempts||0,0,'route recovery never requests a replacement document');
     assert.equal(task.rendererRecoveryExhausted,true);
-    assert.equal(task.routeRecoveryAttempts,0,'quick attempts reset for the next delayed retry cycle');
-    assert.ok(task.routeRecoveryRetryAt-Date.now()>=59900);
-    assert.match(task.messages.at(-1).text,/60 秒后在此标签页再次刷新/);
-    const ticket=JSON.parse(w.sessionStorage.getItem('fabushi-workbench-navigation-v2'));
-    assert.equal(ticket.path,'/c/loading-budget');
-    assert.equal(ticket.documentRecovery,undefined);
+    assert.equal(task.routeRecoveryAttempts,2,'the exhausted generation keeps its consumed budget');
+    assert.equal(task.routeRecoveryRetryAt||0,0,'time-based retry is disabled');
+    assert.match(task.messages.at(-1).text,/已停止对此会话自动刷新/);
+
+    w.sessionStorage.removeItem('fabushi-workbench-navigation-v2');
+    const oldNow=w.Date.now;
+    const future=oldNow()+24*60*60*1000;
+    w.Date.now=()=>future;
+    h.recoverStalledRoute(new w.URL(task.url),task);
+    assert.equal(task.routeRecoveryAttempts,2,'even a day later the same generation does not restart');
+    assert.equal(task.rendererRecoveryExhausted,true);
+    assert.equal(w.sessionStorage.getItem('fabushi-workbench-navigation-v2'),null,'no new reload ticket is created after exhaustion');
+    w.Date.now=oldNow;
   } finally {
     h.pause();
     dom.window.close();
@@ -3464,7 +3472,7 @@ test('automatic recovery ignores healthy, paused and ambiguous workspaces',async
   ambiguous.dom.window.close();
 });
 
-test('stalled route backs off without changing the current task, attachment, or recovery ticket route',async()=>{
+test('stalled route exhaustion preserves the task and cannot restart the refresh loop',async()=>{
   const {h,w,dom}=await fixture();
   const originalNow=w.Date.now;
   let fakeNow=originalNow();
@@ -3474,17 +3482,17 @@ test('stalled route backs off without changing the current task, attachment, or 
   h.recoverStalledRoute(new w.URL(task.url),task);
   assert.equal(task.workspaceDocumentRecoveryAttempts||0,0);
   assert.equal(task.rendererRecoveryExhausted,true);
+  assert.equal(task.routeRecoveryAttempts,2);
   assert.equal(task.token,'stable-token');
   assert.equal(task.attempted,true);
   assert.deepEqual(task.attachments,[{id:'clip',name:'卡住证据.png',type:'image/png',size:10,lastModified:1}]);
-  assert.equal(w.sessionStorage.getItem('fabushi-workbench-navigation-v2'),null,'cooldown does not start a new-document handoff');
-  fakeNow+=60000;
+  assert.equal(w.sessionStorage.getItem('fabushi-workbench-navigation-v2'),null,'exhaustion does not start a new-document handoff');
+
+  fakeNow+=24*60*60*1000;
   h.recoverStalledRoute(new w.URL(task.url),task);
-  const ticket=JSON.parse(w.sessionStorage.getItem('fabushi-workbench-navigation-v2'));
-  assert.equal(ticket.documentRecovery,undefined);
-  assert.equal(ticket.path,'/c/stalled-route');
-  assert.equal(ticket.href,task.url);
-  assert.equal(task.routeRecoveryAttempts,1,'the delayed attempt restarts same-route reloads');
+  assert.equal(w.sessionStorage.getItem('fabushi-workbench-navigation-v2'),null,'time cannot re-arm same-route reloads');
+  assert.equal(task.routeRecoveryAttempts,2);
+  assert.equal(task.rendererRecoveryExhausted,true);
   h.pause();
   dom.window.close();
 });
@@ -3913,6 +3921,42 @@ test('reload inherited Stop observation waits for full hydration and stable abse
   } finally {h.pause();dom.window.close();}
 });
 
+test('turn-level data-turn roles are mounted messages and support final reply ownership',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <article data-testid="conversation-turn-1" data-turn="user"><div>finish [Fabushi:turn-level-role]</div></article>
+    <article data-testid="conversation-turn-2" data-turn="assistant"><div class="markdown">当前 renderer 的最终回复。</div><button aria-label="Copy response"></button></article>
+    <form><textarea id="prompt-textarea"></textarea></form>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/turn-level-role');
+    const task={id:'turn-level-role',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/turn-level-role',token:'turn-level-role',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    assert.equal(h.visibleConversationHasMessages(),true,'turn-level role hosts count as mounted transcript');
+    assert.equal(h.pageLoadingState(),'','a mounted turn-level transcript is not shell loading');
+    const turn=h.latestTurn(task);
+    assert.equal(turn.owned,true);
+    assert.equal(turn.text,'当前 renderer 的最终回复。');
+    assert.equal(turn.final,true,'response-local Copy on a turn-level assistant is recognized');
+  } finally {h.pause();dom.window.close();}
+});
+
+test('nested data-turn and legacy role hosts are de-duplicated to one user and one assistant turn',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <article data-testid="conversation-turn-1" data-turn="user"><div data-message-author-role="user">finish [Fabushi:nested-role]</div></article>
+    <article data-testid="conversation-turn-2" data-turn="assistant"><div data-message-author-role="assistant"><div class="markdown">done</div></div><button aria-label="Copy response"></button></article>
+    <form><textarea id="prompt-textarea"></textarea></form>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/nested-role');
+    const task={id:'nested-role',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/nested-role',token:'nested-role',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    const turn=h.latestTurn(task);
+    assert.equal(turn.diagnostic.userNodes,1);
+    assert.equal(turn.diagnostic.assistantNodes,1);
+    assert.equal(turn.final,true);
+  } finally {h.pause();dom.window.close();}
+});
+
 test('inherited Stop treats zero-rect rendered transcript as hydrated instead of shell-only',async()=>{
   const {h,w,dom}=await fixture(`<main>
     <article data-testid="conversation-turn-user"><div data-message-author-role="user"><div>continue architecture [Fabushi:reload-zero-rect]</div></div></article>
@@ -4148,8 +4192,8 @@ test('durable handoff snapshot is phase round and goal-revision bound and cannot
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.10\.3$/m);
-  assert.match(source,/const VERSION = '2\.10\.3'/);
+  assert.match(source,/^\/\/ @version\s+2\.10\.4$/m);
+  assert.match(source,/const VERSION = '2\.10\.4'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 \* 60 \* 1000/);
