@@ -12,9 +12,127 @@ async function fixture(body='', setup=()=>{}, url='https://chatgpt.com/') {
   const held = new Set();
   w.navigator.locks = {query:async()=>({held:[...held].map(name=>({name}))}),request:async(name,options,callback)=>{callback ||= options;if(held.has(name))return callback(null);held.add(name);try{return await callback({name});}finally{held.delete(name);}}};
   setup(w);
-  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, refreshInterruptedStopStall, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, normalizeReasoningPreset, reasoningPresetLabel, taskReasoningPreset, reasoningPickerTrigger, reasoningSliderState, ensureTaskReasoningPreset, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, refreshInterruptedStopStall, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
+test('reasoning preset defaults to Extra High and explicit five-position choices persist',async()=>{
+  const {h,dom}=await fixture();
+  try {
+    const defaultTask=h.enqueue('default reasoning');
+    assert.equal(defaultTask.reasoningPreset,3);
+    assert.equal(h.reasoningPresetLabel(defaultTask.reasoningPreset),'极高');
+    const labels=['即时','中','高','极高','Pro'];
+    for(let index=0;index<5;index++){
+      const task=h.enqueue('preset-'+index,'once',[],index);
+      assert.equal(task.reasoningPreset,index);
+      assert.equal(h.reasoningPresetLabel(task.reasoningPreset),labels[index]);
+    }
+    assert.equal(h.taskReasoningPreset({} ),3,'legacy tasks without the field resolve to Extra High');
+  } finally {h.pause();dom.window.close();}
+});
+
+test('reasoning preset selector exposes the five live ChatGPT positions and defaults to Extra High',async()=>{
+  const {w,h,dom}=await fixture();
+  try {
+    const select=w.document.querySelector('select[aria-label="ChatGPT 模型 / 思考强度"]');
+    assert.ok(select);
+    assert.equal(select.value,'3');
+    assert.deepEqual(Array.from(select.options).map(option=>option.textContent),['即时','中','高','极高','Pro（第 5 档）']);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('reasoning preset enforcement moves the live slider before send and verifies the target index',async()=>{
+  const {w,h,dom}=await fixture(`<main>
+    <button type="button" aria-label="选择 ChatGPT 模型" aria-haspopup="menu"
+      aria-expanded="false" data-state="closed" data-codex-intelligence-trigger="true"
+      data-composer-navigation-target="reasoning" data-selected-reasoning-effort="medium">中</button>
+    <form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">Send</button></form>
+  </main>`,window=>{
+    const trigger=window.document.querySelector('[data-codex-intelligence-trigger]');
+    let index=1;
+    const labels=['即时','中','高','极高','Pro'];
+    const efforts=['none','medium','high','max','medium'];
+    const mount=()=>{
+      let menu=window.document.querySelector('[role="menu"]');
+      if(!menu){menu=window.document.createElement('div');menu.setAttribute('role','menu');menu.dataset.state='open';window.document.body.append(menu);}
+      menu.innerHTML='<div role="menuitem" aria-label="强度" data-reasoning-slider="true"><span role="slider" aria-valuemin="0" aria-valuemax="4" aria-valuenow="'+index+'"></span></div>';
+      const control=menu.querySelector('[data-reasoning-slider]');
+      control.addEventListener('keydown',event=>{
+        if(event.key==='ArrowRight')index=Math.min(4,index+1);
+        if(event.key==='ArrowLeft')index=Math.max(0,index-1);
+        const thumb=control.querySelector('[role=slider]');
+        thumb.setAttribute('aria-valuenow',String(index));
+        trigger.setAttribute('data-selected-reasoning-effort',efforts[index]);
+        trigger.textContent=labels[index];
+      });
+    };
+    trigger.addEventListener('click',()=>{
+      const open=trigger.getAttribute('aria-expanded')==='true';
+      trigger.setAttribute('aria-expanded',open?'false':'true');
+      trigger.dataset.state=open?'closed':'open';
+      if(open)window.document.querySelector('[role=menu]')?.remove(); else mount();
+    });
+  });
+  try {
+    const task={id:'reasoning-extra-high',ownerTabId:h.getTabId(),goal:'reasoning',mode:'once',phase:'work',round:1,state:'queued',url:'',reasoningPreset:3,messages:[]};
+    h.data.tasks.push(task);
+    const ok=await h.ensureTaskReasoningPreset(task,null);
+    assert.equal(ok,true);
+    assert.equal(task.reasoningPresetConfirmedIndex,3);
+    const trigger=w.document.querySelector('[data-codex-intelligence-trigger]');
+    assert.equal(trigger.getAttribute('data-selected-reasoning-effort'),'max');
+    assert.equal(trigger.getAttribute('aria-expanded'),'false');
+  } finally {h.pause();dom.window.close();}
+});
+
+test('Pro preset is selected by slider index rather than medium effort alias',async()=>{
+  const {w,h,dom}=await fixture(`<main>
+    <button type="button" aria-label="选择 ChatGPT 模型" aria-haspopup="menu"
+      aria-expanded="false" data-state="closed" data-codex-intelligence-trigger="true"
+      data-composer-navigation-target="reasoning" data-selected-reasoning-effort="medium">中</button>
+    <form><textarea id="prompt-textarea"></textarea></form>
+  </main>`,window=>{
+    const trigger=window.document.querySelector('[data-codex-intelligence-trigger]');
+    let index=1;
+    const labels=['即时','中','高','极高','Pro'];
+    const efforts=['none','medium','high','max','medium'];
+    trigger.addEventListener('click',()=>{
+      const open=trigger.getAttribute('aria-expanded')==='true';
+      trigger.setAttribute('aria-expanded',open?'false':'true');
+      if(open){window.document.querySelector('[role=menu]')?.remove();return;}
+      const menu=window.document.createElement('div');menu.setAttribute('role','menu');
+      menu.innerHTML='<div role="menuitem" aria-label="强度" data-reasoning-slider="true"><span role="slider" aria-valuemin="0" aria-valuemax="4" aria-valuenow="'+index+'"></span></div>';
+      window.document.body.append(menu);
+      const control=menu.querySelector('[data-reasoning-slider]');
+      control.addEventListener('keydown',event=>{
+        if(event.key==='ArrowRight')index=Math.min(4,index+1);
+        if(event.key==='ArrowLeft')index=Math.max(0,index-1);
+        control.querySelector('[role=slider]').setAttribute('aria-valuenow',String(index));
+        trigger.setAttribute('data-selected-reasoning-effort',efforts[index]);
+        trigger.textContent=labels[index];
+      });
+    });
+  });
+  try {
+    const task={id:'reasoning-pro',ownerTabId:h.getTabId(),goal:'pro',mode:'once',phase:'work',round:1,state:'queued',reasoningPreset:4,messages:[]};
+    h.data.tasks.push(task);
+    assert.equal(await h.ensureTaskReasoningPreset(task,null),true);
+    assert.equal(task.reasoningPresetConfirmedIndex,4);
+    assert.equal(w.document.querySelector('[data-codex-intelligence-trigger]').textContent,'Pro');
+    assert.equal(w.document.querySelector('[data-codex-intelligence-trigger]').getAttribute('data-selected-reasoning-effort'),'medium','Pro and Medium share the same effort attribute, so index is authoritative');
+  } finally {h.pause();dom.window.close();}
+});
+
+test('missing reasoning picker blocks preset enforcement instead of silently sending with page default',async()=>{
+  const {h,dom}=await fixture('<main><form><textarea id="prompt-textarea"></textarea></form></main>');
+  try {
+    const task={id:'no-reasoning-picker',ownerTabId:h.getTabId(),goal:'do not send',mode:'once',phase:'work',round:1,state:'queued',reasoningPreset:3,messages:[]};
+    h.data.tasks.push(task);
+    assert.equal(await h.ensureTaskReasoningPreset(task,null),false);
+    assert.match(task.messages.at(-1)?.text||'',/模型\/思考强度选择器/);
+  } finally {h.pause();dom.window.close();}
+});
+
 test('runtime blocked transition immediately becomes a fresh queued resend',async()=>{
   const {h,w,dom}=await fixture();
   const task={id:'runtime-blocked',ownerTabId:h.getTabId(),goal:'continue forever',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/stuck',token:'dispatch-token',attempted:true,messages:[]};
@@ -4441,8 +4559,8 @@ test('durable handoff snapshot is phase round and goal-revision bound and cannot
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.10\.6$/m);
-  assert.match(source,/const VERSION = '2\.10\.6'/);
+  assert.match(source,/^\/\/ @version\s+2\.10\.7$/m);
+  assert.match(source,/const VERSION = '2\.10\.7'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 \* 60 \* 1000/);
