@@ -74,6 +74,7 @@ test('reasoning preset enforcement moves the live slider before send and verifie
     });
   });
   try {
+    await h.start(false);
     const task={id:'reasoning-extra-high',ownerTabId:h.getTabId(),goal:'reasoning',mode:'once',phase:'work',round:1,state:'queued',url:'',reasoningPreset:3,messages:[]};
     h.data.tasks.push(task);
     const ok=await h.ensureTaskReasoningPreset(task,null);
@@ -114,7 +115,8 @@ test('Pro preset is selected by slider index rather than medium effort alias',as
     });
   });
   try {
-    const task={id:'reasoning-pro',ownerTabId:h.getTabId(),goal:'pro',mode:'once',phase:'work',round:1,state:'queued',reasoningPreset:4,messages:[]};
+    await h.start(false);
+    const task={id:'reasoning-pro',ownerTabId:h.getTabId(),goal:'pro',mode:'once',phase:'work',round:1,state:'queued',url:'',reasoningPreset:4,messages:[]};
     h.data.tasks.push(task);
     assert.equal(await h.ensureTaskReasoningPreset(task,null),true);
     assert.equal(task.reasoningPresetConfirmedIndex,4);
