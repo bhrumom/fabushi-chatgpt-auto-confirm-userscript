@@ -1,8 +1,16 @@
-# Fabushi 独立自动确认工作台 2.10.0
+# Fabushi 独立自动确认工作台 2.10.1
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.0`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.1`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+
+## 2.10.1 修复刷新后空会话壳永久等待
+
+- 修复精确会话 URL 和输入框已经恢复、但 ChatGPT 没有挂载任何可见 user/assistant 消息节点时，继承 Stop 恢复门槛会反复提前返回、永远到不了页面恢复逻辑的问题。
+- 这类“空会话壳”现在会保留原任务、原会话和历史 Stop 证据，并从页面壳真正就绪时开始最多等待 30 秒；消息区仍为空时，只调用现有的同 URL renderer recovery，不新开会话、不重复发送任务。
+- 空会话壳不再被误当作 renderer 已健康，因此不会在每次检查前把 `routeRecoveryAttempts` 清零；现有恢复次数和退避策略继续有效。
+- 一旦消息节点或 Stop 重新出现，会立即退出 shell-only 恢复路径并回到 2.10.0 的正常继承 Stop / 最终回复处理。
+- 详见 [v2.10.1 规格](docs/specs/reload-shell-route-recovery-v2.10.1.md)。
 
 ## 2.10.0 修复恢复后最终回复卡死
 
