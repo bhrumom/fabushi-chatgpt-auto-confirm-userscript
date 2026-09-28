@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.4
+// @version      2.10.5
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.4';
+  const VERSION = '2.10.5';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -1737,32 +1737,104 @@ async function bootstrapAttempt() {
   const nodes = (selector, scope = document) => scope?.querySelectorAll
     ? [...scope.querySelectorAll(selector)].filter(node => !own(node))
     : [];
+  const contentSearchTurnSelector = '[data-content-search-turn-key]';
+  const contentSearchUnitSelector = '[data-content-search-unit-key],[data-chatgpt-search-unit-key]';
   const conversationTurnSelector = 'article,[data-testid^="conversation-turn-"],[data-turn-key],[data-content-search-turn-key],[data-turn="user"],[data-turn="assistant"],[data-author-role="user"],[data-author-role="assistant"]';
-  const semanticMessageSelector = '.markdown,[data-message-content],[data-selected-text-overlay-target]';
-  const conversationRoleSelector = '[data-message-author-role="user"],[data-message-author-role="assistant"],[data-turn="user"],[data-turn="assistant"],[data-author-role="user"],[data-author-role="assistant"]';
-  function conversationRole(node) {
+  const semanticMessageSelector = '.markdown,[data-message-content],[data-selected-text-overlay-target],[data-markdown-text-style="assistant-message"],[data-markdown-text-tone="user-message"]';
+  const conversationRoleSelector = [
+    '[data-message-author-role="user"]',
+    '[data-message-author-role="assistant"]',
+    '[data-turn="user"]',
+    '[data-turn="assistant"]',
+    '[data-author-role="user"]',
+    '[data-author-role="assistant"]',
+    '[data-content-search-unit-key$=":user"]',
+    '[data-content-search-unit-key$=":assistant"]',
+    '[data-chatgpt-search-unit-key$=":user"]',
+    '[data-chatgpt-search-unit-key$=":assistant"]',
+    '[data-conversation-role="user"]',
+    '[data-conversation-role="assistant"]',
+    '[data-user-message-bubble="true"]',
+    '[data-markdown-text-style="assistant-message"][data-markdown-text-tone="primary"]',
+    '[data-markdown-text-tone="user-message"]',
+  ].join(',');
+  function contentSearchUnitRole(node) {
     if (!node) return '';
-    for (const attr of ['data-message-author-role','data-turn','data-author-role']) {
-      const value = String(node.getAttribute?.(attr) || '').toLowerCase();
-      if (value === 'user' || value === 'assistant') return value;
+    const unit = node.matches?.(contentSearchUnitSelector) ? node : node.closest?.(contentSearchUnitSelector);
+    if (!unit) return '';
+    for (const attr of ['data-content-search-unit-key','data-chatgpt-search-unit-key']) {
+      const value = String(unit.getAttribute?.(attr) || '').toLowerCase();
+      const match = value.match(/:(user|assistant)$/);
+      if (match) return match[1];
     }
     return '';
   }
+  function conversationRole(node) {
+    if (!node) return '';
+    for (const attr of ['data-message-author-role','data-turn','data-author-role','data-conversation-role']) {
+      const value = String(node.getAttribute?.(attr) || '').toLowerCase();
+      if (value === 'user' || value === 'assistant') return value;
+    }
+    const unitRole = contentSearchUnitRole(node);
+    if (unitRole) return unitRole;
+    if (node.matches?.('[data-user-message-bubble="true"],[data-markdown-text-tone="user-message"]')) return 'user';
+    if (node.matches?.('[data-markdown-text-style="assistant-message"][data-markdown-text-tone="primary"]')) return 'assistant';
+    return '';
+  }
+  function conversationMessageUnit(node, role = '') {
+    if (!node) return null;
+    const wanted = role === 'user' || role === 'assistant' ? role : conversationRole(node);
+    if (!wanted) return null;
+    const contentUnit = node.matches?.(contentSearchUnitSelector) ? node : node.closest?.(contentSearchUnitSelector);
+    if (contentUnit && contentSearchUnitRole(contentUnit) === wanted) {
+      // Live fallback DOM can wrap one user message twice with the same key:
+      // an outer data-chatgpt-search-unit-key and an inner
+      // data-content-search-unit-key. Canonicalize both representations to
+      // the innermost content unit so one visible message is never counted
+      // twice and latest-user ownership remains stable.
+      const key = contentUnit.getAttribute?.('data-content-search-unit-key')
+        || contentUnit.getAttribute?.('data-chatgpt-search-unit-key')
+        || '';
+      if (!contentUnit.hasAttribute?.('data-content-search-unit-key') && key) {
+        const nestedContent = nodes('[data-content-search-unit-key]', contentUnit)
+          .find(candidate => candidate.getAttribute('data-content-search-unit-key') === key
+            && contentSearchUnitRole(candidate) === wanted);
+        if (nestedContent) return nestedContent;
+      }
+      return contentUnit;
+    }
+    // Legacy/current transitional DOM can put data-turn/data-author-role on
+    // an outer turn and data-message-author-role on an inner host for the same
+    // logical message. Prefer that inner legacy host from either direction so
+    // the two selector families canonicalize to one node instead of doubling
+    // user/assistant counts.
+    const legacyHost = node.matches?.(`[data-message-author-role="${wanted}"]`)
+      ? node
+      : node.closest?.(`[data-message-author-role="${wanted}"]`)
+        || node.querySelector?.(`[data-message-author-role="${wanted}"]`);
+    if (legacyHost) return legacyHost;
+    const direct = node.matches?.(`[data-turn="${wanted}"],[data-author-role="${wanted}"]`)
+      ? node
+      : node.closest?.(`[data-turn="${wanted}"],[data-author-role="${wanted}"]`);
+    if (direct) return direct;
+    const conversationRoleHost = node.matches?.(`[data-conversation-role="${wanted}"]`)
+      ? node
+      : node.closest?.(`[data-conversation-role="${wanted}"]`);
+    if (conversationRoleHost) return conversationRoleHost;
+    return node;
+  }
   function conversationRoleNodes(role = '', scope = document) {
     const wanted = role === 'user' || role === 'assistant' ? role : '';
-    const selector = wanted
-      ? `[data-message-author-role="${wanted}"],[data-turn="${wanted}"],[data-author-role="${wanted}"]`
-      : conversationRoleSelector;
     const result = [];
-    const seenTurns = new Set();
-    for (const node of nodes(selector, scope)) {
+    const seenUnits = new Set();
+    const candidates = nodes(conversationRoleSelector, scope);
+    for (const node of candidates) {
       const resolvedRole = conversationRole(node);
       if (!resolvedRole || (wanted && resolvedRole !== wanted)) continue;
-      const turn = node.closest?.(conversationTurnSelector) || node;
-      if (seenTurns.has(turn)) continue;
-      seenTurns.add(turn);
-      const preferred = turn?.querySelector?.(`[data-message-author-role="${resolvedRole}"]`) || node;
-      result.push(preferred);
+      const unit = conversationMessageUnit(node, resolvedRole);
+      if (!unit || seenUnits.has(unit)) continue;
+      seenUnits.add(unit);
+      result.push(unit);
     }
     return result;
   }
@@ -1780,7 +1852,7 @@ async function bootstrapAttempt() {
     // User-message renderer variants do not always expose one of the semantic
     // assistant-content selectors. A visibly painted owning turn plus text in
     // the non-hidden role host is sufficient proof that this role is mounted;
-    // role/ownership still come exclusively from data-message-author-role.
+    // role/ownership still come exclusively from canonical role evidence.
     const turn = node.closest?.(conversationTurnSelector);
     return Boolean(turn && visible(turn) && hasTextNode(node));
   }
@@ -2334,7 +2406,7 @@ async function bootstrapAttempt() {
     let current = node;
     for (let depth = 0; current && depth <= maxDepth; depth++, current = current.parentElement) {
       if (own(current)) break;
-      if (depth > 0 && current.matches?.('main,body,html,nav,aside,header,footer,[role="navigation"],[role="banner"],[role="contentinfo"],[data-message-author-role]')) break;
+      if (depth > 0 && current.matches?.(`main,body,html,nav,aside,header,footer,[role="navigation"],[role="banner"],[role="contentinfo"],${conversationRoleSelector}`)) break;
       result.push(current);
     }
     return result;
@@ -2376,7 +2448,7 @@ async function bootstrapAttempt() {
   }
   function attachmentSurfaceExcluded(node) {
     return Boolean(node?.matches?.('textarea,[contenteditable="true"],input[type="file"]')
-      || node?.closest?.('[data-message-author-role],nav,aside,header,footer,[role="navigation"],[role="banner"],[role="contentinfo"]'));
+      || node?.closest?.(`${conversationRoleSelector},nav,aside,header,footer,[role="navigation"],[role="banner"],[role="contentinfo"]`));
   }
   function attachmentFileMatches(meta, file) {
     if (!meta || !file) return false;
@@ -2754,13 +2826,23 @@ async function bootstrapAttempt() {
     const scope = article.closest?.('main,[role="main"]') || article.parentElement || document.body;
     if (!scope) return [article];
     const follows = (from, to) => Boolean(from && to && (from.compareDocumentPosition(to) & Node.DOCUMENT_POSITION_FOLLOWING));
-    const users = nodes('[data-message-author-role="user"]', scope);
+    const users = conversationRoleNodes('user', scope);
     const boundary = users.filter(user => follows(user, article)).at(-1) || null;
     const roots = [];
     const seen = new Set();
-    for (const assistant of nodes('[data-message-author-role="assistant"]', scope)) {
+    for (const assistant of conversationRoleNodes('assistant', scope)) {
       if (boundary && !follows(boundary, assistant)) continue;
-      const root = assistant.closest?.('article,[data-testid^="conversation-turn-"],[data-turn-key],[data-content-search-turn-key]') || assistant;
+      const messageUnit = conversationMessageUnit(assistant, 'assistant') || assistant;
+      const transientPrimary = !contentSearchUnitRole(messageUnit)
+        && messageUnit?.matches?.('[data-markdown-text-style="assistant-message"][data-markdown-text-tone="primary"]')
+        && messageUnit.closest?.(contentSearchTurnSelector)
+          ? messageUnit
+          : null;
+      const root = contentSearchUnitRole(messageUnit) === 'assistant'
+        ? messageUnit
+        : transientPrimary
+          || assistant.closest?.('article,[data-testid^="conversation-turn-"],[data-turn-key],[data-content-search-turn-key]')
+          || assistant;
       if (own(root) || seen.has(root)) continue;
       seen.add(root);
       roots.push(root);
@@ -2778,7 +2860,8 @@ async function bootstrapAttempt() {
       let currentNode;
       while ((currentNode = walker.nextNode())) {
         const parent = currentNode.parentElement;
-        if (!parent || own(parent) || parent.closest?.('blockquote,pre,code,[data-message-author-role="user"]')) continue;
+        if (!parent || own(parent) || parent.closest?.('blockquote,pre,code')
+          || conversationRole(parent.closest?.(conversationRoleSelector)) === 'user') continue;
         records.push({ node:currentNode, parent, direct:normalize(currentNode.nodeValue) });
       }
     }
@@ -2791,11 +2874,12 @@ async function bootstrapAttempt() {
     const article = turn?.article;
     if (!article) return null;
     const follows = (a, b) => Boolean(a && b && (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING));
-    const user = nodes('[data-message-author-role="user"]').at(-1);
+    const user = conversationRoleNodes('user').at(-1);
     for (const record of [...responseTextNodes(turn), ...getPageRecords()]) {
       const parent = record.parent;
       if (!parent || !/^stream cache expired[.!]?$/i.test(record.direct) || !visible(parent)
-        || own(parent) || parent.closest('blockquote,pre,code,[data-message-author-role="user"]')) continue;
+        || own(parent) || parent.closest('blockquote,pre,code')
+        || conversationRole(parent.closest?.(conversationRoleSelector)) === 'user') continue;
       if (!article.contains(parent) && !follows(article, parent)) continue;
       if (user && !follows(user, parent)) continue;
       // Stop at the local card/turn: an unrelated Retry elsewhere on the page
@@ -2825,8 +2909,11 @@ async function bootstrapAttempt() {
       return false;
     };
     const responseTurn = turn || (() => {
-      const assistant = nodes('[data-message-author-role="assistant"]').at(-1);
-      const article = assistant?.closest?.('article,[data-testid^="conversation-turn-"],[data-turn-key],[data-content-search-turn-key]') || assistant;
+      const assistant = conversationRoleNodes('assistant').at(-1);
+      const assistantUnit = conversationMessageUnit(assistant, 'assistant') || assistant;
+      const article = contentSearchUnitRole(assistantUnit) === 'assistant'
+        ? assistantUnit
+        : assistant?.closest?.('article,[data-testid^="conversation-turn-"],[data-turn-key],[data-content-search-turn-key]') || assistant;
       return article ? { article } : null;
     })();
     // A visible assistant error is actionable only when it belongs to the
@@ -2843,7 +2930,7 @@ async function bootstrapAttempt() {
     for (const record of getPageRecords()) {
       const parent = record.parent;
       if (!parent || !pattern.test(record.direct) || !visible(parent)) continue;
-      const message = parent.closest('[data-message-author-role]');
+      const message = parent.closest(conversationRoleSelector);
       if (!message) return true;
     }
     return false;
@@ -2868,7 +2955,8 @@ async function bootstrapAttempt() {
     let currentNode;
     while ((currentNode = walker.nextNode())) {
       const parent = currentNode.parentElement;
-      if (!parent || own(parent) || parent.closest('blockquote,pre,code,[data-message-author-role="user"]')) continue;
+      if (!parent || own(parent) || parent.closest('blockquote,pre,code')
+        || conversationRole(parent.closest?.(conversationRoleSelector)) === 'user') continue;
       const direct = normalize(currentNode.nodeValue);
       if (direct && direct.length <= 160 && streamRecoveryPollingTimeoutPattern.test(direct)
         && visible(parent) && hasVisibleRetryAction(parent)) return true;
@@ -3071,13 +3159,22 @@ async function bootstrapAttempt() {
     return deduped.join('\n\n').trim();
   }
   function assistantTurnContent(roleNode, { tailLimit = 0 } = {}) {
-    const turn = roleNode?.closest?.(conversationTurnSelector);
+    const messageUnit = conversationMessageUnit(roleNode, 'assistant');
+    const fallbackUnit = contentSearchUnitRole(messageUnit) === 'assistant' ? messageUnit : null;
+    const transientPrimary = !fallbackUnit
+      && messageUnit?.matches?.('[data-markdown-text-style="assistant-message"][data-markdown-text-tone="primary"]')
+      && messageUnit.closest?.(contentSearchTurnSelector)
+        ? messageUnit
+        : null;
+    const turn = fallbackUnit || transientPrimary || roleNode?.closest?.(conversationTurnSelector);
     if (!turn || own(turn) || turn.closest?.('[hidden],[inert]')) return assistantSegmentContent(roleNode, { tailLimit });
-    // Current ChatGPT renders agent progress as Markdown siblings of the
-    // assistant-role status node inside one conversation turn. The turn is
-    // safe to inspect only because it contains this assistant-role node.
-    const semantic = nodes('.markdown,[data-message-content],[data-selected-text-overlay-target]', turn)
-      .filter(node => !node.closest?.(`[hidden],[inert],[data-message-author-role="user"],[data-turn="user"],[data-author-role="user"],[data-testid*="tool"],[data-type*="tool"],[class*="tool-call"],[class*="toolCall"]`));
+    // The live fallback-turn renderer puts user and assistant units inside one
+    // outer content-search turn. Never expand an assistant read to that shared
+    // outer turn; rich user Markdown in the same turn would be misattributed
+    // as assistant output. Legacy renderers can still expose agent progress as
+    // Markdown siblings of a role host, so they retain the old turn scope.
+    const semantic = nodes('.markdown,[data-message-content],[data-selected-text-overlay-target],[data-markdown-text-style="assistant-message"]', turn)
+      .filter(node => !node.closest?.(`[hidden],[inert],[data-message-author-role="user"],[data-turn="user"],[data-author-role="user"],[data-content-search-unit-key$=":user"],[data-chatgpt-search-unit-key$=":user"],[data-user-message-bubble="true"],[data-markdown-text-tone="user-message"],[data-testid*="tool"],[data-type*="tool"],[class*="tool-call"],[class*="toolCall"]`));
     const roots = outermostSemanticRoots(semantic).filter(visible);
     let remaining = tailLimit;
     const content = roots.map(node => {
@@ -3085,7 +3182,7 @@ async function bootstrapAttempt() {
       if (tailLimit) remaining = Math.max(0, remaining - value.length);
       return value.trim();
     }).filter(Boolean).join('\n\n').trim();
-    return content || assistantSegmentContent(roleNode, { tailLimit });
+    return content || assistantSegmentContent(fallbackUnit || roleNode, { tailLimit });
   }
   function visibleAssistantWorkTranscript(task, { allowExactRouteFallback = false } = {}) {
     if (!task) return { text:'', sourceKind:'' };
@@ -3133,12 +3230,12 @@ async function bootstrapAttempt() {
       // decides visibility from semantic/rendered descendants.
       .filter(node => !boundary || Boolean(boundary.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING));
     const parts = [];
-    const seenTurns = new Set();
+    const seenMessages = new Set();
     for (const node of assistantNodes) {
-      const turn = node.closest?.(conversationTurnSelector) || node;
-      if (seenTurns.has(turn)) continue;
-      seenTurns.add(turn);
-      const part = cleanAbnormalFreshReply(assistantTurnContent(node));
+      const messageUnit = conversationMessageUnit(node, 'assistant') || node;
+      if (seenMessages.has(messageUnit)) continue;
+      seenMessages.add(messageUnit);
+      const part = cleanAbnormalFreshReply(assistantTurnContent(messageUnit));
       if (!part) continue;
       if (parts.at(-1) === part || parts.includes(part)) continue;
       parts.push(part);
@@ -3541,14 +3638,29 @@ async function bootstrapAttempt() {
     }
     const replies = conversationRoleNodes('assistant').filter(node => !user || Boolean(user.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING));
     const assistant = replies.at(-1);
-    const article = assistant?.closest('article,[data-testid^="conversation-turn-"],[data-turn-key],[data-content-search-turn-key]') || assistant;
-    const markdown = article?.querySelector?.('.markdown,[data-message-content],[data-selected-text-overlay-target]');
+    const assistantUnit = conversationMessageUnit(assistant, 'assistant') || assistant;
+    const fallbackAssistantUnit = contentSearchUnitRole(assistantUnit) === 'assistant' ? assistantUnit : null;
+    const transientPrimaryAssistant = !fallbackAssistantUnit
+      && assistantUnit?.matches?.('[data-markdown-text-style="assistant-message"][data-markdown-text-tone="primary"]')
+      && assistantUnit.closest?.(contentSearchTurnSelector)
+        ? assistantUnit
+        : null;
+    const fallbackResponseBoundary = fallbackAssistantUnit || transientPrimaryAssistant;
+    // In fallback-turn DOM, content and response actions have different
+    // boundaries: committed content is inside :assistant, while a currently
+    // streaming primary assistant Markdown can be a direct descendant of the
+    // outer turn. Copy/Share live later in that same outer turn.
+    const article = fallbackResponseBoundary
+      || assistant?.closest?.('article,[data-testid^="conversation-turn-"],[data-turn-key],[data-content-search-turn-key]')
+      || assistant;
+    const responseTurn = fallbackResponseBoundary?.closest?.(contentSearchTurnSelector) || article;
+    const markdown = article?.querySelector?.('.markdown,[data-message-content],[data-selected-text-overlay-target],[data-markdown-text-style="assistant-message"]');
     const stopVisible = Boolean(stopButton());
     const streamingMarker = Boolean(article?.querySelector('[data-is-streaming="true"],[aria-busy="true"]')
-      || [markdown, assistant, article].some(node => node?.getAttribute?.('data-is-streaming') === 'true' || node?.getAttribute?.('aria-busy') === 'true'));
+      || [markdown, assistantUnit, article].some(node => node?.getAttribute?.('data-is-streaming') === 'true' || node?.getAttribute?.('aria-busy') === 'true'));
     const boundedStreamRead = stopVisible || streamingMarker;
     const content = assistantTurnContent(assistant, { tailLimit:boundedStreamRead ? STREAM_TEXT_TAIL_LIMIT : 0 });
-    const naturalReplyNode = article?.querySelector?.('.markdown,[data-message-content]');
+    const naturalReplyNode = article?.querySelector?.('.markdown,[data-message-content],[data-markdown-text-style="assistant-message"]');
     const hasNaturalReply = Boolean(
       naturalReplyNode
       && hasTextNode(naturalReplyNode)
@@ -3602,34 +3714,53 @@ async function bootstrapAttempt() {
     const composerNode = composer();
     const follows = (from, to) => Boolean(from && to && (from.compareDocumentPosition(to) & Node.DOCUMENT_POSITION_FOLLOWING));
     const responseLaneControl = node => {
-      if (!node || !assistant || own(node)) return false;
-      // ChatGPT can mount the final reply actions as siblings of the assistant
-      // article. Accept unassociated controls only inside the latest response
-      // lane: after the latest assistant content and before the composer or
-      // any subsequent conversation message.
-      if (!follows(assistant, node)) return false;
+      if (!node || !assistantUnit || own(node)) return false;
+      // ChatGPT can mount final reply actions beside the assistant content.
+      // Accept them only after this exact assistant message and before the
+      // composer or any subsequent canonical conversation message.
+      if (!follows(assistantUnit, node)) return false;
       if (composerNode && !follows(node, composerNode)) return false;
       const nextMessage = conversationRoleNodes()
-        .find(candidate => candidate !== assistant && follows(assistant, candidate));
+        .find(candidate => candidate !== assistantUnit && follows(assistantUnit, candidate));
       if (nextMessage && !follows(node, nextMessage)) return false;
       return !node.closest?.('form,nav,aside,header,[contenteditable="true"]');
     };
     const controlsBelongToLatestResponse = node => {
+      if (!node || own(node)) return false;
+      // Live fallback-turn DOM keeps the user's Copy inside :user and the
+      // assistant Copy outside :assistant but inside the shared outer turn.
+      // A user-unit control is therefore an explicit rejection, even though
+      // it has the same outer turn key as the assistant response.
+      const controlUnit = node.closest?.(contentSearchUnitSelector);
+      if (controlUnit) {
+        return Boolean(
+          fallbackAssistantUnit
+          && contentSearchUnitRole(controlUnit) === 'assistant'
+          && controlUnit === fallbackAssistantUnit
+        );
+      }
+      if (fallbackResponseBoundary) {
+        const controlTurn = node.closest?.(contentSearchTurnSelector);
+        if (controlTurn) {
+          return controlTurn === responseTurn && responseLaneControl(node);
+        }
+      }
       const nearestTurn = node.closest?.(responseSelector);
-      if (nearestTurn) return nearestTurn === article || nearestTurn === assistant;
+      if (nearestTurn) return nearestTurn === article || nearestTurn === assistantUnit;
       return responseLaneControl(node);
     };
     const scopes = [];
     const addScope = scope => { if (scope && !scopes.includes(scope)) scopes.push(scope); };
+    addScope(responseTurn);
     addScope(article);
-    addScope(assistant);
-    let ancestor = article?.parentElement;
+    addScope(assistantUnit);
+    let ancestor = responseTurn?.parentElement || article?.parentElement;
     for (let depth = 0; ancestor && depth < 2; depth++, ancestor = ancestor.parentElement) {
       if (ancestor.matches?.('body')) break;
       addScope(ancestor);
       if (ancestor.matches?.('main,[role="main"]')) break;
     }
-    addScope(article?.closest?.('main,[role="main"]') || assistant?.closest?.('main,[role="main"]'));
+    addScope(responseTurn?.closest?.('main,[role="main"]') || article?.closest?.('main,[role="main"]') || assistantUnit?.closest?.('main,[role="main"]'));
     let responseControls = [];
     for (const scope of scopes) {
       const found = controlsIn(scope).filter(item => controlsBelongToLatestResponse(item.node));
@@ -3642,8 +3773,11 @@ async function bootstrapAttempt() {
     // Some renderer versions portal the action row. Only accept a portaled
     // control when it carries an explicit message/turn association, so an
     // older response's toolbar cannot make the current turn look complete.
-    const messageId = assistant?.getAttribute('data-message-id') || '';
-    const turnKey = article?.getAttribute('data-turn-key') || article?.getAttribute('data-content-search-turn-key') || '';
+    const messageId = assistantUnit?.getAttribute?.('data-message-id')
+      || assistantUnit?.getAttribute?.('data-chatgpt-selection-message-id')
+      || assistantUnit?.querySelector?.('[data-chatgpt-selection-message-id]')?.getAttribute?.('data-chatgpt-selection-message-id')
+      || '';
+    const turnKey = responseTurn?.getAttribute?.('data-turn-key') || responseTurn?.getAttribute?.('data-content-search-turn-key') || '';
     if (!stopVisible && (messageId || turnKey)) {
       for (const item of nodes(responseControlSelector).filter(visible)) {
         const associationParents = [
@@ -3663,6 +3797,7 @@ async function bootstrapAttempt() {
           ]),
         ].filter(Boolean).join(' ');
         if (!association || (!association.includes(messageId) && !association.includes(turnKey))) continue;
+        if (!controlsBelongToLatestResponse(item)) continue;
         const kind = responseControlKind(item);
         if (kind && !responseControls.some(existing => existing.node === item)) responseControls.push({ node: item, kind });
       }
@@ -3686,7 +3821,7 @@ async function bootstrapAttempt() {
     };
     const explicitFinal = Boolean(
       markdown
-      && [markdown, assistant, article].some(hasCompletionMarker),
+      && [markdown, assistantUnit, article].some(hasCompletionMarker),
     );
     const streaming = boundedStreamRead;
     // Product completion evidence is deliberately smaller than the full
@@ -3729,6 +3864,7 @@ async function bootstrapAttempt() {
       streaming,
       hasNaturalReply,
       article,
+      responseTurn,
     };
   }
   function taskTurnForInspection(task, scanContext = null) {
