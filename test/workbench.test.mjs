@@ -3758,6 +3758,73 @@ test('reload inherited Stop observation waits for full hydration and stable abse
   } finally {h.pause();dom.window.close();}
 });
 
+test('inherited Stop shell-only route recovers the same conversation after the hydration timeout',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/reload-shell-only');
+    const task={id:'reload-shell-only',ownerTabId:h.getTabId(),goal:'continue architecture',mode:'goal',phase:'work',round:9,state:'waiting',url:'https://chatgpt.com/c/reload-shell-only',token:'reload-shell-only',attempted:false,goalRevision:0,messages:[]};
+    h.data.tasks.push(task);
+    task.stopObservedGenerationIdentity=h.stopObservedGenerationIdentity(task);
+    task.stopObservedDocumentId='previous-document';
+    let sends=0;
+    w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>sends++);
+    await h.start(false);
+
+    await h.inspect(task,null);
+    const first=h.observations.get(task.id);
+    assert.ok(first,'shell-only inherited Stop wait is observable');
+    assert.ok(Number(first.identityMismatchSince)>0,'complete shell starts the bounded hydration timer');
+    assert.equal(task.routeRecoveryAttempts||0,0,'same-route recovery does not start before the hydration timeout');
+    assert.equal(task.url,'https://chatgpt.com/c/reload-shell-only');
+    assert.equal(sends,0,'shell hydration never resends the task');
+
+    first.identityMismatchSince=Date.now()-31_000;
+    await h.inspect(task,null);
+    assert.equal(task.routeRecoveryAttempts,1,'after 30 seconds the existing same-route recovery is invoked');
+    assert.equal(task.url,'https://chatgpt.com/c/reload-shell-only','shell recovery keeps the original conversation identity');
+    assert.equal(task.state,'waiting');
+    assert.equal(sends,0,'route recovery does not click Send or create a duplicate user turn');
+    assert.equal(task.messages.some(item=>/页面长时间没有恢复/.test(item.text||'')),true);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('shell-only inherited Stop timer clears when conversation messages hydrate',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <form><textarea id="prompt-textarea"></textarea></form>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/reload-shell-hydrates');
+    const task={id:'reload-shell-hydrates',ownerTabId:h.getTabId(),goal:'continue architecture',mode:'goal',phase:'work',round:10,state:'waiting',url:'https://chatgpt.com/c/reload-shell-hydrates',token:'reload-shell-hydrates',attempted:false,goalRevision:0,messages:[]};
+    h.data.tasks.push(task);
+    task.stopObservedGenerationIdentity=h.stopObservedGenerationIdentity(task);
+    task.stopObservedDocumentId='previous-document';
+    await h.start(false);
+
+    await h.inspect(task,null);
+    const first=h.observations.get(task.id);
+    assert.ok(Number(first.identityMismatchSince)>0);
+    first.identityMismatchSince=Date.now()-31_000;
+
+    const main=w.document.querySelector('main');
+    const user=w.document.createElement('article');
+    user.dataset.testid='conversation-turn-user';
+    user.innerHTML='<div data-message-author-role="user">continue architecture [Fabushi:reload-shell-hydrates]</div>';
+    const assistant=w.document.createElement('article');
+    assistant.dataset.testid='conversation-turn-assistant';
+    assistant.innerHTML='<div data-message-author-role="assistant"><div class="markdown">恢复后的消息区已经挂载。</div></div>';
+    main.insertBefore(user,main.querySelector('form'));
+    main.insertBefore(assistant,main.querySelector('form'));
+
+    await h.inspect(task,null);
+    assert.equal(task.routeRecoveryAttempts||0,0,'visible messages cancel shell-only route recovery');
+    assert.ok(Number(task.reloadStopAbsentSince)>0,'normal inherited-Stop stable-absence handling resumes');
+    assert.equal(h.observations.get(task.id)?.identityMismatchSince||0,0,'shell hydration mismatch timer is cleared');
+    assert.equal(task.url,'https://chatgpt.com/c/reload-shell-hydrates');
+  } finally {h.pause();dom.window.close();}
+});
+
 test('resumed recovered final reply is inspected before an inherited Stop gate',async()=>{
   const {h,w,dom}=await fixture(`<main>
     <article data-testid="conversation-turn-user"><div data-message-author-role="user">continue the architecture work</div></article>
@@ -3897,8 +3964,8 @@ test('durable handoff snapshot is phase round and goal-revision bound and cannot
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.10\.0$/m);
-  assert.match(source,/const VERSION = '2\.10\.0'/);
+  assert.match(source,/^\/\/ @version\s+2\.10\.1$/m);
+  assert.match(source,/const VERSION = '2\.10\.1'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 \* 60 \* 1000/);

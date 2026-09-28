@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.0
+// @version      2.10.1
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.0';
+  const VERSION = '2.10.1';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -4508,9 +4508,16 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       // here made a stuck renderer impossible to classify as no-final-reply.
       if (!requireComposer || (inputReady && !loadingReason)) {
         sessionStorage.removeItem(NAV); sameRouteWaitUntil = 0; sameRouteWaitSince = 0; navigating = false;
-        // Inspection may proceed on a partially rendered route, but recovery
-        // counters reset only after the loading signal has really disappeared.
-        if (!loadingReason && !activeAssistantGeneration() && resetRendererRecoveryState(task)) save();
+        // A blank /c/<id> shell with a ready composer is not proof that the
+        // renderer recovered. Preserve the route-recovery budget until at
+        // least one conversation message is visible; otherwise each shell
+        // load would reset attempts to zero before inspect() can recover it.
+        const conversationRendererReady = !canonicalConversationURL(target.href)
+          || visibleConversationHasMessages();
+        if (!loadingReason
+          && !activeAssistantGeneration()
+          && conversationRendererReady
+          && resetRendererRecoveryState(task)) save();
         return true;
       }
       // Once the bounded quick attempts are exhausted, keep the original
@@ -5148,6 +5155,12 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && String(task.stopObservedDocumentId || '') === DOCUMENT_INSTANCE_ID
     );
     const inheritedStopObservation = Boolean(stopIdentityMatches && !stopObservedInCurrentDocument);
+    // A complete ChatGPT document can expose the exact conversation route and
+    // an enabled composer while the transcript itself never hydrates. Cache
+    // these two DOM checks once for the inherited-Stop gate so that shell-only
+    // recovery and normal stable-absence handling use the same snapshot.
+    const reloadComposerReady = Boolean(composer());
+    const reloadMessagesReady = visibleConversationHasMessages();
     const reloadHydrationReady = Boolean(
       inheritedStopObservation
       && !stopPresent
@@ -5160,9 +5173,32 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && !task.attempted
       && !currentBlocker
       && !currentRateLimit
-      && composer()
-      && visibleConversationHasMessages()
+      && reloadComposerReady
+      && reloadMessagesReady
     );
+    // v2.10.0 made inherited-Stop waits observable, but its early return also
+    // reset identityMismatchSince to zero. A shell-only route (exact URL +
+    // complete document + composer, but no visible message nodes) could
+    // therefore never reach the existing 30-second same-route renderer
+    // recovery. Preserve that timer only for this tightly guarded state.
+    const inheritedShellHydrationReady = Boolean(
+      inheritedStopObservation
+      && !stopPresent
+      && document.readyState === 'complete'
+      && approvalRouteEligible
+      && !approvalVisible
+      && (turn.owned || routeEndedOwned)
+      && !foreignTask
+      && !otherRouteOwner
+      && !task.attempted
+      && !currentBlocker
+      && !currentRateLimit
+      && reloadComposerReady
+      && !reloadMessagesReady
+    );
+    const inheritedShellHydrationSince = inheritedShellHydrationReady
+      ? Number(previous?.identityMismatchSince || now)
+      : 0;
     let inheritedStopAbsenceStable = false;
     if (inheritedStopObservation && !stopPresent) {
       if (!reloadHydrationReady) {
@@ -5251,13 +5287,27 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
         activityText:String(activityText || ''),
         activityTextStableSince,
         clear:false,
-        identityMismatchSince:0,
+        identityMismatchSince:inheritedShellHydrationSince,
       });
       const inspectionMs = performance.now() - begin;
       measurements.scans++;
       measurements.totalScanMs += inspectionMs;
+      if (inheritedShellHydrationSince
+        && now - inheritedShellHydrationSince >= ROUTE_HYDRATION_TIMEOUT_MS) {
+        let target;
+        try { target = safeURL(task.url); } catch { target = null; }
+        if (target) {
+          // Reuse the existing same-route recovery budget/backoff. A blank
+          // transcript is renderer-hydration failure evidence only; it never
+          // authorizes a fresh chat or a duplicate send.
+          recoverStalledRoute(target, task);
+          return;
+        }
+      }
       if (!reloadHydrationReady) {
-        log(task, '页面刷新后仍在恢复当前任务内容；已保留会话并继续监督，等待消息区和输入框完成加载。');
+        log(task, inheritedShellHydrationReady
+          ? `页面刷新后当前会话输入框已就绪，但消息区仍未挂载；最多等待 ${Math.ceil(ROUTE_HYDRATION_TIMEOUT_MS / 1000)} 秒，仍为空时只刷新当前会话，不会重复发送或新开会话。`
+          : '页面刷新后仍在恢复当前任务内容；已保留会话并继续监督，等待消息区和输入框完成加载。');
       }
       return;
     }
