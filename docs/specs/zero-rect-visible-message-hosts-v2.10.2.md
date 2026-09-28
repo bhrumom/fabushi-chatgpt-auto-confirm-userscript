@@ -117,6 +117,8 @@ No persistent data migration. Existing task state is compatible. Rollback is v2.
 
 Record the focused renderer regression, exact-head SHA/Test run, merge SHA, canonical-main Test run, Release run, tag, asset digest, and live-host validation status.
 
+Delivery evidence (2026-09-28): exact-head Test #337 passed on `e30b5ddc8afcca833200e3c612f3225010cc60df` with 266 tests / 259 passed / 0 failed / 7 skipped. PR #113 squash-merged as `c5a08b3a825d6c3c48f2578729c8fe45736b278c`; canonical-main Test #338 and Release #150 succeeded. GitHub Release `v2.10.2` is published with `chatgpt-auto-confirm.user.js` (359370 bytes; `sha256:fc39e4cbd5e6ecf18f1f5fe5b2fcbaaf2252a320eefb7606d086255f668a29e2`). Live DOM validation remains blocked while `gloria-macbook-air` is offline.
+
 ## 16. References / provenance
 
 - `docs/specs/reload-shell-route-recovery-v2.10.1.md`
@@ -127,5 +129,6 @@ Record the focused renderer regression, exact-head SHA/Test run, merge SHA, cano
 
 | Requirement / AC | Status | Evidence / reason |
 | --- | --- | --- |
-| R1-R11 / AC-1-AC-5 | pending | Implementation and exact-head CI not yet complete. |
-| R12 / AC-6 | pending | v2.10.2 has not yet been released. |
+| R1-R11 / AC-1-AC-5 | passed | PR #113 implemented renderer-aware role-host visibility and reused it for hydration/loading, active assistant detection, message-area readiness, and visible progress fingerprinting. Exact-head Test #337 (run `36362707629`) succeeded on `e30b5ddc8afcca833200e3c612f3225010cc60df`; full suite reported 266 tests, 259 passed, 0 failed, 7 skipped. Focused regressions verify zero-rect rendered user/assistant hosts are recognized, hidden/inert hosts remain excluded, a loading document recognizes the painted transcript, and inherited Stop no longer enters shell-only recovery for an already-rendered zero-rect transcript. |
+| R12 / AC-6 | passed | PR #113 squash-merged as `c5a08b3a825d6c3c48f2578729c8fe45736b278c`; canonical-main Test #338 (run `36362763215`) succeeded; Release #150 (run `36362796803`) succeeded; tag `v2.10.2` targets the merge commit; release asset `chatgpt-auto-confirm.user.js` is 359370 bytes with `sha256:fc39e4cbd5e6ecf18f1f5fe5b2fcbaaf2252a320eefb7606d086255f668a29e2`. |
+| Live Fabushi reproduction | blocked | Release delivery is verified, but the available `gloria-macbook-air` device remains offline, so the user’s exact live Chrome DOM cannot be remotely inspected or re-tested in this turn. This is not treated as live-installation evidence. |
