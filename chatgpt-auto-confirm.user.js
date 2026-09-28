@@ -2523,8 +2523,6 @@ async function bootstrapAttempt() {
     const unambiguousMatch = target === 0 ? effort === 'none'
       : target === 2 ? effort === 'high'
       : target === 3 ? effort === 'max'
-      : target === 4 ? /\bPro\b/i.test(closedText)
-      : target === 1 ? effort === 'medium' && !/\bPro\b/i.test(closedText)
       : false;
     if (unambiguousMatch && trigger.getAttribute('aria-expanded') !== 'true') {
       task.reasoningPresetConfirmedAt = Date.now();
