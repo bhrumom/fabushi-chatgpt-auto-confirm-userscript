@@ -1755,7 +1755,7 @@ async function bootstrapAttempt() {
     '[data-conversation-role="user"]',
     '[data-conversation-role="assistant"]',
     '[data-user-message-bubble="true"]',
-    '[data-markdown-text-style="assistant-message"]',
+    '[data-markdown-text-style="assistant-message"][data-markdown-text-tone="primary"]',
     '[data-markdown-text-tone="user-message"]',
   ].join(',');
   function contentSearchUnitRole(node) {
@@ -1778,7 +1778,7 @@ async function bootstrapAttempt() {
     const unitRole = contentSearchUnitRole(node);
     if (unitRole) return unitRole;
     if (node.matches?.('[data-user-message-bubble="true"],[data-markdown-text-tone="user-message"]')) return 'user';
-    if (node.matches?.('[data-markdown-text-style="assistant-message"]')) return 'assistant';
+    if (node.matches?.('[data-markdown-text-style="assistant-message"][data-markdown-text-tone="primary"]')) return 'assistant';
     return '';
   }
   function conversationMessageUnit(node, role = '') {
@@ -3122,7 +3122,12 @@ async function bootstrapAttempt() {
   function assistantTurnContent(roleNode, { tailLimit = 0 } = {}) {
     const messageUnit = conversationMessageUnit(roleNode, 'assistant');
     const fallbackUnit = contentSearchUnitRole(messageUnit) === 'assistant' ? messageUnit : null;
-    const turn = fallbackUnit || roleNode?.closest?.(conversationTurnSelector);
+    const transientPrimary = !fallbackUnit
+      && messageUnit?.matches?.('[data-markdown-text-style="assistant-message"][data-markdown-text-tone="primary"]')
+      && messageUnit.closest?.(contentSearchTurnSelector)
+        ? messageUnit
+        : null;
+    const turn = fallbackUnit || transientPrimary || roleNode?.closest?.(conversationTurnSelector);
     if (!turn || own(turn) || turn.closest?.('[hidden],[inert]')) return assistantSegmentContent(roleNode, { tailLimit });
     // The live fallback-turn renderer puts user and assistant units inside one
     // outer content-search turn. Never expand an assistant read to that shared
@@ -3596,13 +3601,20 @@ async function bootstrapAttempt() {
     const assistant = replies.at(-1);
     const assistantUnit = conversationMessageUnit(assistant, 'assistant') || assistant;
     const fallbackAssistantUnit = contentSearchUnitRole(assistantUnit) === 'assistant' ? assistantUnit : null;
+    const transientPrimaryAssistant = !fallbackAssistantUnit
+      && assistantUnit?.matches?.('[data-markdown-text-style="assistant-message"][data-markdown-text-tone="primary"]')
+      && assistantUnit.closest?.(contentSearchTurnSelector)
+        ? assistantUnit
+        : null;
+    const fallbackResponseBoundary = fallbackAssistantUnit || transientPrimaryAssistant;
     // In fallback-turn DOM, content and response actions have different
-    // boundaries: content is inside :assistant while Copy/Share are siblings
-    // later in the shared outer content-search turn.
-    const article = fallbackAssistantUnit
+    // boundaries: committed content is inside :assistant, while a currently
+    // streaming primary assistant Markdown can be a direct descendant of the
+    // outer turn. Copy/Share live later in that same outer turn.
+    const article = fallbackResponseBoundary
       || assistant?.closest?.('article,[data-testid^="conversation-turn-"],[data-turn-key],[data-content-search-turn-key]')
       || assistant;
-    const responseTurn = fallbackAssistantUnit?.closest?.(contentSearchTurnSelector) || article;
+    const responseTurn = fallbackResponseBoundary?.closest?.(contentSearchTurnSelector) || article;
     const markdown = article?.querySelector?.('.markdown,[data-message-content],[data-selected-text-overlay-target],[data-markdown-text-style="assistant-message"]');
     const stopVisible = Boolean(stopButton());
     const streamingMarker = Boolean(article?.querySelector('[data-is-streaming="true"],[aria-busy="true"]')
@@ -3688,7 +3700,7 @@ async function bootstrapAttempt() {
           && controlUnit === fallbackAssistantUnit
         );
       }
-      if (fallbackAssistantUnit) {
+      if (fallbackResponseBoundary) {
         const controlTurn = node.closest?.(contentSearchTurnSelector);
         if (controlTurn) {
           return controlTurn === responseTurn && responseLaneControl(node);
