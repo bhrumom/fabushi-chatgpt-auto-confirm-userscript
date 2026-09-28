@@ -148,3 +148,32 @@ Add regression fixtures matching the live DOM:
 - The user's visible completed conversation no longer falls into “消息区仍未挂载”.
 - No cross-role or cross-turn Copy misbinding is introduced.
 - v2.10.4 bounded-refresh behavior remains intact.
+
+
+## 9. Delivery evidence
+
+Delivered on 2026-09-28.
+
+- Implementation PR: #119 — `fix: support live fallback-turn renderer (v2.10.5)`
+- PR tested head: `a56ae3c89fd85ebc18a3a7f9d8dc0e480da3aeb2`
+- PR Test workflow: run #358 / `36392625889` — success
+- Merge commit on canonical `main`: `93cd366294b1d190ef7434c346db03a6c3b10266`
+- Canonical-main Test workflow: run #359 / `36392719478` — success
+- Release workflow: run #171 / `36392774704` — success
+- Published release: `v2.10.5`
+- Published userscript asset SHA-256: `b0485ea9a66b6905817685e8ce66ccce957b5ba1c2de2a8315fea18bde391522`
+- Release source/tag commit: `bd7171c198cee5e527f08928a815ead9658b8745`
+
+### Live Mac verification after release
+
+The existing signed-in Chrome page on `gloria-macbook-air` was refreshed after the release. The Fabushi bootstrap marker reported `2.10.5` and the workbench root was mounted.
+
+The same live conversation then exposed the renderer that caused the original false negative:
+
+- `data-content-search-turn-key`: 5
+- `data-content-search-unit-key`: 8 after re-render
+- user units ending in `:user`: 5
+- assistant committed units ending in `:assistant`: 3
+- the currently active assistant response can additionally exist as transient primary assistant Markdown before becoming a committed `:assistant` unit
+
+This confirms the shipped script is running on the exact renderer family reproduced in this spec rather than only in synthetic tests.
