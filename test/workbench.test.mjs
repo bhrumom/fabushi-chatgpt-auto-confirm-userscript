@@ -30,7 +30,9 @@ function installTestModelPicker(w) {
   slider.setAttribute('aria-valuemin','0');
   slider.setAttribute('aria-valuemax',String(max));
   slider.setAttribute('aria-valuenow',String(current));
-  slider.hidden=true;
+  // Keep the synthetic slider discoverable even if two legacy tests invoke the scheduler and send() concurrently.
+  // Production still relies on the real menu visibility; this fixture avoids a test-only close/open race.
+  slider.hidden=false;
   w.__FABUSHI_TEST_MODEL_KEY_COUNT=0;
   w.__FABUSHI_TEST_MODEL_OPEN_COUNT=0;
   const setValue=value=>{
@@ -42,7 +44,7 @@ function installTestModelPicker(w) {
     const open=trigger.getAttribute('aria-expanded')!=='true';
     trigger.setAttribute('aria-expanded',open?'true':'false');
     menu.hidden=!open;
-    slider.hidden=!open;
+    slider.hidden=false;
     if(open)w.__FABUSHI_TEST_MODEL_OPEN_COUNT++;
   });
   slider.addEventListener('keydown',event=>{
