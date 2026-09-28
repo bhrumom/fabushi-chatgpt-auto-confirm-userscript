@@ -115,6 +115,8 @@ No task data migration is required. Existing persisted task records remain compa
 
 Record the focused regression, route-recovery attempt/log state, exact commit, PR Test run, merge SHA, canonical-main Test run, Release run, tag, asset digest, and live Fabushi reproduction result when the host device is available.
 
+Delivery evidence (2026-09-28): PR #111 exact-head Test #332 passed on `01891793aeb3ec76c5c7c80e24f836fe96f7647a` with 262 tests / 255 passed / 0 failed / 7 skipped. Squash merge `f4831b87823410884565d9b07f3d8c17065cbf97` passed canonical-main Test #333 and Release #145. GitHub Release `v2.10.1` is published with `chatgpt-auto-confirm.user.js` (358012 bytes; `sha256:767d3db50b20529f44e12c2b82db25549853929ff3a57654e220739fef837229`). Live Fabushi-host validation remains blocked until an account-scoped device is online.
+
 ## 16. References / provenance
 
 - `docs/specs/reload-hydration-and-reply-carry-v2.9.98.md`
@@ -126,5 +128,6 @@ Record the focused regression, route-recovery attempt/log state, exact commit, P
 
 | Requirement / AC | Status | Evidence / reason |
 | --- | --- | --- |
-| R1-R9 / AC-1-AC-6 | pending | Implementation and exact-head CI not yet complete. |
-| R10 / AC-7 | pending | v2.10.1 has not yet been released. |
+| R1-R9 / AC-1-AC-6 | passed | PR #111 implemented shell-only inherited-Stop hydration timing and same-route recovery without fresh-chat/resend. Exact-head Test #332 (run `36362107063`) succeeded on `01891793aeb3ec76c5c7c80e24f836fe96f7647a`; full suite reported 262 tests, 255 passed, 0 failed, 7 skipped. Focused regressions verify no recovery before 30 seconds, same-route recovery after timeout, no Send click, and normal inherited-Stop handling after messages hydrate. |
+| R10 / AC-7 | passed | PR #111 squash-merged as `f4831b87823410884565d9b07f3d8c17065cbf97`; canonical-main Test #333 (run `36362153018`) succeeded; Release #145 (run `36362185639`) succeeded; tag `v2.10.1` targets the merge commit; release asset `chatgpt-auto-confirm.user.js` is 358012 bytes with `sha256:767d3db50b20529f44e12c2b82db25549853929ff3a57654e220739fef837229`. |
+| Live Fabushi reproduction | blocked | Release delivery is verified, but the authenticated Fabushi MCP currently reports no online account-scoped devices and the available `gloria-macbook-air` device is offline, so the user’s live Chrome task cannot be remotely re-tested in this turn. This is not treated as evidence of installation or live recovery. |
