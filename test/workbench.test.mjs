@@ -168,7 +168,7 @@ test('hidden or inert zero-rect role hosts remain absent from visible conversati
   });
   try {
     assert.equal(h.visibleConversationHasMessages(),false);
-    assert.deepEqual(h.visibleConversationProgressFingerprint(),[]);
+    assert.equal(h.visibleConversationProgressFingerprint().length,0);
   } finally {h.pause();dom.window.close();}
 });
 
