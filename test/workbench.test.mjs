@@ -4059,7 +4059,7 @@ test('fallback rich user Markdown never leaks into assistant reply extraction',a
     assert.doesNotMatch(turn.text,/USER-RICH-TEXT/);
     assert.equal(turn.final,true);
     const fingerprint=h.visibleConversationProgressFingerprint();
-    assert.deepEqual(fingerprint.map(item=>item.role),['user','assistant']);
+    assert.equal(fingerprint.map(item=>item.role).join(','),'user,assistant');
   } finally {h.pause();dom.window.close();}
 });
 
