@@ -138,6 +138,8 @@ No data migration. Existing persisted tasks/observations are backward compatible
 
 Record device inspection outcome, focused regression names, exact-head SHA/Test run, merge SHA, canonical-main Test run, Release run, tag, asset digest, and live-host revalidation when available.
 
+Delivery evidence (2026-09-28): `htch-runtime` was inspected directly; `/opt/meta-chromium/chrome` launches, but ChatGPT navigation in that sandbox reaches `chrome-error://chromewebdata/` with `ERR_EMPTY_RESPONSE`, and the device has no authenticated ChatGPT session, so no live DOM capture is claimed. PR #115 exact-head Test #343 passed on `c403645f1143233327d368e5e52d396e78bf367b` with 272 tests / 265 passed / 0 failed / 7 skipped. Squash merge `9c6211a8be5171ea37cbca4b61a63d7ce2fd738a` passed canonical-main Test #344 and Release #156. GitHub Release `v2.10.3` publishes `chatgpt-auto-confirm.user.js` (361485 bytes; `sha256:553a6168823c510748f66263b60400b153e3af0c8efe994e825913bcb9e11be5`).
+
 ## 16. References / provenance
 
 - `docs/specs/zero-rect-visible-message-hosts-v2.10.2.md`
@@ -150,5 +152,6 @@ Record device inspection outcome, focused regression names, exact-head SHA/Test 
 
 | Requirement / AC | Status | Evidence / reason |
 | --- | --- | --- |
-| R1-R10 / AC-1-AC-5 | pending | Implementation and exact-head CI not yet complete. |
-| R11 / AC-6 | pending | v2.10.3 has not yet been released. |
+| R1-R10 / AC-1-AC-5 | passed | PR #115 implements Copy-only latest-response final UI evidence plus the guarded 8-second natural-language fallback. Exact-head Test #343 (run `36364119470`) succeeded on `c403645f1143233327d368e5e52d396e78bf367b` with 272 tests, 265 passed, 0 failed, 7 skipped. Focused regressions cover Copy-only inline/sibling actions, old-toolbar rejection, 8-second natural fallback, text-change reset, route-only rejection, and preserved stale-loader recovery. |
+| R11 / AC-6 | passed | PR #115 squash-merged as `9c6211a8be5171ea37cbca4b61a63d7ce2fd738a`; canonical-main Test #344 (run `36364167128`) succeeded; Release #156 (run `36364197532`) succeeded; tag `v2.10.3` targets the merge commit; release asset `chatgpt-auto-confirm.user.js` is 361485 bytes with `sha256:553a6168823c510748f66263b60400b153e3af0c8efe994e825913bcb9e11be5`. |
+| htch-runtime live DOM capture | blocked | The requested device was used and Chromium was located/launched, but sandbox browser traffic to ChatGPT resolves to `chrome-error://chromewebdata/` / `ERR_EMPTY_RESPONSE`; no authenticated ChatGPT profile is present. The device inspection therefore establishes the environment limitation only, not a fabricated live conversation DOM capture. |
