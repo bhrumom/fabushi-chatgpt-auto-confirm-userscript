@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.6
+// @version      2.10.7
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.6';
+  const VERSION = '2.10.7';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -475,6 +475,29 @@ async function bootstrapAttempt() {
     window.opener = null;
   }
   sessionStorage.setItem(TAB_SESSION_KEY, tabId);
+  const MODEL_TIER_DEFAULT = 'max';
+  const MODEL_TIERS = Object.freeze({
+    instant:Object.freeze({ value:'instant', label:'即时', slider:0, effort:'none' }),
+    medium:Object.freeze({ value:'medium', label:'中', slider:1, effort:'medium' }),
+    high:Object.freeze({ value:'high', label:'高', slider:2, effort:'high' }),
+    max:Object.freeze({ value:'max', label:'极高', slider:3, effort:'max' }),
+    pro:Object.freeze({ value:'pro', label:'Pro', slider:4, effort:'' }),
+  });
+  function normalizeModelTier(value) {
+    const raw = String(value || '').trim().toLowerCase();
+    if (MODEL_TIERS[raw]) return raw;
+    if (raw === 'none' || raw === 'instantaneous' || raw === 'fast') return 'instant';
+    if (raw === 'mid' || raw === 'normal') return 'medium';
+    if (raw === 'extra-high' || raw === 'extra_high' || raw === 'maximum' || raw === 'extreme' || raw === 'xhigh') return 'max';
+    if (raw === 'professional') return 'pro';
+    return MODEL_TIER_DEFAULT;
+  }
+  function modelTierDefinition(value) {
+    return MODEL_TIERS[normalizeModelTier(value)] || MODEL_TIERS[MODEL_TIER_DEFAULT];
+  }
+  function modelTierLabel(value) {
+    return modelTierDefinition(value).label;
+  }
   const data = read(KEY, { tasks: [], selected: '', autoApprove: true });
   if (!Array.isArray(data.tasks)) data.tasks = [];
   if (!Array.isArray(data.deletedTaskIds)) data.deletedTaskIds = [];
@@ -482,6 +505,7 @@ async function bootstrapAttempt() {
     if (!Array.isArray(task.messages)) task.messages = [];
     if (!Number.isFinite(Number(task.messageVersion))) task.messageVersion = task.messages.length;
     if (!Number.isFinite(Number(task.goalRevision))) task.goalRevision = 0;
+    task.modelTier = normalizeModelTier(task.modelTier);
     task.attachments = Array.isArray(task.attachments)
       ? task.attachments.map(normalizeAttachmentMeta).filter(Boolean)
       : [];
@@ -2475,6 +2499,104 @@ async function bootstrapAttempt() {
     });
   }
   function composer() { return nodes('#prompt-textarea,textarea,[contenteditable=true]').find(enabled); }
+  function modelPickerTrigger() {
+    const primary = nodes('button[data-codex-intelligence-trigger="true"][data-composer-navigation-target="reasoning"]').find(enabled);
+    if (primary) return primary;
+    return nodes('button[data-selected-reasoning-effort]').find(node => enabled(node)
+      && /chatgpt|模型|model|reasoning|思考/i.test(label(node)));
+  }
+  function reasoningSlider() {
+    const direct = nodes('[data-reasoning-slider="true"] [role="slider"]').find(visible);
+    if (direct) return direct;
+    return nodes('[role="slider"][aria-valuemin][aria-valuemax]').find(node => visible(node)
+      && Boolean(node.closest?.('[data-model-picker-power-slider],[role="menu"]')));
+  }
+  async function openReasoningSlider(trigger, signal) {
+    if (!trigger || !enabled(trigger)) return null;
+    if (trigger.getAttribute('aria-expanded') !== 'true') {
+      trigger.click();
+      for (let attempt = 0; attempt < 12; attempt++) {
+        await delay(100, signal || null); if (signal) check(signal);
+        const slider = reasoningSlider();
+        if (slider) return slider;
+      }
+      return null;
+    }
+    return reasoningSlider();
+  }
+  async function closeReasoningSlider(trigger, signal) {
+    if (trigger?.isConnected && trigger.getAttribute('aria-expanded') === 'true') {
+      trigger.click();
+      await delay(80, signal || null);
+      if (signal) check(signal);
+    }
+  }
+  function dispatchReasoningSliderKey(slider, key) {
+    slider?.focus?.();
+    const init = { key, code:key, bubbles:true, cancelable:true };
+    slider?.dispatchEvent?.(new KeyboardEvent('keydown', init));
+    slider?.dispatchEvent?.(new KeyboardEvent('keyup', init));
+  }
+  async function ensureTaskModelTier(task, signal, { logSuccess = false } = {}) {
+    const tier = normalizeModelTier(task?.modelTier);
+    if (task) task.modelTier = tier;
+    const definition = modelTierDefinition(tier);
+    const trigger = modelPickerTrigger();
+    if (!trigger) {
+      if (task) state(task, 'sending', '未找到 ChatGPT 模型/思考强度选择器；不会使用未知默认档位发送。等待页面恢复后重试。');
+      return false;
+    }
+    let slider = await openReasoningSlider(trigger, signal);
+    if (!slider) {
+      if (task) state(task, 'sending', 'ChatGPT 模型菜单已打开但未找到思考强度滑块；不会发送到未知档位。等待页面恢复后重试。');
+      await closeReasoningSlider(trigger, signal).catch(() => {});
+      return false;
+    }
+    const min = Number(slider.getAttribute('aria-valuemin'));
+    const max = Number(slider.getAttribute('aria-valuemax'));
+    if (!Number.isFinite(min) || !Number.isFinite(max) || definition.slider < min || definition.slider > max) {
+      if (task) state(task, 'blocked', `所选模型档位“${definition.label}”当前不可用（ChatGPT 滑块范围 ${Number.isFinite(min)?min:'?'}–${Number.isFinite(max)?max:'?'}）；未发送任务。`);
+      await closeReasoningSlider(trigger, signal).catch(() => {});
+      save();
+      return false;
+    }
+    let current = Number(slider.getAttribute('aria-valuenow'));
+    for (let step = 0; step < 8 && current !== definition.slider; step++) {
+      if (signal) check(signal);
+      const key = current < definition.slider ? 'ArrowRight' : 'ArrowLeft';
+      dispatchReasoningSliderKey(slider, key);
+      let moved = false;
+      for (let wait = 0; wait < 8; wait++) {
+        await delay(100, signal || null); if (signal) check(signal);
+        slider = reasoningSlider();
+        const next = Number(slider?.getAttribute?.('aria-valuenow'));
+        if (Number.isFinite(next) && next !== current) {
+          current = next;
+          moved = true;
+          break;
+        }
+      }
+      if (!moved) break;
+    }
+    const verified = Number(reasoningSlider()?.getAttribute?.('aria-valuenow'));
+    if (verified !== definition.slider) {
+      if (task) state(task, 'blocked', `无法把 ChatGPT 模型档位切换到“${definition.label}”；当前滑块停在 ${Number.isFinite(verified)?verified:'未知'}，为避免用错误模型发送，任务已停止发送。`);
+      await closeReasoningSlider(trigger, signal).catch(() => {});
+      save();
+      return false;
+    }
+    await closeReasoningSlider(trigger, signal);
+    if (task) {
+      task.modelTierLastVerified = tier;
+      task.modelTierVerifiedAt = Date.now();
+      if (logSuccess && task.modelTierLastLogged !== tier) {
+        task.modelTierLastLogged = tier;
+        log(task, `已确认 ChatGPT 模型档位：${definition.label}；随后才会发送本轮任务。`);
+      }
+      save();
+    }
+    return true;
+  }
   function attachmentInputFor(input = composer(), preferredMetas = []) {
     const form = input?.closest?.('form');
     const composerHost = input?.closest?.('[data-testid*="composer"],[data-testid*="Composer"]') || form;
@@ -5082,6 +5204,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const input = composer();
     if (!input) return waitForSendUI(task, '未找到 ChatGPT 输入框');
     if (conversationRoleNodes('user').length) return waitForSendUI(task, '新会话页面仍保留旧消息');
+    if (!await ensureTaskModelTier(task, signal, { logSuccess:true })) return;
     if (!await ensureTaskAttachments(task, input, signal)) return;
     const prompt = task.preparedPrompt || (task.phase === 'review' ? plannerPrompt(task) : workPrompt(task));
     let draft = normalize(input.value || input.textContent);
@@ -5100,6 +5223,9 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       setInput(input, prompt);
       draft = normalize(prompt);
     }
+    // Upload/render work can replace the composer subtree. Re-read the actual
+    // ChatGPT power slider immediately before the single Send click.
+    if (!await ensureTaskModelTier(task, signal)) return;
     let button = sendButtonFor(input);
     if (!button) return waitForSendUI(task, '发送按钮暂不可用');
     await delay(300, signal); check(signal);
@@ -6234,11 +6360,11 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     haltRunnerForPause();
     paint();
   }
-  function enqueue(goal, taskMode = mode, attachments = []) {
+  function enqueue(goal, taskMode = mode, attachments = [], modelTier = MODEL_TIER_DEFAULT) {
     if (!goal.trim()) throw new Error('请输入任务目标');
     if (tabTasks().length >= 50) throw new Error('每个标签页最多保存 50 个任务，请先归档已完成任务。');
     const normalizedAttachments = Array.from(attachments || []).map(normalizeAttachmentMeta).filter(Boolean);
-    const task = { id:id(), ownerTabId:tabId, goal:goal.trim().slice(0,16000), mode:taskMode, state:'queued', phase:'work', round:1, url:'', attachments:normalizedAttachments, messages:[], messageVersion:0, goalRevision:0 };
+    const task = { id:id(), ownerTabId:tabId, goal:goal.trim().slice(0,16000), mode:taskMode, modelTier:normalizeModelTier(modelTier), state:'queued', phase:'work', round:1, url:'', attachments:normalizedAttachments, messages:[], messageVersion:0, goalRevision:0 };
     data.tasks.push(task); selected = task.id;
     // A newly submitted goal must not wait behind an older task whose
     // persisted URL is stale or synthetic. Make it the next scheduler target
@@ -6736,10 +6862,13 @@ NaN
     });
     const controls = element('div','','tools'), select = element('select'); select.setAttribute('aria-label','任务模式');
     for (const [value,name] of [['once','单次任务'],['goal','持续目标']]) { const option=element('option',name); option.value=value; select.append(option); }
+    const modelSelect = element('select'); modelSelect.setAttribute('aria-label','模型档位'); modelSelect.title='每次发送前都会在 ChatGPT 页面确认这个档位';
+    for (const key of ['instant','medium','high','max','pro']) { const definition=MODEL_TIERS[key]; const option=element('option',definition.label); option.value=definition.value; modelSelect.append(option); }
+    modelSelect.value=MODEL_TIER_DEFAULT;
     const auto = element('input'); auto.type='checkbox'; auto.checked=data.autoApprove !== false;
     const autoLabel=element('label'); autoLabel.append(auto,document.createTextNode('本次会话自动授权'));
     const submit = element('button','↑','send'); submit.type='submit'; submit.setAttribute('aria-label','发送任务');
-    controls.append(select,autoLabel,submit); compose.append(input,attachmentBox,controls); chat.append(settings,feed,notice,compose); desk.append(sidebar,chat);
+    controls.append(select,modelSelect,autoLabel,submit); compose.append(input,attachmentBox,controls); chat.append(settings,feed,notice,compose); desk.append(sidebar,chat);
     const launch=element('button','⚡ Fabushi 脚本','launch'); root.append(desk,launch); document.documentElement.append(style); (document.body || document.documentElement).append(root);
     let signature='', sidebarSignature='';
     paint = () => {
@@ -6758,7 +6887,7 @@ NaN
       const workspaceSnapshots=recoverableWorkspaces(data);
       const rowSignature=item=>[
         item.id,item.ownerTabId,item.state,Number(item.round||0),Number(item.goalRevision||0),
-        String(item.goal||'').slice(0,80),taskAttachments(item).length,
+        String(item.goal||'').slice(0,80),normalizeModelTier(item.modelTier),taskAttachments(item).length,
         Math.max(0,Math.ceil((Number(item.noFinalReplyRecoveryUntil||0)-Date.now())/60000)),
       ];
       const nextSidebarSignature=JSON.stringify([
@@ -6803,7 +6932,7 @@ NaN
         const meta=element('span','','task-meta');
         if(item.id===current&&running)meta.append(element('span','●','run-indicator'));
         const badge=element('span',statusNames[item.state]||item.state,'state-badge');badge.dataset.state=item.state;
-        meta.append(badge,document.createTextNode(`第 ${item.round} 轮`));
+        meta.append(badge,document.createTextNode(`第 ${item.round} 轮 · 模型 ${modelTierLabel(item.modelTier)}`));
         if (taskAttachments(item).length) meta.append(document.createTextNode(` · 📎 ${taskAttachments(item).length}`));
         const recoveryRemaining = Number(item.noFinalReplyRecoveryUntil || 0) - Date.now();
         if (recoveryRemaining > 0) meta.append(document.createTextNode(' · 异常恢复约 '+Math.ceil(recoveryRemaining / 60000)+' 分钟'));
@@ -6855,7 +6984,7 @@ NaN
         for(const item of workspace.tasks)appendTaskRow(group,item,false);list.append(group);
       });
       }
-      const nextSignature=JSON.stringify([selected,task?.goalRevision,task?.messageVersion,task?.url,task?.state,task?.preview,taskAttachmentSummary(task),task?.attachmentUploadPending,task?.attachmentUploadFailed,task?.attachmentUploadRetryAt,task?.attachmentUploadRetryCount]);
+      const nextSignature=JSON.stringify([selected,task?.goalRevision,task?.messageVersion,task?.url,task?.state,normalizeModelTier(task?.modelTier),task?.preview,taskAttachmentSummary(task),task?.attachmentUploadPending,task?.attachmentUploadFailed,task?.attachmentUploadRetryAt,task?.attachmentUploadRetryCount]);
       if(signature===nextSignature){
         recordPaint(0);
         return;
@@ -6865,6 +6994,7 @@ NaN
       feed.replaceChildren();
       if(!task)feed.append(element('p','在下方输入任务。单次任务等待一次最终回复；持续目标在每轮结束后新开规划/验收会话，由规划结果安排下一轮。会话恢复按已记录的唯一链接进行，不需要手动点击继续。'));
       if(task)feed.append(element('div',`当前目标：${task.goal}`,'goal'));
+      if(task)feed.append(element('div',`模型档位：${modelTierLabel(task.modelTier)}`,'model-tier-summary'));
       if(task?.attachments?.length)feed.append(element('div',`任务附件：${taskAttachmentSummary(task)}`,'attachment-summary'));
       const allMessages=task?.messages||[];
       const renderedMessages=allMessages.slice(-MAX_RENDERED_TASK_MESSAGES);
@@ -6931,7 +7061,7 @@ NaN
         const attachments=files.map(normalizeAttachmentMeta).filter(Boolean);
         if (attachments.length !== files.length) throw new Error('有附件缺少文件名，无法安全保存。');
         if (files.length) await openAttachmentDB();
-        task=enqueue(input.value,select.value,attachments);
+        task=enqueue(input.value,select.value,attachments,modelSelect.value);
         if (files.length) {
           try { await storeTaskAttachmentFiles(task,files,attachments); }
           catch (error) {
@@ -6954,7 +7084,7 @@ NaN
     if(tool==='cleanup_memory')return requestHostMemoryCleanup({reason:'manual-tool',userInitiated:true});
     if(['pause_queue','stop'].includes(tool)){pause();return{running:false};}
     if(['start_queue','resume_queue'].includes(tool))return start();
-    if(tool==='enqueue_tasks'){for(const task of args.tasks||[])enqueue(task.prompt||task.goal||'',task.mode||'once',task.attachments||[]);return tabTasks();}
+    if(tool==='enqueue_tasks'){for(const task of args.tasks||[])enqueue(task.prompt||task.goal||'',task.mode||'once',task.attachments||[],task.modelTier||task.reasoningTier||MODEL_TIER_DEFAULT);return tabTasks();}
     if(tool==='get_reply'){
       const task = data.tasks.find(item => item.id === current && taskBelongsToTab(item))
         || data.tasks.find(item => item.id === selected && taskBelongsToTab(item));

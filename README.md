@@ -1,8 +1,26 @@
-# Fabushi 独立自动确认工作台 2.10.6
+# Fabushi 独立自动确认工作台 2.10.7
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.6`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.7`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+
+## 2.10.7 每个任务显式选择并强制校验 ChatGPT 模型档位
+
+- 已按 Mac 真实 ChatGPT 模型选择器实现，不再沿用页面“上次是什么就用什么”的隐式状态。
+- Fabushi 新任务输入区新增 **模型档位**：`即时 / 中 / 高 / 极高 / Pro`；默认 **极高**。
+- 真实 ChatGPT 页面当前把这五档放在一个 `0–4` 的 power slider 中：
+  - `0 = 即时`
+  - `1 = 中`
+  - `2 = 高`
+  - `3 = 极高`
+  - `4 = Pro`
+- 每次 Work、规划/验收和后续轮次发送前，脚本都会打开 ChatGPT 的模型菜单，读取真实 `role="slider"` 的 `aria-valuenow`，按需要发送 ArrowLeft / ArrowRight，并逐步确认 DOM 确实变化。
+- 附件上传、输入框重挂载等操作后，**点击 Send 前会再次读取并确认档位**；不匹配就不会发送。
+- `Pro` 不能仅靠 `data-selected-reasoning-effort` 判断：现场实测 slider=4 时 trigger effort 仍可能显示 `medium`，所以以真实 slider 档位为准。
+- ChatGPT 模型选择器缺失、滑块不可移动或所选档位不可用时，脚本会 fail closed，绝不会静默用错误档位发送。
+- 任务选择的档位持久化在任务本身，会跨 Work → review → 下一轮继续保持；旧任务自动迁移为默认 **极高**。
+- 任务侧栏和详情中显示持久化的模型档位；`enqueue_tasks` 也支持 `modelTier` / `reasoningTier`。
+- 真实 DOM、档位映射和验收条件见 [v2.10.7 规格](docs/specs/model-tier-selection-v2.10.7.md)。
 
 ## 2.10.6 修复新会话误记录 `local-chatgpt:` 临时链接
 
