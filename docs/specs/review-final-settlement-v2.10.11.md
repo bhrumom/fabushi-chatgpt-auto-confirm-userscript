@@ -72,6 +72,7 @@ This structure is already compatible with the canonical fallback-turn parser. Th
 - R10: Existing 15-minute generic page-stall, v2.10.8 load-error 30-second × 7, and v2.10.10 work-trace progress logic remain unchanged.
 - R11: Runtime, README, tests and metadata are bumped to v2.10.11.
 - R12: Delivery requires exact-head Test success before merge/release claims.
+- R13: The Node test harness must terminate deterministically after all discovered tests finish. Long-lived userscript timers/listeners may exist by design inside JSDOM fixtures, but they must not turn a fully passing suite into a 10-minute Actions timeout. The harness may use Node's `--test-force-exit` only after the test runner has completed the test set; this must not reduce coverage, skip failures, or shorten per-test execution.
 
 ## 6. Target behavior
 
@@ -135,6 +136,7 @@ Focused tests must prove:
 8. After 120 seconds of unchanged no-final review state, bounded abnormal recovery still occurs.
 9. Existing Work Stop-disappearance test remains immediate and unchanged.
 10. Full userscript syntax and regression suite pass.
+11. The full suite exits on its own CI command path after reporting all tests, instead of remaining alive on background handles until the GitHub job timeout.
 
 ## 10. Acceptance criteria / Definition of Done
 
@@ -145,6 +147,7 @@ Focused tests must prove:
 - AC-5: Marker virtualization remains same-response fail-closed.
 - AC-6: Truly ended review sessions still have bounded recovery.
 - AC-7: Exact-head CI succeeds.
+- AC-8: The regression command finishes deterministically after the test report; a passing suite is not reported as `cancelled` solely because background JSDOM/userscript handles keep Node alive.
 
 ## 11. Release / rollback
 
@@ -169,3 +172,4 @@ Record:
 | R1-R10 / AC-1-AC-6 | implemented, pending CI verification | Runtime now gives Review a two-minute no-final settlement window, excludes Review from immediate same-document Stop-disappearance handoff, accepts only exact-identity `parseReview()` reports as structured review-final evidence, and keeps marker-virtualized promotion bound to the same Stop-observed assistant response boundary. Added live fallback-turn, delayed settlement, marker-virtualized structured report and bounded-expiry regressions; existing Work Stop-disappearance behavior is intentionally unchanged. |
 | R11 | implemented, pending CI verification | Userscript metadata/runtime and README are bumped to v2.10.11. |
 | R12 / AC-7 | pending | Requires exact-head Test on the final implementation commit. |
+| R13 / AC-8 | implemented, pending CI verification | Prior exact-head run 36520312671 printed the complete passing regression tail through the final cache-expiry cases, then remained alive until the 10-minute job timeout because JSDOM/userscript background handles were still open. The test command now uses Node's supported `--test-force-exit` so the process exits only after the runner has finished the discovered test set; no tests are skipped or shortened. |
