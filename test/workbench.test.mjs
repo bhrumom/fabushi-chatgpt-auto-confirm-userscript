@@ -34,7 +34,7 @@ async function fixture(body='', setup=()=>{}, url='https://chatgpt.com/') {
     const form = w.document.querySelector('form') || w.document.body;
     form.append(trigger);
   }
-  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, conversationLoadFailure, clearConversationLoadFailureState, recoverConversationLoadFailure, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, normalizeReasoningPreset, reasoningPresetLabel, taskReasoningPreset, reasoningPickerTrigger, reasoningSliderState, ensureTaskReasoningPreset, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, refreshInterruptedStopStall, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), setRunningForTest:value=>{running=Boolean(value);}, getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, assistantResponseBoundaryKey, taskTurnForInspection, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, conversationLoadFailure, clearConversationLoadFailureState, recoverConversationLoadFailure, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, normalizeReasoningPreset, reasoningPresetLabel, taskReasoningPreset, reasoningPickerTrigger, reasoningSliderState, ensureTaskReasoningPreset, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, refreshInterruptedStopStall, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), setRunningForTest:value=>{running=Boolean(value);}, getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('reasoning preset defaults to Extra High and explicit five-position choices persist',async()=>{
@@ -4721,9 +4721,174 @@ test('prior Stop disappearance without strong latest-owned final evidence still 
   } finally {h.pause();dom.window.close();}
 });
 
+test('marker-virtualized review final on the same Stop-observed response parses next and dispatches the next Work round',async()=>{
+  const taskId='review-virtualized-next';
+  const review=JSON.stringify({taskId,round:9,status:'next',summary:'仍有两个真实阻塞需要继续。',next:'先修 shipping Host/Runner composition，再修 deterministic transcript blocker 并重跑 exact-head gates。'});
+  const {h,w,dom}=await fixture(`<main>
+    <div id="review-turn" data-content-search-turn-key="review-turn-9">
+      <div id="review-user" data-content-search-unit-key="review-turn-9:user"><div data-user-message-bubble="true">独立验收 [Fabushi:review-vnext]</div></div>
+      <div id="review-assistant" data-content-search-unit-key="review-turn-9:assistant"><div data-message-content>${review}</div></div>
+    </div>
+    <button id="stop" data-testid="stop-button" aria-label="停止生成">停止</button>
+    <form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/review-virtualized-next');
+    const task={id:taskId,ownerTabId:h.getTabId(),goal:'完成所有架构 parity',mode:'goal',phase:'review',round:9,state:'waiting',url:'https://chatgpt.com/c/review-virtualized-next',token:'review-vnext',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'上一轮 Work 结果',messages:[]};
+    h.data.tasks.push(task);
+    await h.start(false);
+
+    await h.inspect(task,null);
+    assert.equal(task.state,'generating');
+    assert.ok(task.stopObservedGenerationIdentity,'this exact review dispatch records the Stop generation identity');
+    assert.equal(task.stopObservedAssistantBoundaryKey,'turn:review-turn-9','Stop observation binds the structural assistant response boundary');
+
+    w.document.querySelector('#review-user').remove();
+    w.document.querySelector('#stop').remove();
+    const turn=w.document.querySelector('#review-turn');
+    for(const name of ['复制','分享']){
+      const button=w.document.createElement('button');
+      button.setAttribute('aria-label',name);
+      turn.append(button);
+    }
+
+    const promoted=h.taskTurnForInspection(task);
+    assert.equal(promoted.owned,true,'same Stop-observed assistant boundary is promoted after marker virtualization');
+    assert.equal(promoted.stopBoundRouteFinal,true);
+    assert.equal(promoted.final,true);
+    assert.equal(promoted.text,review);
+
+    await h.inspect(task,null);
+    assert.equal(task.connectionInterruptedFreshDispatch||false,false,'visible final review must not enter abnormal Stop-disappearance carry');
+    assert.equal(task.url,'https://chatgpt.com/c/review-virtualized-next');
+    const observation=h.observations.get(task.id);
+    assert.equal(observation?.final,true);
+    observation.finalSince=Date.now()-5_000;
+    observation.since=Date.now()-5_000;
+    observation.idleSince=Date.now()-5_000;
+
+    await h.inspect(task,null);
+    assert.equal(task.state,'queued');
+    assert.equal(task.phase,'work');
+    assert.equal(task.round,10);
+    assert.equal(task.next,'先修 shipping Host/Runner composition，再修 deterministic transcript blocker 并重跑 exact-head gates。');
+    assert.equal(task.connectionInterruptedFreshDispatch||false,false);
+    assert.equal(task.abnormalFreshCarry||'','');
+    assert.ok(task.messages.some(item=>item.role==='assistant' && item.text===review),'the real final review body is preserved and parsed');
+    assert.ok(task.messages.some(item=>/规划\/验收要求继续：仍有两个真实阻塞需要继续/.test(item.text||'')));
+  } finally {h.pause();dom.window.close();}
+});
+
+test('marker-virtualized review complete on the same Stop-observed response finishes normally',async()=>{
+  const taskId='review-virtualized-complete';
+  const review=JSON.stringify({taskId,round:4,status:'complete',summary:'所有要求已有 exact-head 证据，验收完成。'});
+  const {h,w,dom}=await fixture(`<main>
+    <div id="review-turn" data-content-search-turn-key="review-turn-complete">
+      <div id="review-user" data-content-search-unit-key="review-turn-complete:user"><div data-user-message-bubble="true">独立验收 [Fabushi:review-vcomplete]</div></div>
+      <div data-content-search-unit-key="review-turn-complete:assistant"><div data-message-content>${review}</div></div>
+    </div>
+    <button id="stop" data-testid="stop-button" aria-label="停止生成">停止</button>
+    <form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/review-virtualized-complete');
+    const task={id:taskId,ownerTabId:h.getTabId(),goal:'完成所有要求',mode:'goal',phase:'review',round:4,state:'waiting',url:'https://chatgpt.com/c/review-virtualized-complete',token:'review-vcomplete',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work 已完成',messages:[]};
+    h.data.tasks.push(task);
+    await h.start(false);
+    await h.inspect(task,null);
+
+    w.document.querySelector('#review-user').remove();
+    w.document.querySelector('#stop').remove();
+    const turn=w.document.querySelector('#review-turn');
+    for(const name of ['复制','评价回复']){
+      const button=w.document.createElement('button');
+      button.setAttribute('aria-label',name);
+      turn.append(button);
+    }
+    await h.inspect(task,null);
+    const observation=h.observations.get(task.id);
+    assert.equal(observation?.final,true);
+    observation.finalSince=Date.now()-5_000;
+    observation.since=Date.now()-5_000;
+    observation.idleSince=Date.now()-5_000;
+
+    await h.inspect(task,null);
+    assert.equal(task.state,'done');
+    assert.equal(task.phase,'review');
+    assert.equal(task.connectionInterruptedFreshDispatch||false,false);
+    assert.ok(task.messages.some(item=>/验收完成：所有要求已有 exact-head 证据/.test(item.text||'')));
+  } finally {h.pause();dom.window.close();}
+});
+
+test('marker virtualization cannot consume a different final assistant response boundary after Stop',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <div id="turn-a" data-content-search-turn-key="stop-response-a">
+      <div id="review-user" data-content-search-unit-key="stop-response-a:user"><div data-user-message-bubble="true">独立验收 [Fabushi:review-boundary-mismatch]</div></div>
+      <div data-content-search-unit-key="stop-response-a:assistant"><div data-message-content>当前 generation 的中途验收内容。</div></div>
+    </div>
+    <button id="stop" data-testid="stop-button" aria-label="停止生成">停止</button>
+    <form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/review-boundary-mismatch');
+    const task={id:'review-boundary-mismatch',ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'review',round:3,state:'waiting',url:'https://chatgpt.com/c/review-boundary-mismatch',token:'review-boundary-mismatch',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'work',messages:[]};
+    h.data.tasks.push(task);
+    await h.start(false);
+    await h.inspect(task,null);
+    assert.equal(task.stopObservedAssistantBoundaryKey,'turn:stop-response-a');
+
+    w.document.querySelector('#review-user').remove();
+    w.document.querySelector('#stop').remove();
+    w.document.querySelector('#turn-a').remove();
+    const replacement=w.document.createElement('div');
+    replacement.dataset.contentSearchTurnKey='different-old-response-b';
+    replacement.innerHTML='<div data-content-search-unit-key="different-old-response-b:assistant"><div data-message-content>这是另一个 response 的旧最终内容。</div></div><button aria-label="复制"></button><button aria-label="分享"></button>';
+    w.document.querySelector('main').insertBefore(replacement,w.document.querySelector('form'));
+
+    const candidate=h.taskTurnForInspection(task);
+    assert.equal(candidate.owned,false,'a structurally different response cannot inherit Stop-bound ownership');
+    await h.inspect(task,null);
+    assert.equal(task.state,'queued','unproven Stop disappearance keeps the existing abnormal fresh-session recovery');
+    assert.equal(task.connectionInterruptedFreshDispatch,true);
+    assert.equal(task.phase,'review');
+    assert.equal(task.round,3);
+    assert.match(task.messages.at(-1)?.text||'',/停止按钮已经消失/);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('marker-virtualized final without a structural response key stays fail-closed',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <section id="legacy-wrap">
+      <div id="review-user" data-message-author-role="user">独立验收 [Fabushi:review-no-boundary]</div>
+      <div id="legacy-assistant" data-message-author-role="assistant"><div class="markdown">没有结构 id 的回复。</div></div>
+    </section>
+    <button id="stop" data-testid="stop-button" aria-label="停止生成">停止</button>
+    <form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/review-no-boundary');
+    const task={id:'review-no-boundary',ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'review',round:2,state:'waiting',url:'https://chatgpt.com/c/review-no-boundary',token:'review-no-boundary',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'work',messages:[]};
+    h.data.tasks.push(task);
+    await h.start(false);
+    await h.inspect(task,null);
+    assert.equal(task.stopObservedAssistantBoundaryKey||'','','no transcript-derived fallback key is persisted');
+
+    w.document.querySelector('#review-user').remove();
+    w.document.querySelector('#stop').remove();
+    const legacy=w.document.querySelector('#legacy-wrap');
+    const copy=w.document.createElement('button'); copy.setAttribute('aria-label','复制'); legacy.append(copy);
+    const share=w.document.createElement('button'); share.setAttribute('aria-label','分享'); legacy.append(share);
+
+    const candidate=h.taskTurnForInspection(task);
+    assert.equal(candidate.owned,false);
+    await h.inspect(task,null);
+    assert.equal(task.connectionInterruptedFreshDispatch,true);
+  } finally {h.pause();dom.window.close();}
+});
+
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.10\.8$/m);
-  assert.match(source,/const VERSION = '2\.10\.8'/);
+  assert.match(source,/^\/\/ @version\s+2\.10\.9$/m);
+  assert.match(source,/const VERSION = '2\.10\.9'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);

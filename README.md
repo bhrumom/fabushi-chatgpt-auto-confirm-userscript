@@ -1,8 +1,18 @@
-# Fabushi 独立自动确认工作台 2.10.8
+# Fabushi 独立自动确认工作台 2.10.9
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.8`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.9`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+
+## 2.10.9 验收会话任务标识虚拟化后的最终回复识别
+
+- 修复规划/验收会话已经给出完整最终回复，但 ChatGPT 恰好把本轮带 `[Fabushi:...]` 的 user turn 虚拟化后，脚本把它误判成“停止按钮消失接力”的问题。
+- 现在 Stop 可见时会额外记录当前 assistant response 的**结构边界 identity**（优先使用 current renderer 的 content-search turn/message/unit key），不保存回复正文作为身份。
+- 如果之后任务标识被虚拟化，只有在**同一 exact conversation、同一 phase/round/token/goalRevision、无其它任务 owner/marker、同一个 Stop-observed assistant response boundary、最终 Copy toolbar 已出现且 Stop 已消失**时，才把这条回复恢复为本任务的最终回复。
+- 这样验收最终正文会进入原来的 `parseReview()`：`status:"next"` 会读取它的 `next` 并派发下一轮 Work；`status:"complete"` 会正常结束。
+- 如果最终 toolbar 属于另一个 response，或当前 renderer 无法提供可验证的 response boundary，则仍然 fail-closed，继续使用原有异常接力，不会把旧回复误认成本轮结果。
+- v2.10.8 的“无法加载此 ChatGPT 对话”30 秒 × 7 恢复、15 分钟普通停滞策略、授权/请求频繁/附件等逻辑不变。
+- 详细规格见 [v2.10.9](docs/specs/review-virtualized-marker-final-recognition-v2.10.9.md)。
 
 ## 2.10.8 会话加载失败 30 秒 × 7 恢复 + 最终回复优先识别
 
