@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.10
+// @version      2.10.11
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.10';
+  const VERSION = '2.10.11';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -149,6 +149,11 @@ async function bootstrapAttempt() {
   const MAX_SAME_SESSION_CONTINUATIONS = 3;
   const CONTINUATION_SEND_COOLDOWN_MS = 60 * 1000;
   const ENDED_NO_FINAL_STABILITY_MS = 8000;
+  // Review/acceptance turns can temporarily lose Stop while ChatGPT is still
+  // reasoning or hydrating the committed JSON response. Do not duplicate the
+  // review after the ordinary eight-second ended-state window; keep the exact
+  // conversation for a bounded two-minute settlement grace instead.
+  const REVIEW_ENDED_NO_FINAL_STABILITY_MS = 2 * 60 * 1000;
   const RELOAD_STOP_ABSENCE_STABILITY_MS = 8000;
   const RATE_LIMIT_FRESH_RETRY_AFTER = 3;
   // The carry is normally much smaller than this. Keep a generous bound so a
@@ -4316,13 +4321,21 @@ async function bootstrapAttempt() {
       const candidate = latestTurn();
       const observedBoundaryKey = String(task.stopObservedAssistantBoundaryKey || '');
       const candidateBoundaryKey = assistantResponseBoundaryKey(candidate);
+      const structuredReviewFinal = Boolean(
+        task.phase === 'review'
+        && candidate.text
+        && !candidate.streaming
+        && currentReviewReport(candidate.text, task)
+      );
       if (observedBoundaryKey
         && candidateBoundaryKey === observedBoundaryKey
         && candidate.text
-        && candidate.final
+        && (candidate.final || structuredReviewFinal)
         && !candidate.streaming) {
         return {
           ...candidate,
+          final:Boolean(candidate.final || structuredReviewFinal),
+          structuredReviewFinal,
           owned:true,
           recoveredRouteOwned:true,
           stopBoundRouteFinal:true,
@@ -5621,6 +5634,11 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     if (report.status === 'next' && (typeof report.next !== 'string' || !report.next.trim())) throw reviewParseError('验收回复缺少下一轮安排；插件将有限重开验收会话，不会重复执行 Work。');
     return report;
   }
+  function currentReviewReport(value, task) {
+    if (!task || task.phase !== 'review' || !String(value || '').trim()) return null;
+    try { return parseReview(value, task); }
+    catch { return null; }
+  }
   function queueReviewRepair(task, reason = '验收回复格式无法解析') {
     if (!task || task.phase !== 'review') return '';
     const attempts = Number(task.reviewRepairAttempts || 0);
@@ -5785,6 +5803,21 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const approvalVisible = approvalRouteEligible && pending.length > 0;
     const currentBlocker = blocker();
     const currentRateLimit = rateLimitNotice(getPageUiRecords);
+    // Live review DOM can remove Stop before its response toolbar is mounted.
+    // A complete current-task report is stronger than that transient toolbar
+    // gap because parseReview still enforces exact taskId/round and schema.
+    const structuredReviewFinal = Boolean(
+      task.phase === 'review'
+      && routeOwned
+      && turn.owned
+      && turn.text
+      && !stopPresent
+      && !observedActivityStreaming
+      && !approvalVisible
+      && !currentBlocker
+      && !currentRateLimit
+      && currentReviewReport(turn.text, task)
+    );
     const messagesMountedForLoadFailure = visibleConversationHasMessages();
     const explicitConversationLoadFailure = routeOwned && !messagesMountedForLoadFailure
       ? conversationLoadFailure(getPageUiRecords)
@@ -5910,7 +5943,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       !stopPresent
       && routeOwned
       && turn.owned
-      && turn.final
+      && (turn.final || structuredReviewFinal)
       && turn.text
       && !foreignTask
       && !otherRouteOwner
@@ -5921,6 +5954,10 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     );
     const stopDisappearedFreshEligible = Boolean(
       !stopPresent
+      // Work keeps the immediate Stop-disappearance recovery contract. Review
+      // uses the bounded settlement/no-final path below so long reasoning and
+      // delayed toolbar hydration cannot create duplicate acceptance chats.
+      && task.phase !== 'review'
       && stopIdentityMatches
       && (stopObservedInCurrentDocument || inheritedStopAbsenceStable)
       && approvalRouteEligible
@@ -6200,7 +6237,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       owned:Boolean(routeOwned && turn.owned),
       foreignTaskId:routeOwned && !turn.owned ? (foreignTask?.id || '') : '',
       text:turn.text,
-      final:turn.final,
+      final:Boolean(turn.final || structuredReviewFinal),
       responseActions:turn.responseActions,
       responseActionsComplete:turn.responseActionsComplete,
       explicitFinal:turn.explicitFinal,
@@ -6284,6 +6321,9 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const abnormalNoFinalFor = abnormalNoFinalEligible
       ? Math.max(0, now - Number(task.abnormalNoFinalSince || now))
       : 0;
+    const endedNoFinalStabilityMs = task.phase === 'review'
+      ? REVIEW_ENDED_NO_FINAL_STABILITY_MS
+      : ENDED_NO_FINAL_STABILITY_MS;
     const stallEligible = Boolean(
       sample.routeOwned
       && pageBelongsToTask
@@ -6375,7 +6415,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       paint(); // Live preview is transient; streaming does not write localStorage.
     }
     if (abnormalNoFinalEligible
-      && abnormalNoFinalFor >= ENDED_NO_FINAL_STABILITY_MS
+      && abnormalNoFinalFor >= endedNoFinalStabilityMs
       && now - Number(task.continuationSentAt || 0) >= CONTINUATION_SEND_COOLDOWN_MS) {
       if (cacheRetry) {
         task.streamCacheRetryKey = cacheRetryKey;
