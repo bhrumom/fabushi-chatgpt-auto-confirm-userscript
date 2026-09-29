@@ -6204,7 +6204,11 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     // ended": it requires exact-route + marker-derived ownership and a fully
     // idle, safe composer state. Route-only recovery ownership is excluded.
     const naturalFinalCandidate = Boolean(
-      routeOwned
+      // Review is a structured contract: never promote arbitrary natural
+      // language just because Stop disappeared and the composer is idle.
+      // Wait for parseReview()-valid JSON or the response-local final toolbar.
+      task.phase !== 'review'
+      && routeOwned
       && turn.owned
       && String(turn.text || '').trim()
       && turn.hasNaturalReply
