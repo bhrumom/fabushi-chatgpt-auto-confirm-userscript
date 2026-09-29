@@ -1,8 +1,19 @@
-# Fabushi 独立自动确认工作台 2.10.9
+# Fabushi 独立自动确认工作台 2.10.10
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.9`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.10`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+
+## 2.10.10 异常接力携带可见回复 + 实际工作步骤
+
+- 修复异常中断后新会话只带普通 assistant 回复、却丢掉 ChatGPT Agent 可见执行步骤的问题。
+- 当前 ChatGPT renderer 会把“下载并检查工作流构建产物”“定位首个根因”“等待 Rust 编译完成”“轮询 GitHub Actions …”等进度显示为 `assistant-message + tertiary`。这些节点继续**不参与最终回复判定**，但现在会进入异常接力上下文。
+- 异常 handoff 会把当前 response 的普通 assistant prose 和这些 tertiary 工作步骤按页面出现顺序合并，再写入现有 bounded carry / pagehide snapshot。
+- 如果任务 marker 被虚拟化，只允许 exact conversation、无 foreign marker/owner 的安全回退，并只取最新 content-search response turn，避免把旧轮次的 activity 混进来。
+- 下一轮 Work 提示词现在明确包含“异常会话实时工作记录（可见回复 + 实际工作步骤）”；后续验收异常接力也携带同一 combined trace。
+- 后续轮次仍保留“上一轮已完成 Work 最终回复 + 当前异常工作记录 + 原始目标”的优先级，当前 `next` / 当前任务和原始目标始终优先。
+- v2.10.9 的验收最终回复识别、v2.10.8 的“无法加载此 ChatGPT 对话”30 秒 × 7 恢复和普通 15 分钟停滞策略均不变。
+- 详细规格见 [v2.10.10](docs/specs/abnormal-visible-work-trace-carry-v2.10.10.md)。
 
 ## 2.10.9 验收会话任务标识虚拟化后的最终回复识别
 
