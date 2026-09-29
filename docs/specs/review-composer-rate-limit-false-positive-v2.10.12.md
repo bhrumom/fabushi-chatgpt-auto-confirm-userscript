@@ -169,8 +169,8 @@ Record:
 
 | Requirement / AC | Status | Evidence / reason |
 | --- | --- | --- |
-| R1–R10 | blocked | Implementation and GitHub Actions evidence pending on the feature branch. |
-| AC-1–AC-4 | blocked | Regression implementation/verification pending. |
-| AC-5 | blocked | PR exact-head Test pending. |
-| AC-6 | blocked | Canonical-main Test requires merge after PR gate. |
+| R1–R10 | passed | Runtime/test implementation is on PR #128; implementation exact head `e0c8a4f912a99c563ec2b0538aca2490df4f2e4f` passed GitHub Actions Test run `36533643080`: syntax check and regression suite both succeeded. No local test/build was used. |
+| AC-1–AC-4 | passed | `test/workbench.test.mjs` reproduces a review-like composer carrying request-frequency wording plus the workspace quota banner, verifies no false detection/cooldown mutation, then verifies a genuine external `role=alert` still enters the existing rate-limit path. Test run `36533643080` succeeded. |
+| AC-5 | passed | PR #128 implementation exact head `e0c8a4f912a99c563ec2b0538aca2490df4f2e4f` passed Test run `36533643080`. This compliance-record update is documentation-only; its PR-head Test is still required before merge. |
+| AC-6 | blocked | Canonical-main Test requires merge after the latest PR-head Test succeeds. |
 | AC-7 | blocked | v2.10.12 Release requires canonical-main Test success. |
