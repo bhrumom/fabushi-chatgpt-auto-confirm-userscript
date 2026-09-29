@@ -1,8 +1,17 @@
-# Fabushi 独立自动确认工作台 2.10.7
+# Fabushi 独立自动确认工作台 2.10.8
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.7`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.8`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+
+## 2.10.8 会话加载失败 30 秒 × 7 恢复 + 最终回复优先识别
+
+- ChatGPT 明确显示“无法加载此 ChatGPT 对话”且真实消息区未挂载时，不再落入通用的两次 renderer recovery 后永久等待。
+- 该明确错误现在按 **30 秒**间隔只刷新当前绑定会话，最多 **7 次**；第 7 次刷新后仍是同一加载错误，就保留任务、阶段、轮次、附件和可安全提取的进度，在当前标签页新开 ChatGPT 会话继续。
+- 故障旧会话不会再次点击发送，也不会因为这个专项恢复改变通用的 15 分钟无进展策略。
+- 当前 ChatGPT 的 content-search renderer（`:user` / `:assistant`）以及最终回复按钮 `复制` / `评价回复` / `分享` 已按实站结构复核。
+- 如果同一派发曾经出现 Stop，但现在最新、归属明确的 assistant 回复已经出现 response-local `复制` 且 Stop/streaming 均消失，最终回复证据优先，不再被旧的“Stop 消失就新开会话”规则抢先接力。
+- 详细规格见 [v2.10.8](docs/specs/conversation-load-failure-final-precedence-v2.10.8.md)。
 
 ## 2.10.7 每个任务发送前强制选择 ChatGPT 模型 / 思考档位
 
