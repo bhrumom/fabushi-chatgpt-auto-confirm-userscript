@@ -3010,6 +3010,49 @@ test('a newly rendered page reply restarts the idle refresh clock even during ta
   }
 });
 
+test('a tertiary-only work-step change restarts the generic page no-change clock',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <div data-content-search-turn-key="work-step-progress">
+      <div data-content-search-unit-key="work-step-progress:0:user">
+        <div data-user-message-bubble="true">continue [Fabushi:work-step-progress]</div>
+      </div>
+      <div data-markdown-text-style="assistant-message" data-markdown-text-tone="primary" data-is-streaming="true">Primary reply text stays unchanged.</div>
+      <div data-markdown-text-style="assistant-message" data-markdown-text-tone="tertiary" data-selected-text-overlay-target="_work_step_">等待 Rust 编译完成</div>
+    </div>
+    <form><textarea id="prompt-textarea"></textarea><button data-testid="stop-button" aria-label="停止回答">Stop</button></form>
+  </main>`);
+  w.history.pushState({},'', '/c/work-step-progress');
+  const task={id:'work-step-progress',ownerTabId:h.getTabId(),goal:'continue work',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/work-step-progress',token:'work-step-progress',attempted:false,messages:[]};
+  h.data.tasks.push(task);
+  try {
+    await h.start(false);
+    await h.inspect(task,null);
+    const first=h.observations.get(task.id);
+    assert.ok(first);
+    const primaryBefore=h.latestTurn(task).text;
+    assert.equal(primaryBefore,'Primary reply text stays unchanged.');
+    assert.ok(first.progressSignature.includes('等待 Rust 编译完成'),'initial visible work step participates in the progress signature');
+
+    first.progressSince=Date.now()-16*60*1000;
+    const activity=w.document.querySelector('[data-markdown-text-tone="tertiary"]');
+    activity.textContent='获取 GitHub Actions 工作流任务';
+    await h.inspect(task,null);
+
+    const changed=h.observations.get(task.id);
+    assert.equal(h.latestTurn(task).text,primaryBefore,'tertiary progress must not alter canonical assistant reply text');
+    assert.equal(task.stalledRefreshAttempts||0,0,'a new visible work step restarts the idle interval');
+    assert.ok(changed.progressSignature.includes('获取 GitHub Actions 工作流任务'),'new work step is visible in the progress signature');
+    assert.ok(Date.now()-changed.progressSince < 500,'the 15-minute page no-change clock restarts on tertiary-only progress');
+
+    changed.progressSince=Date.now()-16*60*1000;
+    await h.inspect(task,null);
+    assert.equal(task.stalledRefreshAttempts,1,'without another reply or work-step change, the normal 15-minute stall refresh still applies');
+  } finally {
+    h.pause();
+    dom.window.close();
+  }
+});
+
 test('exact retained composer text is cleared at timeout before existing ambiguous retry',async()=>{
   const {h,w,dom}=await fixture('<main><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">Send</button></form></main>');
   const task={id:'retained-draft',ownerTabId:h.getTabId(),goal:'finish work',next:'',mode:'goal',round:2,state:'sending',phase:'work',url:'',token:'retained-token',preparedPrompt:'complete the requested task [Fabushi:retained-token]',attempted:true,sentAt:1,messages:[]};
@@ -4259,7 +4302,7 @@ test('live fallback transient primary assistant ignores tertiary activity summar
     assert.equal(turn.streaming,true);
     assert.equal(turn.final,false);
     const fingerprint=h.visibleConversationProgressFingerprint();
-    assert.equal(fingerprint.map(item=>item.role).join(','),'user,assistant');
+    assert.equal(fingerprint.map(item=>item.role).join(','),'user,assistant-activity,assistant-activity,assistant','tertiary work steps are progress-only fingerprint entries in DOM order');
   } finally {h.pause();dom.window.close();}
 });
 
