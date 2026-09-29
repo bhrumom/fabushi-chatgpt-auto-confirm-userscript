@@ -177,5 +177,5 @@ Focused regressions must prove:
 
 | Requirement / AC | Status | Evidence |
 | --- | --- | --- |
-| R1-R15 / AC-1-AC-7 | pending implementation | Live logs + v2.10.8 source audit identify the ownership gap. |
+| R1-R15 / AC-1-AC-7 | implemented, pending CI verification | Runtime now persists a structural Stop-observed assistant boundary, promotes only a matching same-generation final response after marker virtualization, clears the boundary with Stop state, and keeps mismatched/no-key responses fail-closed. Focused review next/complete/mismatch/no-key regressions were added. |
 | R16 / AC-8 | pending delivery | Requires exact-head Test, merge, canonical-main Test, Release and asset verification. |
