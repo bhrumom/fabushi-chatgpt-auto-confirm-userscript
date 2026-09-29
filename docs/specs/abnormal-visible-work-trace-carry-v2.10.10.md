@@ -182,5 +182,5 @@ Do not log or persist extra raw tool payloads; only the already-visible bounded 
 
 | Requirement / AC | Status | Evidence |
 | --- | --- | --- |
-| R1-R23 / AC-1-AC-6 | pending implementation | Live Mac DOM inspection reproduced the missing tertiary-work-step class and confirmed v2.10.9 excludes it from canonical assistant roles. |
+| R1-R23 / AC-1-AC-6 | implemented, pending CI verification | Runtime now merges visible tertiary assistant activity summaries with ordinary assistant reply segments in document order for abnormal carry/pagehide snapshot, scopes current content-search response turns, preserves marker-virtualized exact-route guards, updates Work/Review prompt wording, and leaves canonical final-reply extraction unchanged. Focused current-turn, marker-virtualized, ordering, dedupe and prompt regressions were added. |
 | R24 / AC-7 | pending delivery | Requires exact-head Test, merge, canonical-main Test, Release and asset verification. |
