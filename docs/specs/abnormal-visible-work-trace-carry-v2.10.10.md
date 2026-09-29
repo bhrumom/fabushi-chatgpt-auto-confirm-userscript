@@ -15,6 +15,8 @@ These tertiary assistant activity summaries are not canonical assistant conversa
 
 As a result, when that conversation ends abnormally, the carry can say only the latest prose/status while dropping the concrete execution trace that tells the replacement session what has already been attempted, waited on, inspected, built, or verified.
 
+The same omission also affects generic page-progress detection: the 15-minute no-visible-change clock currently fingerprints canonical conversation-role messages, while tertiary work-step nodes are deliberately outside that role set. A page can therefore be actively advancing through visible work steps while the stall detector sees no change.
+
 ## 2. User-required outcome
 
 If the current Work or Review conversation ends abnormally, the next fresh conversation must receive the visible work already performed in that interrupted response, including both:
@@ -24,6 +26,8 @@ If the current Work or Review conversation ends abnormally, the next fresh conve
 
 The replacement conversation must continue from that combined work trace instead of receiving only the ordinary assistant reply.
 
+Visible tertiary work-step changes must also count as **page progress** for the existing generic no-change detector. A new visible work step must restart the 15-minute idle clock even when the ordinary assistant reply text has not changed.
+
 ## 3. Goals
 
 1. Capture visible tertiary assistant work-step summaries together with existing visible assistant reply text.
@@ -31,7 +35,8 @@ The replacement conversation must continue from that combined work trace instead
 3. Carry the combined trace through all existing abnormal fresh-session recovery paths and pagehide snapshot fallback.
 4. Keep final-reply detection unchanged: tertiary activity text is context only and never finality/ownership evidence by itself.
 5. Keep task/route isolation fail-closed.
-6. Publish the verified behavior as v2.10.10.
+6. Treat visible tertiary work-step changes as progress for the existing 15-minute page-stall clock without promoting them to reply/finality evidence.
+7. Publish the verified behavior as v2.10.10.
 
 ## 4. Non-goals
 
@@ -41,7 +46,8 @@ The replacement conversation must continue from that combined work trace instead
 - Do not weaken exact-route, marker, foreign-owner, authorization, rate-limit, blocker, or ambiguous-send guards.
 - Do not change the v2.10.9 review-final ownership fix.
 - Do not change the v2.10.8 explicit conversation-load 30-second × 7 recovery policy.
-- Do not make the carry unbounded.
+- Do not change the 15-minute stall duration/cooldown itself; only correct what qualifies as visible progress.
+- Do not make the carry or progress fingerprint unbounded.
 
 ## 5. Live renderer evidence
 
@@ -88,7 +94,14 @@ This is exactly why current abnormal carry misses those work steps.
 - R21: Foreign route/task marker blocks exact-route fallback activity capture.
 - R22: Existing v2.10.9 review-final, v2.10.8 load-error, authorization, rate-limit, attachment, memory, and stalled-page regressions remain green.
 - R23: Bump metadata/runtime/README/tests to v2.10.10.
-- R24: Deliver only after exact-head Test succeeds, merge, canonical-main Test succeeds, Release succeeds, and the v2.10.10 asset is verified.
+
+### Page progress / stall clock
+
+- R24: `visibleConversationProgressFingerprint()` must include visible tertiary assistant activity summaries in addition to canonical conversation-role messages.
+- R25: If a visible tertiary work-step line is added or changes, the generic no-visible-change progress signature must change and restart the existing 15-minute idle clock even when ordinary assistant reply text is unchanged.
+- R26: Tertiary progress evidence is stall-timer-only context. It must never establish task ownership, final reply, completed Work result, or Review JSON by itself.
+- R27: Progress fingerprinting remains visible-only and bounded, and must avoid double-counting a tertiary node already contained inside a captured canonical message host.
+- R28: Deliver only after exact-head Test succeeds, merge, canonical-main Test succeeds, Release succeeds, and the v2.10.10 asset is verified.
 
 ## 7. Target data flow
 
@@ -115,6 +128,7 @@ No new subsystem.
 - `assistantTurnContent()`: unchanged for final reply semantics.
 - `captureOwnedAbnormalFreshCarry()` and `persistHandoffReplySnapshot()`: continue to own persistence.
 - `workPrompt()` / `plannerPrompt()`: continue to own prompt assembly.
+- `visibleConversationProgressFingerprint()`: remains progress-only stall input; extend it with bounded visible tertiary activity while keeping finality/ownership on canonical message paths.
 
 ## 9. Implementation strategy
 
@@ -127,8 +141,9 @@ No new subsystem.
 5. Reject tertiary nodes contained by an already-captured canonical assistant message unit to prevent duplicate legacy content.
 6. Sort entries by DOM order, de-duplicate exact repeated text, strip interruption boilerplate, and apply `boundedConversationLengthCarry()`.
 7. Update prompt wording to say “实时工作记录（可见回复 + 工作步骤）”.
-8. Add focused regressions matching the live fallback-turn renderer.
-9. Bump to v2.10.10.
+8. Extend the bounded page-progress fingerprint with visible tertiary activity entries, tagged distinctly from canonical assistant messages, so work-step mutations restart the existing 15-minute no-change clock.
+9. Add focused regressions matching the live fallback-turn renderer, including a tertiary-only page-progress mutation.
+10. Bump to v2.10.10.
 
 ## 10. Verification strategy
 
@@ -143,8 +158,9 @@ Focused tests must prove:
 7. A prior content-search turn's activities are not included when the current response turn is identifiable.
 8. `workPrompt()` contains current instruction, previous completed Work result when applicable, combined interrupted work trace, then original goal.
 9. `plannerPrompt()` includes combined interrupted work trace while preserving current `taskId`/`round` contract.
-10. Existing v2.10.9/v2.10.8 focused regressions and full suite remain green.
-11. Userscript syntax check passes.
+10. A visible tertiary-only work-step change changes the page-progress fingerprint and restarts the generic 15-minute idle clock while `latestTurn(task).text` remains unchanged.
+11. Existing v2.10.9/v2.10.8 focused regressions and full suite remain green.
+12. Userscript syntax check passes.
 
 ## 11. Acceptance criteria
 
@@ -154,7 +170,8 @@ Focused tests must prove:
 - AC-4: Final reply recognition and review parsing do not consume tertiary activity as final content.
 - AC-5: Task/route isolation remains fail-closed.
 - AC-6: Pagehide/reload durable carry preserves the richer trace.
-- AC-7: Exact-head CI, canonical-main CI, Release and asset verification succeed for v2.10.10.
+- AC-7: Visible tertiary work-step changes count as page progress and restart the existing 15-minute no-change clock without becoming final-reply/ownership evidence.
+- AC-8: Exact-head CI, canonical-main CI, Release and asset verification succeed for v2.10.10.
 
 ## 12. Release / rollback
 
@@ -183,4 +200,5 @@ Do not log or persist extra raw tool payloads; only the already-visible bounded 
 | Requirement / AC | Status | Evidence |
 | --- | --- | --- |
 | R1-R23 / AC-1-AC-6 | implemented, pending CI verification | Runtime now merges visible tertiary assistant activity summaries with ordinary assistant reply segments in document order for abnormal carry/pagehide snapshot, scopes current content-search response turns, preserves marker-virtualized exact-route guards, updates Work/Review prompt wording, and leaves canonical final-reply extraction unchanged. Focused current-turn, marker-virtualized, ordering, dedupe and prompt regressions were added. |
-| R24 / AC-7 | pending delivery | Requires exact-head Test, merge, canonical-main Test, Release and asset verification. |
+| R24-R27 / AC-7 | planned | User clarified that the existing 15-minute page no-change detector must also treat visible tertiary work-step changes as progress, not only ordinary live reply changes. Implementation and focused regression are next. |
+| R28 / AC-8 | pending delivery | Requires exact-head Test, merge, canonical-main Test, Release and asset verification. |
