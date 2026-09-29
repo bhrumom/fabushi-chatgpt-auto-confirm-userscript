@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.7
+// @version      2.10.8
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.7';
+  const VERSION = '2.10.8';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -138,6 +138,12 @@ async function bootstrapAttempt() {
   const MAX_REVIEW_REPAIR_ATTEMPTS = 2;
   const ROUTE_HYDRATION_TIMEOUT_MS = 30000;
   const ROUTE_RECOVERY_LIMIT = 2;
+  // A visible ChatGPT route-level “unable to load conversation” error is
+  // stronger evidence than an ambiguous blank renderer. Retry that exact
+  // conversation every 30 seconds, at most seven times, then preserve the
+  // task/carry and continue in a fresh conversation.
+  const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 * 1000;
+  const CONVERSATION_LOAD_FAILURE_REFRESH_LIMIT = 7;
   const ROUTE_RECOVERY_RETRY_INTERVAL_MS = 60 * 1000; // legacy persisted-field compatibility; exhaustion no longer auto-retries.
   const CONTINUATION_PROMPT = '继续完成所有';
   const MAX_SAME_SESSION_CONTINUATIONS = 3;
@@ -2032,6 +2038,35 @@ async function bootstrapAttempt() {
   function visibleConversationHasMessages() {
     return conversationRoleNodes().some(renderedConversationMessage);
   }
+  const conversationLoadFailurePattern = /(?:无法加载(?:此|该)?\s*ChatGPT\s*(?:对话|会话)|unable\s+to\s+load(?:\s+this)?\s+(?:chatgpt\s+)?(?:conversation|chat))/i;
+  const conversationLoadRetryPattern = /^(?:重试|再次尝试|再试一次|retry|try again)$/i;
+  function conversationLoadFailure(getPageRecords = pageUiTextRecords) {
+    if (visibleConversationHasMessages()) return '';
+    for (const record of getPageRecords()) {
+      const parent = record.parent;
+      if (!parent || !visible(parent) || !conversationLoadFailurePattern.test(record.direct)) continue;
+      if (own(parent) || parent.closest?.(conversationRoleSelector)) continue;
+      let scope = parent;
+      for (let depth = 0; scope && depth < 8; depth += 1, scope = scope.parentElement) {
+        if (own(scope)) break;
+        const retry = nodes('button,[role="button"]', scope).find(control =>
+          enabled(control) && conversationLoadRetryPattern.test(label(control)));
+        if (retry) return normalize(record.direct);
+        if (scope.matches?.('main,[role="main"],body')) break;
+      }
+    }
+    return '';
+  }
+  function clearConversationLoadFailureState(task) {
+    if (!task) return false;
+    const changed = Boolean(task.conversationLoadFailureURL
+      || task.conversationLoadFailureAttempts
+      || task.conversationLoadFailureAt);
+    task.conversationLoadFailureURL = '';
+    task.conversationLoadFailureAttempts = 0;
+    task.conversationLoadFailureAt = 0;
+    return changed;
+  }
   function haltRunnerForPause() {
     running = false;
     controller?.abort();
@@ -3736,6 +3771,58 @@ async function bootstrapAttempt() {
     }
     return true;
   }
+  function recoverConversationLoadFailure(task, perform = true, now = Date.now(), turn = null) {
+    if (!task || task.state === 'paused' || task.state === 'cancelled' || task.attempted) return false;
+    const conversationURL = currentConversationURL() || canonicalConversationURL(task.url);
+    const taskURL = canonicalConversationURL(task.url);
+    if (!conversationURL || !taskURL || conversationURL !== taskURL) {
+      if (clearConversationLoadFailureState(task)) save();
+      return false;
+    }
+    if (task.conversationLoadFailureURL !== conversationURL) {
+      task.conversationLoadFailureURL = conversationURL;
+      task.conversationLoadFailureAttempts = 0;
+      task.conversationLoadFailureAt = now;
+      task.state = 'waiting';
+      task.updatedAt = now;
+      log(task, `检测到 ChatGPT 当前会话无法加载；先等待 ${Math.ceil(CONVERSATION_LOAD_FAILURE_RETRY_MS / 1000)} 秒，再刷新同一会话。最多刷新 ${CONVERSATION_LOAD_FAILURE_REFRESH_LIMIT} 次；仍无法恢复时将新开会话并接力当前任务，不会在故障旧会话重复发送。`);
+      save();
+      return true;
+    }
+    const attempts = Number(task.conversationLoadFailureAttempts || 0);
+    if (attempts >= CONVERSATION_LOAD_FAILURE_REFRESH_LIMIT) {
+      return queueInterruptedFreshRetry(
+        task,
+        `ChatGPT 当前会话连续 ${CONVERSATION_LOAD_FAILURE_REFRESH_LIMIT} 次刷新后仍无法加载`,
+        now,
+        turn,
+        { allowExactRouteFallback:true, recoveryLabel:'会话加载失败接力', historyReason:'conversation-load-failure-fresh-chat' },
+      );
+    }
+    const lastAt = Number(task.conversationLoadFailureAt || 0);
+    if (lastAt && now - lastAt < CONVERSATION_LOAD_FAILURE_RETRY_MS) {
+      task.state = 'waiting';
+      return true;
+    }
+    const nextAttempt = attempts + 1;
+    task.conversationLoadFailureAttempts = nextAttempt;
+    task.conversationLoadFailureAt = now;
+    task.state = 'waiting';
+    task.updatedAt = now;
+    observations.delete(task.id);
+    log(task, `ChatGPT 当前会话仍无法加载；正在刷新当前会话（第 ${nextAttempt}/${CONVERSATION_LOAD_FAILURE_REFRESH_LIMIT} 次）。每次至少间隔 ${Math.ceil(CONVERSATION_LOAD_FAILURE_RETRY_MS / 1000)} 秒；不会重复发送任务。`);
+    save();
+    if (!perform) return true;
+    navigating = true;
+    try { location.reload(); } catch (error) {
+      navigating = false;
+      task.state = 'waiting';
+      log(task, `会话加载失败刷新未提交：${error.message}；已保留任务，将按 30 秒间隔继续重试。`);
+      save();
+      return false;
+    }
+    return true;
+  }
   function refreshInterruptedStopStall(task, now = Date.now(), perform = true) {
     const stopClickedAt = Number(task?.pendingContinuationStopClickedAt || 0);
     if (!task?.pendingContinuationStopRecovery || !stopClickedAt) return false;
@@ -4766,6 +4853,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.rendererRecoveryExhausted = false;
     task.routeRecoveryAttempts = 0;
     task.workspaceDocumentRecoveryAttempts = 0;
+    clearConversationLoadFailureState(task);
     task.continuationSentAt = 0;
     task.continuationCount = 0;
     clearStopObservedGeneration(task);
@@ -5552,6 +5640,22 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const approvalVisible = approvalRouteEligible && pending.length > 0;
     const currentBlocker = blocker();
     const currentRateLimit = rateLimitNotice(getPageUiRecords);
+    const messagesMountedForLoadFailure = visibleConversationHasMessages();
+    const explicitConversationLoadFailure = routeOwned && !messagesMountedForLoadFailure
+      ? conversationLoadFailure(getPageUiRecords)
+      : '';
+    if (explicitConversationLoadFailure
+      && !pending.length
+      && !currentBlocker
+      && !currentRateLimit
+      && !task.attempted) {
+      recoverConversationLoadFailure(task, true, Date.now(), turn);
+      return;
+    }
+    if (messagesMountedForLoadFailure && clearConversationLoadFailureState(task)) {
+      task.updatedAt = Date.now();
+      save();
+    }
     const stopGenerationIdentity = stopObservedGenerationIdentity(task, liveURL);
     if (stopPresent && stopGenerationIdentity) {
       const changed = task.stopObservedGenerationIdentity !== stopGenerationIdentity
@@ -5659,15 +5763,17 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && !task.attempted
       && !currentBlocker
       && !currentRateLimit
+      // Strong response-local final evidence must complete normally instead of
+      // being discarded by the historical Stop-disappearance handoff.
+      && !strongOwnedFinal
     );
     // A historical Stop observation protects a reloaded document from a
     // false Stop-disappearance handoff. It must not, however, hide a final
     // reply that explicit pause/resume recovery has already attributed to
     // this exact task and route. Finality still uses the ordinary strong
     // toolbar/static-copy evidence plus all ownership and approval guards.
-    const recoveredOwnedFinal = Boolean(
-      inheritedStopObservation
-      && !stopPresent
+    const strongOwnedFinal = Boolean(
+      !stopPresent
       && routeOwned
       && turn.owned
       && turn.final
@@ -5678,6 +5784,10 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && !currentBlocker
       && !currentRateLimit
       && !task.attempted
+    );
+    const recoveredOwnedFinal = Boolean(
+      inheritedStopObservation
+      && strongOwnedFinal
     );
     if (inheritedStopObservation
       && !stopPresent
