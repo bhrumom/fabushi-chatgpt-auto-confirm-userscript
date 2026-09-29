@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.11
+// @version      2.10.12
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.11';
+  const VERSION = '2.10.12';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -1935,6 +1935,7 @@ async function bootstrapAttempt() {
     const turn = node.closest?.(conversationTurnSelector);
     return Boolean(turn && visible(turn) && hasTextNode(node));
   }
+  const pageUiAuthoredInputSelector = '#prompt-textarea,textarea,input,[contenteditable="true"],[role="textbox"]';
   function pageUiTextRecords() {
     const startedAt = performance.now();
     const main = document.querySelector('main,[role="main"]');
@@ -1969,11 +1970,15 @@ async function bootstrapAttempt() {
         acceptNode(node) {
           if (node.nodeType === Node.ELEMENT_NODE) {
             // Reject transcript, quoted/code, and Fabushi subtrees wholesale.
-            if (own(node) || node.matches?.(`${conversationRoleSelector},blockquote,pre,code`)) return NodeFilter.FILTER_REJECT;
+            if (own(node)
+              || node.matches?.(`${conversationRoleSelector},blockquote,pre,code`)
+              || node.matches?.(pageUiAuthoredInputSelector)) return NodeFilter.FILTER_REJECT;
             return NodeFilter.FILTER_ACCEPT;
           }
           const parent = node.parentElement;
-          return parent && !own(parent) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+          return parent && !own(parent) && !parent.closest?.(pageUiAuthoredInputSelector)
+            ? NodeFilter.FILTER_ACCEPT
+            : NodeFilter.FILTER_REJECT;
         },
       });
       let current;
