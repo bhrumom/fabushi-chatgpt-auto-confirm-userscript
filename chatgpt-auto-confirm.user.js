@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.8
+// @version      2.10.9
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.8';
+  const VERSION = '2.10.9';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -1588,6 +1588,37 @@ async function bootstrapAttempt() {
       hash = Math.imul(hash, 16777619);
     }
     return `text:${(hash >>> 0).toString(16)}:${value.length}`;
+  }
+  function assistantResponseBoundaryKey(turn) {
+    if (!turn) return '';
+    const responseTurn = turn.responseTurn
+      || turn.article?.closest?.('[data-content-search-turn-key],[data-turn-key],[data-testid^="conversation-turn-"]')
+      || null;
+    const stableTurnKey = responseTurn?.getAttribute?.('data-content-search-turn-key')
+      || responseTurn?.getAttribute?.('data-turn-key')
+      || '';
+    if (stableTurnKey) return `turn:${stableTurnKey}`;
+
+    const article = turn.article || null;
+    const candidates = [
+      article,
+      article?.closest?.('[data-content-search-unit-key],[data-chatgpt-search-unit-key]'),
+      article?.querySelector?.('[data-message-id],[data-chatgpt-selection-message-id],[data-content-search-unit-key],[data-chatgpt-search-unit-key]'),
+      responseTurn,
+    ].filter(Boolean);
+    for (const node of candidates) {
+      const messageId = node.getAttribute?.('data-message-id')
+        || node.getAttribute?.('data-chatgpt-selection-message-id')
+        || '';
+      if (messageId) return `message:${messageId}`;
+      const unitKey = node.getAttribute?.('data-content-search-unit-key')
+        || node.getAttribute?.('data-chatgpt-search-unit-key')
+        || '';
+      if (unitKey) return `unit:${unitKey}`;
+      const messageIds = node.getAttribute?.('data-chatgpt-search-message-ids') || '';
+      if (messageIds) return `messages:${messageIds}`;
+    }
+    return '';
   }
   function hasTaskMarker(task) {
     return Boolean(taskMarkerUser(task));
@@ -4186,6 +4217,29 @@ async function bootstrapAttempt() {
     if (conversationURLOwner(liveURL, task.id)) return scoped;
     const foreignTask = tabTasks().find(item => item.id !== task.id && item.token && hasTaskMarker(item));
     if (foreignTask) return scoped;
+    const stopIdentity = stopObservedGenerationIdentity(task, liveURL);
+    const stopBoundGeneration = Boolean(
+      stopIdentity
+      && task.stopObservedGenerationIdentity === stopIdentity
+    );
+    if (stopBoundGeneration && !stopButton() && !(scanContext?.cards() || cards()).length) {
+      const candidate = latestTurn();
+      const observedBoundaryKey = String(task.stopObservedAssistantBoundaryKey || '');
+      const candidateBoundaryKey = assistantResponseBoundaryKey(candidate);
+      if (observedBoundaryKey
+        && candidateBoundaryKey === observedBoundaryKey
+        && candidate.text
+        && candidate.final
+        && !candidate.streaming) {
+        return {
+          ...candidate,
+          owned:true,
+          recoveredRouteOwned:true,
+          stopBoundRouteFinal:true,
+        };
+      }
+    }
+
     const identity = task.recoveredFinalIdentity || {};
     const hasRecoveredIdentity = recoveredFinalIdentityMatches(task, liveURL);
     const mountedUsers = conversationRoleNodes('user');
@@ -4830,6 +4884,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.stopObservedGenerationIdentity = '';
     task.stopObservedGenerationAt = 0;
     task.stopObservedDocumentId = '';
+    task.stopObservedAssistantBoundaryKey = '';
     clearReloadStopAbsenceState(task);
   }
   function clearDispatchIntent(task) {
@@ -5658,14 +5713,21 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     }
     const stopGenerationIdentity = stopObservedGenerationIdentity(task, liveURL);
     if (stopPresent && stopGenerationIdentity) {
-      const changed = task.stopObservedGenerationIdentity !== stopGenerationIdentity
+      const generationChanged = task.stopObservedGenerationIdentity !== stopGenerationIdentity;
+      const assistantBoundaryKey = assistantResponseBoundaryKey(activityTurn);
+      const nextAssistantBoundaryKey = generationChanged
+        ? assistantBoundaryKey
+        : (assistantBoundaryKey || String(task.stopObservedAssistantBoundaryKey || ''));
+      const changed = generationChanged
         || String(task.stopObservedDocumentId || '') !== DOCUMENT_INSTANCE_ID
+        || String(task.stopObservedAssistantBoundaryKey || '') !== nextAssistantBoundaryKey
         || task.reloadStopAbsentDocumentId
         || task.reloadStopAbsentSince
         || task.reloadStopAbsentSignature;
       task.stopObservedGenerationIdentity = stopGenerationIdentity;
       task.stopObservedGenerationAt = now;
       task.stopObservedDocumentId = DOCUMENT_INSTANCE_ID;
+      task.stopObservedAssistantBoundaryKey = nextAssistantBoundaryKey;
       clearReloadStopAbsenceState(task);
       if (changed) {
         task.updatedAt = now;
