@@ -1921,6 +1921,40 @@ test('history-only request-frequency popup without dialog semantics clicks 明�
   }
 });
 
+test('review composer request-frequency wording never becomes ChatGPT rate-limit UI',async()=>{
+  const {w,h,dom}=await fixture(`<main>
+    <div class="workspace-quota"><strong>工作空间额度已耗尽</strong><span>开启自动充值，即可自动添加额度，避免今后使用中断。</span><button>启用自动充值</button></div>
+    <form>
+      <textarea>Work 自然结果：too many requests，请继续验收。</textarea>
+      <input value="请求过于频繁">
+      <div contenteditable="true"><span>检测到 ChatGPT 请求过于频繁（第 3/3 次）</span></div>
+      <div id="prompt-textarea" contenteditable="true" role="textbox"><p>请作为独立的规划与验收会话。上一轮日志：你的请求过于频繁，请稍等几分钟后再重试。</p></div>
+      <div role="textbox"><span>rate limit</span></div>
+    </form>
+  </main>`);
+  try {
+    const task=h.enqueue('验收当前结果','once');
+    task.phase='review';
+
+    assert.equal(h.rateLimitNotice(),'','review prompt text is authored input, not ChatGPT system state');
+    assert.equal(Number(task.cooldownUntil||0),0);
+    assert.equal(Number(task.rateLimitEpisodes||0),0);
+
+    const alert=w.document.createElement('div');
+    alert.setAttribute('role','alert');
+    alert.textContent='你的请求过于频繁，请稍等几分钟后再重试';
+    w.document.body.append(alert);
+
+    assert.match(h.rateLimitNotice(),/休息等待/,'a genuine page-level rate-limit alert remains detectable');
+    assert.ok(h.restForRateLimit(task,1_000)>0);
+    assert.equal(task.rateLimitEpisodes,1);
+    assert.ok(Number(task.cooldownUntil)>1_000);
+  } finally {
+    h.pause();
+    dom.window.close();
+  }
+});
+
 test('historical final answer cannot complete a new user turn',async()=>{
   const {h,dom}=await fixture('<article><div data-message-author-role="assistant"><div class="markdown">old final</div></div><button data-testid="copy-turn-action-button">Copy</button></article><div data-message-author-role="user">new task</div><article><div data-message-author-role="assistant">Thinking</div></article>');
   assert.equal(h.latestTurn().final,false);
