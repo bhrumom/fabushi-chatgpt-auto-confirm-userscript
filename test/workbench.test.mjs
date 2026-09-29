@@ -4369,7 +4369,7 @@ test('abnormal work trace carries current fallback-turn prose and tertiary activ
     assert.match(prompt,/continue exact HEAD work/);
     assert.match(prompt,/二、上一轮已经完成的 Work 最终回复/);
     assert.match(prompt,/上一轮已经完成 inference 基线核对/);
-    assert.match(prompt,/三、异常会话里 ChatGPT 已经工作的实时记录（可见回复 \+ 实际工作步骤）/);
+    assert.ok(prompt.includes('三、异常会话里 ChatGPT 已经工作的实时记录（可见回复 + 实际工作步骤）：'));
     assert.match(prompt,/完成 GitHub PR #20 并检查 CI 任务构件/);
     assert.match(prompt,/等待 Rust 编译完成/);
     assert.match(prompt,/四、原始目标/);
