@@ -1310,7 +1310,7 @@ test.skip('scheduler carries the interrupted live assistant work into the fresh-
   assert.equal(task.connectionInterruptedFreshDispatch,false);
   assert.match(input.value,/一、验收会话最终给出的本轮提示词/);
   assert.match(input.value,/continue current work/);
-  assert.match(input.value,/二、异常会话里 ChatGPT 已经工作的实时记录（可见回复 + 实际工作步骤）/);
+  assert.ok(input.value.includes('二、异常会话里 ChatGPT 已经工作的实时记录（可见回复 + 实际工作步骤）：'));
   assert.match(input.value,/已完成 legacy shell 拆分/);
   assert.match(input.value,/三、原始目标/);
   assert.match(input.value,/original goal/);
@@ -1788,7 +1788,7 @@ test('abnormal fresh-chat Work prompt has the required three parts and ignores s
   const prompt=h.workPrompt(task);
   assert.match(prompt,/一、验收会话最终给出的本轮提示词/);
   assert.match(prompt,/planner final next instruction/);
-  assert.match(prompt,/二、异常会话里 ChatGPT 已经工作的实时记录（可见回复 + 实际工作步骤）/);
+  assert.ok(prompt.includes('二、异常会话里 ChatGPT 已经工作的实时记录（可见回复 + 实际工作步骤）：'));
   assert.match(prompt,/partial assistant progress from failed chat/);
   assert.match(prompt,/三、原始目标/);
   assert.match(prompt,/original target/);
