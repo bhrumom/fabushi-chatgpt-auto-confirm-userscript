@@ -4093,8 +4093,11 @@ test('observed Stop disappearance keeps a strong final toolbar in the same conve
     observation.since=Date.now()-5_000;
     observation.idleSince=Date.now()-5_000;
     await h.inspect(task,null);
-    assert.equal(task.state,'done');
+    assert.equal(task.state,'queued','normal goal-mode completion advances to the review phase');
+    assert.equal(task.phase,'review');
+    assert.equal(task.connectionInterruptedFreshDispatch||false,false,'this queue transition is normal completion, not abnormal fresh-chat recovery');
     assert.ok(task.messages.some(item=>item.role==='assistant' && /模块 A/.test(item.text||'')));
+    assert.equal(task.abnormalFreshCarry||'','');
   } finally {h.pause();dom.window.close();}
 });
 
@@ -4171,10 +4174,11 @@ test('reload inherited Stop observation waits for hydration but keeps a strong f
     observation.idleSince=Date.now()-5_000;
     task.reloadStopAbsentSince=Date.now()-9000;
     await h.inspect(task,null);
-    assert.equal(task.state,'done','stable hydrated final reply wins over inherited Stop-disappearance handoff');
-    assert.equal(task.url,'https://chatgpt.com/c/reload-hydration');
-    assert.equal(task.connectionInterruptedFreshDispatch||false,false);
+    assert.equal(task.state,'queued','stable hydrated final reply completes normally and advances goal mode to review');
+    assert.equal(task.phase,'review');
+    assert.equal(task.connectionInterruptedFreshDispatch||false,false,'normal completion must not be mislabeled as Stop-disappearance recovery');
     assert.ok(task.messages.some(item=>item.role==='assistant' && /恢复出新的进度/.test(item.text||'')));
+    assert.equal(task.abnormalFreshCarry||'','');
   } finally {h.pause();dom.window.close();}
 });
 
