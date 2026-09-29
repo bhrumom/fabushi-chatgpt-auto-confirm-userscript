@@ -6241,7 +6241,10 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       owned:Boolean(routeOwned && turn.owned),
       foreignTaskId:routeOwned && !turn.owned ? (foreignTask?.id || '') : '',
       text:turn.text,
-      final:Boolean(turn.final || structuredReviewFinal),
+      // Final UI/text is completion evidence only after taskTurnForInspection
+      // has proved ownership. An unowned final-looking response must not block
+      // the bounded Review no-final settlement timer.
+      final:Boolean(turn.owned && (turn.final || structuredReviewFinal)),
       responseActions:turn.responseActions,
       responseActionsComplete:turn.responseActionsComplete,
       explicitFinal:turn.explicitFinal,
