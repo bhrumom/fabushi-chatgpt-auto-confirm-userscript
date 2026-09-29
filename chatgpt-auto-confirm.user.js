@@ -3746,26 +3746,51 @@ async function bootstrapAttempt() {
   }
   function visibleConversationProgressFingerprint() {
     // Task ownership can be temporarily unavailable while ChatGPT virtualizes
-    // a user marker. Progress detection must still notice a newly rendered
-    // reply without using that reply as task-owned result/completion evidence.
+    // a user marker. Progress detection must still notice newly rendered reply
+    // prose AND visible agent/work activity without using either as task-owned
+    // result/completion evidence. Tertiary activity intentionally stays
+    // outside conversationRoleNodes(); it is progress-only evidence here.
     // Keep this bounded to the visible transcript tail to limit scan cost on
     // long conversations.
-    const messageNodes = conversationRoleNodes();
+    const allMessageNodes = conversationRoleNodes();
+    const renderedMessageNodes = allMessageNodes.filter(renderedConversationMessage);
+    const messageNodes = renderedMessageNodes.slice(-8);
+    const activityNodes = nodes(assistantActivitySelector)
+      .filter(node => visible(node)
+        && !renderedMessageNodes.some(message => message !== node && message.contains?.(node)))
+      .slice(-8);
+    const progressNodes = [
+      ...messageNodes.map(node => ({ node, role:conversationRole(node) })),
+      ...activityNodes.map(node => ({ node, role:'assistant-activity' })),
+    ];
+    progressNodes.sort((a, b) => {
+      if (a.node === b.node) return 0;
+      const position = a.node.compareDocumentPosition(b.node);
+      if (position & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+      if (position & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+      return 0;
+    });
     let inspectedTextChars = 0;
-    const fingerprint = messageNodes.slice(-8).filter(renderedConversationMessage).map(node => {
-        const role = conversationRole(node);
-        const rawTail = textTail(node, 3000);
-        inspectedTextChars += rawTail.length;
-        const content = rawTail.replace(/\s+/g, ' ').trim();
-        return {
-          role,
-          id:node.getAttribute('data-message-id') || '',
-          text:content,
-          streaming:node.getAttribute('data-is-streaming') || '',
-          busy:node.getAttribute('aria-busy') || '',
-        };
-      });
-    lastFingerprintStats = { messageNodes:messageNodes.length, inspectedTextChars };
+    const fingerprint = progressNodes.slice(-12).map(({ node, role }) => {
+      const rawTail = textTail(node, 3000);
+      inspectedTextChars += rawTail.length;
+      const content = rawTail.replace(/\s+/g, ' ').trim();
+      return {
+        role,
+        id:node.getAttribute('data-message-id')
+          || node.getAttribute('data-selected-text-overlay-target')
+          || node.getAttribute('data-content-search-unit-key')
+          || '',
+        text:content,
+        streaming:node.getAttribute('data-is-streaming') || '',
+        busy:node.getAttribute('aria-busy') || '',
+      };
+    });
+    lastFingerprintStats = {
+      messageNodes:allMessageNodes.length,
+      activityNodes:activityNodes.length,
+      inspectedTextChars,
+    };
     return fingerprint;
   }
   function stalledProgressSignature(sample) {
@@ -3801,7 +3826,7 @@ async function bootstrapAttempt() {
     });
   }
   function stalledConversationContentHash(sample) {
-    const tail = Array.isArray(sample?.conversationTail) ? sample.conversationTail.slice(-8) : [];
+    const tail = Array.isArray(sample?.conversationTail) ? sample.conversationTail.slice(-12) : [];
     if (!tail.some(item => String(item?.text || '').trim())) return '';
     // Persist only a compact checksum, never the transcript used for recovery.
     const source = JSON.stringify(tail.map(item => ({
@@ -6340,7 +6365,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       lastSlowScanDiagnosticAt = Date.now();
       const otherMs = Math.max(0, inspectionMs - turnInspectionMs - authorizationScanMs - loadingScanMs - fingerprintMs);
       const stats = turn.diagnostic || {};
-      log(task, `慢扫描诊断（仅耗时与计数，不含消息内容）：总计 ${inspectionMs.toFixed(0)} ms；当前回复识别 ${turnInspectionMs.toFixed(0)} ms；授权卡扫描 ${authorizationScanMs.toFixed(0)} ms；加载检测 ${loadingScanMs.toFixed(0)} ms；进度指纹 ${fingerprintMs.toFixed(0)} ms；其余检查 ${otherMs.toFixed(0)} ms。消息节点 user=${Number(stats.userNodes || 0)}、assistant=${Number(stats.assistantNodes || 0)}；回复文本读取 ${Number(stats.inspectedTextChars || 0)} 字${stats.boundedStreamRead ? '（流式有界尾读）' : ''}；指纹消息=${fingerprintStats.messageNodes}、指纹字符=${fingerprintStats.inspectedTextChars}；页面文字扫描 calls=${scanDiagnostics.pageUiCalls}、耗时=${scanDiagnostics.pageUiMs.toFixed(0)} ms、遍历节点=${scanDiagnostics.pageUiVisited}、文本节点=${scanDiagnostics.pageUiTextNodes}；请求限制检测 calls=${scanDiagnostics.rateLimitCalls}、耗时=${scanDiagnostics.rateLimitMs.toFixed(0)} ms、历史提示祖先检查=${scanDiagnostics.rateLimitAncestorChecks}；当前回复文本扫描 calls=${scanDiagnostics.responseCalls}、耗时=${scanDiagnostics.responseMs.toFixed(0)} ms、文本节点=${scanDiagnostics.responseTextNodes}；授权候选按钮=${scanDiagnostics.cardsCandidates}/${scanDiagnostics.cardsButtons}、授权扫描内部耗时=${scanDiagnostics.cardsMs.toFixed(0)} ms。`);
+      log(task, `慢扫描诊断（仅耗时与计数，不含消息内容）：总计 ${inspectionMs.toFixed(0)} ms；当前回复识别 ${turnInspectionMs.toFixed(0)} ms；授权卡扫描 ${authorizationScanMs.toFixed(0)} ms；加载检测 ${loadingScanMs.toFixed(0)} ms；进度指纹 ${fingerprintMs.toFixed(0)} ms；其余检查 ${otherMs.toFixed(0)} ms。消息节点 user=${Number(stats.userNodes || 0)}、assistant=${Number(stats.assistantNodes || 0)}；回复文本读取 ${Number(stats.inspectedTextChars || 0)} 字${stats.boundedStreamRead ? '（流式有界尾读）' : ''}；指纹消息=${fingerprintStats.messageNodes}、工作步骤=${Number(fingerprintStats.activityNodes || 0)}、指纹字符=${fingerprintStats.inspectedTextChars}；页面文字扫描 calls=${scanDiagnostics.pageUiCalls}、耗时=${scanDiagnostics.pageUiMs.toFixed(0)} ms、遍历节点=${scanDiagnostics.pageUiVisited}、文本节点=${scanDiagnostics.pageUiTextNodes}；请求限制检测 calls=${scanDiagnostics.rateLimitCalls}、耗时=${scanDiagnostics.rateLimitMs.toFixed(0)} ms、历史提示祖先检查=${scanDiagnostics.rateLimitAncestorChecks}；当前回复文本扫描 calls=${scanDiagnostics.responseCalls}、耗时=${scanDiagnostics.responseMs.toFixed(0)} ms、文本节点=${scanDiagnostics.responseTextNodes}；授权候选按钮=${scanDiagnostics.cardsCandidates}/${scanDiagnostics.cardsButtons}、授权扫描内部耗时=${scanDiagnostics.cardsMs.toFixed(0)} ms。`);
     }
     if (sample.owned && task.preview !== sample.text) {
       task.preview = sample.text.slice(-6000);
