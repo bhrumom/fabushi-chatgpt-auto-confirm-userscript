@@ -1160,7 +1160,7 @@ test.skip('connection interruption carries all substantive assistant segments wh
     const prompt=h.workPrompt(task);
     assert.match(prompt,/一、验收会话最终给出的本轮提示词/);
     assert.match(prompt,/continue architecture parity work/);
-    assert.match(prompt,/二、异常会话里 ChatGPT 已经工作的实时记录（可见回复 + 实际工作步骤）/);
+    assert.ok(prompt.includes('二、异常会话里 ChatGPT 已经工作的实时记录（可见回复 + 实际工作步骤）：'));
     assert.match(prompt,/确认它只是 spec-only/);
     assert.match(prompt,/修进一个编译阻塞/);
     assert.match(prompt,/三、原始目标/);
