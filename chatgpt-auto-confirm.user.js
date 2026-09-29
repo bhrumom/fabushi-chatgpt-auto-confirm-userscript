@@ -3529,18 +3529,26 @@ async function bootstrapAttempt() {
     // only the latest visible assistant/activity node's content-search turn so
     // older response activity from the same long conversation cannot leak
     // into this abnormal carry.
-    let responseTurn = ownedBoundary?.closest?.(contentSearchTurnSelector) || null;
-    if (!responseTurn) {
-      const candidates = [...assistantNodes, ...activityNodes];
-      candidates.sort((a, b) => {
-        if (a === b) return 0;
-        const position = a.compareDocumentPosition(b);
-        if (position & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
-        if (position & Node.DOCUMENT_POSITION_PRECEDING) return 1;
-        return 0;
-      });
-      responseTurn = candidates.at(-1)?.closest?.(contentSearchTurnSelector) || null;
-    }
+    const candidates = [...assistantNodes, ...activityNodes];
+    candidates.sort((a, b) => {
+      if (a === b) return 0;
+      const position = a.compareDocumentPosition(b);
+      if (position & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+      if (position & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+      return 0;
+    });
+    const ownedBoundaryTurn = ownedBoundary?.closest?.(contentSearchTurnSelector) || null;
+    const ownedTurnHasResponse = Boolean(
+      ownedBoundaryTurn
+      && candidates.some(node => node.closest?.(contentSearchTurnSelector) === ownedBoundaryTurn)
+    );
+    // Shared-turn renderer: the marker-bearing user and response are in the
+    // same outer turn. Other renderer variants may put user and assistant in
+    // separate content-search turns, so only trust the user's turn container
+    // when it actually contains current assistant/activity evidence.
+    let responseTurn = ownedTurnHasResponse
+      ? ownedBoundaryTurn
+      : candidates.at(-1)?.closest?.(contentSearchTurnSelector) || null;
     if (responseTurn) {
       assistantNodes = assistantNodes.filter(node => node.closest?.(contentSearchTurnSelector) === responseTurn);
       activityNodes = activityNodes.filter(node => node.closest?.(contentSearchTurnSelector) === responseTurn);
@@ -3727,7 +3735,7 @@ async function bootstrapAttempt() {
         : task.abnormalFreshCarrySourceKind === 'durable-handoff-snapshot'
           ? '已从刷新前持久化的本任务 assistant 回复快照恢复工作内容；'
           : carry
-          ? '已保存异常会话当前可见的 ChatGPT 实时回复；'
+          ? '已保存异常会话当前可见的 ChatGPT 实时工作记录（可见回复 + 实际工作步骤）；'
           : '当前异常会话没有可安全提取的 assistant 工作内容；';
     const recoveryLabel = options.recoveryLabel
       ? `${options.recoveryLabel}第 ${recoveryCount} 次`
