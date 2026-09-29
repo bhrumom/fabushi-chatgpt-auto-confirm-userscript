@@ -226,5 +226,5 @@ The 30-second × 7 rule is specific to an explicit ChatGPT conversation-load fai
 
 | Requirement / AC | Status | Evidence / reason |
 | --- | --- | --- |
-| R1-R23 / AC-1-AC-7 | pending implementation | Live DOM evidence and repository control-flow audit establish both reported failure modes; implementation and focused regressions are next. |
+| R1-R23 / AC-1-AC-7 | implemented, pending CI verification | Userscript now has explicit load-error detection, a persisted 30-second × 7 same-route recovery state machine, transcript-based reset, fresh-session exhaustion handoff, and strong-owned-final precedence over Stop disappearance. Focused JSDOM regressions cover the live content-search renderer shape and recovery boundaries. |
 | R24 / AC-8 | pending delivery | Requires exact-head Test, merge, canonical-main Test, Release, tag, asset readback, and live revalidation. |
