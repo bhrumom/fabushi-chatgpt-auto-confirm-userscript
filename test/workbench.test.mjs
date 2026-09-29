@@ -1160,7 +1160,7 @@ test.skip('connection interruption carries all substantive assistant segments wh
     const prompt=h.workPrompt(task);
     assert.match(prompt,/一、验收会话最终给出的本轮提示词/);
     assert.match(prompt,/continue architecture parity work/);
-    assert.match(prompt,/二、异常会话里 ChatGPT 已经工作的实时回复/);
+    assert.ok(prompt.includes('二、异常会话里 ChatGPT 已经工作的实时记录（可见回复 + 实际工作步骤）：'));
     assert.match(prompt,/确认它只是 spec-only/);
     assert.match(prompt,/修进一个编译阻塞/);
     assert.match(prompt,/三、原始目标/);
@@ -1209,7 +1209,7 @@ test.skip('connection interruption carries visible semantic work from zero-rect 
     const prompt=h.workPrompt({...task,token:'fresh-zero-rect-token'});
     assert.match(prompt,/一、验收会话最终给出的本轮提示词/);
     assert.match(prompt,/continue exact architecture parity work/);
-    assert.match(prompt,/二、异常会话里 ChatGPT 已经工作的实时回复/);
+    assert.ok(prompt.includes('二、异常会话里 ChatGPT 已经工作的实时记录（可见回复 + 实际工作步骤）：'));
     assert.match(prompt,/PR #19 只是 spec-only/);
     assert.match(prompt,/修复一个编译阻塞/);
     assert.match(prompt,/三、原始目标/);
@@ -1310,12 +1310,12 @@ test.skip('scheduler carries the interrupted live assistant work into the fresh-
   assert.equal(task.connectionInterruptedFreshDispatch,false);
   assert.match(input.value,/一、验收会话最终给出的本轮提示词/);
   assert.match(input.value,/continue current work/);
-  assert.match(input.value,/二、异常会话里 ChatGPT 已经工作的实时回复/);
+  assert.ok(input.value.includes('二、异常会话里 ChatGPT 已经工作的实时记录（可见回复 + 实际工作步骤）：'));
   assert.match(input.value,/已完成 legacy shell 拆分/);
   assert.match(input.value,/三、原始目标/);
   assert.match(input.value,/original goal/);
-  assert.ok(input.value.indexOf('一、验收会话最终给出的本轮提示词') < input.value.indexOf('二、异常会话里 ChatGPT 已经工作的实时回复'));
-  assert.ok(input.value.indexOf('二、异常会话里 ChatGPT 已经工作的实时回复') < input.value.indexOf('三、原始目标'));
+  assert.ok(input.value.indexOf('一、验收会话最终给出的本轮提示词') < input.value.indexOf('二、异常会话里 ChatGPT 已经工作的实时记录（可见回复 + 实际工作步骤）'));
+  assert.ok(input.value.indexOf('二、异常会话里 ChatGPT 已经工作的实时记录（可见回复 + 实际工作步骤）') < input.value.indexOf('三、原始目标'));
   assert.match(input.value,/从中断处继续/);
   assert.match(input.value,new RegExp('\\[Fabushi:'+task.token+'\\]'));
   h.pause();
@@ -1788,7 +1788,7 @@ test('abnormal fresh-chat Work prompt has the required three parts and ignores s
   const prompt=h.workPrompt(task);
   assert.match(prompt,/一、验收会话最终给出的本轮提示词/);
   assert.match(prompt,/planner final next instruction/);
-  assert.match(prompt,/二、异常会话里 ChatGPT 已经工作的实时回复/);
+  assert.ok(prompt.includes('二、异常会话里 ChatGPT 已经工作的实时记录（可见回复 + 实际工作步骤）：'));
   assert.match(prompt,/partial assistant progress from failed chat/);
   assert.match(prompt,/三、原始目标/);
   assert.match(prompt,/original target/);
@@ -1797,7 +1797,7 @@ test('abnormal fresh-chat Work prompt has the required three parts and ignores s
   assert.doesNotMatch(h.workPrompt({...task,round:7}),/partial assistant progress from failed chat/,'carry is generation-bound to the interrupted phase and round');
 
   const review=h.plannerPrompt({...task,phase:'review',abnormalFreshCarryPhase:'review',result:'Work natural result'});
-  assert.match(review,/异常会话中 ChatGPT 已经输出的实时回复/);
+  assert.match(review,/异常会话中 ChatGPT 已经产生的实时工作记录/);
   assert.match(review,/partial assistant progress from failed chat/);
   assert.match(review,/MAHAYANA_TASK_REPORT_V1/);
   dom.window.close();
@@ -3004,6 +3004,49 @@ test('a newly rendered page reply restarts the idle refresh clock even during ta
     h.observations.get(task.id).progressSince=Date.now()-16*60*1000;
     await h.inspect(task,null);
     assert.equal(task.stalledRefreshAttempts,1,'Stop/busy remains compatible with refresh after a full unchanged interval');
+  } finally {
+    h.pause();
+    dom.window.close();
+  }
+});
+
+test('a tertiary-only work-step change restarts the generic page no-change clock',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <div data-content-search-turn-key="work-step-progress">
+      <div data-content-search-unit-key="work-step-progress:0:user">
+        <div data-user-message-bubble="true">continue [Fabushi:work-step-progress]</div>
+      </div>
+      <div data-markdown-text-style="assistant-message" data-markdown-text-tone="primary" data-is-streaming="true">Primary reply text stays unchanged.</div>
+      <div data-markdown-text-style="assistant-message" data-markdown-text-tone="tertiary" data-selected-text-overlay-target="_work_step_">等待 Rust 编译完成</div>
+    </div>
+    <form><textarea id="prompt-textarea"></textarea><button data-testid="stop-button" aria-label="停止回答">Stop</button></form>
+  </main>`);
+  w.history.pushState({},'', '/c/work-step-progress');
+  const task={id:'work-step-progress',ownerTabId:h.getTabId(),goal:'continue work',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/work-step-progress',token:'work-step-progress',attempted:false,messages:[]};
+  h.data.tasks.push(task);
+  try {
+    await h.start(false);
+    await h.inspect(task,null);
+    const first=h.observations.get(task.id);
+    assert.ok(first);
+    const primaryBefore=h.latestTurn(task).text;
+    assert.equal(primaryBefore,'Primary reply text stays unchanged.');
+    assert.ok(first.progressSignature.includes('等待 Rust 编译完成'),'initial visible work step participates in the progress signature');
+
+    first.progressSince=Date.now()-16*60*1000;
+    const activity=w.document.querySelector('[data-markdown-text-tone="tertiary"]');
+    activity.textContent='获取 GitHub Actions 工作流任务';
+    await h.inspect(task,null);
+
+    const changed=h.observations.get(task.id);
+    assert.equal(h.latestTurn(task).text,primaryBefore,'tertiary progress must not alter canonical assistant reply text');
+    assert.equal(task.stalledRefreshAttempts||0,0,'a new visible work step restarts the idle interval');
+    assert.ok(changed.progressSignature.includes('获取 GitHub Actions 工作流任务'),'new work step is visible in the progress signature');
+    assert.ok(Date.now()-changed.progressSince < 500,'the 15-minute page no-change clock restarts on tertiary-only progress');
+
+    changed.progressSince=Date.now()-16*60*1000;
+    await h.inspect(task,null);
+    assert.equal(task.stalledRefreshAttempts,1,'without another reply or work-step change, the normal 15-minute stall refresh still applies');
   } finally {
     h.pause();
     dom.window.close();
@@ -4259,7 +4302,151 @@ test('live fallback transient primary assistant ignores tertiary activity summar
     assert.equal(turn.streaming,true);
     assert.equal(turn.final,false);
     const fingerprint=h.visibleConversationProgressFingerprint();
-    assert.equal(fingerprint.map(item=>item.role).join(','),'user,assistant');
+    assert.equal(fingerprint.map(item=>item.role).join(','),'user,assistant-activity,assistant-activity,assistant','tertiary work steps are progress-only fingerprint entries in DOM order');
+  } finally {h.pause();dom.window.close();}
+});
+
+test('abnormal work trace carries current fallback-turn prose and tertiary activity in visible order',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <div data-content-search-turn-key="trace-turn-current">
+      <div data-content-search-unit-key="trace-turn-current:user">
+        <div data-user-message-bubble="true">continue exact work [Fabushi:trace-current]</div>
+      </div>
+      <div data-markdown-text-style="assistant-message" data-markdown-text-tone="primary">我会先确认 exact HEAD，再处理两个已证明的阻塞。</div>
+      <div data-markdown-text-style="assistant-message" data-markdown-text-tone="tertiary">完成 GitHub PR #20 并检查 CI 任务构件</div>
+      <div data-markdown-text-style="assistant-message" data-markdown-text-tone="primary">确认 PR #20 仍然绑定当前 HEAD，并定位到 Focused Electron chat E2E 的失败步骤。</div>
+      <div data-markdown-text-style="assistant-message" data-markdown-text-tone="tertiary">下载并检查工作流构建产物</div>
+      <div data-markdown-text-style="assistant-message" data-markdown-text-tone="tertiary">定位首个根因</div>
+      <div data-markdown-text-style="assistant-message" data-markdown-text-tone="primary">已经定位两个代码层根因，准备只针对这两个问题收口。</div>
+      <div data-markdown-text-style="assistant-message" data-markdown-text-tone="tertiary">等待 Rust 编译完成</div>
+      <div data-markdown-text-style="assistant-message" data-markdown-text-tone="tertiary">等待了20秒</div>
+    </div>
+    <form><textarea id="prompt-textarea"></textarea></form>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/trace-current');
+    const task={id:'trace-current',ownerTabId:h.getTabId(),goal:'original architecture goal',next:'continue exact HEAD work',mode:'goal',phase:'work',round:7,state:'waiting',url:'https://chatgpt.com/c/trace-current',token:'trace-current',attempted:false,result:'上一轮已经完成 inference 基线核对。',messages:[]};
+    h.data.tasks.push(task);
+
+    const latest=h.latestTurn(task);
+    assert.equal(latest.owned,true);
+    assert.equal(latest.text,'已经定位两个代码层根因，准备只针对这两个问题收口。');
+    assert.doesNotMatch(latest.text,/完成 GitHub PR|下载并检查|等待 Rust/,'tertiary activity remains outside normal final-reply text');
+
+    const trace=h.visibleAssistantWorkTranscript(task);
+    for(const expected of [
+      '我会先确认 exact HEAD',
+      '完成 GitHub PR #20 并检查 CI 任务构件',
+      '确认 PR #20 仍然绑定当前 HEAD',
+      '下载并检查工作流构建产物',
+      '定位首个根因',
+      '已经定位两个代码层根因',
+      '等待 Rust 编译完成',
+      '等待了20秒',
+    ]) assert.ok(trace.text.includes(expected), `missing trace entry: ${expected}`);
+    const positions=[
+      '我会先确认 exact HEAD',
+      '完成 GitHub PR #20',
+      '确认 PR #20 仍然绑定当前 HEAD',
+      '下载并检查工作流构建产物',
+      '定位首个根因',
+      '已经定位两个代码层根因',
+      '等待 Rust 编译完成',
+      '等待了20秒',
+    ].map(value=>trace.text.indexOf(value));
+    assert.ok(positions.every((value,index)=>value>=0 && (index===0 || value>positions[index-1])),'reply prose and activity summaries preserve visible DOM order');
+
+    assert.equal(h.persistHandoffReplySnapshot(task,{allowExactRouteFallback:true}),true);
+    assert.match(task.handoffReplySnapshot,/下载并检查工作流构建产物/);
+    assert.match(task.handoffReplySnapshot,/等待 Rust 编译完成/);
+
+    assert.equal(h.queueInterruptedFreshRetry(task,'test abnormal interruption',Date.now(),latest,{allowExactRouteFallback:true}),true);
+    assert.match(task.abnormalFreshCarry,/完成 GitHub PR #20/);
+    assert.match(task.abnormalFreshCarry,/等待了20秒/);
+
+    const prompt=h.workPrompt({...task,token:'fresh-trace-token'});
+    assert.match(prompt,/一、验收会话最终给出的本轮提示词/);
+    assert.match(prompt,/continue exact HEAD work/);
+    assert.match(prompt,/二、上一轮已经完成的 Work 最终回复/);
+    assert.match(prompt,/上一轮已经完成 inference 基线核对/);
+    assert.ok(prompt.includes('三、异常会话里 ChatGPT 已经工作的实时记录（可见回复 + 实际工作步骤）：'));
+    assert.match(prompt,/完成 GitHub PR #20 并检查 CI 任务构件/);
+    assert.match(prompt,/等待 Rust 编译完成/);
+    assert.match(prompt,/四、原始目标/);
+    assert.ok(prompt.indexOf('上一轮已经完成 inference 基线核对') < prompt.indexOf('完成 GitHub PR #20 并检查 CI 任务构件'));
+    assert.ok(prompt.indexOf('完成 GitHub PR #20 并检查 CI 任务构件') < prompt.lastIndexOf('original architecture goal'));
+  } finally {h.pause();dom.window.close();}
+});
+
+test('abnormal work trace scopes tertiary activity to the current content-search response turn',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <div data-content-search-turn-key="trace-old-turn">
+      <div data-content-search-unit-key="trace-old-turn:user"><div data-user-message-bubble="true">old user</div></div>
+      <div data-markdown-text-style="assistant-message" data-markdown-text-tone="primary">OLD_REPLY_SHOULD_NOT_CARRY</div>
+      <div data-markdown-text-style="assistant-message" data-markdown-text-tone="tertiary">OLD_ACTIVITY_SHOULD_NOT_CARRY</div>
+    </div>
+    <div data-content-search-turn-key="trace-new-turn">
+      <div data-content-search-unit-key="trace-new-turn:user"><div data-user-message-bubble="true">current [Fabushi:trace-scope]</div></div>
+      <div data-markdown-text-style="assistant-message" data-markdown-text-tone="primary">CURRENT_REPLY</div>
+      <div data-markdown-text-style="assistant-message" data-markdown-text-tone="tertiary">CURRENT_ACTIVITY</div>
+    </div>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/trace-scope');
+    const task={id:'trace-scope',ownerTabId:h.getTabId(),goal:'scope',mode:'goal',phase:'work',round:2,state:'waiting',url:'https://chatgpt.com/c/trace-scope',token:'trace-scope',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    const trace=h.visibleAssistantWorkTranscript(task);
+    assert.match(trace.text,/CURRENT_REPLY/);
+    assert.match(trace.text,/CURRENT_ACTIVITY/);
+    assert.doesNotMatch(trace.text,/OLD_REPLY_SHOULD_NOT_CARRY|OLD_ACTIVITY_SHOULD_NOT_CARRY/);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('marker-virtualized exact-route work trace uses only the latest response turn including activity',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <div data-content-search-turn-key="virtual-old-turn">
+      <div data-content-search-unit-key="virtual-old-turn:user"><div data-user-message-bubble="true">older visible user after marker virtualization</div></div>
+      <div data-markdown-text-style="assistant-message" data-markdown-text-tone="primary">OLD_VIRTUAL_REPLY</div>
+      <div data-markdown-text-style="assistant-message" data-markdown-text-tone="tertiary">OLD_VIRTUAL_ACTIVITY</div>
+    </div>
+    <div data-content-search-turn-key="virtual-current-turn">
+      <div data-markdown-text-style="assistant-message" data-markdown-text-tone="primary">CURRENT_VIRTUAL_REPLY</div>
+      <div data-markdown-text-style="assistant-message" data-markdown-text-tone="tertiary">CURRENT_VIRTUAL_ACTIVITY</div>
+      <div data-markdown-text-style="assistant-message" data-markdown-text-tone="tertiary">轮询 GitHub Actions 工作流任务</div>
+    </div>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/trace-virtualized');
+    const task={id:'trace-virtualized',ownerTabId:h.getTabId(),goal:'virtualized carry',mode:'goal',phase:'work',round:8,state:'waiting',url:'https://chatgpt.com/c/trace-virtualized',token:'marker-not-mounted',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    assert.equal(h.latestTurn(task).owned,false);
+    const trace=h.visibleAssistantWorkTranscript(task,{allowExactRouteFallback:true});
+    assert.match(trace.text,/CURRENT_VIRTUAL_REPLY/);
+    assert.match(trace.text,/CURRENT_VIRTUAL_ACTIVITY/);
+    assert.match(trace.text,/轮询 GitHub Actions 工作流任务/);
+    assert.doesNotMatch(trace.text,/OLD_VIRTUAL_REPLY|OLD_VIRTUAL_ACTIVITY/);
+    assert.equal(trace.sourceKind,'exact-route-visible-assistant-transcript');
+  } finally {h.pause();dom.window.close();}
+});
+
+test('legacy assistant container does not duplicate a tertiary activity already included in reply content',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:trace-dedupe]</div></article>
+    <article data-testid="conversation-turn-assistant">
+      <div data-message-author-role="assistant">
+        <div class="markdown">开始检查 CI。</div>
+        <div data-markdown-text-style="assistant-message" data-markdown-text-tone="tertiary">检查 GitHub Actions 工作流任务</div>
+      </div>
+    </article>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/trace-dedupe');
+    const task={id:'trace-dedupe',ownerTabId:h.getTabId(),goal:'dedupe',mode:'goal',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/trace-dedupe',token:'trace-dedupe',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    const trace=h.visibleAssistantWorkTranscript(task);
+    assert.match(trace.text,/开始检查 CI/);
+    assert.match(trace.text,/检查 GitHub Actions 工作流任务/);
+    assert.equal(trace.text.split('检查 GitHub Actions 工作流任务').length-1,1);
   } finally {h.pause();dom.window.close();}
 });
 
@@ -4721,6 +4908,129 @@ test('prior Stop disappearance without strong latest-owned final evidence still 
   } finally {h.pause();dom.window.close();}
 });
 
+test('live review fallback-turn shape recognizes the settled JSON response and outer-turn Copy',async()=>{
+  const taskId='live-review-shape';
+  const review=JSON.stringify({taskId,round:2,status:'next',summary:'strict gate 仍有 remaining，不能完成。',next:'继续 central production ownership cutover。'});
+  const html='<main>' +
+    '<div data-turn-key="fallback-turn-0"><div id="review-turn" data-content-search-turn-key="fallback-turn-0">' +
+    '<div data-content-search-unit-key="fallback-turn-0:0:user" data-chatgpt-search-unit-key="fallback-turn-0:0:user">' +
+    '<div data-user-message-bubble="true">独立验收 [Fabushi:live-review-shape-token]</div><div class="turn-action-controls"><button aria-label="复制消息"></button></div></div>' +
+    '<div data-content-search-unit-key="fallback-turn-0:2:assistant" data-chatgpt-search-unit-key="fallback-turn-0:2:assistant" data-chatgpt-search-message-ids="8c1d5b21-919e-4997-9086-f7ed63c59947 8c1d5b21-919e-4997-9086-f7ed63c59947">' +
+    '<h4 data-conversation-role="assistant">ChatGPT 说：</h4><div data-chatgpt-selection-message-id="8c1d5b21-919e-4997-9086-f7ed63c59947">' +
+    '<div data-markdown-text-style="assistant-message">'+review+'</div></div></div>' +
+    '<div class="turn-action-controls"><button aria-label="复制"></button><button aria-label="共享回复"></button></div>' +
+    '</div></div><form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form></main>';
+  const {h,w,dom}=await fixture(html);
+  try {
+    w.history.pushState({},'', '/c/live-review-shape');
+    const task={id:taskId,ownerTabId:h.getTabId(),goal:'验收所有架构迁移',mode:'goal',phase:'review',round:2,state:'waiting',url:'https://chatgpt.com/c/live-review-shape',token:'live-review-shape-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
+    h.data.tasks.push(task);
+    const turn=h.latestTurn(task);
+    assert.equal(turn.owned,true);
+    assert.equal(turn.text,review);
+    assert.equal(turn.final,true,'the assistant outer-turn 复制 control commits the settled review');
+    assert.ok(turn.responseActions.includes('copy'));
+    assert.equal(h.parseReview(turn.text,task).status,'next');
+  } finally {h.pause();dom.window.close();}
+});
+
+test('review Stop disappearance waits for final settlement instead of opening a duplicate review',async()=>{
+  const taskId='review-settlement-race';
+  const review=JSON.stringify({taskId,round:5,status:'next',summary:'仍有真实 remaining。',next:'继续 shipping generated Agent ownership cutover。'});
+  const {h,w,dom}=await fixture('<main><div id="review-turn" data-content-search-turn-key="fallback-turn-review-race"><div data-content-search-unit-key="fallback-turn-review-race:0:user"><div data-user-message-bubble="true">独立验收 [Fabushi:review-settlement-race-token]</div></div><div id="review-assistant" data-content-search-unit-key="fallback-turn-review-race:2:assistant"><div data-message-content>正在独立核验 exact HEAD 和 CI。</div></div></div><button id="stop" data-testid="stop-button" aria-label="停止生成">停止</button><form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form></main>');
+  try {
+    w.history.pushState({},'', '/c/review-settlement-race');
+    const task={id:taskId,ownerTabId:h.getTabId(),goal:'验收所有架构迁移',mode:'goal',phase:'review',round:5,state:'waiting',url:'https://chatgpt.com/c/review-settlement-race',token:'review-settlement-race-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
+    h.data.tasks.push(task);
+    await h.start(false);
+    await h.inspect(task,null);
+    assert.ok(task.stopObservedGenerationIdentity);
+    assert.equal(task.stopObservedAssistantBoundaryKey,'turn:fallback-turn-review-race');
+
+    w.document.querySelector('#stop').remove();
+    await h.inspect(task,null);
+    assert.equal(task.url,'https://chatgpt.com/c/review-settlement-race','review stays in the original conversation when Stop first disappears');
+    assert.equal(task.connectionInterruptedFreshDispatch||false,false);
+    assert.ok(Number(task.abnormalNoFinalSince)>0,'review settlement starts the bounded no-final timer');
+
+    task.abnormalNoFinalSince=Date.now()-9_000;
+    await h.inspect(task,null);
+    assert.equal(task.url,'https://chatgpt.com/c/review-settlement-race','ordinary 8-second Work no-final window must not duplicate Review');
+    assert.equal(task.connectionInterruptedFreshDispatch||false,false);
+
+    w.document.querySelector('#review-assistant [data-message-content]').textContent=review;
+    await h.inspect(task,null);
+    const observation=h.observations.get(task.id);
+    assert.equal(observation?.final,true,'exact-identity review JSON is final even before toolbar hydration');
+    assert.equal(task.connectionInterruptedFreshDispatch||false,false);
+    observation.finalSince=Date.now()-5_000;
+    observation.since=Date.now()-5_000;
+    observation.idleSince=Date.now()-5_000;
+    await h.inspect(task,null);
+    assert.equal(task.phase,'work');
+    assert.equal(task.round,6);
+    assert.equal(task.next,'继续 shipping generated Agent ownership cutover。');
+    assert.equal(task.state,'queued');
+    assert.equal(task.connectionInterruptedFreshDispatch||false,false);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('marker-virtualized review JSON on the same Stop-observed response settles without waiting for toolbar',async()=>{
+  const taskId='review-structured-virtualized';
+  const review=JSON.stringify({taskId,round:7,status:'next',summary:'中央链路仍未关闭。',next:'继续 SubagentRuntime 到 run-lifecycle 的 live source。'});
+  const {h,w,dom}=await fixture('<main><div id="review-turn" data-content-search-turn-key="review-structured-same-response"><div id="review-user" data-content-search-unit-key="review-structured-same-response:0:user"><div data-user-message-bubble="true">独立验收 [Fabushi:review-structured-token]</div></div><div id="review-assistant" data-content-search-unit-key="review-structured-same-response:2:assistant"><div data-message-content>正在核验。</div></div></div><button id="stop" data-testid="stop-button" aria-label="停止生成">停止</button><form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form></main>');
+  try {
+    w.history.pushState({},'', '/c/review-structured-virtualized');
+    const task={id:taskId,ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'review',round:7,state:'waiting',url:'https://chatgpt.com/c/review-structured-virtualized',token:'review-structured-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
+    h.data.tasks.push(task);
+    await h.start(false);
+    await h.inspect(task,null);
+    assert.equal(task.stopObservedAssistantBoundaryKey,'turn:review-structured-same-response');
+
+    w.document.querySelector('#review-user').remove();
+    w.document.querySelector('#stop').remove();
+    w.document.querySelector('#review-assistant [data-message-content]').textContent=review;
+
+    const promoted=h.taskTurnForInspection(task);
+    assert.equal(promoted.owned,true);
+    assert.equal(promoted.stopBoundRouteFinal,true);
+    assert.equal(promoted.structuredReviewFinal,true);
+    assert.equal(promoted.final,true);
+    assert.equal(promoted.text,review);
+
+    await h.inspect(task,null);
+    const observation=h.observations.get(task.id);
+    assert.equal(observation?.final,true);
+    observation.finalSince=Date.now()-5_000;
+    observation.since=Date.now()-5_000;
+    observation.idleSince=Date.now()-5_000;
+    await h.inspect(task,null);
+    assert.equal(task.phase,'work');
+    assert.equal(task.round,8);
+    assert.equal(task.next,'继续 SubagentRuntime 到 run-lifecycle 的 live source。');
+    assert.equal(task.connectionInterruptedFreshDispatch||false,false);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('review no-final recovery remains bounded after two quiet minutes',async()=>{
+  const {h,w,dom}=await fixture('<main><div data-content-search-turn-key="review-expiry-turn"><div data-content-search-unit-key="review-expiry-turn:0:user"><div data-user-message-bubble="true">独立验收 [Fabushi:review-expiry-token]</div></div><div data-content-search-unit-key="review-expiry-turn:2:assistant"><div data-message-content>仍在等待最终验收报告。</div></div></div><button id="stop" data-testid="stop-button" aria-label="停止生成">停止</button><form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form></main>');
+  try {
+    w.history.pushState({},'', '/c/review-expiry');
+    const task={id:'review-expiry',ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'review',round:3,state:'waiting',url:'https://chatgpt.com/c/review-expiry',token:'review-expiry-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
+    h.data.tasks.push(task);
+    await h.start(false);
+    await h.inspect(task,null);
+    w.document.querySelector('#stop').remove();
+    await h.inspect(task,null);
+    assert.ok(Number(task.abnormalNoFinalSince)>0);
+    task.abnormalNoFinalSince=Date.now()-121_000;
+    await h.inspect(task,null);
+    assert.equal(task.state,'queued','a truly quiet review still gets bounded abnormal recovery');
+    assert.equal(task.url,'');
+    assert.equal(task.connectionInterruptedFreshDispatch,true);
+    assert.match(task.messages.at(-1).text,/已经结束但没有最终回复/);
+  } finally {h.pause();dom.window.close();}
+});
 test('marker-virtualized review final on the same Stop-observed response parses next and dispatches the next Work round',async()=>{
   const taskId='review-virtualized-next';
   const review=JSON.stringify({taskId,round:9,status:'next',summary:'仍有两个真实阻塞需要继续。',next:'先修 shipping Host/Runner composition，再修 deterministic transcript blocker 并重跑 exact-head gates。'});
@@ -4848,11 +5158,16 @@ test('marker virtualization cannot consume a different final assistant response 
     const candidate=h.taskTurnForInspection(task);
     assert.equal(candidate.owned,false,'a structurally different response cannot inherit Stop-bound ownership');
     await h.inspect(task,null);
-    assert.equal(task.state,'queued','unproven Stop disappearance keeps the existing abnormal fresh-session recovery');
+    assert.equal(task.state,'waiting','unproven Review response stays fail-closed during the settlement grace');
+    assert.equal(task.connectionInterruptedFreshDispatch||false,false);
+    assert.ok(Number(task.abnormalNoFinalSince)>0);
+    task.abnormalNoFinalSince=Date.now()-121_000;
+    await h.inspect(task,null);
+    assert.equal(task.state,'queued','after the bounded Review grace the existing abnormal fresh-session recovery resumes');
     assert.equal(task.connectionInterruptedFreshDispatch,true);
     assert.equal(task.phase,'review');
     assert.equal(task.round,3);
-    assert.match(task.messages.at(-1)?.text||'',/停止按钮已经消失/);
+    assert.match(task.messages.at(-1)?.text||'',/已经结束但没有最终回复/);
   } finally {h.pause();dom.window.close();}
 });
 
@@ -4882,19 +5197,25 @@ test('marker-virtualized final without a structural response key stays fail-clos
     const candidate=h.taskTurnForInspection(task);
     assert.equal(candidate.owned,false);
     await h.inspect(task,null);
+    assert.equal(task.state,'waiting');
+    assert.equal(task.connectionInterruptedFreshDispatch||false,false);
+    assert.ok(Number(task.abnormalNoFinalSince)>0);
+    task.abnormalNoFinalSince=Date.now()-121_000;
+    await h.inspect(task,null);
     assert.equal(task.connectionInterruptedFreshDispatch,true);
   } finally {h.pause();dom.window.close();}
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.10\.9$/m);
-  assert.match(source,/const VERSION = '2\.10\.9'/);
+  assert.match(source,/^\/\/ @version\s+2\.10\.11$/m);
+  assert.match(source,/const VERSION = '2\.10\.11'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_REFRESH_LIMIT = 7/);
   assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const ENDED_NO_FINAL_STABILITY_MS = 8000/);
+  assert.match(source,/const REVIEW_ENDED_NO_FINAL_STABILITY_MS = 2 \* 60 \* 1000/);
   assert.match(source,/const RELOAD_STOP_ABSENCE_STABILITY_MS = 8000/);
   assert.doesNotMatch(source,/MEMORY_PRESSURE_SAMPLES|MEMORY_HOST_REQUEST_MIN_BYTES|MEMORY_SAME_TAB_RELOAD_COOLDOWN_MS/);
   assert.doesNotMatch(source,/function memoryReloadSafety|function reloadTaskForMemoryPressure|memoryPressureReloadAt|memoryPressureReloadURL/);
