@@ -171,6 +171,6 @@ Record:
 | --- | --- | --- |
 | R1–R10 | passed | Runtime/test implementation is on PR #128; implementation exact head `e0c8a4f912a99c563ec2b0538aca2490df4f2e4f` passed GitHub Actions Test run `36533643080`: syntax check and regression suite both succeeded. No local test/build was used. |
 | AC-1–AC-4 | passed | `test/workbench.test.mjs` reproduces a review-like composer carrying request-frequency wording plus the workspace quota banner, verifies no false detection/cooldown mutation, then verifies a genuine external `role=alert` still enters the existing rate-limit path. Test run `36533643080` succeeded. |
-| AC-5 | passed | PR #128 implementation exact head `e0c8a4f912a99c563ec2b0538aca2490df4f2e4f` passed Test run `36533643080`. This compliance-record update is documentation-only; its PR-head Test is still required before merge. |
-| AC-6 | blocked | Canonical-main Test requires merge after the latest PR-head Test succeeds. |
-| AC-7 | blocked | v2.10.12 Release requires canonical-main Test success. |
+| AC-5 | passed | PR #128 implementation exact head `e0c8a4f912a99c563ec2b0538aca2490df4f2e4f` passed Test run `36533643080`; final PR head `da31d452d2e23f3a5c544ffb6e76571728921247` (documentation-only compliance update) also passed Test run `36533744047` before merge. |
+| AC-6 | passed | PR #128 was squash-merged as `877fc55508ba73e98a7552e2f11c8e53a5b5a99c`; canonical-main Test run `36533826343` completed successfully, including syntax and regression tests. |
+| AC-7 | passed | Release workflow run `36533886712` succeeded and published `v2.10.12` targeting `877fc55508ba73e98a7552e2f11c8e53a5b5a99c`; asset `chatgpt-auto-confirm.user.js` is 396893 bytes with digest `sha256:77f0f7e6f35915874055cecf48e0e65204f081b20e30f4b67078f3801572e277`. |
