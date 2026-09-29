@@ -4356,7 +4356,7 @@ test('abnormal work trace scopes tertiary activity to the current content-search
     assert.match(trace.text,/CURRENT_REPLY/);
     assert.match(trace.text,/CURRENT_ACTIVITY/);
     assert.doesNotMatch(trace.text,/OLD_REPLY_SHOULD_NOT_CARRY|OLD_ACTIVITY_SHOULD_NOT_CARRY/);
-  } finally {dom.window.close();}
+  } finally {h.pause();dom.window.close();}
 });
 
 test('marker-virtualized exact-route work trace uses only the latest response turn including activity',async()=>{
@@ -4383,7 +4383,7 @@ test('marker-virtualized exact-route work trace uses only the latest response tu
     assert.match(trace.text,/轮询 GitHub Actions 工作流任务/);
     assert.doesNotMatch(trace.text,/OLD_VIRTUAL_REPLY|OLD_VIRTUAL_ACTIVITY/);
     assert.equal(trace.sourceKind,'exact-route-visible-assistant-transcript');
-  } finally {dom.window.close();}
+  } finally {h.pause();dom.window.close();}
 });
 
 test('legacy assistant container does not duplicate a tertiary activity already included in reply content',async()=>{
@@ -4404,7 +4404,7 @@ test('legacy assistant container does not duplicate a tertiary activity already 
     assert.match(trace.text,/开始检查 CI/);
     assert.match(trace.text,/检查 GitHub Actions 工作流任务/);
     assert.equal(trace.text.split('检查 GitHub Actions 工作流任务').length-1,1);
-  } finally {dom.window.close();}
+  } finally {h.pause();dom.window.close();}
 });
 
 test('fallback user Copy cannot complete an assistant reply when assistant action row is absent',async()=>{
