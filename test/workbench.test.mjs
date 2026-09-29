@@ -4061,7 +4061,7 @@ test('closing a workspace cannot trigger automatic stale-workspace resurrection'
 });
 
 
-test('observed Stop disappearance with no authorization immediately carries work to a fresh session even with a final toolbar',async()=>{
+test('observed Stop disappearance keeps a strong final toolbar in the same conversation',async()=>{
   const {h,w,dom}=await fixture(`<main>
     <article data-testid="conversation-turn-user"><div data-message-author-role="user">finish architecture [Fabushi:stop-handoff]</div></article>
     <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">已完成模块 A；模块 B 已实现一半，下一步继续 B 并跑 CI。</div></div><button aria-label="Copy response"></button><button aria-label="Share response"></button></article>
@@ -4082,19 +4082,19 @@ test('observed Stop disappearance with no authorization immediately carries work
     w.document.querySelector('[data-testid="stop-button"]').remove();
     await h.inspect(task,null);
     assert.equal(sends,0,'old conversation Send is never clicked');
-    assert.equal(task.state,'queued');
-    assert.equal(task.url,'');
-    assert.equal(task.token,'');
-    assert.equal(task.phase,'work');
-    assert.equal(task.round,6);
+    assert.equal(task.state,'waiting','strong response-local Copy enters the ordinary final stability gate');
+    assert.equal(task.url,'https://chatgpt.com/c/stop-handoff');
+    assert.equal(task.token,'stop-handoff');
+    assert.equal(task.connectionInterruptedFreshDispatch||false,false);
     assert.deepEqual(task.attachments,[{name:'spec.txt',type:'text/plain',size:10}]);
-    assert.match(task.abnormalFreshCarry,/模块 A/);
-    assert.match(task.abnormalFreshCarry,/模块 B/);
-    const prompt=h.workPrompt(task);
-    assert.match(prompt,/complete B and CI/);
-    assert.match(prompt,/模块 A/);
-    assert.match(prompt,/finish architecture/);
-    assert.equal(task.stopObservedGenerationIdentity||'','');
+    const observation=h.observations.get(task.id);
+    assert.equal(observation?.final,true);
+    observation.finalSince=Date.now()-5_000;
+    observation.since=Date.now()-5_000;
+    observation.idleSince=Date.now()-5_000;
+    await h.inspect(task,null);
+    assert.equal(task.state,'done');
+    assert.ok(task.messages.some(item=>item.role==='assistant' && /模块 A/.test(item.text||'')));
   } finally {h.pause();dom.window.close();}
 });
 
@@ -4129,7 +4129,7 @@ test('authorization card blocks Stop-disappearance handoff until the card is gon
 });
 
 
-test('reload inherited Stop observation waits for full hydration and stable absence before fresh handoff',async()=>{
+test('reload inherited Stop observation waits for hydration but keeps a strong final reply in the same conversation',async()=>{
   let readyState='loading';
   const {h,w,dom}=await fixture(`<main>
     <article data-testid="conversation-turn-user"><div data-message-author-role="user">continue architecture [Fabushi:reload-hydration]</div></article>
@@ -4164,11 +4164,17 @@ test('reload inherited Stop observation waits for full hydration and stable abse
     assert.ok(task.reloadStopAbsentSince>=firstSince,'visible reply changes restart the stability window');
     assert.equal(task.url,'https://chatgpt.com/c/reload-hydration');
 
+    const observation=h.observations.get(task.id);
+    assert.equal(observation?.final,true,'hydrated response-local Copy is observed as final');
+    observation.finalSince=Date.now()-5_000;
+    observation.since=Date.now()-5_000;
+    observation.idleSince=Date.now()-5_000;
     task.reloadStopAbsentSince=Date.now()-9000;
     await h.inspect(task,null);
-    assert.equal(task.state,'queued','only stable hydrated Stop absence may hand off');
-    assert.equal(task.url,'');
-    assert.match(task.abnormalFreshCarry,/恢复出新的进度/);
+    assert.equal(task.state,'done','stable hydrated final reply wins over inherited Stop-disappearance handoff');
+    assert.equal(task.url,'https://chatgpt.com/c/reload-hydration');
+    assert.equal(task.connectionInterruptedFreshDispatch||false,false);
+    assert.ok(task.messages.some(item=>item.role==='assistant' && /恢复出新的进度/.test(item.text||'')));
   } finally {h.pause();dom.window.close();}
 });
 
