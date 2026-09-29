@@ -9,6 +9,7 @@
 - 修复异常中断后新会话只带普通 assistant 回复、却丢掉 ChatGPT Agent 可见执行步骤的问题。
 - 当前 ChatGPT renderer 会把“下载并检查工作流构建产物”“定位首个根因”“等待 Rust 编译完成”“轮询 GitHub Actions …”等进度显示为 `assistant-message + tertiary`。这些节点继续**不参与最终回复判定**，但现在会进入异常接力上下文。
 - 异常 handoff 会把当前 response 的普通 assistant prose 和这些 tertiary 工作步骤按页面出现顺序合并，再写入现有 bounded carry / pagehide snapshot。
+- 普通 15 分钟“页面无变化”判定现在也把可见 tertiary 工作步骤纳入进度指纹；只要工作步骤新增或变化，就重新开始 15 分钟计时，但这些步骤仍然不作为最终回复、任务归属或验收结果证据。
 - 如果任务 marker 被虚拟化，只允许 exact conversation、无 foreign marker/owner 的安全回退，并只取最新 content-search response turn，避免把旧轮次的 activity 混进来。
 - 下一轮 Work 提示词现在明确包含“异常会话实时工作记录（可见回复 + 实际工作步骤）”；后续验收异常接力也携带同一 combined trace。
 - 后续轮次仍保留“上一轮已完成 Work 最终回复 + 当前异常工作记录 + 原始目标”的优先级，当前 `next` / 当前任务和原始目标始终优先。
