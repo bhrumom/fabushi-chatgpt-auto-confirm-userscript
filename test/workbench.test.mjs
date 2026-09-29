@@ -4300,7 +4300,7 @@ test('abnormal work trace carries current fallback-turn prose and tertiary activ
       '已经定位两个代码层根因',
       '等待 Rust 编译完成',
       '等待了20秒',
-    ]) assert.match(trace.text,new RegExp(expected.replace(/[.*+?^$()|[\]\\]/g,'\\test('fallback user Copy cannot complete an assistant reply when assistant action row is absent',async()=>{')));
+    ]) assert.ok(trace.text.includes(expected), `missing trace entry: ${expected}`);
     const positions=[
       '我会先确认 exact HEAD',
       '完成 GitHub PR #20',
