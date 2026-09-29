@@ -5751,6 +5751,22 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
         }
       }
     }
+    // A historical Stop observation must not hide a genuine final reply.
+    // Evaluate strong response-local final evidence before deciding whether
+    // Stop disappearance means “start a fresh chat”.
+    const strongOwnedFinal = Boolean(
+      !stopPresent
+      && routeOwned
+      && turn.owned
+      && turn.final
+      && turn.text
+      && !foreignTask
+      && !otherRouteOwner
+      && !approvalVisible
+      && !currentBlocker
+      && !currentRateLimit
+      && !task.attempted
+    );
     const stopDisappearedFreshEligible = Boolean(
       !stopPresent
       && stopIdentityMatches
@@ -5766,24 +5782,6 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       // Strong response-local final evidence must complete normally instead of
       // being discarded by the historical Stop-disappearance handoff.
       && !strongOwnedFinal
-    );
-    // A historical Stop observation protects a reloaded document from a
-    // false Stop-disappearance handoff. It must not, however, hide a final
-    // reply that explicit pause/resume recovery has already attributed to
-    // this exact task and route. Finality still uses the ordinary strong
-    // toolbar/static-copy evidence plus all ownership and approval guards.
-    const strongOwnedFinal = Boolean(
-      !stopPresent
-      && routeOwned
-      && turn.owned
-      && turn.final
-      && turn.text
-      && !foreignTask
-      && !otherRouteOwner
-      && !approvalVisible
-      && !currentBlocker
-      && !currentRateLimit
-      && !task.attempted
     );
     const recoveredOwnedFinal = Boolean(
       inheritedStopObservation
