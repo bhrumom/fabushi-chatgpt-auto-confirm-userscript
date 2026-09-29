@@ -3563,7 +3563,9 @@ async function bootstrapAttempt() {
       // when it is not nested under an already captured canonical message.
       if (assistantMessageUnits.some(unit => unit !== node && unit.contains?.(node))) continue;
       const value = cleanAbnormalFreshReply(text(node));
-      if (value) entries.push({ node, text:value, kind:'activity' });
+      if (!value) continue;
+      if (entries.some(entry => entry.kind === 'reply' && String(entry.text || '').includes(value))) continue;
+      entries.push({ node, text:value, kind:'activity' });
     }
     entries.sort((a, b) => {
       if (a.node === b.node) return 0;
