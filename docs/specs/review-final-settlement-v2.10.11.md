@@ -166,6 +166,6 @@ Record:
 
 | Requirement / AC | Status | Evidence / reason |
 | --- | --- | --- |
-| R1-R10 / AC-1-AC-6 | pending | Spec written from live authenticated DOM; implementation follows next. |
-| R11 | pending | Version bump follows implementation. |
-| R12 / AC-7 | pending | Requires exact-head Test. |
+| R1-R10 / AC-1-AC-6 | implemented, pending CI verification | Runtime now gives Review a two-minute no-final settlement window, excludes Review from immediate same-document Stop-disappearance handoff, accepts only exact-identity `parseReview()` reports as structured review-final evidence, and keeps marker-virtualized promotion bound to the same Stop-observed assistant response boundary. Added live fallback-turn, delayed settlement, marker-virtualized structured report and bounded-expiry regressions; existing Work Stop-disappearance behavior is intentionally unchanged. |
+| R11 | implemented, pending CI verification | Userscript metadata/runtime and README are bumped to v2.10.11. |
+| R12 / AC-7 | pending | Requires exact-head Test on the final implementation commit. |
