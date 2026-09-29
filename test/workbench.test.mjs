@@ -4908,6 +4908,129 @@ test('prior Stop disappearance without strong latest-owned final evidence still 
   } finally {h.pause();dom.window.close();}
 });
 
+test('live review fallback-turn shape recognizes the settled JSON response and outer-turn Copy',async()=>{
+  const taskId='live-review-shape';
+  const review=JSON.stringify({taskId,round:2,status:'next',summary:'strict gate 仍有 remaining，不能完成。',next:'继续 central production ownership cutover。'});
+  const html='<main>' +
+    '<div data-turn-key="fallback-turn-0"><div id="review-turn" data-content-search-turn-key="fallback-turn-0">' +
+    '<div data-content-search-unit-key="fallback-turn-0:0:user" data-chatgpt-search-unit-key="fallback-turn-0:0:user">' +
+    '<div data-user-message-bubble="true">独立验收 [Fabushi:live-review-shape-token]</div><div class="turn-action-controls"><button aria-label="复制消息"></button></div></div>' +
+    '<div data-content-search-unit-key="fallback-turn-0:2:assistant" data-chatgpt-search-unit-key="fallback-turn-0:2:assistant" data-chatgpt-search-message-ids="8c1d5b21-919e-4997-9086-f7ed63c59947 8c1d5b21-919e-4997-9086-f7ed63c59947">' +
+    '<h4 data-conversation-role="assistant">ChatGPT 说：</h4><div data-chatgpt-selection-message-id="8c1d5b21-919e-4997-9086-f7ed63c59947">' +
+    '<div data-markdown-text-style="assistant-message">'+review+'</div></div></div>' +
+    '<div class="turn-action-controls"><button aria-label="复制"></button><button aria-label="共享回复"></button></div>' +
+    '</div></div><form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form></main>';
+  const {h,w,dom}=await fixture(html);
+  try {
+    w.history.pushState({},'', '/c/live-review-shape');
+    const task={id:taskId,ownerTabId:h.getTabId(),goal:'验收所有架构迁移',mode:'goal',phase:'review',round:2,state:'waiting',url:'https://chatgpt.com/c/live-review-shape',token:'live-review-shape-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
+    h.data.tasks.push(task);
+    const turn=h.latestTurn(task);
+    assert.equal(turn.owned,true);
+    assert.equal(turn.text,review);
+    assert.equal(turn.final,true,'the assistant outer-turn 复制 control commits the settled review');
+    assert.ok(turn.responseActions.includes('copy'));
+    assert.equal(h.parseReview(turn.text,task).status,'next');
+  } finally {h.pause();dom.window.close();}
+});
+
+test('review Stop disappearance waits for final settlement instead of opening a duplicate review',async()=>{
+  const taskId='review-settlement-race';
+  const review=JSON.stringify({taskId,round:5,status:'next',summary:'仍有真实 remaining。',next:'继续 shipping generated Agent ownership cutover。'});
+  const {h,w,dom}=await fixture('<main><div id="review-turn" data-content-search-turn-key="fallback-turn-review-race"><div data-content-search-unit-key="fallback-turn-review-race:0:user"><div data-user-message-bubble="true">独立验收 [Fabushi:review-settlement-race-token]</div></div><div id="review-assistant" data-content-search-unit-key="fallback-turn-review-race:2:assistant"><div data-message-content>正在独立核验 exact HEAD 和 CI。</div></div></div><button id="stop" data-testid="stop-button" aria-label="停止生成">停止</button><form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form></main>');
+  try {
+    w.history.pushState({},'', '/c/review-settlement-race');
+    const task={id:taskId,ownerTabId:h.getTabId(),goal:'验收所有架构迁移',mode:'goal',phase:'review',round:5,state:'waiting',url:'https://chatgpt.com/c/review-settlement-race',token:'review-settlement-race-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
+    h.data.tasks.push(task);
+    await h.start(false);
+    await h.inspect(task,null);
+    assert.ok(task.stopObservedGenerationIdentity);
+    assert.equal(task.stopObservedAssistantBoundaryKey,'turn:fallback-turn-review-race');
+
+    w.document.querySelector('#stop').remove();
+    await h.inspect(task,null);
+    assert.equal(task.url,'https://chatgpt.com/c/review-settlement-race','review stays in the original conversation when Stop first disappears');
+    assert.equal(task.connectionInterruptedFreshDispatch||false,false);
+    assert.ok(Number(task.abnormalNoFinalSince)>0,'review settlement starts the bounded no-final timer');
+
+    task.abnormalNoFinalSince=Date.now()-9_000;
+    await h.inspect(task,null);
+    assert.equal(task.url,'https://chatgpt.com/c/review-settlement-race','ordinary 8-second Work no-final window must not duplicate Review');
+    assert.equal(task.connectionInterruptedFreshDispatch||false,false);
+
+    w.document.querySelector('#review-assistant [data-message-content]').textContent=review;
+    await h.inspect(task,null);
+    const observation=h.observations.get(task.id);
+    assert.equal(observation?.final,true,'exact-identity review JSON is final even before toolbar hydration');
+    assert.equal(task.connectionInterruptedFreshDispatch||false,false);
+    observation.finalSince=Date.now()-5_000;
+    observation.since=Date.now()-5_000;
+    observation.idleSince=Date.now()-5_000;
+    await h.inspect(task,null);
+    assert.equal(task.phase,'work');
+    assert.equal(task.round,6);
+    assert.equal(task.next,'继续 shipping generated Agent ownership cutover。');
+    assert.equal(task.state,'queued');
+    assert.equal(task.connectionInterruptedFreshDispatch||false,false);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('marker-virtualized review JSON on the same Stop-observed response settles without waiting for toolbar',async()=>{
+  const taskId='review-structured-virtualized';
+  const review=JSON.stringify({taskId,round:7,status:'next',summary:'中央链路仍未关闭。',next:'继续 SubagentRuntime 到 run-lifecycle 的 live source。'});
+  const {h,w,dom}=await fixture('<main><div id="review-turn" data-content-search-turn-key="review-structured-same-response"><div id="review-user" data-content-search-unit-key="review-structured-same-response:0:user"><div data-user-message-bubble="true">独立验收 [Fabushi:review-structured-token]</div></div><div id="review-assistant" data-content-search-unit-key="review-structured-same-response:2:assistant"><div data-message-content>正在核验。</div></div></div><button id="stop" data-testid="stop-button" aria-label="停止生成">停止</button><form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form></main>');
+  try {
+    w.history.pushState({},'', '/c/review-structured-virtualized');
+    const task={id:taskId,ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'review',round:7,state:'waiting',url:'https://chatgpt.com/c/review-structured-virtualized',token:'review-structured-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
+    h.data.tasks.push(task);
+    await h.start(false);
+    await h.inspect(task,null);
+    assert.equal(task.stopObservedAssistantBoundaryKey,'turn:review-structured-same-response');
+
+    w.document.querySelector('#review-user').remove();
+    w.document.querySelector('#stop').remove();
+    w.document.querySelector('#review-assistant [data-message-content]').textContent=review;
+
+    const promoted=h.taskTurnForInspection(task);
+    assert.equal(promoted.owned,true);
+    assert.equal(promoted.stopBoundRouteFinal,true);
+    assert.equal(promoted.structuredReviewFinal,true);
+    assert.equal(promoted.final,true);
+    assert.equal(promoted.text,review);
+
+    await h.inspect(task,null);
+    const observation=h.observations.get(task.id);
+    assert.equal(observation?.final,true);
+    observation.finalSince=Date.now()-5_000;
+    observation.since=Date.now()-5_000;
+    observation.idleSince=Date.now()-5_000;
+    await h.inspect(task,null);
+    assert.equal(task.phase,'work');
+    assert.equal(task.round,8);
+    assert.equal(task.next,'继续 SubagentRuntime 到 run-lifecycle 的 live source。');
+    assert.equal(task.connectionInterruptedFreshDispatch||false,false);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('review no-final recovery remains bounded after two quiet minutes',async()=>{
+  const {h,w,dom}=await fixture('<main><div data-content-search-turn-key="review-expiry-turn"><div data-content-search-unit-key="review-expiry-turn:0:user"><div data-user-message-bubble="true">独立验收 [Fabushi:review-expiry-token]</div></div><div data-content-search-unit-key="review-expiry-turn:2:assistant"><div data-message-content>仍在等待最终验收报告。</div></div></div><button id="stop" data-testid="stop-button" aria-label="停止生成">停止</button><form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form></main>');
+  try {
+    w.history.pushState({},'', '/c/review-expiry');
+    const task={id:'review-expiry',ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'review',round:3,state:'waiting',url:'https://chatgpt.com/c/review-expiry',token:'review-expiry-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
+    h.data.tasks.push(task);
+    await h.start(false);
+    await h.inspect(task,null);
+    w.document.querySelector('#stop').remove();
+    await h.inspect(task,null);
+    assert.ok(Number(task.abnormalNoFinalSince)>0);
+    task.abnormalNoFinalSince=Date.now()-121_000;
+    await h.inspect(task,null);
+    assert.equal(task.state,'queued','a truly quiet review still gets bounded abnormal recovery');
+    assert.equal(task.url,'');
+    assert.equal(task.connectionInterruptedFreshDispatch,true);
+    assert.match(task.messages.at(-1).text,/已经结束但没有最终回复/);
+  } finally {h.pause();dom.window.close();}
+});
 test('marker-virtualized review final on the same Stop-observed response parses next and dispatches the next Work round',async()=>{
   const taskId='review-virtualized-next';
   const review=JSON.stringify({taskId,round:9,status:'next',summary:'仍有两个真实阻塞需要继续。',next:'先修 shipping Host/Runner composition，再修 deterministic transcript blocker 并重跑 exact-head gates。'});
