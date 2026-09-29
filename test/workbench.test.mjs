@@ -34,7 +34,7 @@ async function fixture(body='', setup=()=>{}, url='https://chatgpt.com/') {
     const form = w.document.querySelector('form') || w.document.body;
     form.append(trigger);
   }
-  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, normalizeReasoningPreset, reasoningPresetLabel, taskReasoningPreset, reasoningPickerTrigger, reasoningSliderState, ensureTaskReasoningPreset, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, refreshInterruptedStopStall, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), setRunningForTest:value=>{running=Boolean(value);}, getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, conversationLoadFailure, clearConversationLoadFailureState, recoverConversationLoadFailure, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, normalizeReasoningPreset, reasoningPresetLabel, taskReasoningPreset, reasoningPickerTrigger, reasoningSliderState, ensureTaskReasoningPreset, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, refreshInterruptedStopStall, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), setRunningForTest:value=>{running=Boolean(value);}, getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('reasoning preset defaults to Extra High and explicit five-position choices persist',async()=>{
@@ -4582,11 +4582,142 @@ test('durable handoff snapshot is phase round and goal-revision bound and cannot
   } finally {h.pause();dom.window.close();}
 });
 
+test('explicit ChatGPT conversation-load failure waits 30 seconds and refreshes at most seven times before fresh handoff',async()=>{
+  const {h,w,dom}=await fixture('<main><section><h2>无法加载此 ChatGPT 对话</h2><button type="button">重试</button><div>正在加载聊天</div></section></main>');
+  try {
+    w.history.pushState({},'', '/c/load-failure-seven');
+    const task={id:'load-failure-seven',ownerTabId:h.getTabId(),goal:'continue task',mode:'once',phase:'work',round:5,state:'waiting',url:'https://chatgpt.com/c/load-failure-seven',token:'load-failure-seven',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    assert.match(h.conversationLoadFailure(),/无法加载/);
+
+    const started=1_000_000;
+    assert.equal(h.recoverConversationLoadFailure(task,false,started,null),true);
+    assert.equal(task.conversationLoadFailureAttempts,0,'first observation only starts the 30-second timer');
+    assert.equal(task.conversationLoadFailureAt,started);
+
+    assert.equal(h.recoverConversationLoadFailure(task,false,started+29_999,null),true);
+    assert.equal(task.conversationLoadFailureAttempts,0,'no refresh before 30 seconds');
+
+    let now=started+30_000;
+    for(let attempt=1;attempt<=7;attempt++){
+      assert.equal(h.recoverConversationLoadFailure(task,false,now,null),true);
+      assert.equal(task.conversationLoadFailureAttempts,attempt);
+      assert.equal(task.url,'https://chatgpt.com/c/load-failure-seven');
+      assert.equal(task.token,'load-failure-seven');
+      now+=30_000;
+    }
+
+    assert.equal(h.recoverConversationLoadFailure(task,false,now,null),true,'still failing after refresh 7 queues a fresh-session handoff');
+    assert.equal(task.state,'queued');
+    assert.equal(task.url,'');
+    assert.equal(task.token,'');
+    assert.equal(task.attempted,false);
+    assert.equal(task.phase,'work');
+    assert.equal(task.round,5);
+    assert.equal(task.conversationLoadFailureAttempts,0);
+    assert.equal(task.connectionInterruptedFreshDispatch,true);
+    assert.match(task.messages.at(-1).text,/连续 7 次刷新后仍无法加载/);
+    assert.ok(task.messages.some(item=>/第 7\/7 次/.test(item.text||'')));
+  } finally {h.pause();dom.window.close();}
+});
+
+test('conversation-load failure detector ignores transcript quotations and clears state after messages mount',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <article data-content-search-turn-key="turn-1">
+      <div data-content-search-unit-key="turn-1:user"><div data-markdown-text-tone="user-message">页面曾显示“无法加载此 ChatGPT 对话”，请分析原因 [Fabushi:load-recovered]</div></div>
+      <div data-content-search-unit-key="turn-1:assistant"><div class="markdown" data-message-content>现在对话已经恢复。</div><button aria-label="复制"></button></div>
+    </article>
+    <form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/load-recovered');
+    const task={id:'load-recovered',ownerTabId:h.getTabId(),goal:'analyze',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/load-recovered',token:'load-recovered',attempted:false,messages:[],conversationLoadFailureURL:'https://chatgpt.com/c/load-recovered',conversationLoadFailureAttempts:4,conversationLoadFailureAt:Date.now()-31_000};
+    h.data.tasks.push(task);
+    assert.equal(h.conversationLoadFailure(),'');
+    await h.start(false);
+    await h.inspect(task,null);
+    assert.equal(task.conversationLoadFailureURL,'');
+    assert.equal(task.conversationLoadFailureAttempts,0);
+    assert.equal(task.conversationLoadFailureAt,0);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('current content-search final reply with plain Chinese Copy wins over prior Stop disappearance',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <article data-content-search-turn-key="live-final-turn">
+      <div data-content-search-unit-key="live-final-turn:user"><div data-markdown-text-tone="user-message">finish current task [Fabushi:live-copy-final]</div></div>
+      <div id="assistant-unit" data-content-search-unit-key="live-final-turn:assistant"><div class="markdown" data-message-content>最终工作已经完成并验证。</div></div>
+    </article>
+    <button id="stop" data-testid="stop-button" aria-label="停止生成">停止</button>
+    <form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/live-copy-final');
+    const task={id:'live-copy-final',ownerTabId:h.getTabId(),goal:'finish current task',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/live-copy-final',token:'live-copy-final',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    await h.start(false);
+    await h.inspect(task,null);
+    assert.ok(task.stopObservedGenerationIdentity);
+    assert.equal(task.stopObservedDocumentId,h.getDocumentInstanceId());
+    assert.equal(task.state,'generating');
+
+    w.document.querySelector('#stop').remove();
+    const assistant=w.document.querySelector('#assistant-unit');
+    for(const name of ['复制','评价回复','分享']){
+      const button=w.document.createElement('button');
+      button.setAttribute('aria-label',name);
+      assistant.append(button);
+    }
+    const liveTurn=h.latestTurn(task);
+    assert.equal(liveTurn.owned,true);
+    assert.equal(liveTurn.final,true);
+    assert.ok(liveTurn.responseActions.includes('copy'));
+
+    await h.inspect(task,null);
+    assert.equal(task.url,'https://chatgpt.com/c/live-copy-final');
+    assert.equal(task.connectionInterruptedFreshDispatch||false,false);
+    const observation=h.observations.get(task.id);
+    assert.equal(observation?.final,true);
+    observation.finalSince=Date.now()-5_000;
+    observation.since=Date.now()-5_000;
+    observation.idleSince=Date.now()-5_000;
+    await h.inspect(task,null);
+    assert.equal(task.state,'done');
+    assert.ok(task.messages.some(item=>item.role==='assistant' && /最终工作已经完成并验证/.test(item.text||'')));
+  } finally {h.pause();dom.window.close();}
+});
+
+test('prior Stop disappearance without strong latest-owned final evidence still opens a fresh conversation',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <article data-content-search-turn-key="non-final-turn">
+      <div data-content-search-unit-key="non-final-turn:user"><div data-markdown-text-tone="user-message">continue [Fabushi:stop-no-final]</div></div>
+      <div data-content-search-unit-key="non-final-turn:assistant"><div class="markdown" data-message-content>仍然只是中途内容。</div></div>
+    </article>
+    <button id="stop" data-testid="stop-button" aria-label="停止生成">停止</button>
+    <form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/stop-no-final');
+    const task={id:'stop-no-final',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:2,state:'waiting',url:'https://chatgpt.com/c/stop-no-final',token:'stop-no-final',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    await h.start(false);
+    await h.inspect(task,null);
+    w.document.querySelector('#stop').remove();
+    await h.inspect(task,null);
+    assert.equal(task.state,'queued');
+    assert.equal(task.url,'');
+    assert.equal(task.connectionInterruptedFreshDispatch,true);
+    assert.match(task.messages.at(-1).text,/停止按钮已经消失/);
+  } finally {h.pause();dom.window.close();}
+});
+
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.10\.7$/m);
-  assert.match(source,/const VERSION = '2\.10\.7'/);
+  assert.match(source,/^\/\/ @version\s+2\.10\.8$/m);
+  assert.match(source,/const VERSION = '2\.10\.8'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
+  assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
+  assert.match(source,/const CONVERSATION_LOAD_FAILURE_REFRESH_LIMIT = 7/);
   assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const ENDED_NO_FINAL_STABILITY_MS = 8000/);
   assert.match(source,/const RELOAD_STOP_ABSENCE_STABILITY_MS = 8000/);
