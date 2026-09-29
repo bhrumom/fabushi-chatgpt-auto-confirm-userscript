@@ -5158,11 +5158,16 @@ test('marker virtualization cannot consume a different final assistant response 
     const candidate=h.taskTurnForInspection(task);
     assert.equal(candidate.owned,false,'a structurally different response cannot inherit Stop-bound ownership');
     await h.inspect(task,null);
-    assert.equal(task.state,'queued','unproven Stop disappearance keeps the existing abnormal fresh-session recovery');
+    assert.equal(task.state,'waiting','unproven Review response stays fail-closed during the settlement grace');
+    assert.equal(task.connectionInterruptedFreshDispatch||false,false);
+    assert.ok(Number(task.abnormalNoFinalSince)>0);
+    task.abnormalNoFinalSince=Date.now()-121_000;
+    await h.inspect(task,null);
+    assert.equal(task.state,'queued','after the bounded Review grace the existing abnormal fresh-session recovery resumes');
     assert.equal(task.connectionInterruptedFreshDispatch,true);
     assert.equal(task.phase,'review');
     assert.equal(task.round,3);
-    assert.match(task.messages.at(-1)?.text||'',/停止按钮已经消失/);
+    assert.match(task.messages.at(-1)?.text||'',/已经结束但没有最终回复/);
   } finally {h.pause();dom.window.close();}
 });
 
@@ -5192,19 +5197,25 @@ test('marker-virtualized final without a structural response key stays fail-clos
     const candidate=h.taskTurnForInspection(task);
     assert.equal(candidate.owned,false);
     await h.inspect(task,null);
+    assert.equal(task.state,'waiting');
+    assert.equal(task.connectionInterruptedFreshDispatch||false,false);
+    assert.ok(Number(task.abnormalNoFinalSince)>0);
+    task.abnormalNoFinalSince=Date.now()-121_000;
+    await h.inspect(task,null);
     assert.equal(task.connectionInterruptedFreshDispatch,true);
   } finally {h.pause();dom.window.close();}
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.10\.10$/m);
-  assert.match(source,/const VERSION = '2\.10\.10'/);
+  assert.match(source,/^\/\/ @version\s+2\.10\.11$/m);
+  assert.match(source,/const VERSION = '2\.10\.11'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_REFRESH_LIMIT = 7/);
   assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const ENDED_NO_FINAL_STABILITY_MS = 8000/);
+  assert.match(source,/const REVIEW_ENDED_NO_FINAL_STABILITY_MS = 2 \* 60 \* 1000/);
   assert.match(source,/const RELOAD_STOP_ABSENCE_STABILITY_MS = 8000/);
   assert.doesNotMatch(source,/MEMORY_PRESSURE_SAMPLES|MEMORY_HOST_REQUEST_MIN_BYTES|MEMORY_SAME_TAB_RELOAD_COOLDOWN_MS/);
   assert.doesNotMatch(source,/function memoryReloadSafety|function reloadTaskForMemoryPressure|memoryPressureReloadAt|memoryPressureReloadURL/);
