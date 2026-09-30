@@ -156,5 +156,20 @@ The workbench status line reports storage state when a quota recovery occurs or 
 
 | Requirement / AC | Status | Evidence / reason |
 | --- | --- | --- |
-| R1-R10 | pending | Implementation and CI pending. |
-| AC-1-AC-7 | pending | Implementation and CI pending. |
+| R1 | passed | Canonical workbench writes now route through `persistWorkbenchState()`; the only remaining direct `localStorage.setItem(KEY,...)` calls are its normal and emergency write attempts. |
+| R2 | passed | Normal persistence preserves the historical per-task 80-message/12k-text/320k-character behavior while adding an 800k aggregate message-character ceiling across the workbench. |
+| R3 | passed | A classified Web Storage quota rejection triggers deterministic emergency compaction and one synchronous retry with 12 messages/task, 4k/message, 24k/task and 200k aggregate diagnostic-message ceilings. |
+| R4 | passed | Quota regression preserves active task ID, owner, goal, state, phase, round, URL, token, result, next instruction and attachment metadata while shrinking only message history. |
+| R5 | passed | Emergency cleanup clears only dead transient recovery fields from `done` tasks; cancelled tasks and their resumable fields remain intact. |
+| R6 | passed | Successful emergency retry returns true without propagating the quota exception and leaves `storagePersistenceStatus.level === "recovered"` plus visible storage diagnostics. |
+| R7 | passed | Permanent quota rejection returns false, records `blocked`, preserves the in-memory task list, and exposes a storage-pressure warning instead of deleting tasks. |
+| R8 | passed | Startup transfer, ownership migration, ordinary `save()`, and task reassignment use the canonical writer. |
+| R9 | passed | Existing per-task log semantics were retained after the first CI regression exposed an over-aggressive normal cap; only aggregate/quota-pressure compaction is new. |
+| R10 | passed | Candidate runtime/metadata version is v2.10.16; release remains gated on canonical-main Test after merge. |
+| AC-1 | passed | Focused quota regression emulates normal write rejection and successful emergency retry without an escaping exception. |
+| AC-2 | passed | Source audit confirms canonical-key writes are centralized in `persistWorkbenchState()`. |
+| AC-3 | passed | Focused regression verifies unfinished task execution identity and attachment metadata survive emergency compaction exactly. |
+| AC-4 | passed | Compaction never deletes task records; completed-task cleanup is limited to dead transient recovery strings. |
+| AC-5 | passed | Permanent-quota regression passes and verifies blocked status with the cancelled task still present and resumable. |
+| AC-6 | passed | PR-head implementation commit `14aedc52d21b1c223abecab873d8c4b3528d64a4` passed GitHub Actions Test run `36689630792`: syntax check and full regression suite both succeeded. |
+| AC-7 | passed | This compliance record captures implementation and CI evidence; the docs-only compliance commit is revalidated by the PR Test gate before merge. |
