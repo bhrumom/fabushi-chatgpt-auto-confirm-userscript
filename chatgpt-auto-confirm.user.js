@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.12
+// @version      2.10.13
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.12';
+  const VERSION = '2.10.13';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -178,6 +178,11 @@ async function bootstrapAttempt() {
   const MIN_SEND_INTERVAL_MS = 60 * 1000;
   const GLOBAL_APPROVAL_SCAN_MS = 1500;
   const HIDDEN_GLOBAL_APPROVAL_SCAN_MS = 8000;
+  // Connector approval is asynchronous: after selecting the conversation-
+  // scoped grant ChatGPT may disable or briefly remount the card while Stop is
+  // already absent. Keep a short task-scoped settlement latch so one transient
+  // DOM gap can never be mistaken for a finished generation slice.
+  const APPROVAL_SETTLEMENT_MS = 12 * 1000;
   const POPUP_DISMISS_SCAN_MS = 5000;
   const HIDDEN_POPUP_DISMISS_SCAN_MS = 15000;
   // A full ChatGPT navigation creates a new document before the previous
@@ -2002,6 +2007,48 @@ async function bootstrapAttempt() {
       pageRecords:() => pageRecords || (pageRecords = pageUiTextRecords()),
       cards:() => authorizationCards || (authorizationCards = cards()),
     };
+  }
+  function clearApprovalSettlement(task) {
+    if (!task) return;
+    task.approvalSettlementUntil = 0;
+    task.approvalSettlementURL = '';
+    task.approvalSettlementToken = '';
+    task.approvalSettlementPhase = '';
+    task.approvalSettlementRound = 0;
+  }
+  function beginApprovalSettlement(task, now = Date.now()) {
+    if (!task) return;
+    task.approvalSettlementUntil = now + APPROVAL_SETTLEMENT_MS;
+    task.approvalSettlementURL = canonicalConversationURL(currentConversationURL() || task.url);
+    task.approvalSettlementToken = String(task.token || '');
+    task.approvalSettlementPhase = String(task.phase || '');
+    task.approvalSettlementRound = Number(task.round || 0);
+    task.updatedAt = now;
+    save();
+  }
+  function approvalSettlementActive(task, route = '', now = Date.now()) {
+    if (!task || Number(task.approvalSettlementUntil || 0) <= now) {
+      if (task?.approvalSettlementUntil || task?.approvalSettlementURL || task?.approvalSettlementToken
+        || task?.approvalSettlementPhase || task?.approvalSettlementRound) {
+        clearApprovalSettlement(task);
+      }
+      return false;
+    }
+    const liveURL = canonicalConversationURL(route || currentConversationURL());
+    const settlementURL = canonicalConversationURL(task.approvalSettlementURL);
+    const matches = Boolean(
+      liveURL
+      && settlementURL
+      && liveURL === settlementURL
+      && String(task.approvalSettlementToken || '') === String(task.token || '')
+      && String(task.approvalSettlementPhase || '') === String(task.phase || '')
+      && Number(task.approvalSettlementRound || 0) === Number(task.round || 0)
+    );
+    if (!matches) {
+      clearApprovalSettlement(task);
+      return false;
+    }
+    return true;
   }
   function boundedTextContent(node, maxChars = 600) {
     if (!node) return '';
@@ -4452,9 +4499,10 @@ async function bootstrapAttempt() {
   function cards() {
     const startedAt = performance.now();
     const result = [], seen = new Set();
-    // Historical response toolbars are numerous and cannot contain a pending
-    // approval. Inspect only the latest bounded conversation surface and
-    // explicit overlays, then layout-check actual Allow candidates.
+    // Presence and actionability are intentionally separate. ChatGPT disables
+    // approval controls while a connector grant is being submitted, and may
+    // remount the same card. A disabled card is still a pending authorization
+    // surface and must block Stop-disappearance recovery.
     const allButtons = [];
     const buttonSeen = new Set();
     for (const scope of authorizationCardScopes()) {
@@ -4468,9 +4516,7 @@ async function bootstrapAttempt() {
         allButtons.push(button);
       }
     }
-    const allowCandidates = allButtons
-      .filter(button => actionMatches(button, allowLabel))
-      .filter(enabled);
+    const allowCandidates = allButtons.filter(button => actionMatches(button, allowLabel));
     scanDiagnostics.cardsButtons += allButtons.length;
     scanDiagnostics.cardsCandidates += allowCandidates.length;
     for (const button of allowCandidates) {
@@ -4479,12 +4525,21 @@ async function bootstrapAttempt() {
       for (let depth = 0; container && depth < 9; depth++, container = container.parentElement) {
         if (container === document.body || container.tagName === 'MAIN') break;
         const actions = nodes('button,[role=button]', container);
-        const deny = actions.find(node => actionMatches(node, denyLabel) && enabled(node));
-        const arrow = actions.find(node => approvalArrow(node, button) && enabled(node));
-        // Authorization-card copy varies by connector and language. The stable
-        // signal is its action cluster: Reject + Allow + the split-button menu.
+        const deny = actions.find(node => actionMatches(node, denyLabel));
+        const arrow = actions.find(node => approvalArrow(node, button));
+        // Structural presence does not depend on enabled state. The actionable
+        // flag tells authorize() whether it is safe to interact in this scan.
         if (deny && arrow) {
-          if (!seen.has(container)) { seen.add(container); result.push({ container, button, arrow }); }
+          if (!seen.has(container)) {
+            seen.add(container);
+            result.push({
+              container,
+              button,
+              arrow,
+              deny,
+              actionable:Boolean(enabled(button) && enabled(arrow) && enabled(deny)),
+            });
+          }
           break;
         }
       }
@@ -4605,6 +4660,14 @@ async function bootstrapAttempt() {
     return /^(?:允许本次会话|在此对话中允许|允许此对话|允许\s+.{1,80}?\s+(?:用于|在)?(?:本次会话|此对话)|allow (?:for )?this (?:chat|conversation|session)|allow .{1,80}? for this (?:chat|conversation|session))$/iu.test(value);
   }
   async function authorize(card, task, signal, queueOwned = true) {
+    if (!card?.container?.isConnected || !visible(card.container)) return;
+    if (!card.actionable || !enabled(card.button) || !enabled(card.arrow)) {
+      if (task) {
+        task.state = 'approval';
+        log(task, '授权卡仍存在但控件正在处理或暂不可用；保持当前会话等待，不会把 Stop 消失当成结束。');
+      }
+      return;
+    }
     const last = approvalAttempts.get(card.button) || 0;
     if (Date.now() - last < 15000) return;
     approvalAttempts.set(card.button, Date.now());
@@ -4613,8 +4676,8 @@ async function bootstrapAttempt() {
       || candidates.find(node => node.hasAttribute('aria-haspopup'))
       || candidates.find(node => node !== card.button && /箭头|展开|选项|更多|menu|options|expand/i.test(label(node)))
       || candidates.find(node => node !== card.button && !text(node) && node.querySelector('svg') && node.parentElement === card.button.parentElement)
-      || (card.button.querySelector('svg') ? card.button : null);
-    if (!arrow) { log(task, '授权卡已识别，但尚未找到下拉箭头；保持等待。'); return; }
+      || (enabled(card.button) && card.button.querySelector('svg') ? card.button : null);
+    if (!arrow) { log(task, '授权卡已识别，但尚未找到可用的下拉箭头；保持等待。'); return; }
     checkAuthorizationRun(signal, queueOwned);
     activateControl(arrow);
     for (let attempt = 0; attempt < 6; attempt++) {
@@ -4623,9 +4686,8 @@ async function bootstrapAttempt() {
         .find(isConversationScopedAllow);
       if (!option) continue;
       activateControl(option);
-      log(task, '已点击“允许本次会话”，正在确认授权卡解除。');
-      await delay(800, signal ?? null); checkAuthorizationRun(signal, queueOwned);
-      if (!enabled(card.button) || !visible(card.container)) log(task, '本次会话授权已生效。');
+      if (task) beginApprovalSettlement(task);
+      log(task, '已点击“允许本次会话”，进入授权提交保护期；即使卡片暂时 disabled、重挂载或瞬时消失，也不会切换会话。');
       return;
     }
     log(task, '授权菜单没有“允许本次会话”；保留当前会话等待处理。');
@@ -4918,6 +4980,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.continuationSentAt = 0;
     task.continuationCount = 0;
     clearStopObservedGeneration(task);
+    clearApprovalSettlement(task);
     task.connectionInterruptedSince = 0;
     task.connectionInterruptedURL = '';
     task.connectionInterruptedRefreshAttempts = 0;
@@ -5691,6 +5754,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.workspaceDocumentRecoveryAttempts = 0;
     task.continuationSentAt = 0;
     task.continuationCount = 0;
+    clearApprovalSettlement(task);
     task.connectionInterruptedSince = 0;
     task.connectionInterruptedURL = '';
     task.connectionInterruptedRefreshAttempts = 0;
@@ -5806,6 +5870,8 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     );
     const observedActivityStreaming = Boolean(activityTurn?.streaming && !activityTurn?.final && !staleActivityStreaming);
     const approvalVisible = approvalRouteEligible && pending.length > 0;
+    const approvalSettling = approvalRouteEligible && approvalSettlementActive(task, liveURL, now);
+    const approvalBlocking = approvalVisible || approvalSettling;
     const currentBlocker = blocker();
     const currentRateLimit = rateLimitNotice(getPageUiRecords);
     // Live review DOM can remove Stop before its response toolbar is mounted.
@@ -5818,7 +5884,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && turn.text
       && !stopPresent
       && !observedActivityStreaming
-      && !approvalVisible
+      && !approvalBlocking
       && !currentBlocker
       && !currentRateLimit
       && currentReviewReport(turn.text, task)
@@ -5828,7 +5894,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       ? conversationLoadFailure(getPageUiRecords)
       : '';
     if (explicitConversationLoadFailure
-      && !pending.length
+      && !approvalBlocking
       && !currentBlocker
       && !currentRateLimit
       && !task.attempted) {
@@ -5882,7 +5948,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && !stopPresent
       && document.readyState === 'complete'
       && approvalRouteEligible
-      && !approvalVisible
+      && !approvalBlocking
       && (turn.owned || routeEndedOwned)
       && !foreignTask
       && !otherRouteOwner
@@ -5902,7 +5968,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && !stopPresent
       && document.readyState === 'complete'
       && approvalRouteEligible
-      && !approvalVisible
+      && !approvalBlocking
       && (turn.owned || routeEndedOwned)
       && !foreignTask
       && !otherRouteOwner
@@ -5966,7 +6032,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && stopIdentityMatches
       && (stopObservedInCurrentDocument || inheritedStopAbsenceStable)
       && approvalRouteEligible
-      && !approvalVisible
+      && !approvalBlocking
       && (turn.owned || routeEndedOwned)
       && !foreignTask
       && !otherRouteOwner
@@ -5984,7 +6050,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     if (inheritedStopObservation
       && !stopPresent
       && !inheritedStopAbsenceStable
-      && !approvalVisible
+      && !approvalBlocking
       && !currentBlocker
       && !currentRateLimit
       && !recoveredOwnedFinal) {
@@ -6038,7 +6104,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     // A conversation-length notice is a hard product boundary, not a normal
     // final answer. Handle it before final-toolbar classification so a visible
     // copy/share toolbar on the notice cannot prematurely finish Work/Review.
-    const lengthLimitNotice = pageBelongsToTask && !approvalVisible ? conversationLengthLimitNotice(turn, getPageUiRecords) : '';
+    const lengthLimitNotice = pageBelongsToTask && !approvalBlocking ? conversationLengthLimitNotice(turn, getPageUiRecords) : '';
     if (lengthLimitNotice) {
       if (observedActivityStreaming || stopPresent) {
         const waitKey = `${taskURL}:${normalize(lengthLimitNotice).slice(0, 200)}:generating`;
@@ -6077,13 +6143,13 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     // Connection errors no longer inject a same-chat continuation. If Stop is
     // still present, wait for the same Stop-disappearance boundary; if it is
     // already gone (for example after reload), use the same fresh-session path.
-    const streamPollingTimeout = Boolean(pageBelongsToTask && !approvalVisible && !turn.final
+    const streamPollingTimeout = Boolean(pageBelongsToTask && !approvalBlocking && !turn.final
       && streamRecoveryPollingTimeoutNotice(routeEndedOwned ? activityTurn : turn));
     if (streamPollingTimeout) {
       if (queueInterruptedFreshRetry(task, '检测到 ChatGPT stream recovery polling timed out', Date.now(), routeEndedOwned ? activityTurn : turn)) return;
     }
-    const interrupted = Boolean(pageBelongsToTask && !approvalVisible && connectionInterruptedNotice(routeEndedOwned ? activityTurn : turn, getPageUiRecords));
-    if (!approvalVisible && (interrupted || task.pendingContinuationReason)) {
+    const interrupted = Boolean(pageBelongsToTask && !approvalBlocking && connectionInterruptedNotice(routeEndedOwned ? activityTurn : turn, getPageUiRecords));
+    if (!approvalBlocking && (interrupted || task.pendingContinuationReason)) {
       const reason = interrupted
         ? '检测到“连接已中断，正在等待完整回复”'
         : '检测到旧版本遗留的连接中断强制续发状态';
@@ -6117,19 +6183,19 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const latestMountedUser = conversationRoleNodes('user').at(-1) || null;
     const userBoundaryKey = recoveryUserBoundaryKey(latestMountedUser);
     const cacheRetry = routeOwned && (turn.owned || routeEndedOwned) && !foreignTask && !otherRouteOwner
-      && !turn.final && !pending.length && !task.attempted
+      && !turn.final && !approvalBlocking && !task.attempted
       ? streamCacheExpiredRetry(activityTurn, getPageUiRecords) : null;
     const cacheRetryKey = cacheRetry ? JSON.stringify([liveURL, userBoundaryKey,
       activityTurn.article?.getAttribute('data-turn-key') || '',
       stalledConversationContentHash({ conversationTail:[{ role:'assistant', text:activityText }] })]) : '';
     const cacheRetryAttempted = Boolean(cacheRetry && task.streamCacheRetryKey === cacheRetryKey);
-    const retryableError = Boolean(cacheRetry || (pageBelongsToTask && !turn.final && !pending.length
+    const retryableError = Boolean(cacheRetry || (pageBelongsToTask && !turn.final && !approvalBlocking
       && sendTimeoutNotice(routeEndedOwned ? activityTurn : turn, getPageUiRecords)));
     // ChatGPT can leave aria-busy/stream markers behind after it has rendered
     // an actionable network-error card. The error is terminal evidence only
     // after Stop disappears; the normal ownership, approval, blocker, rate
     // limit, empty-composer, and eight-second stability checks still apply.
-    const retryableErrorEnded = Boolean(retryableError && !stopPresent && !approvalVisible);
+    const retryableErrorEnded = Boolean(retryableError && !stopPresent && !approvalBlocking);
     // In a bound owned conversation, active generation exposes Stop. A
     // decorative/stale spinner must not mask an abnormal stop; neither should
     // stale stream markers attached to an explicit retryable failure card.
@@ -6156,7 +6222,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && !otherRouteOwner
       && !stopPresent
       && !observedActivityStreaming
-      && !pending.length
+      && !approvalBlocking
       && !currentBlocker
       && !currentRateLimit
       && composerReady
@@ -6183,7 +6249,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && !turn.final
       && !stopPresent
       && !activityStreaming
-      && !pending.length
+      && !approvalBlocking
       && !effectiveLoading
       && !currentBlocker
       && !currentRateLimit
@@ -6220,7 +6286,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && !turn.final
       && !stopPresent
       && !activityStreaming
-      && !pending.length
+      && !approvalBlocking
       && !rawLoading
       && !effectiveLoading
       && !turn.recoveredStaticCandidate
@@ -6233,7 +6299,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     );
     const sample = {
       stop:stopPresent,
-      cards:approvalRouteEligible ? pending.length : 0,
+      cards:approvalRouteEligible ? (approvalBlocking ? Math.max(1, pending.length) : 0) : 0,
       approvalRouteEligible,
       loading:effectiveLoading,
       blocker:currentBlocker,

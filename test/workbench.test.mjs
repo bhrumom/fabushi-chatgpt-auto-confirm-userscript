@@ -1839,9 +1839,15 @@ test('work prompt stays natural while the fresh planner alone receives the repor
 });
 test('nested split authorization card is detected without article/section wrappers',async()=>{
   const {h,dom}=await fixture('<main><div><div>这里可以是任意正文，不参与识别。</div><div><button>拒绝</button><button>允许</button><button aria-haspopup="menu"><svg></svg></button></div></div></main>');
-  assert.equal(h.cards().length,1);
-  h.cards()[0].button.disabled=true;
-  assert.equal(h.cards().length,0);
+  let detected=h.cards();
+  assert.equal(detected.length,1);
+  assert.equal(detected[0].actionable,true);
+  detected[0].button.disabled=true;
+  detected[0].deny.disabled=true;
+  detected[0].arrow.disabled=true;
+  detected=h.cards();
+  assert.equal(detected.length,1,'disabled controls still mean the authorization surface is pending');
+  assert.equal(detected[0].actionable,false);
   dom.window.close();
 });
 test('current allow-once split authorization card is detected and selects only the conversation grant',async()=>{
@@ -1866,6 +1872,67 @@ test('current allow-once split authorization card is detected and selects only t
   assert.equal(primaryClicks,0);
   dom.window.close();
 });
+
+test('disabled approval card blocks Stop-disappearance fresh handoff',async()=>{
+  const {w,h,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:approval-disabled-race]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">partial connector work</div></div></article><div id="approval"><button type="button">拒绝</button><div><button type="button" id="allow-once">允许一次</button><button type="button" aria-haspopup="menu" aria-label="审批选项">⌄</button></div></div><form><textarea id="prompt-textarea"></textarea></form><button data-testid="stop-button" aria-label="Stop generating">Stop</button></main>');
+  try {
+    w.history.pushState({},'', '/c/approval-disabled-race');
+    h.data.autoApprove=false;
+    const task={id:'approval-disabled-race',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/approval-disabled-race',token:'approval-disabled-race',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    await h.start();
+    await h.inspect(task,null);
+    assert.equal(task.stopObservedGenerationIdentity.length>0,true,'the current dispatch records that Stop was seen');
+    const card=h.cards()[0];
+    card.button.disabled=true;
+    card.deny.disabled=true;
+    card.arrow.disabled=true;
+    w.document.querySelector('[data-testid="stop-button"]').remove();
+    const disabled=h.cards();
+    assert.equal(disabled.length,1);
+    assert.equal(disabled[0].actionable,false);
+    await h.inspect(task,null);
+    assert.equal(task.url,'https://chatgpt.com/c/approval-disabled-race','a disabled but visible approval must retain the same conversation');
+    assert.notEqual(task.state,'queued','disabled approval must not queue a fresh-session handoff');
+    assert.equal(task.messages.some(item=>/停止按钮已经消失且没有授权卡片/.test(item.text)),false);
+  } finally { h.pause(); dom.window.close(); }
+});
+
+test('approval submission latch survives a transient card DOM gap and expires safely',async()=>{
+  const {w,h,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:approval-gap-race]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">partial connector work</div></div></article><div id="approval"><button type="button">拒绝</button><div><button type="button" id="allow-once">允许一次</button><button type="button" id="arrow" aria-haspopup="menu" aria-label="审批选项">⌄</button></div></div><form><textarea id="prompt-textarea"></textarea></form><button data-testid="stop-button" aria-label="Stop generating">Stop</button></main>');
+  try {
+    w.history.pushState({},'', '/c/approval-gap-race');
+    h.data.autoApprove=false;
+    const task={id:'approval-gap-race',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/approval-gap-race',token:'approval-gap-race',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    await h.start();
+    await h.inspect(task,null);
+    const approval=w.document.querySelector('#approval');
+    const arrow=w.document.querySelector('#arrow');
+    arrow.addEventListener('pointerdown',()=>{
+      if(w.document.querySelector('[role=menu]'))return;
+      const menu=w.document.createElement('div');menu.setAttribute('role','menu');
+      const conversation=w.document.createElement('div');conversation.setAttribute('role','menuitem');conversation.textContent='Allow GitHub for this conversation';
+      conversation.addEventListener('click',()=>approval.remove());
+      menu.append(conversation);w.document.body.append(menu);
+    });
+    await h.authorize(h.cards()[0],task,null,true);
+    assert.ok(Number(task.approvalSettlementUntil)>Date.now(),'conversation-scoped approval starts a persisted settlement latch');
+    assert.equal(h.cards().length,0,'the fixture reproduces the transient post-click DOM gap');
+    w.document.querySelector('[data-testid="stop-button"]').remove();
+    await h.inspect(task,null);
+    assert.equal(task.url,'https://chatgpt.com/c/approval-gap-race','the settlement gap must not abandon the bound conversation');
+    assert.notEqual(task.state,'queued');
+    assert.equal(task.messages.some(item=>/停止按钮已经消失且没有授权卡片/.test(item.text)),false);
+
+    task.approvalSettlementUntil=Date.now()-1;
+    await h.inspect(task,null);
+    assert.equal(task.state,'queued','after the bounded latch expires, normal Stop-disappearance recovery resumes');
+    assert.equal(task.url,'');
+    assert.ok(task.messages.some(item=>/停止按钮已经消失且没有授权卡片/.test(item.text)));
+  } finally { h.pause(); dom.window.close(); }
+});
+
 test('ordinary allow controls are not mistaken for authorization cards',async()=>{
   const {h,dom}=await fixture('<main><button>允许</button><button>允许一次</button><div><button>拒绝</button><button>允许</button></div><div><button>拒绝</button><button>允许一次</button></div><div><button>允许</button><button aria-haspopup="menu">选项</button></div></main>');
   assert.equal(h.cards().length,0);
@@ -5241,8 +5308,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.10\.12$/m);
-  assert.match(source,/const VERSION = '2\.10\.12'/);
+  assert.match(source,/^\/\/ @version\s+2\.10\.13$/m);
+  assert.match(source,/const VERSION = '2\.10\.13'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
