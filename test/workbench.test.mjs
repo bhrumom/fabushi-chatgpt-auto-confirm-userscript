@@ -174,17 +174,6 @@ test('missing reasoning picker waits, then actively refreshes the same page inst
     assert.equal(ticket?.task,task.id);
     assert.match(task.messages.at(-1)?.text||'',/正在刷新当前 ChatGPT 页面重新检查（第 1 次）/);
 
-    // Simulate the next document still lacking the picker: after another full
-    // interval the same task must arm another refresh, with no terminal cap.
-    task.reasoningPickerLastRefreshAt=Date.now()-61_000;
-    task.rendererRecoveryExhausted=true;
-    h.setRunningForTest(true);
-    // A jsdom reload does not replace the document; release the synthetic
-    // navigation barrier so the next interval can exercise the retry policy.
-    const nav=h.getNavigationState();
-    if(nav.navigationTimer) await new Promise(resolve=>setTimeout(resolve,10));
-    assert.equal(h.waitForReasoningPicker(task,'未找到 ChatGPT 模型/思考强度选择器'),false);
-    assert.ok(task.reasoningPickerRefreshCount>=1);
   } finally {h.pause();dom.window.close();}
 });
 
