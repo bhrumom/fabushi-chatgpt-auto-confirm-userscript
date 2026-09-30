@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.16
+// @version      2.10.17
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.16';
+  const VERSION = '2.10.17';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -287,7 +287,71 @@ async function bootstrapAttempt() {
   // and the most recent recovery transitions remain visible.
   const MAX_RENDERED_TASK_MESSAGES = 30;
   const AUTO_RECOVERABLE_STATE_NAMES = new Set(['queued', 'sending', 'uploading', 'waiting', 'loading', 'generating', 'approval', 'reviewing']);
-  const read = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key)) || fallback; } catch { return fallback; } };
+  const volatileStorageShadow = new Map();
+  const WORKBENCH_OVERFLOW_KEY = 'fabushi-workbench-overflow-v1:';
+  const STORAGE_CLEANUP_COOLDOWN_MS = 60 * 1000;
+  const STORAGE_CLEANUP_SCAN_LIMIT = 96;
+  let storageCleanupLastAt = 0;
+  let activeWorkspaceStorageId = '';
+  function readStorageString(key) {
+    const storageKey = String(key || '');
+    if (volatileStorageShadow.has(storageKey)) return volatileStorageShadow.get(storageKey);
+    try { return window.localStorage.getItem(storageKey); } catch { return null; }
+  }
+  function tryLocalStorageSet(key, value, { shadow = true } = {}) {
+    const storageKey = String(key || ''), serialized = String(value ?? '');
+    try { window.localStorage.setItem(storageKey, serialized); volatileStorageShadow.delete(storageKey); return { ok:true, error:null }; }
+    catch (error) { if (shadow) volatileStorageShadow.set(storageKey, serialized); else volatileStorageShadow.delete(storageKey); return { ok:false, error }; }
+  }
+  function removeLocalStorageRecord(key) {
+    const storageKey = String(key || ''); volatileStorageShadow.delete(storageKey);
+    try { window.localStorage.removeItem(storageKey); return true; } catch { return false; }
+  }
+  function readSessionStorageString(key) { try { return window.sessionStorage.getItem(String(key || '')); } catch { return null; } }
+  function writeSessionStorageRecord(key, value) { try { window.sessionStorage.setItem(String(key || ''), String(value ?? '')); return true; } catch { return false; } }
+  function removeSessionStorageRecord(key) { try { window.sessionStorage.removeItem(String(key || '')); return true; } catch { return false; } }
+  function cleanupStaleFabushiStorage(now = Date.now()) {
+    if (now - storageCleanupLastAt < STORAGE_CLEANUP_COOLDOWN_MS) return 0;
+    storageCleanupLastAt = now;
+    let keys = [];
+    try { for (let i=0, n=Math.min(Number(window.localStorage.length || 0), STORAGE_CLEANUP_SCAN_LIMIT); i<n; i++) { const k=window.localStorage.key(i); if(k) keys.push(k); } }
+    catch { return 0; }
+    const policies = [
+      ['fabushi-workspace-heartbeat-v1:', WORKSPACE_HEARTBEAT_STALE_MS * 2],
+      ['fabushi-workspace-auto-recovery-v1:', NAV_TICKET_TTL_MS],
+      ['fabushi-workspace-recovery-v1:', NAV_TICKET_TTL_MS],
+      [TASK_TRANSFER_KEY, 60 * 1000],
+      ['fabushi-navigation-guard-v1:', LOCAL_NAVIGATION_BURST_WINDOW_MS * 2],
+    ];
+    let removed = 0;
+    for (const key of keys) {
+      const policy = policies.find(([prefix]) => key.startsWith(prefix)); if (!policy) continue;
+      let record = null; try { record = JSON.parse(window.localStorage.getItem(key) || 'null'); } catch {}
+      const at = Number(record?.at || record?.lastSeenAt || record?.lastAt || 0);
+      if (!at || now - at < policy[1]) continue;
+      try { window.localStorage.removeItem(key); volatileStorageShadow.delete(key); removed++; } catch {}
+    }
+    return removed;
+  }
+  function writeLocalStorageRecord(key, value, { critical = false, cleanupOnFailure = true } = {}) {
+    let result = tryLocalStorageSet(key, value, { shadow:!critical });
+    if (result.ok) return true;
+    if (cleanupOnFailure && isStorageQuotaError(result.error)) { cleanupStaleFabushiStorage(); result = tryLocalStorageSet(key, value, { shadow:!critical }); if (result.ok) return true; }
+    return false;
+  }
+  function overflowStorageKey(ownerTabId = activeWorkspaceStorageId) { const owner=String(ownerTabId||''); return owner ? WORKBENCH_OVERFLOW_KEY + owner : ''; }
+  function writeWorkbenchOverflowSerialized(serialized, ownerTabId = activeWorkspaceStorageId) {
+    const key=overflowStorageKey(ownerTabId); if(!key) return false;
+    return writeSessionStorageRecord(key, JSON.stringify({version:1,ownerTabId:String(ownerTabId||''),at:Date.now(),serialized:String(serialized||'')}));
+  }
+  function readWorkbenchOverflow(ownerTabId = activeWorkspaceStorageId) {
+    const key=overflowStorageKey(ownerTabId); if(!key) return null;
+    let record; try { record=JSON.parse(readSessionStorageString(key)||'null'); } catch { record=null; }
+    if(!record || record.version!==1 || record.ownerTabId!==String(ownerTabId||'') || typeof record.serialized!=='string') return null;
+    try { const state=JSON.parse(record.serialized); return state && Array.isArray(state.tasks) ? state : null; } catch { return null; }
+  }
+  function clearWorkbenchOverflow(ownerTabId = activeWorkspaceStorageId) { const key=overflowStorageKey(ownerTabId); if(key) removeSessionStorageRecord(key); }
+  const read = (key, fallback) => { try { return JSON.parse(readStorageString(key)) || fallback; } catch { return fallback; } };
   const lifecycleController = typeof AbortController === 'function' ? new AbortController() : null;
   const listen = (target, type, handler, options = {}) => {
     if (lifecycleController) target.addEventListener(type, handler, { ...options, signal: lifecycleController.signal });
@@ -374,11 +438,10 @@ async function bootstrapAttempt() {
       || /(?:quota|storage).*(?:exceed|full)|exceeded.*quota/i.test(message);
   }
   function storageStatusText() {
-    if (storagePersistenceStatus.level === 'recovered') {
-      return `本地存储已自动压缩恢复（约 ${Math.max(1, Math.round(Number(storagePersistenceStatus.emergencyChars || 0) / 1024))} KB）`;
-    }
-    if (storagePersistenceStatus.level === 'blocked') {
-      return '本地存储空间仍不足；当前任务保留在内存中，但刷新页面前请先释放此站点存储空间';
+    if (storagePersistenceStatus.level === 'recovered') return `本地存储已自动恢复（约 ${Math.max(1, Math.round(Number(storagePersistenceStatus.emergencyChars || 0) / 1024))} KB）`;
+    if (storagePersistenceStatus.level === 'degraded' || storagePersistenceStatus.level === 'blocked') {
+      const fallback = storagePersistenceStatus.fallback === 'session' ? '当前标签页应急存储' : '内存应急存储';
+      return `本地持久化空间不足；已切换到${fallback}继续运行，后续会自动重试持久化，不会停止任务。`;
     }
     return '';
   }
@@ -428,29 +491,18 @@ async function bootstrapAttempt() {
     return { changed, compactedMessages:Math.max(0, beforeCount - afterCount) };
   }
   function persistWorkbenchState(state) {
-    const normal = compactWorkbenchForStorage(state, { emergency:false });
-    let serialized = JSON.stringify(state);
-    try {
-      localStorage.setItem(KEY, serialized);
-      if (storagePersistenceStatus.level === 'blocked') {
-        storagePersistenceStatus = { level:'recovered', at:Date.now(), attemptedChars:serialized.length, emergencyChars:serialized.length, compactedMessages:normal.compactedMessages };
-      }
-      return true;
-    } catch (error) {
-      if (!isStorageQuotaError(error)) throw error;
+    const normal=compactWorkbenchForStorage(state,{emergency:false}); let serialized=JSON.stringify(state);
+    let result=tryLocalStorageSet(KEY,serialized,{shadow:true});
+    if(result.ok){const wasDegraded=['blocked','degraded'].includes(storagePersistenceStatus.level);clearWorkbenchOverflow();storagePersistenceStatus={level:wasDegraded?'recovered':'ok',at:Date.now(),attemptedChars:serialized.length,emergencyChars:serialized.length,compactedMessages:normal.compactedMessages,fallback:''};return true;}
+    const attemptedChars=serialized.length;
+    if(isStorageQuotaError(result.error)){
+      cleanupStaleFabushiStorage(); result=tryLocalStorageSet(KEY,serialized,{shadow:true});
+      if(result.ok){clearWorkbenchOverflow();storagePersistenceStatus={level:'recovered',at:Date.now(),attemptedChars,emergencyChars:serialized.length,compactedMessages:normal.compactedMessages,fallback:''};return true;}
+      const emergency=compactWorkbenchForStorage(state,{emergency:true}); serialized=JSON.stringify(state); result=tryLocalStorageSet(KEY,serialized,{shadow:true});
+      if(result.ok){clearWorkbenchOverflow();storagePersistenceStatus={level:'recovered',at:Date.now(),attemptedChars,emergencyChars:serialized.length,compactedMessages:normal.compactedMessages+emergency.compactedMessages,fallback:''};return true;}
+      const sessionSaved=writeWorkbenchOverflowSerialized(serialized);storagePersistenceStatus={level:'degraded',at:Date.now(),attemptedChars,emergencyChars:serialized.length,compactedMessages:normal.compactedMessages+emergency.compactedMessages,fallback:sessionSaved?'session':'memory'};return false;
     }
-    const attemptedChars = serialized.length;
-    const emergency = compactWorkbenchForStorage(state, { emergency:true });
-    serialized = JSON.stringify(state);
-    try {
-      localStorage.setItem(KEY, serialized);
-      storagePersistenceStatus = { level:'recovered', at:Date.now(), attemptedChars, emergencyChars:serialized.length, compactedMessages:normal.compactedMessages + emergency.compactedMessages };
-      return true;
-    } catch (error) {
-      if (!isStorageQuotaError(error)) throw error;
-      storagePersistenceStatus = { level:'blocked', at:Date.now(), attemptedChars, emergencyChars:serialized.length, compactedMessages:normal.compactedMessages + emergency.compactedMessages };
-      return false;
-    }
+    const sessionSaved=writeWorkbenchOverflowSerialized(serialized);storagePersistenceStatus={level:'degraded',at:Date.now(),attemptedChars,emergencyChars:serialized.length,compactedMessages:normal.compactedMessages,fallback:sessionSaved?'session':'memory'};return false;
   }
   function normalizeAttachmentMeta(value) {
     if (!value || typeof value !== 'object') return null;
@@ -499,9 +551,9 @@ async function bootstrapAttempt() {
   let workspaceReleased = Promise.resolve();
   const recoveryToken = new URLSearchParams(location.hash.slice(1)).get('fabushi-resume');
   const taskTransferToken = new URLSearchParams(location.hash.slice(1)).get('fabushi-assign-task');
-  const sessionTabId = sessionStorage.getItem(TAB_SESSION_KEY);
+  const sessionTabId = readSessionStorageString(TAB_SESSION_KEY);
   let handoffTicket = null;
-  try { handoffTicket = JSON.parse(sessionStorage.getItem(NAV)); } catch {}
+  try { handoffTicket = JSON.parse(readSessionStorageString(NAV)); } catch {}
   const handoffTicketFresh = Boolean(handoffTicket?.resume
     && Number.isFinite(Number(handoffTicket.at))
     && Date.now() - Number(handoffTicket.at) < NAV_TICKET_TTL_MS);
@@ -515,7 +567,7 @@ async function bootstrapAttempt() {
       pendingTaskTransfer = candidate;
       recoveredWorkspace = candidate.targetOwnerTabId;
     } else {
-      localStorage.removeItem(TASK_TRANSFER_KEY + taskTransferToken);
+      removeLocalStorageRecord(TASK_TRANSFER_KEY + taskTransferToken);
     }
   }
   if (recoveryToken) {
@@ -526,6 +578,7 @@ async function bootstrapAttempt() {
   }
   const automaticRecoveryOwner = '';
   let tabId = recoveredWorkspace || sessionTabId || crypto.randomUUID();
+  activeWorkspaceStorageId = tabId;
   // A lifetime lock distinguishes duplicate tabs even when the browser copies
   // sessionStorage. It remains held while paused, so recovery cannot steal a
   // personal or paused tab. Browser closure releases it without heartbeat races.
@@ -589,28 +642,31 @@ async function bootstrapAttempt() {
   if (!workspaceClaimed) {
     tabId = crypto.randomUUID();
     await claimWorkspace(tabId);
-    sessionStorage.removeItem(NAV);
+    removeSessionStorageRecord(NAV);
   }
   // Keep recovery/transfer evidence intact until a lock request succeeds.
   // If lock acquisition rejects, the outer bootstrap retry must see the same
   // task-bound ticket and conversation route rather than silently starting a
   // fresh, unrelated workspace.
   if (startupRouteHasTicket) {
-    if (taskTransferToken) localStorage.removeItem(TASK_TRANSFER_KEY + taskTransferToken);
+    if (taskTransferToken) removeLocalStorageRecord(TASK_TRANSFER_KEY + taskTransferToken);
     if (recoveryToken) {
-      localStorage.removeItem(RECOVERY_KEY + recoveryToken);
+      removeLocalStorageRecord(RECOVERY_KEY + recoveryToken);
       if (recoveredWorkspace) {
-        localStorage.removeItem(RECOVERY_KEY + 'pending:' + recoveredWorkspace);
+        removeLocalStorageRecord(RECOVERY_KEY + 'pending:' + recoveredWorkspace);
         const autoKey = WORKSPACE_AUTO_RECOVERY_KEY + recoveredWorkspace;
         const autoTicket = read(autoKey, null);
-        if (autoTicket?.token === recoveryToken) localStorage.removeItem(autoKey);
+        if (autoTicket?.token === recoveryToken) removeLocalStorageRecord(autoKey);
       }
     }
     history.replaceState(history.state, '', location.pathname + location.search);
     window.opener = null;
   }
-  sessionStorage.setItem(TAB_SESSION_KEY, tabId);
-  const data = read(KEY, { tasks: [], selected: '', autoApprove: true });
+  writeSessionStorageRecord(TAB_SESSION_KEY, tabId);
+  activeWorkspaceStorageId = tabId;
+  const overflowState = readWorkbenchOverflow(tabId);
+  if (overflowState) volatileStorageShadow.set(KEY, JSON.stringify(overflowState));
+  const data = overflowState || read(KEY, { tasks: [], selected: '', autoApprove: true });
   if (!Array.isArray(data.tasks)) data.tasks = [];
   if (!Array.isArray(data.deletedTaskIds)) data.deletedTaskIds = [];
   for (const task of data.tasks) {
@@ -634,16 +690,16 @@ async function bootstrapAttempt() {
       data.selectedByTab[tabId] = transferred.id;
       persistWorkbenchState(data);
     }
-    localStorage.removeItem(TASK_TRANSFER_KEY + taskTransferToken);
+    removeLocalStorageRecord(TASK_TRANSFER_KEY + taskTransferToken);
   }
   if (typeof data.globalAutoApprove !== 'boolean') data.globalAutoApprove = false;
-  let legacyOwner = localStorage.getItem(LEGACY_OWNER_KEY);
+  let legacyOwner = readStorageString(LEGACY_OWNER_KEY);
   if (!legacyOwner || legacyOwner === 'legacy-workspace-v2') {
     // The first document that opens an old v2 queue becomes its owner. Once
     // the task records carry an owner id, the workspace lock below prevents a
     // duplicated tab from taking those tasks over.
-    localStorage.setItem(LEGACY_OWNER_KEY, tabId);
-    legacyOwner = localStorage.getItem(LEGACY_OWNER_KEY);
+    writeLocalStorageRecord(LEGACY_OWNER_KEY, tabId);
+    legacyOwner = readStorageString(LEGACY_OWNER_KEY);
   }
   let ownershipMigrated = false;
   if (legacyOwner === tabId) {
@@ -676,11 +732,11 @@ async function bootstrapAttempt() {
   // Upgrades preserve the old queue but never resume its workers.
   for (const key of ['fabushi-auto-confirm-queue-v3', 'fabushi-auto-confirm-queue-v2']) {
     const old = read(key, null);
-    if (old) localStorage.setItem(key, JSON.stringify({ ...old, running: false, paused: true }));
+    if (old) writeLocalStorageRecord(key, JSON.stringify({ ...old, running: false, paused: true }));
   }
   const oldRuntime = read('fabushi-auto-confirm-runtime-v2', null);
-  if (oldRuntime) localStorage.setItem('fabushi-auto-confirm-runtime-v2', JSON.stringify({ ...oldRuntime, running: false }));
-  sessionStorage.removeItem('fabushi-auto-confirm-worker-enabled-v1');
+  if (oldRuntime) writeLocalStorageRecord('fabushi-auto-confirm-runtime-v2', JSON.stringify({ ...oldRuntime, running: false }));
+  removeSessionStorageRecord('fabushi-auto-confirm-worker-enabled-v1');
 
   let running = false, controller = null, timer = null, navigationTimer = null, lockRelease = null, busy = false, autoStartTimer = null, autoStartTaskId = '';
   let globalApprovalTimer = null, globalApprovalBusy = false;
@@ -857,7 +913,7 @@ async function bootstrapAttempt() {
   function rememberNavigationCommit(now = Date.now()) {
     const state = readNavigationGuardState(now);
     state.recent.push(now);
-    localStorage.setItem(navigationGuardStorageKey(), JSON.stringify({
+    writeLocalStorageRecord(navigationGuardStorageKey(), JSON.stringify({
       lastAt:now,
       recent:state.recent.slice(-LOCAL_NAVIGATION_BURST_LIMIT),
     }));
@@ -1074,7 +1130,7 @@ async function bootstrapAttempt() {
         return;
       }
       let ticket = null;
-      try { ticket = JSON.parse(sessionStorage.getItem(NAV)); } catch {}
+      try { ticket = JSON.parse(readSessionStorageString(NAV)); } catch {}
       if (!ticket || ticket.task !== expected.taskId || ticket.path !== expected.targetPath
         || (ticketHref && ticket.href !== ticketHref)) {
         cancelHostNavigationLease(result.leaseId, 'stale-navigation-ticket');
@@ -1088,7 +1144,7 @@ async function bootstrapAttempt() {
       // visible, otherwise an already-complete review can be refreshed away.
       if (recovery && ownedFinalReplyReady(latest)) {
         cancelHostNavigationLease(result.leaseId, 'final-reply-arrived');
-        sessionStorage.removeItem(NAV);
+        removeSessionStorageRecord(NAV);
         navigating = false;
         if (resetRendererRecoveryState(latest)) save();
         log(latest, '加载恢复执行前已检测到当前会话最终回复；已取消刷新并继续处理最终回复。');
@@ -1098,7 +1154,7 @@ async function bootstrapAttempt() {
       const sameRoute = target.pathname === location.pathname;
       if (sameRoute && !recovery) {
         cancelHostNavigationLease(result.leaseId, 'same-route');
-        sessionStorage.removeItem(NAV);
+        removeSessionStorageRecord(NAV);
         navigating = false;
         return;
       }
@@ -1529,8 +1585,8 @@ async function bootstrapAttempt() {
   function clearAutomaticRecoveryTicket() {
     const key = WORKSPACE_AUTO_RECOVERY_KEY + tabId;
     const ticket = read(key, null);
-    if (ticket?.token) localStorage.removeItem(RECOVERY_KEY + ticket.token);
-    localStorage.removeItem(key);
+    if (ticket?.token) removeLocalStorageRecord(RECOVERY_KEY + ticket.token);
+    removeLocalStorageRecord(key);
   }
   function ensureAutomaticRecoveryTicket(task, { force = false, destination = '' } = {}) {
     if (!task || data.autoResume === false) return null;
@@ -1544,7 +1600,7 @@ async function bootstrapAttempt() {
       && read(RECOVERY_KEY + previous.token, null)) {
       return previous;
     }
-    if (previous?.token) localStorage.removeItem(RECOVERY_KEY + previous.token);
+    if (previous?.token) removeLocalStorageRecord(RECOVERY_KEY + previous.token);
     const token = id();
     const at = Date.now();
     const ticket = {
@@ -1557,73 +1613,42 @@ async function bootstrapAttempt() {
       auto: true,
       recoveryURL: `${destinationURL}#fabushi-resume=${encodeURIComponent(token)}`,
     };
-    localStorage.setItem(RECOVERY_KEY + token, JSON.stringify({
-      ownerTabId: tabId,
-      taskId: task.id,
-      url: targetURL,
-      at,
-      auto: true,
-    }));
-    localStorage.setItem(key, JSON.stringify(ticket));
+    const recoveryPersisted = writeLocalStorageRecord(RECOVERY_KEY + token, JSON.stringify({
+      ownerTabId: tabId, taskId: task.id, url: targetURL, at, auto: true,
+    }), { critical:true });
+    const ticketPersisted = recoveryPersisted && writeLocalStorageRecord(key, JSON.stringify(ticket), { critical:true });
+    if (!recoveryPersisted || !ticketPersisted) {
+      if (recoveryPersisted) removeLocalStorageRecord(RECOVERY_KEY + token);
+      if (ticketPersisted) removeLocalStorageRecord(key);
+      return null;
+    }
     return ticket;
   }
   function writeWorkspaceHeartbeat(lifecycle = '') {
-    const tasks = tabTasks();
-    const active = heartbeatTask();
-    const paused = tasks.find(task => task.state === 'paused') || null;
-    const now = Date.now();
-    if (data.autoResume === false || !active) {
-      clearAutomaticRecoveryTicket();
-      releaseHostRecoveryCapability();
-      localStorage.setItem(WORKSPACE_HEARTBEAT_KEY + tabId, JSON.stringify({
-        ownerTabId: tabId,
-        at: now,
-        autoResume: data.autoResume !== false,
-        running: false,
-        lifecycle: lifecycle || (data.autoResume === false ? 'paused' : 'idle'),
-        taskId: paused?.id || '',
-        taskState: paused?.state || '',
-      taskURL: canonicalConversationURL(paused?.url) || '',
-      }));
-      return;
-    }
-    const ticket = ensureAutomaticRecoveryTicket(active);
-    const heartbeat = {
-      ownerTabId: tabId,
-      at: now,
-      autoResume: true,
-      running: Boolean(running),
-      lifecycle: lifecycle || (running ? 'running' : 'handoff'),
-      taskId: active.id,
-      taskState: active.state,
-      taskURL: canonicalConversationURL(active.url) || '',
-      token: String(active.token || ''),
-      attempted: Boolean(active.attempted),
-      rendererRecoveryExhausted: Boolean(active.rendererRecoveryExhausted),
-      attachmentUploadPending: Boolean(active.attachmentUploadPending),
-      phase: String(active.phase || 'work'),
-      round: Number(active.round || 0),
-      recoveryToken: ticket?.token || '',
-      recoveryURL: ticket?.recoveryURL || '',
-      attachmentIds: taskAttachments(active).map(meta => String(meta.id || '')).filter(Boolean),
-      hostRecoveryGranted: hostRecoveryGranted(now),
-      hostRecoveryExpiresAt: Number(hostRecoveryCapability.expiresAt || 0),
-    };
-    localStorage.setItem(WORKSPACE_HEARTBEAT_KEY + tabId, JSON.stringify(heartbeat));
-    requestHostRecoveryCapability(heartbeat);
+    try {
+      const tasks=tabTasks(), active=heartbeatTask(), paused=tasks.find(task=>task.state==='paused')||null, now=Date.now();
+      if(data.autoResume===false || !active){
+        clearAutomaticRecoveryTicket(); releaseHostRecoveryCapability();
+        return writeLocalStorageRecord(WORKSPACE_HEARTBEAT_KEY+tabId,JSON.stringify({ownerTabId:tabId,at:now,autoResume:data.autoResume!==false,running:false,lifecycle:lifecycle||(data.autoResume===false?'paused':'idle'),taskId:paused?.id||'',taskState:paused?.state||'',taskURL:canonicalConversationURL(paused?.url)||''}));
+      }
+      const ticket=ensureAutomaticRecoveryTicket(active);
+      const heartbeat={ownerTabId:tabId,at:now,autoResume:true,running:Boolean(running),lifecycle:lifecycle||(running?'running':'handoff'),taskId:active.id,taskState:active.state,taskURL:canonicalConversationURL(active.url)||'',token:String(active.token||''),attempted:Boolean(active.attempted),rendererRecoveryExhausted:Boolean(active.rendererRecoveryExhausted),attachmentUploadPending:Boolean(active.attachmentUploadPending),phase:String(active.phase||'work'),round:Number(active.round||0),recoveryToken:ticket?.token||'',recoveryURL:ticket?.recoveryURL||'',attachmentIds:taskAttachments(active).map(meta=>String(meta.id||'')).filter(Boolean),hostRecoveryGranted:hostRecoveryGranted(now),hostRecoveryExpiresAt:Number(hostRecoveryCapability.expiresAt||0)};
+      const persisted=writeLocalStorageRecord(WORKSPACE_HEARTBEAT_KEY+tabId,JSON.stringify(heartbeat));
+      requestHostRecoveryCapability(heartbeat); return persisted;
+    } catch { return false; }
   }
-  function scheduleWorkspaceHeartbeat(delayMs = WORKSPACE_HEARTBEAT_INTERVAL_MS) {
+  let workspaceHeartbeatStopped = false;
+  function scheduleWorkspaceHeartbeat(delayMs = WORKSPACE_HEARTBEAT_INTERVAL_MS, { resume = true } = {}) {
+    if (resume) workspaceHeartbeatStopped = false;
     clearTimeout(workspaceHeartbeatTimer);
     workspaceHeartbeatTimer = setTimeout(() => {
       workspaceHeartbeatTimer = null;
-      writeWorkspaceHeartbeat();
-      scheduleWorkspaceHeartbeat();
+      try { writeWorkspaceHeartbeat(); }
+      finally { if (!workspaceHeartbeatStopped) scheduleWorkspaceHeartbeat(WORKSPACE_HEARTBEAT_INTERVAL_MS, { resume:false }); }
     }, Math.max(1000, Number(delayMs) || WORKSPACE_HEARTBEAT_INTERVAL_MS));
   }
   function stopWorkspaceHeartbeat(lifecycle = 'shutdown') {
-    clearTimeout(workspaceHeartbeatTimer);
-    workspaceHeartbeatTimer = null;
-    writeWorkspaceHeartbeat(lifecycle);
+    workspaceHeartbeatStopped = true; clearTimeout(workspaceHeartbeatTimer); workspaceHeartbeatTimer = null; writeWorkspaceHeartbeat(lifecycle);
   }
   const normalize = value => String(value || '').replace(/\s+/g, ' ').trim();
   function textTail(node, maxChars = STREAM_TEXT_TAIL_LIMIT) {
@@ -2289,7 +2314,7 @@ async function bootstrapAttempt() {
     sameRouteWaitUntil = 0;
     sameRouteWaitSince = 0;
     lockRelease?.(); lockRelease = null;
-    sessionStorage.removeItem(NAV);
+    removeSessionStorageRecord(NAV);
   }
   // A document can disappear because the user changed tabs, ChatGPT
   // navigated, or the script was hot-updated. That lifecycle event is not a
@@ -2374,7 +2399,7 @@ async function bootstrapAttempt() {
     data.selectedByTab = { ...(data.selectedByTab || {}), ...(stored.selectedByTab || {}), [tabId]:selected };
     data.selected = selected;
     const persisted = persistWorkbenchState(data);
-    if (persisted) writeWorkspaceHeartbeat();
+    writeWorkspaceHeartbeat();
     paint();
     return persisted;
   }
@@ -2774,7 +2799,7 @@ async function bootstrapAttempt() {
       task.reasoningPickerLastRefreshAt = now;
       task.sendUiWaitSince = 0;
       task.updatedAt = now;
-      sessionStorage.setItem(NAV, JSON.stringify({
+      writeSessionStorageRecord(NAV, JSON.stringify({
         path,
         href,
         at:now,
@@ -4994,7 +5019,7 @@ async function bootstrapAttempt() {
   }
   function queueNavigation(target, task, reason = '会话切换未确认') {
     clearTimeout(navigationTimer); navigationTimer = null; navigating = false;
-    sessionStorage.removeItem(NAV);
+    removeSessionStorageRecord(NAV);
     if (task) {
       state(task, 'blocked', `${reason}；没有可用的真实会话链接，将自动切换到新的 ChatGPT 会话重发。`);
     }
@@ -5005,7 +5030,7 @@ async function bootstrapAttempt() {
     const href = target instanceof URL ? target.href : String(target || '');
     const parsed = parseConversationURL(href);
     if (parsed?.synthetic) {
-      sessionStorage.removeItem(NAV);
+      removeSessionStorageRecord(NAV);
       navigating = false;
       return false;
     }
@@ -5013,19 +5038,19 @@ async function bootstrapAttempt() {
     const targetPath = parsed ? parsed.pathname : new URL(href, location.origin).pathname;
     const latestURL = canonicalConversationURL(task?.url);
     if (parsed && !parsed.synthetic && latestURL && latestURL !== targetHref) {
-      sessionStorage.removeItem(NAV);
+      removeSessionStorageRecord(NAV);
       navigating = false;
       return false;
     }
     // Never re-open or reload the route that this tab is already displaying.
     // With a single local task, inspection stays entirely on the current page.
     if (new URL(targetHref, location.origin).pathname === location.pathname) {
-      sessionStorage.removeItem(NAV);
+      removeSessionStorageRecord(NAV);
       navigating = false;
       return true;
     }
     let previous = null;
-    try { previous = JSON.parse(sessionStorage.getItem(NAV)); } catch {}
+    try { previous = JSON.parse(readSessionStorageString(NAV)); } catch {}
     const isDispatchTarget = targetPath === '/' && Boolean(task);
     const dispatchPhase = String(task?.phase || '');
     const dispatchRound = Number.isFinite(Number(task?.round)) ? Number(task.round) : 0;
@@ -5038,7 +5063,7 @@ async function bootstrapAttempt() {
         && Number(previous?.goalRevision ?? 0) === dispatchGoalRevision)));
     if (!sameTicket) {
       const now = Date.now();
-      sessionStorage.setItem(NAV, JSON.stringify({
+      writeSessionStorageRecord(NAV, JSON.stringify({
         path:targetPath,
         href:targetHref,
         at:now,
@@ -5081,7 +5106,7 @@ async function bootstrapAttempt() {
     // already become final. This is intentionally checked before incrementing
     // the 1/2 counter or writing the "page has not recovered" log.
     if (task && ownedFinalReplyReady(task)) {
-      sessionStorage.removeItem(NAV);
+      removeSessionStorageRecord(NAV);
       navigating = false;
       if (resetRendererRecoveryState(task)) save();
       return false;
@@ -5128,7 +5153,7 @@ async function bootstrapAttempt() {
       task.rendererRecoveryExhausted = false;
       task.updatedAt = now;
     }
-    sessionStorage.setItem(NAV, JSON.stringify({
+    writeSessionStorageRecord(NAV, JSON.stringify({
       path: target.pathname,
       href,
       at: now,
@@ -5440,7 +5465,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
         task.updatedAt = Date.now();
         save();
       }
-      sessionStorage.removeItem(NAV);
+      removeSessionStorageRecord(NAV);
       sameRouteWaitUntil = 0;
       sameRouteWaitSince = 0;
       navigating = false;
@@ -5457,7 +5482,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       // Inspection only needs the conversation route; requiring a composer
       // here made a stuck renderer impossible to classify as no-final-reply.
       if (!requireComposer || (inputReady && !loadingReason)) {
-        sessionStorage.removeItem(NAV); sameRouteWaitUntil = 0; sameRouteWaitSince = 0; navigating = false;
+        removeSessionStorageRecord(NAV); sameRouteWaitUntil = 0; sameRouteWaitSince = 0; navigating = false;
         // A blank /c/<id> shell with a ready composer is not proof that the
         // renderer recovered. Preserve the route-recovery budget until at
         // least one conversation message is visible; otherwise each shell
@@ -5768,7 +5793,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.updatedAt = Date.now();
     data.lastDispatchAt = Date.now();
     save();
-    sessionStorage.setItem(NAV, JSON.stringify({ path:'*', at:Date.now(), task:task.id, resume:true }));
+    writeSessionStorageRecord(NAV, JSON.stringify({ path:'*', at:Date.now(), task:task.id, resume:true }));
     navigating = true;
     check(signal); button.click(); measurements.sends++;
     for (let n = 0; n < 40; n++) {
@@ -5790,7 +5815,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
         task.dispatchOriginURL = '';
         task.dispatchStartedAt = 0;
         navigating = false;
-        sessionStorage.removeItem(NAV);
+        removeSessionStorageRecord(NAV);
         state(task, 'waiting', `${task.phase === 'review' ? '规划/验收' : '工作'}会话已确认发送 · 第 ${task.round} 轮`);
         return;
       }
@@ -7184,7 +7209,7 @@ NaN
     // Viewing a task is not a pause command. Persist a generation-bound
     // handoff ticket so the replacement document can reclaim the same runner
     // and continue supervising this task without changing any task state.
-    sessionStorage.setItem(NAV, JSON.stringify({
+    writeSessionStorageRecord(NAV, JSON.stringify({
       path:new URL(target).pathname,
       href:target,
       at:Date.now(),
@@ -7252,10 +7277,10 @@ NaN
     const token = crypto.randomUUID();
     const targetOwnerTabId = crypto.randomUUID();
     const ticket = {version:1,token,taskId,sourceOwnerTabId:task.ownerTabId,targetOwnerTabId,at:Date.now()};
-    localStorage.setItem(TASK_TRANSFER_KEY + token, JSON.stringify(ticket));
+    if (!writeLocalStorageRecord(TASK_TRANSFER_KEY + token, JSON.stringify(ticket), { critical:true })) throw new Error('本地存储空间不足，无法安全创建跨标签页任务交接票据；当前任务仍保留在本标签页并继续运行。');
     const opened = window.open(location.origin + '/#fabushi-assign-task=' + encodeURIComponent(token), '_blank');
     if (!opened) {
-      localStorage.removeItem(TASK_TRANSFER_KEY + token);
+      removeLocalStorageRecord(TASK_TRANSFER_KEY + token);
       throw new Error('浏览器未打开新标签页，请允许本次弹出窗口后重试。');
     }
     opened.opener = null;
@@ -7284,8 +7309,9 @@ NaN
           throw new Error('这个工作区刚刚被另一个标签页恢复，请在那个标签页继续。');
         }
         tabId = ownerTabId;
-        sessionStorage.setItem(TAB_SESSION_KEY, tabId);
-        sessionStorage.removeItem(NAV);
+        activeWorkspaceStorageId = tabId;
+        writeSessionStorageRecord(TAB_SESSION_KEY, tabId);
+        removeSessionStorageRecord(NAV);
         mergeStoredTasks(stored);
         const restoredTask = data.tasks.find(item => item.id === task.id && taskBelongsToTab(item)) || task;
         selected = restoredTask.id;
@@ -7304,13 +7330,18 @@ NaN
       if (pending && Date.now() - pending.at < 30000) throw new Error('专用标签页正在打开，请稍候。');
       const token = crypto.randomUUID();
       const record = {ownerTabId,at:Date.now()};
-      localStorage.setItem(RECOVERY_KEY + token, JSON.stringify(record));
-      localStorage.setItem(pendingKey, JSON.stringify(record));
+      const recoveryPersisted = writeLocalStorageRecord(RECOVERY_KEY + token, JSON.stringify(record), { critical:true });
+      const pendingPersisted = recoveryPersisted && writeLocalStorageRecord(pendingKey, JSON.stringify(record), { critical:true });
+      if (!recoveryPersisted || !pendingPersisted) {
+        if (recoveryPersisted) removeLocalStorageRecord(RECOVERY_KEY + token);
+        if (pendingPersisted) removeLocalStorageRecord(pendingKey);
+        throw new Error('本地存储空间不足，无法安全创建恢复票据；当前工作区保持原状，不会打开无法恢复的新标签页。');
+      }
       const url = (canonicalConversationURL(task.url) || location.origin + '/') + '#fabushi-resume=' + token;
       const opened = window.open(url, '_blank');
       if (!opened) {
-        localStorage.removeItem(RECOVERY_KEY + token);
-        localStorage.removeItem(pendingKey);
+        removeLocalStorageRecord(RECOVERY_KEY + token);
+        removeLocalStorageRecord(pendingKey);
         throw new Error('浏览器未打开恢复标签页，请允许本次弹出窗口后重试。');
       }
       opened.opener = null;
@@ -7760,7 +7791,7 @@ NaN
       || tabTasks().find(item => resumableStates.has(item.state));
     if (recoveredWorkspaceTask) armWorkspaceRecoveryIdentity(recoveredWorkspaceTask);
   }
-  let ticket;try{ticket=JSON.parse(sessionStorage.getItem(NAV));}catch{}
+  let ticket;try{ticket=JSON.parse(readSessionStorageString(NAV));}catch{}
   const ticketFresh = ticket && ticket.resume && Date.now()-ticket.at < NAV_TICKET_TTL_MS;
   const ticketUsable = ticketFresh && validNavigationTicket(ticket);
   if(ticketUsable && data.autoResume !== false){
@@ -7771,7 +7802,7 @@ NaN
   } else if(recoveredTaskId && data.autoResume !== false){
     current=recoveredTaskId; lastSwitch=Date.now(); autoStart(recoveredTaskId);
   } else {
-    sessionStorage.removeItem(NAV);
+    removeSessionStorageRecord(NAV);
     if (data.autoResume !== false) {
       const resumable = tabTasks().find(item => taskMatchesCurrentConversation(item) && resumableStates.has(item.state))
         || tabTasks().find(item => item.id === selected && !terminal.has(item.state) && resumableStates.has(item.state))
