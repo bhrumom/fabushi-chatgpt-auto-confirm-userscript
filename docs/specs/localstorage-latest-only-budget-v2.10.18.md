@@ -192,9 +192,38 @@ No task prompt/goal/reply text is included in diagnostics.
 
 ## 17. Spec compliance record
 
+Implementation evidence baseline:
+- Exact implementation/test HEAD: `68afc0ddcf74432cca51ce1029e4b645016022ca`.
+- GitHub Actions Test run `36730826048`: `success`.
+- Verification used GitHub Actions only; no local build/test execution.
+- Canonical-main Test/Release remain pending until PR #134 merges.
+
 | Requirement / AC | Status | Evidence / reason |
 | --- | --- | --- |
-| R1-R15 | blocked | Implementation and exact-HEAD CI pending. |
-| AC-1-AC-10 | blocked | Implementation and exact-HEAD CI pending. |
+| R1 | passed | Canonical persistence now serializes `durableWorkbenchSnapshot(state)` instead of the live object graph. |
+| R2 | passed | Durable tasks strip `messages`, `history`, `sessionUrl(s)`, preview and duplicate prompt fields; focused regression passed. |
+| R3 | passed | `done` tasks return null from the durable projection and no longer accumulate in canonical localStorage. |
+| R4 | passed | `cancelled` tasks remain in the durable projection and existing resume semantics stay covered by the full regression suite. |
+| R5 | passed | Identity, ownership, goal/mode/state, phase/round, URL/token/send intent, pause/control, reasoning preset, attachments, Work result/next and active recovery state remain durable. |
+| R6 | passed | `preparedPrompt` is retained only while `sendPrepared` or `attempted` is true; focused regression verifies exact prompt retention. |
+| R7 | passed | Latest recovery bodies are bounded independently and historical recovery arrays are not persisted. |
+| R8 | passed | Canonical target is 500,000 code units and total Fabushi-owned localStorage hard budget is 600,000 code units. |
+| R9 | passed | Shared writer computes only Fabushi-owned footprint and refuses over-budget growth without deleting unrelated ChatGPT keys; focused regression passed. |
+| R10 | passed | Oversized durable state writes a lean <=500k canonical snapshot and full same-tab session overflow; focused regression passed. |
+| R11 | passed | Trimmed/full latest state remains in the volatile shadow/session overflow so current-document reads do not regress to the lean copy. |
+| R12 | passed | Legacy v2/v3 queue and v2 runtime keys are deleted after bootstrap; focused regression passed. |
+| R13 | passed | Auxiliary storage remains one latest heartbeat/auto-recovery record per workspace plus bounded TTL recovery/transfer/navigation records. |
+| R14 | passed | v2.10.17 non-fatal quota handling and heartbeat re-arm regressions remain green in the full Test run. |
+| R15 | passed | Candidate metadata/runtime version is v2.10.18; canonical publication remains gated on main Test after merge. |
+| AC-1 | passed | Persisted active-task regression proves logs/history/preview are absent from localStorage. |
+| AC-2 | passed | Completed-task regression proves completed records are not persisted/recovered after reload. |
+| AC-3 | passed | Oversized-state regression verifies the canonical snapshot is <=500,000 code units. |
+| AC-4 | passed | Hard-budget regression verifies total Fabushi localStorage cannot grow past 600,000 code units and unrelated keys remain untouched. |
+| AC-5 | passed | Active/cancelled recovery identity plus attachment metadata are retained and the existing resume suite passes. |
+| AC-6 | passed | Same-tab overflow holds the full 12-task latest projection while localStorage keeps the lean bounded copy. |
+| AC-7 | passed | Legacy queue/runtime cleanup regression passed. |
+| AC-8 | passed | Exact implementation HEAD `68afc0ddcf74432cca51ce1029e4b645016022ca` passed GitHub Actions Test run `36730826048`. |
+| AC-9 | blocked | Canonical-main Test and Release require PR #134 merge. |
+| AC-10 | passed | This record captures exact implementation SHA and PR CI evidence before merge. |
 
 Allowed final statuses: `passed`, `blocked`, `not-applicable`.
