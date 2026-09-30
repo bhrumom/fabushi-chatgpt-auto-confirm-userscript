@@ -64,7 +64,7 @@ test('workbench quota overflow compacts diagnostic history and retries without l
     proto.setItem=function(key,value){
       if(key==='fabushi-workbench-v2'){
         canonicalAttempts++;
-        if(String(value).length>55_000) throw new w.DOMException('Setting the value exceeded the quota.','QuotaExceededError');
+        if(String(value).length>90_000) throw new w.DOMException('Setting the value exceeded the quota.','QuotaExceededError');
       }
       return originalSetItem.call(this,key,value);
     };
@@ -5484,8 +5484,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.10\.15$/m);
-  assert.match(source,/const VERSION = '2\.10\.15'/);
+  assert.match(source,/^\/\/ @version\s+2\.10\.16$/m);
+  assert.match(source,/const VERSION = '2\.10\.16'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
