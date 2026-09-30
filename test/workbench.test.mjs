@@ -168,7 +168,7 @@ test('missing reasoning picker waits, then actively refreshes the same page inst
     task.reasoningPickerLastRefreshAt=0;
     assert.equal(await h.ensureTaskReasoningPreset(task,null),false);
     assert.equal(task.reasoningPickerRefreshCount,1);
-    const ticket=JSON.parse(w.sessionStorage.getItem('fabushi-auto-confirm-nav-v2'));
+    const ticket=JSON.parse(w.sessionStorage.getItem('fabushi-workbench-navigation-v2'));
     assert.equal(ticket?.purpose,'recovery');
     assert.equal(ticket?.reasoningPickerRecovery,true);
     assert.equal(ticket?.task,task.id);
