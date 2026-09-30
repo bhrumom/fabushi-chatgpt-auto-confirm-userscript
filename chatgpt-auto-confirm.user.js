@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.14
+// @version      2.10.15
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.14';
+  const VERSION = '2.10.15';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -162,6 +162,11 @@ async function bootstrapAttempt() {
   // growth. Preserve both the beginning and the most recent continuation edge.
   const CONVERSATION_LENGTH_CARRY_MAX = 64_000;
   const SEND_UI_WAIT_MS = 45000;
+  // The model/reasoning selector is required before Send, but ChatGPT can
+  // occasionally hydrate the composer without mounting that selector. This is
+  // a recoverable renderer state, not a terminal wait. Recheck for one minute,
+  // then refresh the same page and repeat until the selector appears.
+  const REASONING_PICKER_REFRESH_MS = 60 * 1000;
   // A single browser tab can only render one ChatGPT route at a time, but
   // independent conversations continue server-side. Rotate inspection of
   // their durable /c/<id> URLs instead of holding the tab on one task.
@@ -2633,6 +2638,68 @@ async function bootstrapAttempt() {
     return nodes('button[data-codex-intelligence-trigger="true"],button[data-composer-navigation-target="reasoning"]')
       .find(node => enabled(node) && (node.getAttribute('aria-haspopup') === 'menu' || node.hasAttribute('data-selected-reasoning-effort')));
   }
+  function clearReasoningPickerRecovery(task) {
+    if (!task) return false;
+    const changed = Boolean(task.reasoningPickerMissingSince
+      || task.reasoningPickerLastRefreshAt
+      || task.reasoningPickerRefreshCount);
+    task.reasoningPickerMissingSince = 0;
+    task.reasoningPickerLastRefreshAt = 0;
+    task.reasoningPickerRefreshCount = 0;
+    return changed;
+  }
+  function waitForReasoningPicker(task, reason = '未找到 ChatGPT 模型/思考强度选择器') {
+    const now = Date.now();
+    if (!task.reasoningPickerMissingSince) task.reasoningPickerMissingSince = now;
+    const lastBoundary = Math.max(
+      Number(task.reasoningPickerMissingSince || 0),
+      Number(task.reasoningPickerLastRefreshAt || 0),
+    );
+    const due = now - lastBoundary >= REASONING_PICKER_REFRESH_MS;
+    if (due && !navigating && !navigationRequestPending) {
+      check();
+      const href = location.href;
+      const path = location.pathname;
+      const count = Number(task.reasoningPickerRefreshCount || 0) + 1;
+      task.reasoningPickerRefreshCount = count;
+      task.reasoningPickerLastRefreshAt = now;
+      task.sendUiWaitSince = 0;
+      task.updatedAt = now;
+      sessionStorage.setItem(NAV, JSON.stringify({
+        path,
+        href,
+        at:now,
+        task:task.id,
+        attempts:count,
+        assigned:true,
+        direct:true,
+        purpose:'recovery',
+        phase:String(task.phase || 'work'),
+        round:Number(task.round || 0),
+        goalRevision:Number(task.goalRevision || 0),
+        recovery:true,
+        reasoningPickerRecovery:true,
+        resume:true,
+      }));
+      log(task, `${reason}；已等待至少 ${Math.ceil(REASONING_PICKER_REFRESH_MS / 1000)} 秒仍未出现，正在刷新当前 ChatGPT 页面重新检查（第 ${count} 次）。不会重复发送任务。`);
+      save();
+      return beginGuardedNavigation(href, task, {
+        replace:true,
+        force:true,
+        recovery:true,
+        ticketPath:path,
+        ticketHref:href,
+        reason:'reasoning-picker-recovery',
+      });
+    }
+    const elapsed = Math.max(0, now - lastBoundary);
+    const remaining = Math.max(0, REASONING_PICKER_REFRESH_MS - elapsed);
+    const message = `${reason}；保留本轮发送意图继续检查，若仍未出现将在约 ${Math.max(1, Math.ceil(remaining / 1000))} 秒后刷新当前页面；不会重复发送。`;
+    if (task.state === 'sending') log(task, message); else state(task, 'sending', message);
+    task.updatedAt = now;
+    save();
+    return false;
+  }
   function reasoningSliderState() {
     const control = nodes('[data-reasoning-slider="true"]').find(visible);
     const thumb = control?.querySelector?.('[role="slider"]');
@@ -2647,8 +2714,12 @@ async function bootstrapAttempt() {
     const target = taskReasoningPreset(task);
     let trigger = reasoningPickerTrigger();
     if (!trigger) {
-      waitForSendUI(task, '未找到 ChatGPT 模型/思考强度选择器');
+      waitForReasoningPicker(task, '未找到 ChatGPT 模型/思考强度选择器');
       return false;
+    }
+    if (clearReasoningPickerRecovery(task)) {
+      task.updatedAt = Date.now();
+      save();
     }
     // Closed-trigger text is a cheap no-mutation fast path. It is not used for
     // Pro vs Medium identity because both can expose effort=medium.
@@ -2672,7 +2743,7 @@ async function bootstrapAttempt() {
     if (!slider) {
       trigger = reasoningPickerTrigger();
       if (trigger?.getAttribute('aria-expanded') === 'true') trigger.click();
-      waitForSendUI(task, 'ChatGPT 模型菜单已打开，但未找到思考强度滑块');
+      waitForReasoningPicker(task, 'ChatGPT 模型菜单已打开，但未找到思考强度滑块');
       return false;
     }
     if (target < slider.min || target > slider.max) {
@@ -2694,13 +2765,13 @@ async function bootstrapAttempt() {
       await delay(120, signal); check(signal);
       const next = reasoningSliderState();
       if (!next) {
-        waitForSendUI(task, '调整 ChatGPT 思考强度时滑块消失；本轮不会发送');
+        waitForReasoningPicker(task, '调整 ChatGPT 思考强度时滑块消失');
         return false;
       }
       if (next.current === slider.current) {
         trigger = reasoningPickerTrigger();
         if (trigger?.getAttribute('aria-expanded') === 'true') trigger.click();
-        waitForSendUI(task, `ChatGPT 思考强度未能切换到：${reasoningPresetLabel(target)}`);
+        waitForReasoningPicker(task, `ChatGPT 思考强度未能切换到：${reasoningPresetLabel(target)}`);
         return false;
       }
       slider = next;
@@ -2709,7 +2780,7 @@ async function bootstrapAttempt() {
     if (slider.current !== target) {
       trigger = reasoningPickerTrigger();
       if (trigger?.getAttribute('aria-expanded') === 'true') trigger.click();
-      waitForSendUI(task, `ChatGPT 思考强度校验失败；目标 ${reasoningPresetLabel(target)}，当前第 ${slider.current + 1} 档`);
+      waitForReasoningPicker(task, `ChatGPT 思考强度校验失败；目标 ${reasoningPresetLabel(target)}，当前第 ${slider.current + 1} 档`);
       return false;
     }
     task.reasoningPresetConfirmedAt = Date.now();
