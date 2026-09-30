@@ -4876,7 +4876,12 @@ test('Stop reappearing after reload binds the current document and cancels inher
 
     stop.remove();
     await h.inspect(task,null);
-    assert.equal(task.state,'queued','real same-document Stop disappearance remains immediate');
+    assert.equal(task.state,'waiting','real same-document Stop disappearance now starts the secondary no-approval confirmation');
+    assert.equal(task.url,'https://chatgpt.com/c/reload-stop-return');
+    assert.ok(Number(task.stopNoApprovalConfirmSince)>0);
+    task.stopNoApprovalConfirmSince=Date.now()-9_000;
+    await h.inspect(task,null);
+    assert.equal(task.state,'queued','fresh handoff is allowed only after the stable no-approval confirmation window');
     assert.equal(task.url,'');
     assert.match(task.abnormalFreshCarry,/正在继续当前实现/);
   } finally {h.pause();dom.window.close();}
