@@ -34,9 +34,96 @@ async function fixture(body='', setup=()=>{}, url='https://chatgpt.com/') {
     const form = w.document.querySelector('form') || w.document.body;
     form.append(trigger);
   }
-  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, assistantResponseBoundaryKey, taskTurnForInspection, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, conversationLoadFailure, clearConversationLoadFailureState, recoverConversationLoadFailure, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, normalizeReasoningPreset, reasoningPresetLabel, taskReasoningPreset, reasoningPickerTrigger, reasoningSliderState, clearReasoningPickerRecovery, waitForReasoningPicker, ensureTaskReasoningPreset, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, refreshInterruptedStopStall, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), setRunningForTest:value=>{running=Boolean(value);}, getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, assistantResponseBoundaryKey, taskTurnForInspection, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, conversationLoadFailure, clearConversationLoadFailureState, recoverConversationLoadFailure, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, normalizeReasoningPreset, reasoningPresetLabel, taskReasoningPreset, reasoningPickerTrigger, reasoningSliderState, clearReasoningPickerRecovery, waitForReasoningPicker, ensureTaskReasoningPreset, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, refreshInterruptedStopStall, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, storageStatusText, persistWorkbenchState, compactWorkbenchForStorage, storagePersistenceStatus:()=>storagePersistenceStatus, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), setRunningForTest:value=>{running=Boolean(value);}, getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
+test('workbench quota overflow compacts diagnostic history and retries without losing runnable task identity',async()=>{
+  const {h,w,dom}=await fixture();
+  const proto=Object.getPrototypeOf(w.localStorage);
+  const originalSetItem=proto.setItem;
+  try {
+    const task={
+      id:'quota-active',
+      ownerTabId:h.getTabId(),
+      goal:'G'.repeat(16000),
+      mode:'goal',
+      state:'waiting',
+      phase:'work',
+      round:7,
+      url:'https://chatgpt.com/c/quota-active',
+      token:'quota-token',
+      attempted:false,
+      result:'R'.repeat(12000),
+      next:'N'.repeat(8000),
+      attachments:[{id:'quota-file',name:'proof.pdf',type:'application/pdf',size:42,lastModified:1}],
+      messages:Array.from({length:40},(_,index)=>({at:index+1,role:'status',text:String(index).padStart(2,'0')+'-'+ 'x'.repeat(7000)})),
+    };
+    h.data.tasks.push(task);
+    h.data.selectedByTab[h.getTabId()]=task.id;
+    let canonicalAttempts=0;
+    proto.setItem=function(key,value){
+      if(key==='fabushi-workbench-v2'){
+        canonicalAttempts++;
+        if(String(value).length>55_000) throw new w.DOMException('Setting the value exceeded the quota.','QuotaExceededError');
+      }
+      return originalSetItem.call(this,key,value);
+    };
+
+    assert.equal(h.persistWorkbenchState(h.data),true);
+    assert.equal(canonicalAttempts,2,'normal write is rejected once and the emergency-compacted retry succeeds');
+    assert.equal(h.storagePersistenceStatus().level,'recovered');
+    const persisted=JSON.parse(w.localStorage.getItem('fabushi-workbench-v2'));
+    const saved=persisted.tasks.find(item=>item.id==='quota-active');
+    assert.ok(saved);
+    assert.equal(saved.ownerTabId,task.ownerTabId);
+    assert.equal(saved.goal,task.goal);
+    assert.equal(saved.state,'waiting');
+    assert.equal(saved.phase,'work');
+    assert.equal(saved.round,7);
+    assert.equal(saved.url,'https://chatgpt.com/c/quota-active');
+    assert.equal(saved.token,'quota-token');
+    assert.equal(saved.result,task.result);
+    assert.equal(saved.next,task.next);
+    assert.deepEqual(saved.attachments,task.attachments);
+    assert.ok(saved.messages.length<40);
+    assert.ok(saved.messages.reduce((sum,item)=>sum+String(item.text||'').length,0)<=24_000);
+    assert.match(h.storageStatusText(),/自动压缩恢复/);
+  } finally {
+    proto.setItem=originalSetItem;
+    h.pause();
+    dom.window.close();
+  }
+});
+
+test('permanently exhausted workbench storage fails closed without deleting tasks',async()=>{
+  const {h,w,dom}=await fixture();
+  const proto=Object.getPrototypeOf(w.localStorage);
+  const originalSetItem=proto.setItem;
+  try {
+    const task={id:'quota-blocked',ownerTabId:h.getTabId(),goal:'keep me',mode:'once',state:'cancelled',phase:'work',round:2,url:'https://chatgpt.com/c/quota-blocked',token:'blocked-token',result:'prior result',next:'next step',attachments:[{id:'blocked-file',name:'a.txt',type:'text/plain',size:1,lastModified:1}],messages:[{at:1,role:'status',text:'keep status'}]};
+    h.data.tasks.push(task);
+    proto.setItem=function(key,value){
+      if(key==='fabushi-workbench-v2') throw new w.DOMException('quota full','QuotaExceededError');
+      return originalSetItem.call(this,key,value);
+    };
+
+    assert.equal(h.persistWorkbenchState(h.data),false);
+    assert.equal(h.storagePersistenceStatus().level,'blocked');
+    const stillThere=h.data.tasks.find(item=>item.id==='quota-blocked');
+    assert.ok(stillThere);
+    assert.equal(stillThere.state,'cancelled');
+    assert.equal(stillThere.goal,'keep me');
+    assert.equal(stillThere.url,'https://chatgpt.com/c/quota-blocked');
+    assert.equal(stillThere.token,'blocked-token');
+    assert.deepEqual(stillThere.attachments,task.attachments);
+    assert.match(h.storageStatusText(),/仍不足/);
+  } finally {
+    proto.setItem=originalSetItem;
+    h.pause();
+    dom.window.close();
+  }
+});
+
 test('reasoning preset defaults to Extra High and explicit five-position choices persist',async()=>{
   const {h,dom}=await fixture();
   try {
