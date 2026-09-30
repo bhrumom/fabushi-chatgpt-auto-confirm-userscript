@@ -1,8 +1,18 @@
-# Fabushi 独立自动确认工作台 2.10.11
+# Fabushi 独立自动确认工作台 2.10.13
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.11`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.13`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+
+## 2.10.13 授权提交竞态彻底修复
+
+- 修复连接器授权已经被脚本识别并点击后，ChatGPT 在提交授权期间暂时禁用或重挂载授权卡，随后 Stop 同时消失，脚本却把这一瞬间误判成“没有授权卡”并立即切换新会话的问题。
+- 授权卡现在分成“结构仍存在”和“当前可点击”两个状态：即使“拒绝 / 允许一次 / 审批选项”暂时 disabled，只要同一授权结构仍在页面上，就继续视为待授权，绝不会触发 Stop-disappearance fresh-session handoff。
+- 点击“允许本次会话”后新增 **12 秒任务级授权提交保护期**，绑定 exact conversation URL、token、phase 和 round。即使 React/Radix 在提交过程中让整张卡瞬时从 DOM 消失一帧，脚本仍留在原会话等待，不会因为单次零卡扫描切走。
+- 不再把“允许”按钮 disabled 当作“授权已经生效”的证据。disabled 只表示正在处理；授权后的真实结果由后续页面状态决定。
+- 授权保护期同时阻断异常结束、可重试错误、加载失败和输入框清理等会导致错误接力的恢复路径；保护期结束后，若确实不存在授权卡和最终回复，原有 Stop-disappearance 恢复策略才重新生效。
+- 新增 GitHub Actions 回归：授权按钮全部 disabled + Stop 消失、授权点击后卡片瞬时 DOM gap、保护期结束后恢复正常接力，以及现有“允许一次 → 允许本次会话”真实形态和普通 Allow 排除。
+- 详细规格见 [v2.10.13](docs/specs/authorization-settlement-race-v2.10.13.md)。
 
 ## 2.10.11 验收最终回复 Stop 消失后的收尾识别
 
