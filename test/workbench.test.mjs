@@ -34,62 +34,172 @@ async function fixture(body='', setup=()=>{}, url='https://chatgpt.com/') {
     const form = w.document.querySelector('form') || w.document.body;
     form.append(trigger);
   }
-  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, assistantResponseBoundaryKey, taskTurnForInspection, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, conversationLoadFailure, clearConversationLoadFailureState, recoverConversationLoadFailure, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, normalizeReasoningPreset, reasoningPresetLabel, taskReasoningPreset, reasoningPickerTrigger, reasoningSliderState, clearReasoningPickerRecovery, waitForReasoningPicker, ensureTaskReasoningPreset, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, refreshInterruptedStopStall, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, storageStatusText, persistWorkbenchState, compactWorkbenchForStorage, writeLocalStorageRecord, readStorageString, readWorkbenchOverflow, cleanupStaleFabushiStorage, scheduleWorkspaceHeartbeat, workspaceHeartbeatScheduled:()=>Boolean(workspaceHeartbeatTimer), storagePersistenceStatus:()=>storagePersistenceStatus, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), setRunningForTest:value=>{running=Boolean(value);}, getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, assistantResponseBoundaryKey, taskTurnForInspection, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, conversationLoadFailure, clearConversationLoadFailureState, recoverConversationLoadFailure, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, normalizeReasoningPreset, reasoningPresetLabel, taskReasoningPreset, reasoningPickerTrigger, reasoningSliderState, clearReasoningPickerRecovery, waitForReasoningPicker, ensureTaskReasoningPreset, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, refreshInterruptedStopStall, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, storageStatusText, persistWorkbenchState, durableTaskSnapshot, durableWorkbenchSnapshot, fitWorkbenchSnapshotToLocalBudget, writeLocalStorageRecord, readStorageString, readWorkbenchOverflow, cleanupStaleFabushiStorage, fabushiLocalStorageFootprint, storageBudgets:()=>({workbench:WORKBENCH_LOCAL_STORAGE_TARGET_CHARS,total:FABUSHI_LOCAL_STORAGE_MAX_CHARS}), scheduleWorkspaceHeartbeat, workspaceHeartbeatScheduled:()=>Boolean(workspaceHeartbeatTimer), storagePersistenceStatus:()=>storagePersistenceStatus, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), setRunningForTest:value=>{running=Boolean(value);}, getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
-test('workbench quota overflow compacts diagnostic history and retries without losing runnable task identity',async()=>{
+test('canonical workbench persists only latest recovery state and never diagnostic history',async()=>{
   const {h,w,dom}=await fixture();
-  const proto=Object.getPrototypeOf(w.localStorage);
-  const originalSetItem=proto.setItem;
   try {
-    const task={
-      id:'quota-active',
+    const active={
+      id:'latest-active',
       ownerTabId:h.getTabId(),
-      goal:'G'.repeat(16000),
+      goal:'latest goal',
       mode:'goal',
       state:'waiting',
       phase:'work',
       round:7,
-      url:'https://chatgpt.com/c/quota-active',
-      token:'quota-token',
+      url:'https://chatgpt.com/c/latest-active',
+      token:'latest-token',
       attempted:false,
-      result:'R'.repeat(12000),
-      next:'N'.repeat(8000),
+      result:'latest result',
+      next:'latest next',
+      preparedPrompt:'redundant prepared prompt',
+      preview:'renderer preview should not persist',
+      prompt:'duplicate prompt should not persist',
+      sessionUrl:'https://chatgpt.com/c/latest-active',
+      sessionUrls:['https://chatgpt.com/c/old','https://chatgpt.com/c/latest-active'],
+      history:[{url:'https://chatgpt.com/c/old'}],
       attachments:[{id:'quota-file',name:'proof.pdf',type:'application/pdf',size:42,lastModified:1}],
-      messages:Array.from({length:40},(_,index)=>({at:index+1,role:'status',text:String(index).padStart(2,'0')+'-'+ 'x'.repeat(7000)})),
+      messages:Array.from({length:100},(_,index)=>({at:index+1,role:'status',text:'history-'+index+'-'+ 'x'.repeat(2000)})),
+      updatedAt:Date.now(),
     };
-    h.data.tasks.push(task);
-    h.data.selectedByTab[h.getTabId()]=task.id;
-    let canonicalAttempts=0;
-    proto.setItem=function(key,value){
-      if(key==='fabushi-workbench-v2'){
-        canonicalAttempts++;
-        if(String(value).length>90_000) throw new w.DOMException('Setting the value exceeded the quota.','QuotaExceededError');
-      }
-      return originalSetItem.call(this,key,value);
-    };
+    const done={id:'done-history',ownerTabId:h.getTabId(),goal:'completed history',mode:'once',state:'done',phase:'work',round:1,url:'https://chatgpt.com/c/done-history',messages:[{at:1,role:'status',text:'done'}],updatedAt:Date.now()-1000};
+    const cancelled={id:'cancelled-resumable',ownerTabId:h.getTabId(),goal:'can still resume',mode:'once',state:'cancelled',phase:'work',round:2,url:'https://chatgpt.com/c/cancelled-resumable',token:'cancel-token',attachments:[],messages:[{at:1,role:'status',text:'cancelled'}],updatedAt:Date.now()-500};
+    h.data.tasks.push(active,done,cancelled);
+    h.data.selectedByTab[h.getTabId()]=active.id;
 
     assert.equal(h.persistWorkbenchState(h.data),true);
-    assert.equal(canonicalAttempts,3,'normal write and its post-cleanup retry are rejected before the emergency-compacted retry succeeds');
-    assert.equal(h.storagePersistenceStatus().level,'recovered');
     const persisted=JSON.parse(w.localStorage.getItem('fabushi-workbench-v2'));
-    const saved=persisted.tasks.find(item=>item.id==='quota-active');
+    const saved=persisted.tasks.find(item=>item.id===active.id);
     assert.ok(saved);
-    assert.equal(saved.ownerTabId,task.ownerTabId);
-    assert.equal(saved.goal,task.goal);
-    assert.equal(saved.state,'waiting');
-    assert.equal(saved.phase,'work');
-    assert.equal(saved.round,7);
-    assert.equal(saved.url,'https://chatgpt.com/c/quota-active');
-    assert.equal(saved.token,'quota-token');
-    assert.equal(saved.result,task.result);
-    assert.equal(saved.next,task.next);
-    assert.deepEqual(saved.attachments,task.attachments);
-    assert.ok(saved.messages.length<40);
-    assert.ok(saved.messages.reduce((sum,item)=>sum+String(item.text||'').length,0)<=24_000);
-    assert.match(h.storageStatusText(),/自动恢复/);
+    assert.equal(saved.goal,active.goal);
+    assert.equal(saved.result,active.result);
+    assert.equal(saved.next,active.next);
+    assert.equal(saved.url,active.url);
+    assert.equal(saved.token,active.token);
+    assert.deepEqual(saved.attachments,active.attachments);
+    for(const field of ['messages','history','sessionUrl','sessionUrls','preview','prompt','preparedPrompt']) assert.equal(saved[field],undefined,field+' must not be durable here');
+    assert.equal(persisted.tasks.some(item=>item.id===done.id),false,'completed history must not return to localStorage');
+    assert.ok(persisted.tasks.some(item=>item.id===cancelled.id),'cancelled task stays durable because it is resumable');
+    assert.ok(w.localStorage.getItem('fabushi-workbench-v2').length<20_000,'diagnostic history must not dominate canonical storage');
   } finally {
-    proto.setItem=originalSetItem;
+    h.pause();
+    dom.window.close();
+  }
+});
+
+test('prepared send intent keeps its exact latest prompt while ordinary tasks do not persist one',async()=>{
+  const {h,w,dom}=await fixture();
+  try {
+    const prepared='P'.repeat(64000);
+    const task={id:'prepared-intent',ownerTabId:h.getTabId(),goal:'send intent',mode:'once',state:'sending',phase:'work',round:1,url:'',token:'prepared-token',attempted:true,sendPrepared:true,preparedPrompt:prepared,preparedAt:Date.now(),attachments:[],messages:[]};
+    h.data.tasks.push(task);
+    h.data.selectedByTab[h.getTabId()]=task.id;
+    assert.equal(h.persistWorkbenchState(h.data),true);
+    const persisted=JSON.parse(w.localStorage.getItem('fabushi-workbench-v2'));
+    const saved=persisted.tasks.find(item=>item.id===task.id);
+    assert.equal(saved.preparedPrompt,prepared);
+    assert.equal(saved.sendPrepared,true);
+    assert.equal(saved.attempted,true);
+  } finally {
+    h.pause();
+    dom.window.close();
+  }
+});
+
+test('adding status history does not grow canonical localStorage',async()=>{
+  const {h,w,dom}=await fixture();
+  try {
+    const task={id:'history-free',ownerTabId:h.getTabId(),goal:'stable durable size',mode:'once',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/history-free',token:'stable',attachments:[],messages:[],updatedAt:1};
+    h.data.tasks.push(task);
+    h.data.selectedByTab[h.getTabId()]=task.id;
+    assert.equal(h.persistWorkbenchState(h.data),true);
+    const before=w.localStorage.getItem('fabushi-workbench-v2').length;
+    task.messages=Array.from({length:120},(_,index)=>({at:index+1,role:'status',text:'diagnostic-'+index+'-'+ 'x'.repeat(8000)}));
+    task.messageVersion=120;
+    assert.equal(h.persistWorkbenchState(h.data),true);
+    const after=w.localStorage.getItem('fabushi-workbench-v2').length;
+    assert.ok(Math.abs(after-before)<256,`canonical size changed from ${before} to ${after}`);
+  } finally {
+    h.pause();
+    dom.window.close();
+  }
+});
+
+test('oversized latest state keeps a lean canonical snapshot and full same-tab overflow',async()=>{
+  const {h,w,dom}=await fixture();
+  try {
+    for(let index=0;index<12;index++){
+      const task={
+        id:'oversized-'+index,
+        ownerTabId:h.getTabId(),
+        goal:'G'.repeat(16000),
+        mode:'goal',
+        state:'waiting',
+        phase:'work',
+        round:index+1,
+        url:'https://chatgpt.com/c/oversized-'+index,
+        token:'token-'+index,
+        result:'R'.repeat(24000),
+        next:'N'.repeat(16000),
+        handoffReplySnapshot:'H'.repeat(48000),
+        handoffReplySnapshotAt:Date.now(),
+        attachments:[],
+        messages:[],
+        updatedAt:Date.now()+index,
+      };
+      h.data.tasks.push(task);
+      if(index===11) h.data.selectedByTab[h.getTabId()]=task.id;
+    }
+    assert.equal(h.persistWorkbenchState(h.data),true);
+    const budgets=h.storageBudgets();
+    const canonical=w.localStorage.getItem('fabushi-workbench-v2');
+    assert.ok(canonical.length<=budgets.workbench,`canonical snapshot exceeded target: ${canonical.length}`);
+    const persisted=JSON.parse(canonical);
+    assert.ok(persisted.tasks.length<12,'lean localStorage should remove older non-selected recovery copies when necessary');
+    const overflow=h.readWorkbenchOverflow(h.getTabId());
+    assert.ok(overflow,'full latest state must survive in same-tab overflow');
+    assert.equal(overflow.tasks.length,12);
+    assert.equal(h.storagePersistenceStatus().level,'trimmed');
+    assert.equal(h.storagePersistenceStatus().fallback,'session');
+  } finally {
+    h.pause();
+    dom.window.close();
+  }
+});
+
+test('Fabushi localStorage hard budget refuses self-growth without touching unrelated keys',async()=>{
+  const {h,w,dom}=await fixture();
+  try {
+    w.localStorage.setItem('chatgpt-owned-budget-test','keep-this');
+    const budgets=h.storageBudgets();
+    let accepted=0;
+    for(let index=0;index<10;index++){
+      const value=JSON.stringify({at:Date.now(),payload:'x'.repeat(90_000)});
+      if(h.writeLocalStorageRecord('fabushi-workspace-recovery-v1:budget-'+index,value,{critical:true,cleanupOnFailure:false})) accepted++;
+      else break;
+    }
+    assert.ok(accepted>0);
+    assert.ok(accepted<10,'hard budget should refuse unbounded Fabushi growth');
+    assert.ok(h.fabushiLocalStorageFootprint()<=budgets.total);
+    assert.equal(w.localStorage.getItem('chatgpt-owned-budget-test'),'keep-this');
+  } finally {
+    h.pause();
+    dom.window.close();
+  }
+});
+
+test('legacy Fabushi queue and runtime copies are removed after bootstrap',async()=>{
+  const {w,h,dom}=await fixture('',window=>{
+    window.localStorage.setItem('fabushi-auto-confirm-queue-v2',JSON.stringify({running:true,tasks:[{id:'legacy'}]}));
+    window.localStorage.setItem('fabushi-auto-confirm-queue-v3',JSON.stringify({running:true,tasks:[{id:'legacy3'}]}));
+    window.localStorage.setItem('fabushi-auto-confirm-runtime-v2',JSON.stringify({running:true}));
+  });
+  try {
+    assert.equal(w.localStorage.getItem('fabushi-auto-confirm-queue-v2'),null);
+    assert.equal(w.localStorage.getItem('fabushi-auto-confirm-queue-v3'),null);
+    assert.equal(w.localStorage.getItem('fabushi-auto-confirm-runtime-v2'),null);
+  } finally {
     h.pause();
     dom.window.close();
   }
@@ -3986,26 +4096,25 @@ test('an empty new tab visibly offers and adopts a closed workspace in place',as
   original.dom.window.close();personal.dom.window.close();
 });
 
-test('completed task records remain recoverable after their tab closes',async()=>{
+test('completed task records are not persisted as recoverable workspace history',async()=>{
   const original=await fixture();
-  const task=original.h.enqueue('保留已完成任务记录','once');
+  const task=original.h.enqueue('完成后不再占用 localStorage','once');
   task.state='done';
   original.h.log(task,'任务已完成');
   original.h.data.selected=task.id;
   original.w.__FABUSHI_AUTO_CONFIRM_INSTANCE__.shutdown();
   await Promise.resolve();
   const owner=original.h.getTabId();
+  const persisted=JSON.parse(original.w.localStorage.getItem('fabushi-workbench-v2'));
+  assert.equal(persisted.tasks.some(item=>item.id===task.id),false);
 
   const personal=await fixture('',w=>{
     w.navigator.locks=original.w.navigator.locks;
     w.localStorage.setItem('fabushi-workbench-v2',original.w.localStorage.getItem('fabushi-workbench-v2'));
     w.localStorage.setItem('fabushi-workbench-legacy-owner-v1',owner);
   });
-  assert.equal(personal.h.recoverableWorkspaces().length,1);
-  const result=await personal.h.restoreWorkspace(owner,true);
-  assert.equal(result.target,'current');
-  assert.equal(personal.h.tabTasks()[0].state,'done');
-  assert.match(personal.h.tabTasks()[0].messages.at(-1).text,/任务已完成/);
+  assert.equal(personal.h.recoverableWorkspaces().length,0);
+  assert.equal(personal.h.tabTasks().length,0);
   original.dom.window.close();personal.dom.window.close();
 });
 
@@ -5607,8 +5716,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.10\.17$/m);
-  assert.match(source,/const VERSION = '2\.10\.17'/);
+  assert.match(source,/^\/\/ @version\s+2\.10\.18$/m);
+  assert.match(source,/const VERSION = '2\.10\.18'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
