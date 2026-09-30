@@ -288,6 +288,7 @@ async function bootstrapAttempt() {
   const MAX_RENDERED_TASK_MESSAGES = 30;
   const AUTO_RECOVERABLE_STATE_NAMES = new Set(['queued', 'sending', 'uploading', 'waiting', 'loading', 'generating', 'approval', 'reviewing']);
   const volatileStorageShadow = new Map();
+  const fabushiStorageSizeCache = new Map();
   const WORKBENCH_OVERFLOW_KEY = 'fabushi-workbench-overflow-v1:';
   const WORKBENCH_LOCAL_STORAGE_TARGET_CHARS = 500_000;
   const FABUSHI_LOCAL_STORAGE_MAX_CHARS = 600_000;
@@ -316,8 +317,11 @@ async function bootstrapAttempt() {
       for (let index = 0; index < Number(window.localStorage.length || 0); index += 1) {
         const key = window.localStorage.key(index);
         if (!key || key === excluded || !fabushiOwnedStorageKey(key)) continue;
-        const value = window.localStorage.getItem(key) || '';
-        chars += key.length + value.length;
+        if (!fabushiStorageSizeCache.has(key)) {
+          const value = window.localStorage.getItem(key) || '';
+          fabushiStorageSizeCache.set(key, key.length + value.length);
+        }
+        chars += Number(fabushiStorageSizeCache.get(key) || 0);
       }
     } catch {}
     return chars;
@@ -346,6 +350,7 @@ async function bootstrapAttempt() {
     try {
       window.localStorage.setItem(storageKey, serialized);
       volatileStorageShadow.delete(storageKey);
+      if (fabushiOwnedStorageKey(storageKey)) fabushiStorageSizeCache.set(storageKey, storageKey.length + serialized.length);
       return { ok:true, error:null, projectedChars:fabushiLocalStorageFootprint() };
     } catch (error) {
       if (shadow) volatileStorageShadow.set(storageKey, serialized); else volatileStorageShadow.delete(storageKey);
@@ -355,6 +360,7 @@ async function bootstrapAttempt() {
   function removeLocalStorageRecord(key) {
     const storageKey = String(key || '');
     volatileStorageShadow.delete(storageKey);
+    fabushiStorageSizeCache.delete(storageKey);
     try { window.localStorage.removeItem(storageKey); return true; } catch { return false; }
   }
   function readSessionStorageString(key) { try { return window.sessionStorage.getItem(String(key || '')); } catch { return null; } }
@@ -389,6 +395,7 @@ async function bootstrapAttempt() {
       try {
         window.localStorage.removeItem(key);
         volatileStorageShadow.delete(key);
+        fabushiStorageSizeCache.delete(key);
         removed += 1;
       } catch {}
     }
@@ -439,6 +446,12 @@ async function bootstrapAttempt() {
     if (lifecycleController) target.addEventListener(type, handler, { ...options, signal: lifecycleController.signal });
     else target.addEventListener(type, handler, options);
   };
+  listen(window, 'storage', event => {
+    const key = String(event?.key || '');
+    if (!fabushiOwnedStorageKey(key)) return;
+    if (event.newValue == null) fabushiStorageSizeCache.delete(key);
+    else fabushiStorageSizeCache.set(key, key.length + String(event.newValue).length);
+  });
   function readMemorySnapshot() {
     let memory;
     try { memory = window.performance?.memory; } catch { memory = null; }
@@ -621,7 +634,9 @@ async function bootstrapAttempt() {
       selected,
       selectedByTab,
       tabControls,
-      defaultReasoningPreset:normalizeReasoningPreset(source.defaultReasoningPreset),
+      defaultReasoningPreset:Number.isInteger(Number(source.defaultReasoningPreset)) && Number(source.defaultReasoningPreset) >= 0 && Number(source.defaultReasoningPreset) <= 4
+        ? Number(source.defaultReasoningPreset)
+        : 3,
     };
   }
   function normalizeLeanSnapshotReferences(snapshot) {
