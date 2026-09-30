@@ -273,9 +273,9 @@ async function bootstrapAttempt() {
   // aggregate diagnostic history well below that quota so many long-running
   // tasks cannot independently grow the canonical workbench until setItem()
   // throws. Emergency limits are used only after a real quota rejection.
-  const STORAGE_NORMAL_TASK_MESSAGES = 40;
-  const STORAGE_NORMAL_MESSAGE_TEXT = 8000;
-  const STORAGE_NORMAL_TASK_MESSAGE_CHARS = 96000;
+  const STORAGE_NORMAL_TASK_MESSAGES = MAX_TASK_MESSAGES;
+  const STORAGE_NORMAL_MESSAGE_TEXT = MAX_TASK_MESSAGE_TEXT;
+  const STORAGE_NORMAL_TASK_MESSAGE_CHARS = MAX_TASK_MESSAGE_CHARS;
   const STORAGE_NORMAL_GLOBAL_MESSAGE_CHARS = 800000;
   const STORAGE_EMERGENCY_TASK_MESSAGES = 12;
   const STORAGE_EMERGENCY_MESSAGE_TEXT = 4000;
@@ -432,8 +432,8 @@ async function bootstrapAttempt() {
     let serialized = JSON.stringify(state);
     try {
       localStorage.setItem(KEY, serialized);
-      if (storagePersistenceStatus.level !== 'ok') {
-        storagePersistenceStatus = { level:'ok', at:Date.now(), attemptedChars:serialized.length, emergencyChars:0, compactedMessages:normal.compactedMessages };
+      if (storagePersistenceStatus.level === 'blocked') {
+        storagePersistenceStatus = { level:'recovered', at:Date.now(), attemptedChars:serialized.length, emergencyChars:serialized.length, compactedMessages:normal.compactedMessages };
       }
       return true;
     } catch (error) {
