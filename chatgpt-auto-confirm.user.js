@@ -6058,6 +6058,35 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && !currentRateLimit
       && !task.attempted
     );
+    // A conversation-length notice is a hard product boundary, not a normal
+    // final answer. Handle it before final-toolbar classification so a visible
+    // copy/share toolbar on the notice cannot prematurely finish Work/Review.
+    const lengthLimitNotice = pageBelongsToTask && !approvalBlocking ? conversationLengthLimitNotice(turn, getPageUiRecords) : '';
+    if (lengthLimitNotice) {
+      if (observedActivityStreaming || stopPresent) {
+        const waitKey = `${taskURL}:${normalize(lengthLimitNotice).slice(0, 200)}:generating`;
+        task.state = 'waiting';
+        task.updatedAt = Date.now();
+        if (task.lengthLimitCarryWaitKey !== waitKey) {
+          task.lengthLimitCarryWaitKey = waitKey;
+          log(task, '已检测到会话长度上限，但当前 assistant 仍在生成；先留在原会话等待这一轮结束，再提取完整回复接力，不会复制中途内容。');
+        }
+        save();
+        return;
+      }
+      if (queueConversationLengthHandoff(task, turn, lengthLimitNotice, Date.now())) return;
+      // Do not advance with an older assistant reply or with the notice itself
+      // when the current task response cannot yet be safely established.
+      const waitKey = `${taskURL}:${normalize(lengthLimitNotice).slice(0, 240)}`;
+      task.state = 'waiting';
+      task.updatedAt = Date.now();
+      if (task.lengthLimitCarryWaitKey !== waitKey) {
+        task.lengthLimitCarryWaitKey = waitKey;
+        log(task, '已检测到会话长度上限，但当前任务的 assistant 回复尚不能安全提取；保留原会话等待内容稳定，不会把旧回复或提示文字带入新会话。');
+      }
+      save();
+      return;
+    }
     const stopDisappearedFreshCandidate = Boolean(
       !stopPresent
       // Review uses the bounded settlement/no-final path below so long
@@ -6190,35 +6219,6 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
           ? `页面刷新后当前会话输入框已就绪，但消息区仍未挂载；最多等待 ${Math.ceil(ROUTE_HYDRATION_TIMEOUT_MS / 1000)} 秒，仍为空时只刷新当前会话，不会重复发送或新开会话。`
           : '页面刷新后仍在恢复当前任务内容；已保留会话并继续监督，等待消息区和输入框完成加载。');
       }
-      return;
-    }
-    // A conversation-length notice is a hard product boundary, not a normal
-    // final answer. Handle it before final-toolbar classification so a visible
-    // copy/share toolbar on the notice cannot prematurely finish Work/Review.
-    const lengthLimitNotice = pageBelongsToTask && !approvalBlocking ? conversationLengthLimitNotice(turn, getPageUiRecords) : '';
-    if (lengthLimitNotice) {
-      if (observedActivityStreaming || stopPresent) {
-        const waitKey = `${taskURL}:${normalize(lengthLimitNotice).slice(0, 200)}:generating`;
-        task.state = 'waiting';
-        task.updatedAt = Date.now();
-        if (task.lengthLimitCarryWaitKey !== waitKey) {
-          task.lengthLimitCarryWaitKey = waitKey;
-          log(task, '已检测到会话长度上限，但当前 assistant 仍在生成；先留在原会话等待这一轮结束，再提取完整回复接力，不会复制中途内容。');
-        }
-        save();
-        return;
-      }
-      if (queueConversationLengthHandoff(task, turn, lengthLimitNotice, Date.now())) return;
-      // Do not advance with an older assistant reply or with the notice itself
-      // when the current task response cannot yet be safely established.
-      const waitKey = `${taskURL}:${normalize(lengthLimitNotice).slice(0, 240)}`;
-      task.state = 'waiting';
-      task.updatedAt = Date.now();
-      if (task.lengthLimitCarryWaitKey !== waitKey) {
-        task.lengthLimitCarryWaitKey = waitKey;
-        log(task, '已检测到会话长度上限，但当前任务的 assistant 回复尚不能安全提取；保留原会话等待内容稳定，不会把旧回复或提示文字带入新会话。');
-      }
-      save();
       return;
     }
     if (stopDisappearedFreshEligible) {
