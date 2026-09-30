@@ -296,20 +296,20 @@ async function bootstrapAttempt() {
   function readStorageString(key) {
     const storageKey = String(key || '');
     if (volatileStorageShadow.has(storageKey)) return volatileStorageShadow.get(storageKey);
-    try { return window.readStorageString(storageKey); } catch { return null; }
+    try { return window.localStorage.getItem(storageKey); } catch { return null; }
   }
   function tryLocalStorageSet(key, value, { shadow = true } = {}) {
     const storageKey = String(key || ''), serialized = String(value ?? '');
-    try { window.writeLocalStorageRecord(storageKey, serialized); volatileStorageShadow.delete(storageKey); return { ok:true, error:null }; }
+    try { window.localStorage.setItem(storageKey, serialized); volatileStorageShadow.delete(storageKey); return { ok:true, error:null }; }
     catch (error) { if (shadow) volatileStorageShadow.set(storageKey, serialized); else volatileStorageShadow.delete(storageKey); return { ok:false, error }; }
   }
   function removeLocalStorageRecord(key) {
     const storageKey = String(key || ''); volatileStorageShadow.delete(storageKey);
-    try { window.removeLocalStorageRecord(storageKey); return true; } catch { return false; }
+    try { window.localStorage.removeItem(storageKey); return true; } catch { return false; }
   }
-  function readSessionStorageString(key) { try { return window.readSessionStorageString(String(key || '')); } catch { return null; } }
-  function writeSessionStorageRecord(key, value) { try { window.writeSessionStorageRecord(String(key || ''), String(value ?? '')); return true; } catch { return false; } }
-  function removeSessionStorageRecord(key) { try { window.removeSessionStorageRecord(String(key || '')); return true; } catch { return false; } }
+  function readSessionStorageString(key) { try { return window.sessionStorage.getItem(String(key || '')); } catch { return null; } }
+  function writeSessionStorageRecord(key, value) { try { window.sessionStorage.setItem(String(key || ''), String(value ?? '')); return true; } catch { return false; } }
+  function removeSessionStorageRecord(key) { try { window.sessionStorage.removeItem(String(key || '')); return true; } catch { return false; } }
   function cleanupStaleFabushiStorage(now = Date.now()) {
     if (now - storageCleanupLastAt < STORAGE_CLEANUP_COOLDOWN_MS) return 0;
     storageCleanupLastAt = now;
@@ -326,10 +326,10 @@ async function bootstrapAttempt() {
     let removed = 0;
     for (const key of keys) {
       const policy = policies.find(([prefix]) => key.startsWith(prefix)); if (!policy) continue;
-      let record = null; try { record = JSON.parse(window.readStorageString(key) || 'null'); } catch {}
+      let record = null; try { record = JSON.parse(window.localStorage.getItem(key) || 'null'); } catch {}
       const at = Number(record?.at || record?.lastSeenAt || record?.lastAt || 0);
       if (!at || now - at < policy[1]) continue;
-      try { window.removeLocalStorageRecord(key); volatileStorageShadow.delete(key); removed++; } catch {}
+      try { window.localStorage.removeItem(key); volatileStorageShadow.delete(key); removed++; } catch {}
     }
     return removed;
   }
