@@ -34,7 +34,7 @@ async function fixture(body='', setup=()=>{}, url='https://chatgpt.com/') {
     const form = w.document.querySelector('form') || w.document.body;
     form.append(trigger);
   }
-  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, assistantResponseBoundaryKey, taskTurnForInspection, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, conversationLoadFailure, clearConversationLoadFailureState, recoverConversationLoadFailure, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, normalizeReasoningPreset, reasoningPresetLabel, taskReasoningPreset, reasoningPickerTrigger, reasoningSliderState, clearReasoningPickerRecovery, waitForReasoningPicker, ensureTaskReasoningPreset, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, refreshInterruptedStopStall, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, storageStatusText, persistWorkbenchState, compactWorkbenchForStorage, storagePersistenceStatus:()=>storagePersistenceStatus, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), setRunningForTest:value=>{running=Boolean(value);}, getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, assistantResponseBoundaryKey, taskTurnForInspection, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, conversationLoadFailure, clearConversationLoadFailureState, recoverConversationLoadFailure, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, normalizeReasoningPreset, reasoningPresetLabel, taskReasoningPreset, reasoningPickerTrigger, reasoningSliderState, clearReasoningPickerRecovery, waitForReasoningPicker, ensureTaskReasoningPreset, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, refreshInterruptedStopStall, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, storageStatusText, persistWorkbenchState, compactWorkbenchForStorage, writeLocalStorageRecord, readStorageString, readWorkbenchOverflow, cleanupStaleFabushiStorage, scheduleWorkspaceHeartbeat, workspaceHeartbeatScheduled:()=>Boolean(workspaceHeartbeatTimer), storagePersistenceStatus:()=>storagePersistenceStatus, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), setRunningForTest:value=>{running=Boolean(value);}, getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('workbench quota overflow compacts diagnostic history and retries without losing runnable task identity',async()=>{
@@ -70,7 +70,7 @@ test('workbench quota overflow compacts diagnostic history and retries without l
     };
 
     assert.equal(h.persistWorkbenchState(h.data),true);
-    assert.equal(canonicalAttempts,2,'normal write is rejected once and the emergency-compacted retry succeeds');
+    assert.equal(canonicalAttempts,3,'normal write and its post-cleanup retry are rejected before the emergency-compacted retry succeeds');
     assert.equal(h.storagePersistenceStatus().level,'recovered');
     const persisted=JSON.parse(w.localStorage.getItem('fabushi-workbench-v2'));
     const saved=persisted.tasks.find(item=>item.id==='quota-active');
@@ -87,7 +87,7 @@ test('workbench quota overflow compacts diagnostic history and retries without l
     assert.deepEqual(saved.attachments,task.attachments);
     assert.ok(saved.messages.length<40);
     assert.ok(saved.messages.reduce((sum,item)=>sum+String(item.text||'').length,0)<=24_000);
-    assert.match(h.storageStatusText(),/自动压缩恢复/);
+    assert.match(h.storageStatusText(),/自动恢复/);
   } finally {
     proto.setItem=originalSetItem;
     h.pause();
@@ -108,7 +108,7 @@ test('permanently exhausted workbench storage fails closed without deleting task
     };
 
     assert.equal(h.persistWorkbenchState(h.data),false);
-    assert.equal(h.storagePersistenceStatus().level,'blocked');
+    assert.equal(h.storagePersistenceStatus().level,'degraded');
     const stillThere=h.data.tasks.find(item=>item.id==='quota-blocked');
     assert.ok(stillThere);
     assert.equal(stillThere.state,'cancelled');
@@ -116,12 +116,135 @@ test('permanently exhausted workbench storage fails closed without deleting task
     assert.equal(stillThere.url,'https://chatgpt.com/c/quota-blocked');
     assert.equal(stillThere.token,'blocked-token');
     assert.deepEqual(stillThere.attachments,task.attachments);
-    assert.match(h.storageStatusText(),/仍不足/);
+    assert.match(h.storageStatusText(),/继续运行/);
   } finally {
     proto.setItem=originalSetItem;
     h.pause();
     dom.window.close();
   }
+});
+
+test('heartbeat quota rejection is non-fatal and preserves the runnable task',async()=>{
+  const {h,w,dom}=await fixture();
+  const proto=Object.getPrototypeOf(w.localStorage);
+  const originalSetItem=proto.setItem;
+  try {
+    const task={id:'heartbeat-quota',ownerTabId:h.getTabId(),goal:'keep running',mode:'once',state:'waiting',phase:'work',round:4,url:'https://chatgpt.com/c/heartbeat-quota',token:'heartbeat-token',attempted:false,attachments:[],messages:[]};
+    h.data.tasks.push(task);
+    proto.setItem=function(key,value){
+      if(String(key).startsWith('fabushi-workspace-heartbeat-v1:')) throw new w.DOMException('quota full','QuotaExceededError');
+      return originalSetItem.call(this,key,value);
+    };
+    assert.doesNotThrow(()=>h.writeWorkspaceHeartbeat('quota-test'));
+    assert.equal(h.writeWorkspaceHeartbeat('quota-test'),false);
+    const live=h.data.tasks.find(item=>item.id==='heartbeat-quota');
+    assert.ok(live);
+    assert.equal(live.state,'waiting');
+    assert.equal(live.token,'heartbeat-token');
+  } finally {
+    proto.setItem=originalSetItem;
+    h.pause();
+    dom.window.close();
+  }
+});
+
+test('heartbeat scheduler rearms after storage rejection instead of silently stopping',async()=>{
+  const {h,w,dom}=await fixture();
+  const proto=Object.getPrototypeOf(w.localStorage);
+  const originalSetItem=proto.setItem;
+  try {
+    const task={id:'heartbeat-rearm',ownerTabId:h.getTabId(),goal:'rearm',mode:'once',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/heartbeat-rearm',token:'rearm-token',attachments:[],messages:[]};
+    h.data.tasks.push(task);
+    proto.setItem=function(key,value){
+      if(String(key).startsWith('fabushi-workspace-heartbeat-v1:')) throw new w.DOMException('quota full','QuotaExceededError');
+      return originalSetItem.call(this,key,value);
+    };
+    h.scheduleWorkspaceHeartbeat(1000);
+    await new Promise(resolve=>w.setTimeout(resolve,1100));
+    assert.equal(h.workspaceHeartbeatScheduled(),true,'the failed heartbeat callback must schedule its next attempt in finally');
+  } finally {
+    proto.setItem=originalSetItem;
+    h.pause();
+    dom.window.close();
+  }
+});
+
+test('canonical quota exhaustion falls back to same-tab session state and current reads stay fresh',async()=>{
+  const {h,w,dom}=await fixture();
+  const proto=Object.getPrototypeOf(w.localStorage);
+  const originalSetItem=proto.setItem;
+  try {
+    const task={id:'session-overflow',ownerTabId:h.getTabId(),goal:'latest goal',mode:'once',state:'waiting',phase:'work',round:9,url:'https://chatgpt.com/c/session-overflow',token:'latest-token',attachments:[],messages:[{at:1,role:'status',text:'latest'}]};
+    h.data.tasks.push(task);
+    proto.setItem=function(key,value){
+      if(key==='fabushi-workbench-v2') throw new w.DOMException('quota full','QuotaExceededError');
+      return originalSetItem.call(this,key,value);
+    };
+    assert.equal(h.persistWorkbenchState(h.data),false);
+    assert.equal(h.storagePersistenceStatus().level,'degraded');
+    assert.equal(h.storagePersistenceStatus().fallback,'session');
+    const overflow=h.readWorkbenchOverflow(h.getTabId());
+    assert.ok(overflow);
+    const saved=overflow.tasks.find(item=>item.id==='session-overflow');
+    assert.equal(saved.goal,'latest goal');
+    assert.equal(saved.round,9);
+    const shadow=JSON.parse(h.readStorageString('fabushi-workbench-v2'));
+    assert.equal(shadow.tasks.find(item=>item.id==='session-overflow').token,'latest-token');
+  } finally {
+    proto.setItem=originalSetItem;
+    h.pause();
+    dom.window.close();
+  }
+});
+
+test('successful later canonical persistence clears quota overflow fallback',async()=>{
+  const {h,w,dom}=await fixture();
+  const proto=Object.getPrototypeOf(w.localStorage);
+  const originalSetItem=proto.setItem;
+  try {
+    const task={id:'overflow-recover',ownerTabId:h.getTabId(),goal:'recover persistence',mode:'once',state:'waiting',phase:'work',round:2,url:'',token:'',attachments:[],messages:[]};
+    h.data.tasks.push(task);
+    let reject=true;
+    proto.setItem=function(key,value){
+      if(reject && key==='fabushi-workbench-v2') throw new w.DOMException('quota full','QuotaExceededError');
+      return originalSetItem.call(this,key,value);
+    };
+    assert.equal(h.persistWorkbenchState(h.data),false);
+    assert.ok(h.readWorkbenchOverflow(h.getTabId()));
+    reject=false;
+    assert.equal(h.persistWorkbenchState(h.data),true);
+    assert.equal(h.readWorkbenchOverflow(h.getTabId()),null);
+    assert.equal(h.storagePersistenceStatus().level,'recovered');
+  } finally {
+    proto.setItem=originalSetItem;
+    h.pause();
+    dom.window.close();
+  }
+});
+
+test('critical recovery ticket refuses volatile-only persistence',async()=>{
+  const {h,w,dom}=await fixture();
+  const proto=Object.getPrototypeOf(w.localStorage);
+  const originalSetItem=proto.setItem;
+  try {
+    const task={id:'critical-ticket',ownerTabId:h.getTabId(),goal:'ticket',mode:'once',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/critical-ticket',token:'critical-token',attachments:[],messages:[]};
+    h.data.tasks.push(task);
+    proto.setItem=function(key,value){
+      if(String(key).startsWith('fabushi-workspace-recovery-v1:') || String(key).startsWith('fabushi-workspace-auto-recovery-v1:')) throw new w.DOMException('quota full','QuotaExceededError');
+      return originalSetItem.call(this,key,value);
+    };
+    assert.equal(h.ensureAutomaticRecoveryTicket(task,{force:true}),null);
+  } finally {
+    proto.setItem=originalSetItem;
+    h.pause();
+    dom.window.close();
+  }
+});
+
+test('runtime storage writes are centralized behind resilience helpers',()=>{
+  const productSource=source.replace(/function readStorageString[\s\S]*?const read = \(key, fallback\) => \{ try \{ return JSON\.parse\(readStorageString\(key\)\) \|\| fallback; \} catch \{ return fallback; \} \};/,'');
+  assert.doesNotMatch(productSource,/(?:^|[^.])localStorage\.setItem\(/m);
+  assert.doesNotMatch(productSource,/(?:^|[^.])sessionStorage\.setItem\(/m);
 });
 
 test('reasoning preset defaults to Extra High and explicit five-position choices persist',async()=>{
@@ -5484,8 +5607,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.10\.16$/m);
-  assert.match(source,/const VERSION = '2\.10\.16'/);
+  assert.match(source,/^\/\/ @version\s+2\.10\.17$/m);
+  assert.match(source,/const VERSION = '2\.10\.17'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
