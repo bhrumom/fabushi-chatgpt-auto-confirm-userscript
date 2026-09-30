@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.17
+// @version      2.10.18
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.17';
+  const VERSION = '2.10.18';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -289,10 +289,45 @@ async function bootstrapAttempt() {
   const AUTO_RECOVERABLE_STATE_NAMES = new Set(['queued', 'sending', 'uploading', 'waiting', 'loading', 'generating', 'approval', 'reviewing']);
   const volatileStorageShadow = new Map();
   const WORKBENCH_OVERFLOW_KEY = 'fabushi-workbench-overflow-v1:';
+  const WORKBENCH_LOCAL_STORAGE_TARGET_CHARS = 500_000;
+  const FABUSHI_LOCAL_STORAGE_MAX_CHARS = 600_000;
+  const DURABLE_RECOVERY_TEXT_MAX_CHARS = 48_000;
+  const DURABLE_PREPARED_PROMPT_MAX_CHARS = 128_000;
   const STORAGE_CLEANUP_COOLDOWN_MS = 60 * 1000;
   const STORAGE_CLEANUP_SCAN_LIMIT = 96;
   let storageCleanupLastAt = 0;
   let activeWorkspaceStorageId = '';
+  function fabushiOwnedStorageKey(key) {
+    const value = String(key || '');
+    if (!value) return false;
+    if ([KEY, LEGACY_OWNER_KEY, 'fabushi-auto-confirm-queue-v3', 'fabushi-auto-confirm-queue-v2', 'fabushi-auto-confirm-runtime-v2'].includes(value)) return true;
+    return [
+      WORKSPACE_HEARTBEAT_KEY,
+      WORKSPACE_AUTO_RECOVERY_KEY,
+      'fabushi-workspace-recovery-v1:',
+      TASK_TRANSFER_KEY,
+      'fabushi-navigation-guard-v1:',
+    ].some(prefix => value.startsWith(prefix));
+  }
+  function fabushiLocalStorageFootprint(excludingKey = '') {
+    const excluded = String(excludingKey || '');
+    let chars = 0;
+    try {
+      for (let index = 0; index < Number(window.localStorage.length || 0); index += 1) {
+        const key = window.localStorage.key(index);
+        if (!key || key === excluded || !fabushiOwnedStorageKey(key)) continue;
+        const value = window.localStorage.getItem(key) || '';
+        chars += key.length + value.length;
+      }
+    } catch {}
+    return chars;
+  }
+  function storageBudgetError(projectedChars) {
+    let error;
+    try { error = new DOMException(`Fabushi localStorage budget exceeded (${projectedChars}/${FABUSHI_LOCAL_STORAGE_MAX_CHARS})`, 'QuotaExceededError'); }
+    catch { error = new Error('Fabushi localStorage budget exceeded'); error.name = 'QuotaExceededError'; }
+    return error;
+  }
   function readStorageString(key) {
     const storageKey = String(key || '');
     if (volatileStorageShadow.has(storageKey)) return volatileStorageShadow.get(storageKey);
@@ -300,11 +335,26 @@ async function bootstrapAttempt() {
   }
   function tryLocalStorageSet(key, value, { shadow = true } = {}) {
     const storageKey = String(key || ''), serialized = String(value ?? '');
-    try { window.localStorage.setItem(storageKey, serialized); volatileStorageShadow.delete(storageKey); return { ok:true, error:null }; }
-    catch (error) { if (shadow) volatileStorageShadow.set(storageKey, serialized); else volatileStorageShadow.delete(storageKey); return { ok:false, error }; }
+    if (fabushiOwnedStorageKey(storageKey)) {
+      const projected = fabushiLocalStorageFootprint(storageKey) + storageKey.length + serialized.length;
+      if (projected > FABUSHI_LOCAL_STORAGE_MAX_CHARS) {
+        const error = storageBudgetError(projected);
+        if (shadow) volatileStorageShadow.set(storageKey, serialized); else volatileStorageShadow.delete(storageKey);
+        return { ok:false, error, projectedChars:projected };
+      }
+    }
+    try {
+      window.localStorage.setItem(storageKey, serialized);
+      volatileStorageShadow.delete(storageKey);
+      return { ok:true, error:null, projectedChars:fabushiLocalStorageFootprint() };
+    } catch (error) {
+      if (shadow) volatileStorageShadow.set(storageKey, serialized); else volatileStorageShadow.delete(storageKey);
+      return { ok:false, error, projectedChars:fabushiLocalStorageFootprint() };
+    }
   }
   function removeLocalStorageRecord(key) {
-    const storageKey = String(key || ''); volatileStorageShadow.delete(storageKey);
+    const storageKey = String(key || '');
+    volatileStorageShadow.delete(storageKey);
     try { window.localStorage.removeItem(storageKey); return true; } catch { return false; }
   }
   function readSessionStorageString(key) { try { return window.sessionStorage.getItem(String(key || '')); } catch { return null; } }
@@ -314,43 +364,75 @@ async function bootstrapAttempt() {
     if (now - storageCleanupLastAt < STORAGE_CLEANUP_COOLDOWN_MS) return 0;
     storageCleanupLastAt = now;
     let keys = [];
-    try { for (let i=0, n=Math.min(Number(window.localStorage.length || 0), STORAGE_CLEANUP_SCAN_LIMIT); i<n; i++) { const k=window.localStorage.key(i); if(k) keys.push(k); } }
-    catch { return 0; }
+    try {
+      const limit = Math.min(Number(window.localStorage.length || 0), STORAGE_CLEANUP_SCAN_LIMIT);
+      for (let index = 0; index < limit; index += 1) {
+        const key = window.localStorage.key(index);
+        if (key) keys.push(key);
+      }
+    } catch { return 0; }
     const policies = [
-      ['fabushi-workspace-heartbeat-v1:', WORKSPACE_HEARTBEAT_STALE_MS * 2],
-      ['fabushi-workspace-auto-recovery-v1:', NAV_TICKET_TTL_MS],
+      [WORKSPACE_HEARTBEAT_KEY, WORKSPACE_HEARTBEAT_STALE_MS * 2],
+      [WORKSPACE_AUTO_RECOVERY_KEY, NAV_TICKET_TTL_MS],
       ['fabushi-workspace-recovery-v1:', NAV_TICKET_TTL_MS],
       [TASK_TRANSFER_KEY, 60 * 1000],
       ['fabushi-navigation-guard-v1:', LOCAL_NAVIGATION_BURST_WINDOW_MS * 2],
     ];
     let removed = 0;
     for (const key of keys) {
-      const policy = policies.find(([prefix]) => key.startsWith(prefix)); if (!policy) continue;
-      let record = null; try { record = JSON.parse(window.localStorage.getItem(key) || 'null'); } catch {}
+      const policy = policies.find(([prefix]) => key.startsWith(prefix));
+      if (!policy) continue;
+      let record = null;
+      try { record = JSON.parse(window.localStorage.getItem(key) || 'null'); } catch {}
       const at = Number(record?.at || record?.lastSeenAt || record?.lastAt || 0);
       if (!at || now - at < policy[1]) continue;
-      try { window.localStorage.removeItem(key); volatileStorageShadow.delete(key); removed++; } catch {}
+      try {
+        window.localStorage.removeItem(key);
+        volatileStorageShadow.delete(key);
+        removed += 1;
+      } catch {}
     }
     return removed;
   }
   function writeLocalStorageRecord(key, value, { critical = false, cleanupOnFailure = true } = {}) {
     let result = tryLocalStorageSet(key, value, { shadow:!critical });
     if (result.ok) return true;
-    if (cleanupOnFailure && isStorageQuotaError(result.error)) { cleanupStaleFabushiStorage(); result = tryLocalStorageSet(key, value, { shadow:!critical }); if (result.ok) return true; }
+    if (cleanupOnFailure && isStorageQuotaError(result.error)) {
+      cleanupStaleFabushiStorage();
+      result = tryLocalStorageSet(key, value, { shadow:!critical });
+      if (result.ok) return true;
+    }
     return false;
   }
-  function overflowStorageKey(ownerTabId = activeWorkspaceStorageId) { const owner=String(ownerTabId||''); return owner ? WORKBENCH_OVERFLOW_KEY + owner : ''; }
+  function overflowStorageKey(ownerTabId = activeWorkspaceStorageId) {
+    const owner = String(ownerTabId || '');
+    return owner ? WORKBENCH_OVERFLOW_KEY + owner : '';
+  }
   function writeWorkbenchOverflowSerialized(serialized, ownerTabId = activeWorkspaceStorageId) {
-    const key=overflowStorageKey(ownerTabId); if(!key) return false;
-    return writeSessionStorageRecord(key, JSON.stringify({version:1,ownerTabId:String(ownerTabId||''),at:Date.now(),serialized:String(serialized||'')}));
+    const key = overflowStorageKey(ownerTabId);
+    if (!key) return false;
+    return writeSessionStorageRecord(key, JSON.stringify({
+      version:2,
+      ownerTabId:String(ownerTabId || ''),
+      at:Date.now(),
+      serialized:String(serialized || ''),
+    }));
   }
   function readWorkbenchOverflow(ownerTabId = activeWorkspaceStorageId) {
-    const key=overflowStorageKey(ownerTabId); if(!key) return null;
-    let record; try { record=JSON.parse(readSessionStorageString(key)||'null'); } catch { record=null; }
-    if(!record || record.version!==1 || record.ownerTabId!==String(ownerTabId||'') || typeof record.serialized!=='string') return null;
-    try { const state=JSON.parse(record.serialized); return state && Array.isArray(state.tasks) ? state : null; } catch { return null; }
+    const key = overflowStorageKey(ownerTabId);
+    if (!key) return null;
+    let record;
+    try { record = JSON.parse(readSessionStorageString(key) || 'null'); } catch { record = null; }
+    if (!record || ![1,2].includes(Number(record.version)) || record.ownerTabId !== String(ownerTabId || '') || typeof record.serialized !== 'string') return null;
+    try {
+      const state = JSON.parse(record.serialized);
+      return state && Array.isArray(state.tasks) ? state : null;
+    } catch { return null; }
   }
-  function clearWorkbenchOverflow(ownerTabId = activeWorkspaceStorageId) { const key=overflowStorageKey(ownerTabId); if(key) removeSessionStorageRecord(key); }
+  function clearWorkbenchOverflow(ownerTabId = activeWorkspaceStorageId) {
+    const key = overflowStorageKey(ownerTabId);
+    if (key) removeSessionStorageRecord(key);
+  }
   const read = (key, fallback) => { try { return JSON.parse(readStorageString(key)) || fallback; } catch { return fallback; } };
   const lifecycleController = typeof AbortController === 'function' ? new AbortController() : null;
   const listen = (target, type, handler, options = {}) => {
@@ -425,7 +507,7 @@ async function bootstrapAttempt() {
     return changed;
   }
 
-  let storagePersistenceStatus = { level:'ok', at:0, attemptedChars:0, emergencyChars:0, compactedMessages:0 };
+  let storagePersistenceStatus = { level:'ok', at:0, attemptedChars:0, emergencyChars:0, compactedMessages:0, canonicalChars:0, footprintChars:0, trimmed:false, fallback:'' };
   function isStorageQuotaError(error) {
     if (!error) return false;
     const name = String(error.name || '');
@@ -438,71 +520,225 @@ async function bootstrapAttempt() {
       || /(?:quota|storage).*(?:exceed|full)|exceeded.*quota/i.test(message);
   }
   function storageStatusText() {
-    if (storagePersistenceStatus.level === 'recovered') return `本地存储已自动恢复（约 ${Math.max(1, Math.round(Number(storagePersistenceStatus.emergencyChars || 0) / 1024))} KB）`;
+    if (storagePersistenceStatus.level === 'recovered') {
+      return `本地存储已自动恢复；当前脚本占用约 ${Math.max(1, Math.round(Number(storagePersistenceStatus.footprintChars || 0) / 1024))} KB。`;
+    }
+    if (storagePersistenceStatus.level === 'trimmed') {
+      return `本地存储已保持精简，仅保存最新运行必需状态（约 ${Math.max(1, Math.round(Number(storagePersistenceStatus.canonicalChars || 0) / 1024))} KB）。`;
+    }
     if (storagePersistenceStatus.level === 'degraded' || storagePersistenceStatus.level === 'blocked') {
       const fallback = storagePersistenceStatus.fallback === 'session' ? '当前标签页应急存储' : '内存应急存储';
-      return `本地持久化空间不足；已切换到${fallback}继续运行，后续会自动重试持久化，不会停止任务。`;
+      return `本地持久化空间不足；已切换到${fallback}继续运行，Fabushi 不会继续扩大 localStorage。`;
     }
     return '';
   }
-  function storageMessageChars(state) {
-    return (state?.tasks || []).reduce((sum, task) => sum + (task?.messages || []).reduce((inner, item) => inner + String(item?.text || '').length, 0), 0);
+  function boundedDurableText(value, maxChars) {
+    const text = String(value || '');
+    const limit = Math.max(0, Number(maxChars) || 0);
+    if (!text || !limit) return '';
+    if (text.length <= limit) return text;
+    const marker = '\n…[Fabushi durable latest-only]…\n';
+    const available = Math.max(0, limit - marker.length);
+    const head = Math.floor(available * 0.45);
+    const tail = Math.max(0, available - head);
+    return text.slice(0, head) + marker + text.slice(-tail);
   }
-  function compactWorkbenchForStorage(state, { emergency = false } = {}) {
-    if (!state || !Array.isArray(state.tasks)) return { changed:false, compactedMessages:0 };
-    const limits = emergency
-      ? { maxMessages:STORAGE_EMERGENCY_TASK_MESSAGES, maxText:STORAGE_EMERGENCY_MESSAGE_TEXT, maxChars:STORAGE_EMERGENCY_TASK_MESSAGE_CHARS, globalChars:STORAGE_EMERGENCY_GLOBAL_MESSAGE_CHARS }
-      : { maxMessages:STORAGE_NORMAL_TASK_MESSAGES, maxText:STORAGE_NORMAL_MESSAGE_TEXT, maxChars:STORAGE_NORMAL_TASK_MESSAGE_CHARS, globalChars:STORAGE_NORMAL_GLOBAL_MESSAGE_CHARS };
-    let changed = false;
-    let beforeCount = 0;
-    for (const task of state.tasks) {
-      beforeCount += Array.isArray(task.messages) ? task.messages.length : 0;
-      if (compactTaskMessages(task, limits)) changed = true;
-      if (emergency && task?.state === 'done') {
-        for (const field of ['preparedPrompt','preview','lengthLimitCarry','abnormalFreshCarry','handoffReplySnapshot','pendingContinuationText','retainedComposerDraft','connectionInterruptedURL']) {
-          if (task[field]) { task[field] = ''; changed = true; }
-        }
+  function durableTaskSnapshot(task) {
+    if (!task || typeof task !== 'object' || String(task.state || '') === 'done') return null;
+    const snapshot = { ...task };
+    for (const field of [
+      'messages','messageVersion','history','sessionUrl','sessionUrls',
+      'preview','previewSourceURL','previewPhase','previewRound',
+      'prompt','transientConversationURLLast','attachmentUploadLastError',
+      'navigationGuardNoticeAt','retainedComposerDraftNotedAt',
+      'reasoningPresetConfirmedAt','reasoningPresetConfirmedIndex',
+    ]) delete snapshot[field];
+
+    snapshot.id = String(snapshot.id || '').slice(0, 160);
+    snapshot.ownerTabId = String(snapshot.ownerTabId || '').slice(0, 160);
+    snapshot.goal = String(snapshot.goal || '').slice(0, 16000);
+    snapshot.result = String(snapshot.result || '').slice(0, 24000);
+    snapshot.next = String(snapshot.next || '').slice(0, 16000);
+    snapshot.url = canonicalConversationURL(snapshot.url) || '';
+    snapshot.attachments = Array.isArray(snapshot.attachments)
+      ? snapshot.attachments.map(normalizeAttachmentMeta).filter(Boolean)
+      : [];
+
+    const keepPreparedPrompt = Boolean(snapshot.sendPrepared || snapshot.attempted);
+    if (keepPreparedPrompt && snapshot.preparedPrompt) {
+      snapshot.preparedPrompt = boundedDurableText(snapshot.preparedPrompt, DURABLE_PREPARED_PROMPT_MAX_CHARS);
+    } else {
+      delete snapshot.preparedPrompt;
+      delete snapshot.preparedAt;
+    }
+
+    for (const field of ['lengthLimitCarry','abnormalFreshCarry','handoffReplySnapshot']) {
+      if (snapshot[field]) snapshot[field] = boundedDurableText(snapshot[field], DURABLE_RECOVERY_TEXT_MAX_CHARS);
+      else delete snapshot[field];
+    }
+    if (!snapshot.lengthLimitCarry) {
+      delete snapshot.lengthLimitCarrySourceURL;
+      delete snapshot.lengthLimitCarryWaitKey;
+      delete snapshot.lengthLimitHopCount;
+      delete snapshot.lengthLimitLastAt;
+    }
+    if (!snapshot.abnormalFreshCarry) {
+      for (const field of ['abnormalFreshCarryAt','abnormalFreshCarryPhase','abnormalFreshCarryReason','abnormalFreshCarryRound','abnormalFreshCarrySourceKind','abnormalFreshCarrySourceURL']) delete snapshot[field];
+    }
+    if (!snapshot.handoffReplySnapshot) {
+      for (const field of ['handoffReplySnapshotAt','handoffReplySnapshotGoalRevision','handoffReplySnapshotPhase','handoffReplySnapshotRound','handoffReplySnapshotSourceURL']) delete snapshot[field];
+    }
+    return snapshot;
+  }
+  function durableWorkbenchSnapshot(state) {
+    const source = state && typeof state === 'object' ? state : {};
+    const tasks = (Array.isArray(source.tasks) ? source.tasks : []).map(durableTaskSnapshot).filter(Boolean);
+    const taskIds = new Set(tasks.map(task => task.id).filter(Boolean));
+    const owners = new Set(tasks.map(task => task.ownerTabId).filter(Boolean));
+    if (activeWorkspaceStorageId) owners.add(activeWorkspaceStorageId);
+
+    const selectedByTab = {};
+    for (const [owner, taskId] of Object.entries(source.selectedByTab || {})) {
+      if (owners.has(owner) && taskIds.has(taskId)) selectedByTab[owner] = taskId;
+    }
+    const tabControls = {};
+    for (const [owner, control] of Object.entries(source.tabControls || {})) {
+      if (!owners.has(owner) || !control || typeof control !== 'object') continue;
+      tabControls[owner] = {
+        autoResume:control.autoResume !== false,
+        lastDispatchAt:Number(control.lastDispatchAt || 0),
+        controlRevision:Number(control.controlRevision || 0),
+        pausedAt:Number(control.pausedAt || 0),
+        globalAutoApprove:Boolean(control.globalAutoApprove),
+        autoApprove:control.autoApprove !== false,
+      };
+    }
+    const selected = taskIds.has(source.selected) ? source.selected : (selectedByTab[activeWorkspaceStorageId] || '');
+    return {
+      version:3,
+      tasks,
+      deletedTaskIds:Array.isArray(source.deletedTaskIds) ? source.deletedTaskIds.slice(-50).map(value => String(value || '').slice(0, 160)).filter(Boolean) : [],
+      selected,
+      selectedByTab,
+      tabControls,
+      defaultReasoningPreset:normalizeReasoningPreset(source.defaultReasoningPreset),
+    };
+  }
+  function normalizeLeanSnapshotReferences(snapshot) {
+    const ids = new Set((snapshot.tasks || []).map(task => task.id).filter(Boolean));
+    for (const [owner, taskId] of Object.entries(snapshot.selectedByTab || {})) {
+      if (!ids.has(taskId)) delete snapshot.selectedByTab[owner];
+    }
+    if (snapshot.selected && !ids.has(snapshot.selected)) snapshot.selected = snapshot.selectedByTab?.[activeWorkspaceStorageId] || '';
+    return snapshot;
+  }
+  function fitWorkbenchSnapshotToLocalBudget(snapshot, targetChars = WORKBENCH_LOCAL_STORAGE_TARGET_CHARS) {
+    const lean = JSON.parse(JSON.stringify(snapshot || { tasks:[] }));
+    let serialized = JSON.stringify(lean);
+    if (serialized.length <= targetChars) return { snapshot:lean, serialized, trimmed:false, fits:true };
+
+    const selectedIds = new Set(Object.values(lean.selectedByTab || {}).filter(Boolean));
+    const priority = [...(lean.tasks || [])].sort((a, b) => {
+      const aProtected = selectedIds.has(a.id) || a.attempted || a.sendPrepared ? 1 : 0;
+      const bProtected = selectedIds.has(b.id) || b.attempted || b.sendPrepared ? 1 : 0;
+      if (aProtected !== bProtected) return aProtected - bProtected;
+      return Number(a.updatedAt || 0) - Number(b.updatedAt || 0);
+    });
+    const clearRecoveryBody = task => {
+      for (const field of [
+        'lengthLimitCarry','lengthLimitCarrySourceURL','lengthLimitCarryWaitKey','lengthLimitHopCount','lengthLimitLastAt',
+        'abnormalFreshCarry','abnormalFreshCarryAt','abnormalFreshCarryPhase','abnormalFreshCarryReason','abnormalFreshCarryRound','abnormalFreshCarrySourceKind','abnormalFreshCarrySourceURL',
+        'handoffReplySnapshot','handoffReplySnapshotAt','handoffReplySnapshotGoalRevision','handoffReplySnapshotPhase','handoffReplySnapshotRound','handoffReplySnapshotSourceURL',
+      ]) delete task[field];
+    };
+    for (const task of priority) {
+      if (selectedIds.has(task.id) || task.attempted || task.sendPrepared) continue;
+      clearRecoveryBody(task);
+      serialized = JSON.stringify(lean);
+      if (serialized.length <= targetChars) return { snapshot:normalizeLeanSnapshotReferences(lean), serialized, trimmed:true, fits:true };
+    }
+
+    for (const stateName of ['cancelled','queued']) {
+      const removable = [...(lean.tasks || [])]
+        .filter(task => task.state === stateName && !selectedIds.has(task.id) && !task.attempted && !task.sendPrepared)
+        .sort((a,b) => Number(a.updatedAt || 0) - Number(b.updatedAt || 0));
+      for (const task of removable) {
+        lean.tasks = lean.tasks.filter(item => item.id !== task.id);
+        normalizeLeanSnapshotReferences(lean);
+        serialized = JSON.stringify(lean);
+        if (serialized.length <= targetChars) return { snapshot:lean, serialized, trimmed:true, fits:true };
       }
     }
-    let total = storageMessageChars(state);
-    if (total > limits.globalChars) {
-      const selectedIds = new Set(Object.values(state.selectedByTab || {}).filter(Boolean));
-      const priority = [...state.tasks].sort((a, b) => {
-        const aRank = a?.state === 'done' ? 0 : selectedIds.has(a?.id) ? 2 : 1;
-        const bRank = b?.state === 'done' ? 0 : selectedIds.has(b?.id) ? 2 : 1;
-        if (aRank !== bRank) return aRank - bRank;
-        return Number(a?.updatedAt || 0) - Number(b?.updatedAt || 0);
-      });
-      let progress = true;
-      while (total > limits.globalChars && progress) {
-        progress = false;
-        for (const task of priority) {
-          const messages = Array.isArray(task?.messages) ? task.messages : [];
-          if (messages.length <= 1) continue;
-          const removed = messages.shift();
-          total -= String(removed?.text || '').length;
-          changed = true;
-          progress = true;
-          if (total <= limits.globalChars) break;
-        }
-      }
+
+    const currentSelected = lean.selectedByTab?.[activeWorkspaceStorageId] || '';
+    const protectedIds = new Set([currentSelected, ...(lean.tasks || []).filter(task => task.attempted || task.sendPrepared).map(task => task.id)].filter(Boolean));
+    const removable = [...(lean.tasks || [])]
+      .filter(task => !protectedIds.has(task.id))
+      .sort((a,b) => Number(a.updatedAt || 0) - Number(b.updatedAt || 0));
+    for (const task of removable) {
+      lean.tasks = lean.tasks.filter(item => item.id !== task.id);
+      normalizeLeanSnapshotReferences(lean);
+      serialized = JSON.stringify(lean);
+      if (serialized.length <= targetChars) return { snapshot:lean, serialized, trimmed:true, fits:true };
     }
-    const afterCount = state.tasks.reduce((sum, task) => sum + (Array.isArray(task.messages) ? task.messages.length : 0), 0);
-    return { changed, compactedMessages:Math.max(0, beforeCount - afterCount) };
+
+    for (const task of lean.tasks || []) {
+      if (task.result) task.result = boundedDurableText(task.result, 12000);
+      if (task.next) task.next = boundedDurableText(task.next, 8000);
+      if (task.preparedPrompt) task.preparedPrompt = boundedDurableText(task.preparedPrompt, 64000);
+      clearRecoveryBody(task);
+    }
+    serialized = JSON.stringify(normalizeLeanSnapshotReferences(lean));
+    return { snapshot:lean, serialized, trimmed:true, fits:serialized.length <= targetChars };
   }
   function persistWorkbenchState(state) {
-    const normal=compactWorkbenchForStorage(state,{emergency:false}); let serialized=JSON.stringify(state);
-    let result=tryLocalStorageSet(KEY,serialized,{shadow:true});
-    if(result.ok){const wasDegraded=['blocked','degraded'].includes(storagePersistenceStatus.level);clearWorkbenchOverflow();storagePersistenceStatus={level:wasDegraded?'recovered':'ok',at:Date.now(),attemptedChars:serialized.length,emergencyChars:serialized.length,compactedMessages:normal.compactedMessages,fallback:''};return true;}
-    const attemptedChars=serialized.length;
-    if(isStorageQuotaError(result.error)){
-      cleanupStaleFabushiStorage(); result=tryLocalStorageSet(KEY,serialized,{shadow:true});
-      if(result.ok){clearWorkbenchOverflow();storagePersistenceStatus={level:'recovered',at:Date.now(),attemptedChars,emergencyChars:serialized.length,compactedMessages:normal.compactedMessages,fallback:''};return true;}
-      const emergency=compactWorkbenchForStorage(state,{emergency:true}); serialized=JSON.stringify(state); result=tryLocalStorageSet(KEY,serialized,{shadow:true});
-      if(result.ok){clearWorkbenchOverflow();storagePersistenceStatus={level:'recovered',at:Date.now(),attemptedChars,emergencyChars:serialized.length,compactedMessages:normal.compactedMessages+emergency.compactedMessages,fallback:''};return true;}
-      const sessionSaved=writeWorkbenchOverflowSerialized(serialized);storagePersistenceStatus={level:'degraded',at:Date.now(),attemptedChars,emergencyChars:serialized.length,compactedMessages:normal.compactedMessages+emergency.compactedMessages,fallback:sessionSaved?'session':'memory'};return false;
+    const durable = durableWorkbenchSnapshot(state);
+    const durableSerialized = JSON.stringify(durable);
+    const fitted = fitWorkbenchSnapshotToLocalBudget(durable);
+    const attemptedChars = durableSerialized.length;
+    const needsOverflow = fitted.trimmed || !fitted.fits;
+    const sessionSaved = needsOverflow ? writeWorkbenchOverflowSerialized(durableSerialized) : false;
+
+    if (!fitted.fits) {
+      volatileStorageShadow.set(KEY, durableSerialized);
+      storagePersistenceStatus = {
+        level:'degraded', at:Date.now(), attemptedChars, emergencyChars:fitted.serialized.length,
+        compactedMessages:0, canonicalChars:0, footprintChars:fabushiLocalStorageFootprint(),
+        trimmed:true, fallback:sessionSaved ? 'session' : 'memory',
+      };
+      return false;
     }
-    const sessionSaved=writeWorkbenchOverflowSerialized(serialized);storagePersistenceStatus={level:'degraded',at:Date.now(),attemptedChars,emergencyChars:serialized.length,compactedMessages:normal.compactedMessages,fallback:sessionSaved?'session':'memory'};return false;
+
+    let result = tryLocalStorageSet(KEY, fitted.serialized, { shadow:false });
+    if (!result.ok && isStorageQuotaError(result.error)) {
+      cleanupStaleFabushiStorage();
+      result = tryLocalStorageSet(KEY, fitted.serialized, { shadow:false });
+    }
+    if (result.ok) {
+      if (fitted.trimmed) volatileStorageShadow.set(KEY, durableSerialized);
+      else {
+        volatileStorageShadow.delete(KEY);
+        clearWorkbenchOverflow();
+      }
+      const wasDegraded = ['blocked','degraded'].includes(storagePersistenceStatus.level);
+      storagePersistenceStatus = {
+        level:fitted.trimmed ? 'trimmed' : (wasDegraded ? 'recovered' : 'ok'),
+        at:Date.now(), attemptedChars, emergencyChars:fitted.serialized.length,
+        compactedMessages:0, canonicalChars:fitted.serialized.length,
+        footprintChars:fabushiLocalStorageFootprint(), trimmed:fitted.trimmed,
+        fallback:fitted.trimmed && sessionSaved ? 'session' : '',
+      };
+      return true;
+    }
+
+    volatileStorageShadow.set(KEY, durableSerialized);
+    const fallbackSaved = sessionSaved || writeWorkbenchOverflowSerialized(durableSerialized);
+    storagePersistenceStatus = {
+      level:'degraded', at:Date.now(), attemptedChars, emergencyChars:fitted.serialized.length,
+      compactedMessages:0, canonicalChars:0, footprintChars:fabushiLocalStorageFootprint(),
+      trimmed:fitted.trimmed, fallback:fallbackSaved ? 'session' : 'memory',
+    };
+    return false;
   }
   function normalizeAttachmentMeta(value) {
     if (!value || typeof value !== 'object') return null;
@@ -729,13 +965,12 @@ async function bootstrapAttempt() {
     });
   }
   if (ownershipMigrated) persistWorkbenchState(data);
-  // Upgrades preserve the old queue but never resume its workers.
-  for (const key of ['fabushi-auto-confirm-queue-v3', 'fabushi-auto-confirm-queue-v2']) {
-    const old = read(key, null);
-    if (old) writeLocalStorageRecord(key, JSON.stringify({ ...old, running: false, paused: true }));
+  // v2.10.18 keeps localStorage latest-only. Legacy queues/runtimes were already
+  // migrated into the canonical workbench by earlier releases, so retaining
+  // paused copies only wastes origin quota and can eventually make storage full.
+  for (const key of ['fabushi-auto-confirm-queue-v3', 'fabushi-auto-confirm-queue-v2', 'fabushi-auto-confirm-runtime-v2']) {
+    removeLocalStorageRecord(key);
   }
-  const oldRuntime = read('fabushi-auto-confirm-runtime-v2', null);
-  if (oldRuntime) writeLocalStorageRecord('fabushi-auto-confirm-runtime-v2', JSON.stringify({ ...oldRuntime, running: false }));
   removeSessionStorageRecord('fabushi-auto-confirm-worker-enabled-v1');
 
   let running = false, controller = null, timer = null, navigationTimer = null, lockRelease = null, busy = false, autoStartTimer = null, autoStartTaskId = '';
