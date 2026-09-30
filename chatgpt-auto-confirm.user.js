@@ -5894,7 +5894,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       ? conversationLoadFailure(getPageUiRecords)
       : '';
     if (explicitConversationLoadFailure
-      && !pending.length
+      && !approvalBlocking
       && !currentBlocker
       && !currentRateLimit
       && !task.attempted) {
@@ -6032,7 +6032,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && stopIdentityMatches
       && (stopObservedInCurrentDocument || inheritedStopAbsenceStable)
       && approvalRouteEligible
-      && !approvalVisible
+      && !approvalBlocking
       && (turn.owned || routeEndedOwned)
       && !foreignTask
       && !otherRouteOwner
@@ -6183,19 +6183,19 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const latestMountedUser = conversationRoleNodes('user').at(-1) || null;
     const userBoundaryKey = recoveryUserBoundaryKey(latestMountedUser);
     const cacheRetry = routeOwned && (turn.owned || routeEndedOwned) && !foreignTask && !otherRouteOwner
-      && !turn.final && !pending.length && !task.attempted
+      && !turn.final && !approvalBlocking && !task.attempted
       ? streamCacheExpiredRetry(activityTurn, getPageUiRecords) : null;
     const cacheRetryKey = cacheRetry ? JSON.stringify([liveURL, userBoundaryKey,
       activityTurn.article?.getAttribute('data-turn-key') || '',
       stalledConversationContentHash({ conversationTail:[{ role:'assistant', text:activityText }] })]) : '';
     const cacheRetryAttempted = Boolean(cacheRetry && task.streamCacheRetryKey === cacheRetryKey);
-    const retryableError = Boolean(cacheRetry || (pageBelongsToTask && !turn.final && !pending.length
+    const retryableError = Boolean(cacheRetry || (pageBelongsToTask && !turn.final && !approvalBlocking
       && sendTimeoutNotice(routeEndedOwned ? activityTurn : turn, getPageUiRecords)));
     // ChatGPT can leave aria-busy/stream markers behind after it has rendered
     // an actionable network-error card. The error is terminal evidence only
     // after Stop disappears; the normal ownership, approval, blocker, rate
     // limit, empty-composer, and eight-second stability checks still apply.
-    const retryableErrorEnded = Boolean(retryableError && !stopPresent && !approvalVisible);
+    const retryableErrorEnded = Boolean(retryableError && !stopPresent && !approvalBlocking);
     // In a bound owned conversation, active generation exposes Stop. A
     // decorative/stale spinner must not mask an abnormal stop; neither should
     // stale stream markers attached to an explicit retryable failure card.
@@ -6222,7 +6222,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && !otherRouteOwner
       && !stopPresent
       && !observedActivityStreaming
-      && !pending.length
+      && !approvalBlocking
       && !currentBlocker
       && !currentRateLimit
       && composerReady
@@ -6249,7 +6249,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && !turn.final
       && !stopPresent
       && !activityStreaming
-      && !pending.length
+      && !approvalBlocking
       && !effectiveLoading
       && !currentBlocker
       && !currentRateLimit
@@ -6286,7 +6286,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && !turn.final
       && !stopPresent
       && !activityStreaming
-      && !pending.length
+      && !approvalBlocking
       && !rawLoading
       && !effectiveLoading
       && !turn.recoveredStaticCandidate
