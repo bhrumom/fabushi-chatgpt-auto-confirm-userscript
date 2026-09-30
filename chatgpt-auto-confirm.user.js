@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.15
+// @version      2.10.16
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.15';
+  const VERSION = '2.10.16';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -269,6 +269,18 @@ async function bootstrapAttempt() {
   const MAX_TASK_MESSAGES = 80;
   const MAX_TASK_MESSAGE_TEXT = 12000;
   const MAX_TASK_MESSAGE_CHARS = 320000;
+  // localStorage is a shared, synchronous browser-origin quota. Bound the
+  // aggregate diagnostic history well below that quota so many long-running
+  // tasks cannot independently grow the canonical workbench until setItem()
+  // throws. Emergency limits are used only after a real quota rejection.
+  const STORAGE_NORMAL_TASK_MESSAGES = 40;
+  const STORAGE_NORMAL_MESSAGE_TEXT = 8000;
+  const STORAGE_NORMAL_TASK_MESSAGE_CHARS = 96000;
+  const STORAGE_NORMAL_GLOBAL_MESSAGE_CHARS = 800000;
+  const STORAGE_EMERGENCY_TASK_MESSAGES = 12;
+  const STORAGE_EMERGENCY_MESSAGE_TEXT = 4000;
+  const STORAGE_EMERGENCY_TASK_MESSAGE_CHARS = 24000;
+  const STORAGE_EMERGENCY_GLOBAL_MESSAGE_CHARS = 200000;
   // The full durable log remains available in storage, but rendering hundreds
   // of thousands of characters into the live workbench on every status write
   // can monopolize the renderer. Keep the visible tail bounded; diagnostics
@@ -318,21 +330,25 @@ async function bootstrapAttempt() {
     if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
     return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
   }
-  function compactTaskMessages(task) {
+  function compactTaskMessages(task, {
+    maxMessages = MAX_TASK_MESSAGES,
+    maxText = MAX_TASK_MESSAGE_TEXT,
+    maxChars = MAX_TASK_MESSAGE_CHARS,
+  } = {}) {
     if (!task || !Array.isArray(task.messages) || !task.messages.length) return false;
     const original = task.messages;
     const normalized = original.map(item => {
       if (!item || typeof item !== 'object') return { at:Date.now(), role:'status', text:'' };
       const text = String(item.text || '');
-      return { ...item, at:Number(item.at || Date.now()), role:String(item.role || 'status'), text:text.slice(0, MAX_TASK_MESSAGE_TEXT) };
+      return { ...item, at:Number(item.at || Date.now()), role:String(item.role || 'status'), text:text.slice(0, maxText) };
     });
-    let next = normalized.slice(-MAX_TASK_MESSAGES);
+    let next = normalized.slice(-Math.max(1, maxMessages));
     let total = 0;
     const bounded = [];
     for (let index = next.length - 1; index >= 0; index -= 1) {
       const item = next[index];
       const length = item.text.length;
-      if (bounded.length && total + length > MAX_TASK_MESSAGE_CHARS) break;
+      if (bounded.length && total + length > maxChars) break;
       bounded.unshift(item);
       total += length;
     }
@@ -343,6 +359,98 @@ async function bootstrapAttempt() {
     });
     if (changed) task.messages = next;
     return changed;
+  }
+
+  let storagePersistenceStatus = { level:'ok', at:0, attemptedChars:0, emergencyChars:0, compactedMessages:0 };
+  function isStorageQuotaError(error) {
+    if (!error) return false;
+    const name = String(error.name || '');
+    const code = Number(error.code || 0);
+    const message = String(error.message || '');
+    return name === 'QuotaExceededError'
+      || name === 'NS_ERROR_DOM_QUOTA_REACHED'
+      || code === 22
+      || code === 1014
+      || /(?:quota|storage).*(?:exceed|full)|exceeded.*quota/i.test(message);
+  }
+  function storageStatusText() {
+    if (storagePersistenceStatus.level === 'recovered') {
+      return `本地存储已自动压缩恢复（约 ${Math.max(1, Math.round(Number(storagePersistenceStatus.emergencyChars || 0) / 1024))} KB）`;
+    }
+    if (storagePersistenceStatus.level === 'blocked') {
+      return '本地存储空间仍不足；当前任务保留在内存中，但刷新页面前请先释放此站点存储空间';
+    }
+    return '';
+  }
+  function storageMessageChars(state) {
+    return (state?.tasks || []).reduce((sum, task) => sum + (task?.messages || []).reduce((inner, item) => inner + String(item?.text || '').length, 0), 0);
+  }
+  function compactWorkbenchForStorage(state, { emergency = false } = {}) {
+    if (!state || !Array.isArray(state.tasks)) return { changed:false, compactedMessages:0 };
+    const limits = emergency
+      ? { maxMessages:STORAGE_EMERGENCY_TASK_MESSAGES, maxText:STORAGE_EMERGENCY_MESSAGE_TEXT, maxChars:STORAGE_EMERGENCY_TASK_MESSAGE_CHARS, globalChars:STORAGE_EMERGENCY_GLOBAL_MESSAGE_CHARS }
+      : { maxMessages:STORAGE_NORMAL_TASK_MESSAGES, maxText:STORAGE_NORMAL_MESSAGE_TEXT, maxChars:STORAGE_NORMAL_TASK_MESSAGE_CHARS, globalChars:STORAGE_NORMAL_GLOBAL_MESSAGE_CHARS };
+    let changed = false;
+    let beforeCount = 0;
+    for (const task of state.tasks) {
+      beforeCount += Array.isArray(task.messages) ? task.messages.length : 0;
+      if (compactTaskMessages(task, limits)) changed = true;
+      if (emergency && task?.state === 'done') {
+        for (const field of ['preparedPrompt','preview','lengthLimitCarry','abnormalFreshCarry','handoffReplySnapshot','pendingContinuationText','retainedComposerDraft','connectionInterruptedURL']) {
+          if (task[field]) { task[field] = ''; changed = true; }
+        }
+      }
+    }
+    let total = storageMessageChars(state);
+    if (total > limits.globalChars) {
+      const selectedIds = new Set(Object.values(state.selectedByTab || {}).filter(Boolean));
+      const priority = [...state.tasks].sort((a, b) => {
+        const aRank = a?.state === 'done' ? 0 : selectedIds.has(a?.id) ? 2 : 1;
+        const bRank = b?.state === 'done' ? 0 : selectedIds.has(b?.id) ? 2 : 1;
+        if (aRank !== bRank) return aRank - bRank;
+        return Number(a?.updatedAt || 0) - Number(b?.updatedAt || 0);
+      });
+      let progress = true;
+      while (total > limits.globalChars && progress) {
+        progress = false;
+        for (const task of priority) {
+          const messages = Array.isArray(task?.messages) ? task.messages : [];
+          if (messages.length <= 1) continue;
+          const removed = messages.shift();
+          total -= String(removed?.text || '').length;
+          changed = true;
+          progress = true;
+          if (total <= limits.globalChars) break;
+        }
+      }
+    }
+    const afterCount = state.tasks.reduce((sum, task) => sum + (Array.isArray(task.messages) ? task.messages.length : 0), 0);
+    return { changed, compactedMessages:Math.max(0, beforeCount - afterCount) };
+  }
+  function persistWorkbenchState(state) {
+    const normal = compactWorkbenchForStorage(state, { emergency:false });
+    let serialized = JSON.stringify(state);
+    try {
+      localStorage.setItem(KEY, serialized);
+      if (storagePersistenceStatus.level !== 'ok') {
+        storagePersistenceStatus = { level:'ok', at:Date.now(), attemptedChars:serialized.length, emergencyChars:0, compactedMessages:normal.compactedMessages };
+      }
+      return true;
+    } catch (error) {
+      if (!isStorageQuotaError(error)) throw error;
+    }
+    const attemptedChars = serialized.length;
+    const emergency = compactWorkbenchForStorage(state, { emergency:true });
+    serialized = JSON.stringify(state);
+    try {
+      localStorage.setItem(KEY, serialized);
+      storagePersistenceStatus = { level:'recovered', at:Date.now(), attemptedChars, emergencyChars:serialized.length, compactedMessages:normal.compactedMessages + emergency.compactedMessages };
+      return true;
+    } catch (error) {
+      if (!isStorageQuotaError(error)) throw error;
+      storagePersistenceStatus = { level:'blocked', at:Date.now(), attemptedChars, emergencyChars:serialized.length, compactedMessages:normal.compactedMessages + emergency.compactedMessages };
+      return false;
+    }
   }
   function normalizeAttachmentMeta(value) {
     if (!value || typeof value !== 'object') return null;
@@ -524,7 +632,7 @@ async function bootstrapAttempt() {
       compactTaskMessages(transferred);
       data.selectedByTab ||= {};
       data.selectedByTab[tabId] = transferred.id;
-      localStorage.setItem(KEY, JSON.stringify(data));
+      persistWorkbenchState(data);
     }
     localStorage.removeItem(TASK_TRANSFER_KEY + taskTransferToken);
   }
@@ -564,7 +672,7 @@ async function bootstrapAttempt() {
       set:value => { data.tabControls[tabId] ||= {}; data.tabControls[tabId][field] = value; },
     });
   }
-  if (ownershipMigrated) localStorage.setItem(KEY, JSON.stringify(data));
+  if (ownershipMigrated) persistWorkbenchState(data);
   // Upgrades preserve the old queue but never resume its workers.
   for (const key of ['fabushi-auto-confirm-queue-v3', 'fabushi-auto-confirm-queue-v2']) {
     const old = read(key, null);
@@ -2265,9 +2373,10 @@ async function bootstrapAttempt() {
     data.tabControls = { ...(data.tabControls || {}), ...(stored.tabControls || {}), [tabId]:{ ...(stored.tabControls?.[tabId] || {}), ...(data.tabControls?.[tabId] || {}) } };
     data.selectedByTab = { ...(data.selectedByTab || {}), ...(stored.selectedByTab || {}), [tabId]:selected };
     data.selected = selected;
-    localStorage.setItem(KEY, JSON.stringify(data));
-    writeWorkspaceHeartbeat();
+    const persisted = persistWorkbenchState(data);
+    if (persisted) writeWorkspaceHeartbeat();
     paint();
+    return persisted;
   }
   function syncRemoteControl() {
     const stored = read(KEY, null);
@@ -7122,13 +7231,15 @@ NaN
       live.updatedAt = Date.now();
       live.messages ||= [];
       live.messages.push({at:Date.now(),role:'status',text:'任务已分配到另一标签页；当前会话链接、阶段、轮次和附件保持不变。'});
+      stored.selectedByTab ||= {};
+      stored.selectedByTab[ownerTabId] = taskId;
+      if (!persistWorkbenchState(stored)) {
+        throw new Error('本地存储空间不足，任务归属未改变；请先释放 chatgpt.com 站点存储空间后重试。');
+      }
       task.ownerTabId = ownerTabId;
       task.updatedAt = live.updatedAt;
       task.messages ||= [];
       task.messages.push(live.messages.at(-1));
-      stored.selectedByTab ||= {};
-      stored.selectedByTab[ownerTabId] = taskId;
-      localStorage.setItem(KEY, JSON.stringify(stored));
       mergeStoredTasks(stored);
       selected = taskBelongsToTab(task) ? taskId : (tabTasks()[0]?.id || '');
       save();
@@ -7284,7 +7395,7 @@ NaN
     globalApprovalLabel.append(globalApproval,document.createTextNode('在当前标签页的会话中自动处理授权卡'));
     const globalPauseButton = element('button','暂停全部任务','pause-all'); globalPauseButton.type='button';
     const memoryCleanupButton = element('button','清理当前标签页内存','memory-cleanup'); memoryCleanupButton.type='button';
-    const memoryStatusNode = element('small',memoryStatusText(),'memory-status');
+    const memoryStatusNode = element('small',[memoryStatusText(), storageStatusText()].filter(Boolean).join(' · '),'memory-status');
     chat.append(head);
     settings.append(globalApprovalLabel,globalPauseButton,memoryCleanupButton,memoryStatusNode,element('small','此数值只估算网页 JavaScript 堆，不等于 Chrome 标签页完整内存。宿主只能卸载非活动且无未保存内容/进行中任务的标签页；重新打开时会重新加载。活动标签页无法通过 tabs.discard 清理到初始占用。'),element('small','仅展开“允许”旁的菜单并选择“允许本次会话”；不会选择永久授权。'));
     const feed = element('div','','feed'); feed.setAttribute('role','log'); feed.setAttribute('aria-live','polite');
@@ -7411,10 +7522,10 @@ NaN
       const task=data.tasks.find(item=>item.id===selected && taskBelongsToTab(item));
       heading.textContent=task ? (task.mode==='goal'?'持续目标':'单次任务')+' · '+statusNames[task.state] : '任务工作台';
       editGoalButton.disabled=!task || task.state==='done';
-      memoryStatusNode.textContent=memoryStatusText();
+      memoryStatusNode.textContent=[memoryStatusText(), storageStatusText()].filter(Boolean).join(' · ');
       memoryCleanupButton.disabled=memoryMonitorBusy || hostMemoryPending.size > 0;
       const runnableCount=tabTasks().filter(item=>!terminal.has(item.state)&&item.state!=='paused').length;
-      notice.textContent=`当前标签页工作区 · ${running?`监督中，${runnableCount>1?`多个本页任务每 ${Math.round(SUPERVISION_INTERVAL_MS / 1000)} 秒轮换`:'按当前任务推进'}；任务可单独暂停/继续`:'已暂停，自动操作已停止'} · 扫描 ${measurements.scans} 次，平均 ${(measurements.totalScanMs / Math.max(1, measurements.scans)).toFixed(1)} ms · 界面最近 ${measurements.lastPaintMs.toFixed(1)} ms、侧栏重建 ${measurements.sidebarRebuilds} 次 · ${memoryStatusText()}`;
+      notice.textContent=`当前标签页工作区 · ${running?`监督中，${runnableCount>1?`多个本页任务每 ${Math.round(SUPERVISION_INTERVAL_MS / 1000)} 秒轮换`:'按当前任务推进'}；任务可单独暂停/继续`:'已暂停，自动操作已停止'} · 扫描 ${measurements.scans} 次，平均 ${(measurements.totalScanMs / Math.max(1, measurements.scans)).toFixed(1)} ms · 界面最近 ${measurements.lastPaintMs.toFixed(1)} ms、侧栏重建 ${measurements.sidebarRebuilds} 次 · ${[memoryStatusText(), storageStatusText()].filter(Boolean).join(' · ')}`;
       pauseButton.textContent=task?.state==='paused'?'继续当前任务':(task?.state==='cancelled'||task?.state==='blocked')?'恢复任务':task&&!terminal.has(task.state)?(running?'暂停当前任务':'继续当前任务'):running?'暂停全部':'继续全部';
       globalPauseButton.textContent=running?'暂停全部任务':'继续全部任务';
       globalPauseButton.disabled=tabTasks().length===0;
