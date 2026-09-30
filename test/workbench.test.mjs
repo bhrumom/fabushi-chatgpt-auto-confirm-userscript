@@ -4096,26 +4096,25 @@ test('an empty new tab visibly offers and adopts a closed workspace in place',as
   original.dom.window.close();personal.dom.window.close();
 });
 
-test('completed task records remain recoverable after their tab closes',async()=>{
+test('completed task records are not persisted as recoverable workspace history',async()=>{
   const original=await fixture();
-  const task=original.h.enqueue('保留已完成任务记录','once');
+  const task=original.h.enqueue('完成后不再占用 localStorage','once');
   task.state='done';
   original.h.log(task,'任务已完成');
   original.h.data.selected=task.id;
   original.w.__FABUSHI_AUTO_CONFIRM_INSTANCE__.shutdown();
   await Promise.resolve();
   const owner=original.h.getTabId();
+  const persisted=JSON.parse(original.w.localStorage.getItem('fabushi-workbench-v2'));
+  assert.equal(persisted.tasks.some(item=>item.id===task.id),false);
 
   const personal=await fixture('',w=>{
     w.navigator.locks=original.w.navigator.locks;
     w.localStorage.setItem('fabushi-workbench-v2',original.w.localStorage.getItem('fabushi-workbench-v2'));
     w.localStorage.setItem('fabushi-workbench-legacy-owner-v1',owner);
   });
-  assert.equal(personal.h.recoverableWorkspaces().length,1);
-  const result=await personal.h.restoreWorkspace(owner,true);
-  assert.equal(result.target,'current');
-  assert.equal(personal.h.tabTasks()[0].state,'done');
-  assert.match(personal.h.tabTasks()[0].messages.at(-1).text,/任务已完成/);
+  assert.equal(personal.h.recoverableWorkspaces().length,0);
+  assert.equal(personal.h.tabTasks().length,0);
   original.dom.window.close();personal.dom.window.close();
 });
 
