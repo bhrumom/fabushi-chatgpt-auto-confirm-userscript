@@ -205,9 +205,36 @@ Exact PR HEAD, GitHub Actions run, canonical merge SHA, canonical-main Test, and
 
 ## 17. Spec compliance record
 
+Implementation evidence baseline:
+- Exact implementation/test HEAD: `6a4def0169dbcd6a6b22b83d404bdb378e1a5e01`.
+- GitHub Actions Test run: `36726823125`, conclusion `success`.
+- Job `userscript` / job id `109925733653`: conclusion `success`.
+- Verification was GitHub Actions only; no local build/test execution.
+
 | Requirement / AC | Status | Evidence / reason |
 | --- | --- | --- |
-| R1-R13 | blocked | Implementation and exact-HEAD CI evidence pending. |
-| AC-1-AC-10 | blocked | Implementation and exact-HEAD CI evidence pending. |
+| R1 | passed | Product Web Storage mutations now route through the centralized local/session storage helpers; regression source audit rejects direct product `localStorage.setItem` / `sessionStorage.setItem` call sites outside the resilience boundary. |
+| R2 | passed | `writeWorkspaceHeartbeat()` catches storage failures and returns false; the timer re-arms in `finally`. Focused quota and scheduler-rearm regressions passed in Test run `36726823125`. |
+| R3 | passed | Pressure cleanup is bounded/rate-limited and only considers stale Fabushi heartbeat, auto-recovery, recovery, transfer and navigation-guard keys; canonical workbench and attachment storage are excluded. |
+| R4 | passed | Automatic/manual recovery and new-tab transfer records use critical durable writes; partial writes are rolled back and navigation/open is not performed when the ticket cannot be persisted. |
+| R5 | passed | Replaceable records use a volatile shadow and return failure instead of throwing; heartbeat failure regression preserves the runnable task. |
+| R6 | passed | Canonical persistence stores the emergency-compacted latest state in the volatile shadow and a workspace-keyed session overflow when localStorage remains blocked. |
+| R7 | passed | `readStorageString()` prefers the volatile shadow; focused regression verifies latest token/state is read instead of stale canonical localStorage. |
+| R8 | passed | Bootstrap reads the same-workspace session overflow before canonical localStorage; existing Web Lock ownership remains unchanged. |
+| R9 | passed | Successful later canonical persistence clears the session overflow and transitions diagnostics to `recovered`; focused regression passed. |
+| R10 | passed | Stale-key cleanup is limited to 96 inspected entries and at most once per 60 seconds. |
+| R11 | passed | Existing v2.10.16 quota regressions plus the full repository suite passed on the implementation HEAD; task/attachment/recovery structures were preserved. |
+| R12 | passed | Product sessionStorage mutations now use non-throwing wrappers; source audit covers direct writes. |
+| R13 | passed | Candidate metadata/runtime version is 2.10.17; publication remains gated on canonical-main Test after merge. |
+| AC-1 | passed | Reported heartbeat-key quota class is directly covered by a regression that rejects `fabushi-workspace-heartbeat-v1:*` and verifies no throw/task loss. |
+| AC-2 | passed | Focused scheduler regression waits for a failed heartbeat callback and verifies the next heartbeat timer is armed. |
+| AC-3 | passed | Centralization source audit passed in the full Test workflow. |
+| AC-4 | passed | Permanent canonical localStorage rejection produces `degraded/session` fallback containing the latest runnable task. |
+| AC-5 | passed | Same-workspace overflow bootstrap was implemented without changing duplicate-tab Web Lock ownership; full multi-tab suite passed. |
+| AC-6 | passed | Critical-ticket regression verifies volatile-only recovery ticket persistence is rejected; product paths abort before cross-document handoff. |
+| AC-7 | passed | Focused regression verifies later durable success clears overflow and reports `recovered`. |
+| AC-8 | passed | Recovery cleanup never targets canonical task records, attachment metadata, or IndexedDB attachment blobs. |
+| AC-9 | passed | Exact implementation/test HEAD `6a4def0169dbcd6a6b22b83d404bdb378e1a5e01` passed GitHub Actions Test run `36726823125`. The final documentation-only PR HEAD remains protected by the same Test gate before merge. |
+| AC-10 | passed | This table records exact implementation SHA and CI run evidence before merge. |
 
 Allowed final statuses: `passed`, `blocked`, `not-applicable`.
