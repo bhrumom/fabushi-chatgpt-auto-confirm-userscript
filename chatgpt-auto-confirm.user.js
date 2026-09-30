@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.13
+// @version      2.10.14
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.13';
+  const VERSION = '2.10.14';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -183,6 +183,12 @@ async function bootstrapAttempt() {
   // already absent. Keep a short task-scoped settlement latch so one transient
   // DOM gap can never be mistaken for a finished generation slice.
   const APPROVAL_SETTLEMENT_MS = 12 * 1000;
+  // Never abandon a bound conversation from one instantaneous "no approval"
+  // sample. ChatGPT can mount approval UI between renderer slices, and the
+  // current approval card may sit outside the role-derived message scopes.
+  // Require a second stable no-approval observation after a wide structural
+  // re-scan before Stop-disappearance recovery is allowed.
+  const STOP_NO_APPROVAL_CONFIRM_MS = 8 * 1000;
   const POPUP_DISMISS_SCAN_MS = 5000;
   const HIDDEN_POPUP_DISMISS_SCAN_MS = 15000;
   // A full ChatGPT navigation creates a new document before the previous
@@ -4461,16 +4467,32 @@ async function bootstrapAttempt() {
   }
   const actionMatches = (node, pattern) => [actionText(node), node?.getAttribute('aria-label'), node?.getAttribute('title')]
     .some(value => pattern.test(normalize(value)));
-  function authorizationCardScopes() {
+  const liveApprovalSurfaceSelector = [
+    '[class*="approval-card"]',
+    '[data-testid*="approval-card" i]',
+    '[data-testid*="authorization-card" i]',
+    '[data-testid*="permission-card" i]',
+  ].join(',');
+  function authorizationCardScopes({ wide = false } = {}) {
     const scopes = [];
     const add = node => {
       if (node && !own(node) && !scopes.includes(node)) scopes.push(node);
     };
     const main = document.querySelector('main,[role="main"]');
+    // Current ChatGPT renders connector grants in an explicit approval-card
+    // surface (for example class="@container/approval-card"). This surface is
+    // authoritative even when it sits outside the role-derived message nodes.
+    for (const surface of nodes(liveApprovalSurfaceSelector, document)) {
+      if (visible(surface)) add(surface);
+    }
     const dialogs = document.querySelectorAll('[role="dialog"],[role="alertdialog"],[aria-modal="true"],[data-radix-dialog-content],[data-dialog-content]');
     for (const dialog of dialogs) {
       if (!main || !dialog.contains(main)) add(dialog);
     }
+    // Content-search turns are stable structural boundaries even while the
+    // user/assistant role units are being remounted. Keep the latest few as
+    // bounded approval scopes independently of role recognition.
+    if (main) nodes(contentSearchTurnSelector, main).slice(-3).forEach(add);
     const recent = conversationRoleNodes('', main).slice(-8);
     if (!recent.length) {
       // On a fresh ChatGPT route there is no transcript to search; the primary
@@ -4482,21 +4504,28 @@ async function bootstrapAttempt() {
       add(message.closest?.(conversationTurnSelector) || message);
     }
     // Some renderer builds portal a current approval card beside (rather than
-    // inside) its latest turn. Walk only a small number of following sibling
-    // surfaces; stop before the composer, navigation, or another message.
+    // inside) its latest turn. Walk both sides of the latest response because
+    // live connector cards can be mounted between the latest user boundary and
+    // the assistant activity, not only after the assistant node.
     const latest = recent.at(-1);
     let anchor = latest.closest?.(conversationTurnSelector) || latest;
     for (let depth = 0; anchor && depth < 5 && anchor !== main; depth += 1) {
-      let sibling = anchor.nextElementSibling;
-      for (let count = 0; sibling && count < 8; count += 1, sibling = sibling.nextElementSibling) {
-        if (sibling.matches?.(`${conversationRoleSelector},form,nav,aside,header,textarea,[contenteditable="true"]`)) break;
-        add(sibling);
+      for (const direction of ['previousElementSibling','nextElementSibling']) {
+        let sibling = anchor[direction];
+        for (let count = 0; sibling && count < 8; count += 1, sibling = sibling[direction]) {
+          if (sibling.matches?.(`${conversationRoleSelector},form,nav,aside,header,textarea,[contenteditable="true"]`)) break;
+          add(sibling);
+        }
       }
       anchor = anchor.parentElement;
     }
+    // Wide mode is used only at the destructive Stop-disappearance boundary.
+    // The structural Reject + Allow + split-menu checks in cards() still apply,
+    // so this does not turn arbitrary page "Allow" controls into approvals.
+    if (wide) add(main || document.body);
     return scopes;
   }
-  function cards() {
+  function cards(options = {}) {
     const startedAt = performance.now();
     const result = [], seen = new Set();
     // Presence and actionability are intentionally separate. ChatGPT disables
@@ -4505,7 +4534,7 @@ async function bootstrapAttempt() {
     // surface and must block Stop-disappearance recovery.
     const allButtons = [];
     const buttonSeen = new Set();
-    for (const scope of authorizationCardScopes()) {
+    for (const scope of authorizationCardScopes(options)) {
       if (scope.matches?.('button,[role=button]') && !own(scope) && !buttonSeen.has(scope)) {
         buttonSeen.add(scope);
         allButtons.push(scope);
@@ -5050,12 +5079,18 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.reloadStopAbsentSince = 0;
     task.reloadStopAbsentSignature = '';
   }
+  function clearStopNoApprovalConfirmation(task) {
+    if (!task) return;
+    task.stopNoApprovalConfirmSince = 0;
+    task.stopNoApprovalConfirmSignature = '';
+  }
   function clearStopObservedGeneration(task) {
     if (!task) return;
     task.stopObservedGenerationIdentity = '';
     task.stopObservedGenerationAt = 0;
     task.stopObservedDocumentId = '';
     task.stopObservedAssistantBoundaryKey = '';
+    clearStopNoApprovalConfirmation(task);
     clearReloadStopAbsenceState(task);
   }
   function clearDispatchIntent(task) {
@@ -6023,11 +6058,40 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && !currentRateLimit
       && !task.attempted
     );
-    const stopDisappearedFreshEligible = Boolean(
+    // A conversation-length notice is a hard product boundary, not a normal
+    // final answer. Handle it before final-toolbar classification so a visible
+    // copy/share toolbar on the notice cannot prematurely finish Work/Review.
+    const lengthLimitNotice = pageBelongsToTask && !approvalBlocking ? conversationLengthLimitNotice(turn, getPageUiRecords) : '';
+    if (lengthLimitNotice) {
+      if (observedActivityStreaming || stopPresent) {
+        const waitKey = `${taskURL}:${normalize(lengthLimitNotice).slice(0, 200)}:generating`;
+        task.state = 'waiting';
+        task.updatedAt = Date.now();
+        if (task.lengthLimitCarryWaitKey !== waitKey) {
+          task.lengthLimitCarryWaitKey = waitKey;
+          log(task, '已检测到会话长度上限，但当前 assistant 仍在生成；先留在原会话等待这一轮结束，再提取完整回复接力，不会复制中途内容。');
+        }
+        save();
+        return;
+      }
+      if (queueConversationLengthHandoff(task, turn, lengthLimitNotice, Date.now())) return;
+      // Do not advance with an older assistant reply or with the notice itself
+      // when the current task response cannot yet be safely established.
+      const waitKey = `${taskURL}:${normalize(lengthLimitNotice).slice(0, 240)}`;
+      task.state = 'waiting';
+      task.updatedAt = Date.now();
+      if (task.lengthLimitCarryWaitKey !== waitKey) {
+        task.lengthLimitCarryWaitKey = waitKey;
+        log(task, '已检测到会话长度上限，但当前任务的 assistant 回复尚不能安全提取；保留原会话等待内容稳定，不会把旧回复或提示文字带入新会话。');
+      }
+      save();
+      return;
+    }
+    const stopDisappearedFreshCandidate = Boolean(
       !stopPresent
-      // Work keeps the immediate Stop-disappearance recovery contract. Review
-      // uses the bounded settlement/no-final path below so long reasoning and
-      // delayed toolbar hydration cannot create duplicate acceptance chats.
+      // Review uses the bounded settlement/no-final path below so long
+      // reasoning and delayed toolbar hydration cannot create duplicate
+      // acceptance chats.
       && task.phase !== 'review'
       && stopIdentityMatches
       && (stopObservedInCurrentDocument || inheritedStopAbsenceStable)
@@ -6040,9 +6104,65 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && !currentBlocker
       && !currentRateLimit
       // Strong response-local final evidence must complete normally instead of
-      // being discarded by the historical Stop-disappearance handoff.
+      // being discarded by historical Stop-disappearance recovery.
       && !strongOwnedFinal
     );
+    let stopDisappearedFreshEligible = false;
+    if (stopDisappearedFreshCandidate) {
+      // Re-scan authorization from the live DOM at the exact destructive
+      // boundary instead of trusting the cached scan taken earlier in this
+      // inspection. Wide mode catches approval cards outside message-derived
+      // scopes while still requiring the Reject + Allow + split-menu shape.
+      const criticalPending = cards({ wide:true });
+      if (criticalPending.length) {
+        clearStopNoApprovalConfirmation(task);
+        task.state = 'approval';
+        task.updatedAt = now;
+        log(task, '停止按钮已消失，但实时复核仍检测到授权卡；继续保留当前会话等待授权，不会新开会话。');
+        save();
+        if (data.autoApprove) await authorize(criticalPending[0], task, signal);
+        return;
+      }
+      const confirmSignature = JSON.stringify([
+        stopGenerationIdentity,
+        DOCUMENT_INSTANCE_ID,
+        String(task.phase || ''),
+        Number(task.round || 0),
+        String(task.token || ''),
+      ]);
+      if (task.stopNoApprovalConfirmSignature !== confirmSignature
+        || !Number(task.stopNoApprovalConfirmSince || 0)) {
+        task.stopNoApprovalConfirmSignature = confirmSignature;
+        task.stopNoApprovalConfirmSince = now;
+        task.state = 'waiting';
+        task.updatedAt = now;
+        log(task, `停止按钮已消失，当前扫描暂未发现授权卡；先进行至少 ${Math.ceil(STOP_NO_APPROVAL_CONFIRM_MS / 1000)} 秒的二次实时授权复核，期间不会切换会话。`);
+        save();
+        return;
+      }
+      if (now - Number(task.stopNoApprovalConfirmSince || now) < STOP_NO_APPROVAL_CONFIRM_MS) {
+        task.state = 'waiting';
+        return;
+      }
+      // One final fresh read closes the race where a card mounts between the
+      // confirmation timer and this decision.
+      const finalCriticalPending = cards({ wide:true });
+      if (finalCriticalPending.length) {
+        clearStopNoApprovalConfirmation(task);
+        task.state = 'approval';
+        task.updatedAt = now;
+        log(task, '二次复核期间检测到授权卡；已取消异常结束接力并继续当前会话。');
+        save();
+        if (data.autoApprove) await authorize(finalCriticalPending[0], task, signal);
+        return;
+      }
+      clearStopNoApprovalConfirmation(task);
+      stopDisappearedFreshEligible = true;
+    } else if (task.stopNoApprovalConfirmSince || task.stopNoApprovalConfirmSignature) {
+      clearStopNoApprovalConfirmation(task);
+      task.updatedAt = now;
+      save();
+    }
     const recoveredOwnedFinal = Boolean(
       inheritedStopObservation
       && strongOwnedFinal
@@ -6099,35 +6219,6 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
           ? `页面刷新后当前会话输入框已就绪，但消息区仍未挂载；最多等待 ${Math.ceil(ROUTE_HYDRATION_TIMEOUT_MS / 1000)} 秒，仍为空时只刷新当前会话，不会重复发送或新开会话。`
           : '页面刷新后仍在恢复当前任务内容；已保留会话并继续监督，等待消息区和输入框完成加载。');
       }
-      return;
-    }
-    // A conversation-length notice is a hard product boundary, not a normal
-    // final answer. Handle it before final-toolbar classification so a visible
-    // copy/share toolbar on the notice cannot prematurely finish Work/Review.
-    const lengthLimitNotice = pageBelongsToTask && !approvalBlocking ? conversationLengthLimitNotice(turn, getPageUiRecords) : '';
-    if (lengthLimitNotice) {
-      if (observedActivityStreaming || stopPresent) {
-        const waitKey = `${taskURL}:${normalize(lengthLimitNotice).slice(0, 200)}:generating`;
-        task.state = 'waiting';
-        task.updatedAt = Date.now();
-        if (task.lengthLimitCarryWaitKey !== waitKey) {
-          task.lengthLimitCarryWaitKey = waitKey;
-          log(task, '已检测到会话长度上限，但当前 assistant 仍在生成；先留在原会话等待这一轮结束，再提取完整回复接力，不会复制中途内容。');
-        }
-        save();
-        return;
-      }
-      if (queueConversationLengthHandoff(task, turn, lengthLimitNotice, Date.now())) return;
-      // Do not advance with an older assistant reply or with the notice itself
-      // when the current task response cannot yet be safely established.
-      const waitKey = `${taskURL}:${normalize(lengthLimitNotice).slice(0, 240)}`;
-      task.state = 'waiting';
-      task.updatedAt = Date.now();
-      if (task.lengthLimitCarryWaitKey !== waitKey) {
-        task.lengthLimitCarryWaitKey = waitKey;
-        log(task, '已检测到会话长度上限，但当前任务的 assistant 回复尚不能安全提取；保留原会话等待内容稳定，不会把旧回复或提示文字带入新会话。');
-      }
-      save();
       return;
     }
     if (stopDisappearedFreshEligible) {

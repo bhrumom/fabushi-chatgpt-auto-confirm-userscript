@@ -1873,6 +1873,54 @@ test('current allow-once split authorization card is detected and selects only t
   dom.window.close();
 });
 
+
+test('live approval-card surface is detected even when it is outside role-derived turn scopes',async()=>{
+  const {h,dom}=await fixture(`<main>
+    <article data-testid="conversation-turn-user"><div data-message-author-role="user">task [Fabushi:live-approval-surface]</div></article>
+    <div class="flex flex-col overflow-hidden rounded-3xl border @container/approval-card">
+      <div>GitHub</div><div>允许 ChatGPT 使用 GitHub？</div>
+      <form><button type="button">拒绝<kbd aria-hidden="true">Esc</kbd></button>
+      <div><button type="button">允许一次<kbd aria-hidden="true">⏎</kbd></button>
+      <button type="button" aria-haspopup="menu" aria-label="审批选项">⌄</button></div></form>
+    </div>
+    <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">正在处理。</div></div></article>
+    <form><textarea id="prompt-textarea"></textarea></form>
+  </main>`);
+  try {
+    const found=h.cards();
+    assert.equal(found.length,1,'the real @container/approval-card surface is an explicit authorization scope');
+    assert.equal(found[0].actionable,true);
+  } finally { dom.window.close(); }
+});
+
+test('critical Stop handoff performs a fresh wide authorization scan instead of trusting an earlier miss',async()=>{
+  const fillers=Array.from({length:10},(_,i)=>`<div class="filler">f${i}</div>`).join('');
+  const {h,w,dom}=await fixture(`<main>
+    <div id="far-approval"><button type="button">拒绝</button><button type="button">允许一次</button><button type="button" aria-haspopup="menu" aria-label="审批选项">⌄</button></div>
+    ${fillers}
+    <article data-testid="conversation-turn-user"><div data-message-author-role="user">task [Fabushi:critical-wide-approval]</div></article>
+    <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">partial work</div></div></article>
+    <button id="stop" data-testid="stop-button" aria-label="Stop generating">Stop</button>
+    <form><textarea id="prompt-textarea"></textarea></form>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/critical-wide-approval');
+    h.data.autoApprove=false;
+    const task={id:'critical-wide-approval',ownerTabId:h.getTabId(),goal:'task',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/critical-wide-approval',token:'critical-wide-approval',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    await h.start(false);
+    await h.inspect(task,null);
+    assert.equal(h.cards().length,0,'bounded normal scan intentionally misses the distant structural card in this fixture');
+    assert.equal(h.cards({wide:true}).length,1,'critical wide scan finds the Reject + Allow + split-menu structure');
+    w.document.querySelector('#stop').remove();
+    await h.inspect(task,null);
+    assert.equal(task.url,'https://chatgpt.com/c/critical-wide-approval');
+    assert.equal(task.state,'approval');
+    assert.equal(task.connectionInterruptedFreshDispatch||false,false);
+    assert.equal(task.messages.some(item=>/停止按钮已经消失且没有授权卡片/.test(item.text)),false);
+  } finally { h.pause(); dom.window.close(); }
+});
+
 test('disabled approval card blocks Stop-disappearance fresh handoff',async()=>{
   const {w,h,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:approval-disabled-race]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">partial connector work</div></div></article><div id="approval"><button type="button">拒绝</button><div><button type="button" id="allow-once">允许一次</button><button type="button" aria-haspopup="menu" aria-label="审批选项">⌄</button></div></div><form><textarea id="prompt-textarea"></textarea></form><button data-testid="stop-button" aria-label="Stop generating">Stop</button></main>');
   try {
@@ -1927,7 +1975,12 @@ test('approval submission latch survives a transient card DOM gap and expires sa
 
     task.approvalSettlementUntil=Date.now()-1;
     await h.inspect(task,null);
-    assert.equal(task.state,'queued','after the bounded latch expires, normal Stop-disappearance recovery resumes');
+    assert.equal(task.state,'waiting','after settlement expiry a single no-card scan only starts secondary confirmation');
+    assert.equal(task.url,'https://chatgpt.com/c/approval-gap-race');
+    assert.ok(Number(task.stopNoApprovalConfirmSince)>0);
+    task.stopNoApprovalConfirmSince=Date.now()-9_000;
+    await h.inspect(task,null);
+    assert.equal(task.state,'queued','normal Stop-disappearance recovery resumes only after stable secondary confirmation');
     assert.equal(task.url,'');
     assert.ok(task.messages.some(item=>/停止按钮已经消失且没有授权卡片/.test(item.text)));
   } finally { h.pause(); dom.window.close(); }
@@ -4269,6 +4322,11 @@ test('authorization card blocks Stop-disappearance handoff until the card is gon
     assert.equal(task.state,'approval');
     card.remove();
     await h.inspect(task,null);
+    assert.equal(task.state,'waiting','one zero-card scan after approval removal cannot immediately hand off');
+    assert.equal(task.url,'https://chatgpt.com/c/approval-stop');
+    assert.ok(Number(task.stopNoApprovalConfirmSince)>0);
+    task.stopNoApprovalConfirmSince=Date.now()-9_000;
+    await h.inspect(task,null);
     assert.equal(task.state,'queued');
     assert.equal(task.url,'');
     assert.match(task.abnormalFreshCarry,/已准备执行下一步/);
@@ -4818,7 +4876,12 @@ test('Stop reappearing after reload binds the current document and cancels inher
 
     stop.remove();
     await h.inspect(task,null);
-    assert.equal(task.state,'queued','real same-document Stop disappearance remains immediate');
+    assert.equal(task.state,'waiting','real same-document Stop disappearance now starts the secondary no-approval confirmation');
+    assert.equal(task.url,'https://chatgpt.com/c/reload-stop-return');
+    assert.ok(Number(task.stopNoApprovalConfirmSince)>0);
+    task.stopNoApprovalConfirmSince=Date.now()-9_000;
+    await h.inspect(task,null);
+    assert.equal(task.state,'queued','fresh handoff is allowed only after the stable no-approval confirmation window');
     assert.equal(task.url,'');
     assert.match(task.abnormalFreshCarry,/正在继续当前实现/);
   } finally {h.pause();dom.window.close();}
@@ -5001,6 +5064,12 @@ test('prior Stop disappearance without strong latest-owned final evidence still 
     await h.start(false);
     await h.inspect(task,null);
     w.document.querySelector('#stop').remove();
+    await h.inspect(task,null);
+    assert.equal(task.state,'waiting','the first no-approval Stop-absence sample only arms confirmation');
+    assert.equal(task.url,'https://chatgpt.com/c/stop-no-final');
+    assert.equal(task.connectionInterruptedFreshDispatch||false,false);
+    assert.ok(Number(task.stopNoApprovalConfirmSince)>0);
+    task.stopNoApprovalConfirmSince=Date.now()-9_000;
     await h.inspect(task,null);
     assert.equal(task.state,'queued');
     assert.equal(task.url,'');
@@ -5308,8 +5377,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.10\.13$/m);
-  assert.match(source,/const VERSION = '2\.10\.13'/);
+  assert.match(source,/^\/\/ @version\s+2\.10\.14$/m);
+  assert.match(source,/const VERSION = '2\.10\.14'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
