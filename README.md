@@ -1,8 +1,20 @@
-# Fabushi 独立自动确认工作台 2.10.13
+# Fabushi 独立自动确认工作台 2.10.14
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.13`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.14`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+
+## 2.10.14 真实授权卡漏检 + Stop 消失二次复核
+
+- 直接重新打开了本次 **10:12** 被错误接力的旧 Work 会话；现场仍然清楚显示 GitHub 授权卡，而 Stop 已经消失，assistant 仍处于“正在思考/工具工作”状态。这证明本次不是“点完授权后的 disabled 竞态”，而是 **授权卡从一开始就可能被旧的 role-derived 扫描范围漏掉**。
+- 当前真实 ChatGPT 卡片有稳定的 `@container/approval-card` surface，内部是“允许 ChatGPT 使用 GitHub？”以及“拒绝 / 允许一次 / 审批选项”。脚本现在把 `approval-card` surface 作为一等授权范围，不再依赖 user/assistant role node 是否恰好挂载。
+- 同时直接纳入最近的 content-search turn root，并从最新 response boundary 同时向前、向后扫描相邻 surface，覆盖授权卡插在 user 与 assistant 之间的 renderer 布局。
+- **Stop 消失不再立即切会话。** 到达这个破坏性边界时会放弃之前缓存的授权扫描结果，重新读取当前 DOM，并执行一次仅用于 handoff 的宽范围结构扫描；只认“Reject + Allow/Allow once + split-menu”完整授权结构。
+- 即使这次实时复核仍返回 0 张卡，也不会立即新开会话：先进入至少 **8 秒**二次复核窗口，再重新读取一次实时 DOM。只要期间卡片出现/重挂载，就取消异常接力并继续原会话。
+- 只有“Stop 已消失 + 两轮实时扫描均无授权卡 + 8 秒确认窗口已过 + 没有强最终回复/限流/blocker”等条件全部成立，才允许使用原来的异常 fresh-session 接力。
+- v2.10.13 的保护仍保留：disabled 授权卡继续视为 pending；点击“允许本次会话”后的 12 秒 settlement latch 也继续生效。
+- 新增 GitHub Actions 回归覆盖真实 `@container/approval-card`、role scope 外授权卡、critical wide scan、单次零卡不得切会话以及 8 秒稳定确认后才允许真实异常接力。
+- 详细规格见 [v2.10.14](docs/specs/live-approval-surface-stop-handoff-v2.10.14.md)。
 
 ## 2.10.13 授权提交竞态彻底修复
 
