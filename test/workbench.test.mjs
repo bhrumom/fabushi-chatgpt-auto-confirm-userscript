@@ -3512,7 +3512,7 @@ test('active assistant turn with no page changes refreshes after five minutes',a
   }
 });
 
-test('active assistant generation suppresses route recovery during temporary marker mismatch',async()=>{test('active assistant generation suppresses route recovery during temporary marker mismatch',async()=>{
+test('active assistant generation suppresses route recovery during temporary marker mismatch',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue work without mounted task marker</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">Checking the latest CI status.</div><div aria-busy="true">Working</div></div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="stop-button" aria-label="停止回答">Stop</button></form></main>');
   w.history.pushState({},'', '/c/active-route-mismatch');
   const task={id:'active-route-mismatch',ownerTabId:h.getTabId(),goal:'continue work',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/active-route-mismatch',token:'temporarily-virtualized-marker',attempted:false,messages:[],routeRecoveryAttempts:1};
