@@ -108,5 +108,6 @@ No local test/build execution is accepted as release evidence.
 
 | Requirement / AC | Status | Evidence |
 | --- | --- | --- |
-| R1-R15 / AC-1-AC-5 | implemented, pending CI verification | Runtime now binds durable snapshots to the task's exact canonical conversation URL and retires consumed abnormal carry/snapshot only after a replacement conversation is successfully marker-bound. New regressions cover C1→C2 binding retirement, later DOM-loss with no safe C2 trace, same-route C2 durable fallback, and foreign-source snapshot rejection. |
-| R16-R20 / AC-6 | pending delivery | Requires exact-head GitHub Actions Test, merge, canonical-main Test, Release and release readback. |
+| R1-R15 / AC-1-AC-5 | passed | Runtime binds durable snapshots to the task's exact canonical conversation URL and retires consumed abnormal carry/snapshot only after a replacement conversation is successfully marker-bound. Regressions cover C1→C2 binding retirement, later DOM-loss with no safe C2 trace, same-route C2 durable fallback, and foreign-source snapshot rejection. GitHub Actions Test run 36802920360 succeeded on exact PR head 0ca17395302ddd57db5a2466350f85e389ad16df (syntax + full regression suite). |
+| R16 | passed | Exact-head GitHub Actions Test run 36802920360 succeeded on 0ca17395302ddd57db5a2466350f85e389ad16df. This compliance-record commit must itself receive a fresh exact-head Test before merge. |
+| R17-R20 / AC-6 | pending delivery | Requires final exact-head Test, merge, canonical-main Test, Release and release readback. |
