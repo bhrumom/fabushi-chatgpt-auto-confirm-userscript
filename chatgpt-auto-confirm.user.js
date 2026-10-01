@@ -4282,7 +4282,7 @@ async function bootstrapAttempt() {
     const recoveryLabel = options.recoveryLabel
       ? `${options.recoveryLabel}第 ${recoveryCount} 次`
       : `连接中断自动恢复第 ${recoveryCount} 次`;
-    log(task, `${reason}；已立即结束旧会话派发并切换到新的 ChatGPT 会话恢复当前${task.phase === 'review' ? '规划/验收' : 'Work'}阶段（${recoveryLabel}）。${carrySourceNote}${carry ? '新会话提示词会把可见回复和实际工作步骤作为已完成工作现场一起继续承接；' : ''}保留任务、phase、round、目标/next 和附件；新会话会生成新的发送标识与会话链接，不再等待 15 分钟、不刷新旧会话，也不在旧会话发送“${CONTINUATION_PROMPT}”。`);
+    log(task, `${reason}；已结束当前故障会话派发并切换到新的 ChatGPT 会话恢复当前${task.phase === 'review' ? '规划/验收' : 'Work'}阶段（${recoveryLabel}）。${carrySourceNote}${carry ? '新会话提示词会把可见回复和实际工作步骤作为已完成工作现场一起继续承接；' : ''}保留任务、phase、round、目标/next 和附件；新会话会生成新的发送标识与会话链接，不会在故障旧会话重复发送“${CONTINUATION_PROMPT}”。`);
     save();
     return true;
   }
