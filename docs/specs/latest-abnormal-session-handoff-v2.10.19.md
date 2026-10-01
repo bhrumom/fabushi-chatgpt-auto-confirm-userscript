@@ -1,6 +1,6 @@
 # Latest abnormal-session handoff replacement — v2.10.19
 
-Status: active
+Status: complete
 Owner: Fabushi ChatGPT Auto-confirm
 Last updated: 2026-10-01
 Related incident: after one abnormal fresh-session handoff succeeds, a later interruption in the replacement ChatGPT conversation can still place the first interrupted conversation's realtime reply/work steps into the next recovery prompt.
@@ -109,5 +109,8 @@ No local test/build execution is accepted as release evidence.
 | Requirement / AC | Status | Evidence |
 | --- | --- | --- |
 | R1-R15 / AC-1-AC-5 | passed | Runtime binds durable snapshots to the task's exact canonical conversation URL and retires consumed abnormal carry/snapshot only after a replacement conversation is successfully marker-bound. Regressions cover C1→C2 binding retirement, later DOM-loss with no safe C2 trace, same-route C2 durable fallback, and foreign-source snapshot rejection. GitHub Actions Test run 36802920360 succeeded on exact PR head 0ca17395302ddd57db5a2466350f85e389ad16df (syntax + full regression suite). |
-| R16 | passed | Exact-head GitHub Actions Test run 36802920360 succeeded on 0ca17395302ddd57db5a2466350f85e389ad16df. This compliance-record commit must itself receive a fresh exact-head Test before merge. |
-| R17-R20 / AC-6 | pending delivery | Requires final exact-head Test, merge, canonical-main Test, Release and release readback. |
+| R16 | passed | Final PR head d1e28bbe7880f37c9eac7dd24c58a41b08faf6af passed GitHub Actions Test run 36803003226 after the earlier implementation head 0ca17395302ddd57db5a2466350f85e389ad16df also passed run 36802920360. |
+| R17 | passed | PR #135 was squash-merged only after the final exact-head Test succeeded; merge SHA ad6e8452d2b334ea8f1982f316241a95270f826d. |
+| R18 | passed | Canonical-main Test run 36803064905 succeeded on merge SHA ad6e8452d2b334ea8f1982f316241a95270f826d. |
+| R19 | passed | Release workflow run 36803123313 succeeded and published v2.10.19. |
+| R20 / AC-6 | passed | Release v2.10.19 targets ad6e8452d2b334ea8f1982f316241a95270f826d and contains asset chatgpt-auto-confirm.user.js, size 431056 bytes, digest sha256:8435822a77c5b5b11cb68b4fa59731129f00af327c98822d278530bfacbdd321. Canonical main metadata is @version 2.10.19. |
