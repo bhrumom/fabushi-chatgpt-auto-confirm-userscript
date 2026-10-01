@@ -4405,7 +4405,7 @@ async function bootstrapAttempt() {
       save();
     }
     if (now - Number(task.stalledRefreshAt || 0) < STALLED_REFRESH_COOLDOWN_MS) return false;
-    if (attempts >= 2) {
+    if (attempts >= 2 && options.allowUnlimitedRefresh !== true) {
       return queueInterruptedFreshRetry(
         task,
         '当前会话连续三段 5 分钟没有可见进展',
@@ -4509,6 +4509,7 @@ async function bootstrapAttempt() {
     if (now - stalledSince < INTERRUPTED_STOP_STALL_REFRESH_MS) return false;
     const refreshed = refreshStalledConversation(task, perform, now, {
       force:true,
+      allowUnlimitedRefresh:true,
       turn,
       message:`检测到连接中断等待完整回复后连续 5 分钟没有可见进展；正在刷新当前会话并保留接力意图（第 ${Number(task.stalledRefreshAttempts || 0) + 1} 次）。页面恢复后继续监督当前会话，不会重复发送任务。`,
     });
