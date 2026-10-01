@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.21
+// @version      2.10.22
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.21';
+  const VERSION = '2.10.22';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -172,6 +172,12 @@ async function bootstrapAttempt() {
   // their durable /c/<id> URLs instead of holding the tab on one task.
   const SUPERVISION_INTERVAL_MS = 15000;
   const VISIBLE_SCAN_INTERVAL_MS = 4000;
+  // An explicit connection-interrupted page has no useful action between
+  // recovery probes. Poll it less frequently than ordinary live generation so
+  // a large conversation cannot keep the Chrome main thread busy with repeated
+  // DOM scans, persistence, and workbench paints while waiting for the 5-minute
+  // same-route refresh deadline.
+  const INTERRUPTION_PROBE_INTERVAL_MS = 15 * 1000;
   const STREAM_TEXT_TAIL_LIMIT = 6000;
   const SLOW_SCAN_DIAGNOSTIC_THRESHOLD_MS = 1200;
   const SLOW_SCAN_DIAGNOSTIC_INTERVAL_MS = 30000;
@@ -2156,6 +2162,8 @@ async function bootstrapAttempt() {
       Number(task.cooldownUntil || 0),
       Number(task.noFinalReplyRecoveryUntil || 0),
     ];
+    const interruptionProbeAt = Number(task.pendingContinuationProbeAt || 0);
+    if (task.pendingContinuationReason && interruptionProbeAt > now) deadlines.push(interruptionProbeAt);
     const navigationRetryAt = Number(task.navigationGuardRetryAt || 0);
     if (navigationRetryAt > now && !taskMatchesCurrentConversation(task)) deadlines.push(navigationRetryAt);
     const attachmentRetryAt = Number(task.attachmentUploadRetryAt || 0);
@@ -4486,10 +4494,10 @@ async function bootstrapAttempt() {
     }
     return true;
   }
-  function refreshInterruptedStopStall(task, now = Date.now(), perform = true, turn = null) {
+  function refreshInterruptedStopStall(task, now = Date.now(), perform = true, turn = null, progressSignature = '') {
     const pendingSince = Number(task?.pendingContinuationSince || 0);
     if (!task?.pendingContinuationReason || !pendingSince) return false;
-    const progress = JSON.stringify(visibleConversationProgressFingerprint());
+    const progress = progressSignature || JSON.stringify(visibleConversationProgressFingerprint());
     const previousProgress = String(task.pendingContinuationStopProgressSignature || '');
     if (previousProgress && progress !== previousProgress) {
       task.pendingContinuationSince = now;
@@ -4516,30 +4524,77 @@ async function bootstrapAttempt() {
     if (refreshed && task.pendingContinuationReason) {
       task.pendingContinuationSince = now;
       task.pendingContinuationStopProgressSignature = progress;
+      task.pendingContinuationProbeAt = now + INTERRUPTION_PROBE_INTERVAL_MS;
       save();
     }
     return refreshed;
   }
-  function superviseConnectionInterrupted(task, liveURL, now = Date.now(), perform = true, turn = null) {
+  function interruptedProgressSignature(turn, liveURL, stopPresent = false) {
+    // Do not call visibleConversationProgressFingerprint() here. That helper
+    // intentionally scans a bounded transcript/activity tail for ordinary
+    // supervision, but repeating it every few seconds while ChatGPT is already
+    // in a product-level interruption state can still make a long page janky.
+    // The interruption banner disappearing returns control to the normal path;
+    // while it remains visible, current assistant text/boundary + Stop state is
+    // sufficient to reset the five-minute recovery window on real progress.
+    return JSON.stringify([
+      canonicalConversationURL(liveURL),
+      assistantResponseBoundaryKey(turn),
+      String(turn?.text || '').slice(-STREAM_TEXT_TAIL_LIMIT),
+      Boolean(stopPresent),
+      Boolean(turn?.streaming),
+      Boolean(turn?.final),
+    ]);
+  }
+  function superviseConnectionInterrupted(task, liveURL, now = Date.now(), perform = true, turn = null, options = {}) {
     if (!task || !liveURL) return false;
-    const reason = '检测到“连接已中断，正在等待完整回复”';
+    const reason = String(options.reason || '检测到“连接已中断，正在等待完整回复”');
+    const explicit = options.explicit !== false;
+    const stopPresent = Boolean(options.stopPresent);
     const pendingURLChanged = canonicalConversationURL(task.pendingContinuationURL) !== canonicalConversationURL(liveURL);
     const firstObservation = pendingURLChanged || !Number(task.pendingContinuationSince || 0);
-    task.pendingContinuationReason = reason;
-    task.pendingContinuationURL = liveURL;
-    if (firstObservation) {
+    const progress = interruptedProgressSignature(turn, liveURL, stopPresent);
+    const previousProgress = String(task.pendingContinuationStopProgressSignature || '');
+    const progressChanged = Boolean(previousProgress && progress !== previousProgress);
+    const existingProbeAt = Number(task.pendingContinuationProbeAt || 0);
+    // The scheduler normally honors this deadline and skips inspect() entirely.
+    // Keep the helper itself idempotent too, so an external/manual inspection
+    // cannot keep extending the deadline or cause another persistence/paint.
+    if (!firstObservation && !progressChanged && previousProgress && existingProbeAt > now) return true;
+    let dirty = false;
+
+    if (task.pendingContinuationReason !== reason) { task.pendingContinuationReason = reason; dirty = true; }
+    if (canonicalConversationURL(task.pendingContinuationURL) !== canonicalConversationURL(liveURL)) { task.pendingContinuationURL = liveURL; dirty = true; }
+    if (task.state !== 'waiting') { task.state = 'waiting'; dirty = true; }
+    if (firstObservation || progressChanged || !previousProgress) {
       task.pendingContinuationSince = now;
-      task.pendingContinuationStopProgressSignature = '';
+      task.pendingContinuationStopProgressSignature = progress;
+      if (progressChanged) {
+        task.stalledRefreshAttempts = 0;
+        task.stalledRefreshAt = 0;
+        task.stalledRefreshProgressHash = '';
+      }
+      dirty = true;
     }
-    task.state = 'waiting';
-    task.updatedAt = now;
-    const lastLogAt = Number(task.pendingContinuationLastWaitLogAt || 0);
-    if (firstObservation || !lastLogAt || now - lastLogAt >= 60 * 1000) {
+
+    const stalledSince = Math.max(Number(task.pendingContinuationSince || now), Number(task.stalledRefreshAt || 0));
+    const refreshAt = stalledSince + INTERRUPTED_STOP_STALL_REFRESH_MS;
+    task.pendingContinuationProbeAt = Math.min(refreshAt, now + INTERRUPTION_PROBE_INTERVAL_MS);
+
+    let logged = false;
+    if (firstObservation && explicit) {
       task.pendingContinuationLastWaitLogAt = now;
-      log(task, '已识别 ChatGPT 连接中断。保留当前会话与任务现场；若连续 5 分钟没有可见进展就刷新同一会话。刷新后若仍显示中断，会继续按新的 5 分钟无进展窗口恢复，不会卡在页面刷新后的 hydration 等待。');
+      log(task, '已识别 ChatGPT 连接中断。已切换到低开销恢复等待：不会每 4 秒重复写本地状态/刷新工作台；最多每 15 秒轻量复核一次，连续 5 分钟没有进展才刷新同一会话。');
+      logged = true;
     }
-    if (refreshInterruptedStopStall(task, now, perform, turn)) return true;
-    save();
+
+    if (now >= refreshAt) {
+      if (refreshInterruptedStopStall(task, now, perform, turn, progress)) return true;
+    }
+    if (dirty && !logged) {
+      task.updatedAt = now;
+      save();
+    }
     return true;
   }
   function dispatchCooldownRemaining(now = Date.now()) {
@@ -5883,6 +5938,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.pendingContinuationStopProgressSignature = '';
     task.pendingContinuationStopRecovery = false;
     task.pendingContinuationLastWaitLogAt = 0;
+    task.pendingContinuationProbeAt = 0;
   }
   async function sendContinuation(task, signal, reason = '当前会话异常中断', now = Date.now(), options = {}) {
     // Compatibility entry point for legacy persisted recovery state. Automatic
@@ -6468,7 +6524,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && connectionInterruptedNotice(routeEndedOwned ? activityTurn : turn, getPageUiRecords)
     );
     if (explicitConnectionInterrupted) {
-      superviseConnectionInterrupted(task, liveURL, now, true, routeEndedOwned ? activityTurn : turn);
+      superviseConnectionInterrupted(task, liveURL, now, true, routeEndedOwned ? activityTurn : turn, { stopPresent, explicit:true });
       return;
     }
     const stopGenerationIdentity = stopObservedGenerationIdentity(task, liveURL);
@@ -6777,13 +6833,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     if (!approvalBlocking && task.pendingContinuationReason) {
       const reason = '检测到旧版本遗留的连接中断强制续发状态';
       if (stopPresent) {
-        task.pendingContinuationReason = reason;
-        task.pendingContinuationURL = liveURL;
-        task.pendingContinuationSince ||= now;
-        task.state = 'waiting';
-        task.updatedAt = now;
-        if (refreshInterruptedStopStall(task, now, true, routeEndedOwned ? activityTurn : turn)) return;
-        save();
+        superviseConnectionInterrupted(task, liveURL, now, true, routeEndedOwned ? activityTurn : turn, { stopPresent:true, explicit:false, reason });
         return;
       }
       if (queueInterruptedFreshRetry(
