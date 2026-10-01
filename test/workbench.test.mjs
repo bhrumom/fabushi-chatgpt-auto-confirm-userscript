@@ -3457,43 +3457,41 @@ test('loading recovery never refreshes an owned conversation after its final rep
   dom.window.close();
 });
 
-test('generic stalled conversation refresh cooldown is fifteen minutes while ambiguous-send recovery stays separate',async()=>{
+test('generic stalled conversation refresh cooldown is five minutes while ambiguous-send recovery stays separate',async()=>{
   const {h,w,dom}=await fixture();
-  w.history.pushState({},'', '/c/stall-fifteen');
-  const task={id:'stall-fifteen',ownerTabId:h.getTabId(),goal:'wait',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/stall-fifteen',token:'stall-fifteen',attempted:false,messages:[]};
+  w.history.pushState({},'', '/c/stall-five');
+  const task={id:'stall-five',ownerTabId:h.getTabId(),goal:'wait',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/stall-five',token:'stall-five',attempted:false,messages:[]};
   h.data.tasks.push(task);
   assert.equal(h.refreshStalledConversation(task,false,1_000_000),true);
   assert.equal(task.stalledRefreshAttempts,1);
-  assert.match(task.messages.at(-1).text,/连续 15 分钟/);
-  assert.match(task.messages.at(-1).text,/三段 15 分钟/);
-  assert.equal(h.refreshStalledConversation(task,false,1_899_999),false,'generic stall refresh must not recur before 15 minutes');
+  assert.match(task.messages.at(-1).text,/连续 5 分钟/);
+  assert.match(task.messages.at(-1).text,/三段 5 分钟/);
+  assert.equal(h.refreshStalledConversation(task,false,1_299_999),false,'generic stall refresh must not recur before 5 minutes');
   assert.equal(task.stalledRefreshAttempts,1);
-  assert.equal(h.refreshStalledConversation(task,false,1_900_000),true,'15 minutes permits the next same-chat stalled refresh');
+  assert.equal(h.refreshStalledConversation(task,false,1_300_000),true,'5 minutes permits the next same-chat stalled refresh');
   assert.equal(task.stalledRefreshAttempts,2);
   dom.window.close();
 });
 
-test('stuck Stop after interruption refreshes the same session after fifteen quiet minutes and retains retry state',async()=>{
+test('stuck Stop after interruption refreshes the same session after five quiet minutes and retains retry state',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">recover [Fabushi:stuck-stop-reload]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">连接已中断，正在等待完整回复</div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="stop-button">Stop</button></form></main>');
   w.history.pushState({},'', '/c/stuck-stop-reload');
-  const task={id:'stuck-stop-reload',ownerTabId:h.getTabId(),goal:'recover',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/stuck-stop-reload',token:'stuck-stop-reload',attempted:true,messages:[],pendingContinuationReason:'连接中断',pendingContinuationURL:'https://chatgpt.com/c/stuck-stop-reload',pendingContinuationStopRecovery:true,pendingContinuationStopClickedAt:1000,pendingContinuationStopProgressSignature:'initial'};
+  const task={id:'stuck-stop-reload',ownerTabId:h.getTabId(),goal:'recover',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/stuck-stop-reload',token:'stuck-stop-reload',attempted:true,messages:[],pendingContinuationReason:'连接中断',pendingContinuationURL:'https://chatgpt.com/c/stuck-stop-reload',pendingContinuationSince:1_000_000,pendingContinuationStopProgressSignature:'initial'};
   h.data.tasks.push(task);
   try {
     assert.equal(h.refreshInterruptedStopStall(task,1_000_000,false),false,'visible conversation progress restarts the no-response timer');
-    assert.equal(task.pendingContinuationStopClickedAt,1_000_000);
-    assert.equal(h.refreshInterruptedStopStall(task,1_899_999,false),false,'the full 15 quiet minutes are required');
-    assert.equal(h.refreshInterruptedStopStall(task,1_900_000,false),true,'a permanently visible Stop triggers a same-session reload after the quiet period');
+    assert.equal(task.pendingContinuationSince,1_000_000);
+    assert.equal(h.refreshInterruptedStopStall(task,1_299_999,false),false,'the full 5 quiet minutes are required');
+    assert.equal(h.refreshInterruptedStopStall(task,1_300_000,false),true,'a permanently visible Stop triggers a same-session reload after the quiet period');
     assert.equal(task.stalledRefreshAttempts,1);
-    assert.equal(task.pendingContinuationStopRecovery,true,'the interrupted continuation intent survives reload');
-    assert.equal(task.pendingContinuationStopClickedAt,0,'the recovered page can request Stop again if needed');
     assert.equal(task.pendingContinuationReason,'连接中断');
     assert.equal(task.url,'https://chatgpt.com/c/stuck-stop-reload');
-    assert.match(task.messages.at(-1).text,/连接中断后 ChatGPT 连续 15 分钟仍未恢复/);
-    assert.equal(h.refreshInterruptedStopStall(task,2_799_999,false),false,'reload retries also observe the 15 minute cooldown');
+    assert.match(task.messages.at(-1).text,/连接中断等待完整回复后连续 5 分钟没有可见进展/);
+    assert.equal(h.refreshInterruptedStopStall(task,1_599_999,false),false,'reload retries also observe the 5 minute cooldown');
   } finally {h.pause();dom.window.close();}
 });
 
-test('active assistant turn with no page changes refreshes after fifteen minutes',async()=>{
+test('active assistant turn with no page changes refreshes after five minutes',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue work [Fabushi:active-stall]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">Checking the latest CI status.</div><div aria-busy="true" class="loading-shimmer">Working</div></div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="stop-button" aria-label="停止回答">Stop</button></form></main>');
   w.history.pushState({},'', '/c/active-stall');
   const task={id:'active-stall',ownerTabId:h.getTabId(),goal:'continue work',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/active-stall',token:'active-stall',attempted:false,messages:[]};
@@ -3503,18 +3501,18 @@ test('active assistant turn with no page changes refreshes after fifteen minutes
     await h.inspect(task,null);
     const observation=h.observations.get(task.id);
     assert.ok(observation,'owned active conversation is observed');
-    observation.progressSince=Date.now()-16*60*1000;
+    observation.progressSince=Date.now()-6*60*1000;
     await h.inspect(task,null);
-    assert.equal(task.stalledRefreshAttempts,1,'Stop/busy does not exempt an unchanged page from the fifteen-minute refresh');
+    assert.equal(task.stalledRefreshAttempts,1,'Stop/busy does not exempt an unchanged page from the five-minute refresh');
     assert.equal(task.state,'waiting','the page refresh is scheduled after its full unchanged interval');
-    assert.equal(task.messages.some(message=>/连续 15 分钟没有可见变化/.test(message.text||'')),true);
+    assert.equal(task.messages.some(message=>/连续 5 分钟没有可见变化/.test(message.text||'')),true);
   } finally {
     h.pause();
     dom.window.close();
   }
 });
 
-test('active assistant generation suppresses route recovery during temporary marker mismatch',async()=>{
+test('active assistant generation suppresses route recovery during temporary marker mismatch',async()=>{test('active assistant generation suppresses route recovery during temporary marker mismatch',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue work without mounted task marker</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">Checking the latest CI status.</div><div aria-busy="true">Working</div></div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="stop-button" aria-label="停止回答">Stop</button></form></main>');
   w.history.pushState({},'', '/c/active-route-mismatch');
   const task={id:'active-route-mismatch',ownerTabId:h.getTabId(),goal:'continue work',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/active-route-mismatch',token:'temporarily-virtualized-marker',attempted:false,messages:[],routeRecoveryAttempts:1};
@@ -5357,6 +5355,20 @@ test('durable handoff snapshot is phase round and goal-revision bound and cannot
   } finally {h.pause();dom.window.close();}
 });
 
+test('current English connection-interrupted wording is recognized',async()=>{
+  const {h,dom}=await fixture('<main><div role="status">Connection interrupted. Waiting for the complete answer</div></main>');
+  try {
+    assert.equal(h.connectionInterruptedNotice(null),true);
+  } finally { h.pause(); dom.window.close(); }
+});
+
+test('current English conversation-load failure is recognized even when Try again is inert text',async()=>{
+  const {h,dom}=await fixture('<main><section><div>Could not load this ChatGPT conversation</div><div>Try again</div></section></main>');
+  try {
+    assert.match(h.conversationLoadFailure(),/Could not load this ChatGPT conversation/i);
+  } finally { h.pause(); dom.window.close(); }
+});
+
 test('explicit ChatGPT conversation-load failure waits 30 seconds and refreshes at most seven times before fresh handoff',async()=>{
   const {h,w,dom}=await fixture('<main><section><h2>无法加载此 ChatGPT 对话</h2><button type="button">重试</button><div>正在加载聊天</div></section></main>');
   try {
@@ -5791,13 +5803,13 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.10\.19$/m);
-  assert.match(source,/const VERSION = '2\.10\.19'/);
+  assert.match(source,/^\/\/ @version\s+2\.10\.20$/m);
+  assert.match(source,/const VERSION = '2\.10\.20'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
-  assert.match(source,/const STALLED_REFRESH_MS = 15 \* 60 \* 1000/);
+  assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_REFRESH_LIMIT = 7/);
-  assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 \* 60 \* 1000/);
+  assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const ENDED_NO_FINAL_STABILITY_MS = 8000/);
   assert.match(source,/const REVIEW_ENDED_NO_FINAL_STABILITY_MS = 2 \* 60 \* 1000/);
   assert.match(source,/const RELOAD_STOP_ABSENCE_STABILITY_MS = 8000/);
