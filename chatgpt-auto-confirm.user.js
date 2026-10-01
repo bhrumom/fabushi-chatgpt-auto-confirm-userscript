@@ -4556,6 +4556,11 @@ async function bootstrapAttempt() {
     const progress = interruptedProgressSignature(turn, liveURL, stopPresent);
     const previousProgress = String(task.pendingContinuationStopProgressSignature || '');
     const progressChanged = Boolean(previousProgress && progress !== previousProgress);
+    const existingProbeAt = Number(task.pendingContinuationProbeAt || 0);
+    // The scheduler normally honors this deadline and skips inspect() entirely.
+    // Keep the helper itself idempotent too, so an external/manual inspection
+    // cannot keep extending the deadline or cause another persistence/paint.
+    if (!firstObservation && !progressChanged && previousProgress && existingProbeAt > now) return true;
     let dirty = false;
 
     if (task.pendingContinuationReason !== reason) { task.pendingContinuationReason = reason; dirty = true; }
