@@ -5399,6 +5399,33 @@ test('live interruption preempts inherited Stop hydration after a same-route ref
     assert.equal(task.url,'https://chatgpt.com/c/interrupt-preempts-hydration');
   } finally { h.pause(); dom.window.close(); }
 });
+test('interrupted wait is throttled between probes and does not repaint unchanged state',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:interrupt-throttle]</div></article>
+    <div role="status">Connection interrupted. Waiting for the complete answer</div>
+    <form><textarea id="prompt-textarea"></textarea></form>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/interrupt-throttle');
+    const task={id:'interrupt-throttle',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/interrupt-throttle',token:'interrupt-throttle',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    await h.start(false);
+    await h.inspect(task,null);
+    const now=Date.now();
+    const probeAt=Number(task.pendingContinuationProbeAt||0);
+    assert.ok(probeAt>=now+10_000 && probeAt<=now+16_000,'interrupted state schedules the next lightweight probe about 15 seconds later');
+    assert.equal(h.nextSupervisionTask([task],now),null,'scheduler does not inspect the interrupted page again before the probe deadline');
+    assert.equal(h.taskDeferredUntil(task,now),probeAt);
+    const updatedAt=task.updatedAt;
+    const messageVersion=Number(task.messageVersion||0);
+    const paints=h.measurements.paints;
+    await h.inspect(task,null);
+    assert.equal(task.updatedAt,updatedAt,'unchanged early re-inspection does not persist the task again');
+    assert.equal(Number(task.messageVersion||0),messageVersion,'unchanged early re-inspection does not append another status log');
+    assert.equal(h.measurements.paints,paints,'unchanged early re-inspection does not repaint the Fabushi workbench');
+    assert.equal(task.pendingContinuationProbeAt,probeAt,'early re-inspection cannot slide the probe deadline forward');
+  } finally { h.pause(); dom.window.close(); }
+});
 test('current English conversation-load failure is recognized even when Try again is inert text',async()=>{
   const {h,dom}=await fixture('<main><section><div>Could not load this ChatGPT conversation</div><div>Try again</div></section></main>');
   try {
@@ -5840,13 +5867,14 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.10\.21$/m);
-  assert.match(source,/const VERSION = '2\.10\.21'/);
+  assert.match(source,/^\/\/ @version\s+2\.10\.22$/m);
+  assert.match(source,/const VERSION = '2\.10\.22'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_REFRESH_LIMIT = 7/);
   assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 5 \* 60 \* 1000/);
+  assert.match(source,/const INTERRUPTION_PROBE_INTERVAL_MS = 15 \* 1000/);
   assert.match(source,/const ENDED_NO_FINAL_STABILITY_MS = 8000/);
   assert.match(source,/const REVIEW_ENDED_NO_FINAL_STABILITY_MS = 2 \* 60 \* 1000/);
   assert.match(source,/const RELOAD_STOP_ABSENCE_STABILITY_MS = 8000/);
