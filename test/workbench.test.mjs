@@ -5882,7 +5882,7 @@ test('the workbench mounts while the ChatGPT document is still loading',async()=
 });
 
 
-test('live assistant turn extracts sibling Markdown and connection interruption hands it to a fresh chat',async()=>{
+test('live assistant turn extracts sibling Markdown while interruption waits for the five-minute same-route refresh',async()=>{
   const {h,w,dom}=await fixture(`<main>
     <section data-testid="conversation-turn-1"><div data-message-author-role="user">goal [Fabushi:live-shape]</div></section>
     <section data-testid="conversation-turn-2">
@@ -5905,17 +5905,16 @@ test('live assistant turn extracts sibling Markdown and connection interruption 
     await h.start();
     await h.inspect(task,null);
     assert.equal(sends,0);
-    assert.equal(task.state,'queued');
-    assert.equal(task.url,'');
-    assert.equal(task.token,'');
+    assert.equal(task.state,'waiting');
+    assert.equal(task.url,'https://chatgpt.com/c/live-shape');
+    assert.equal(task.token,'live-shape');
     assert.equal(task.phase,'work');
     assert.equal(task.round,40);
-    assert.match(task.abnormalFreshCarry,/PR #3 已前移/);
-    assert.match(task.abnormalFreshCarry,/Ledger 共 2046 行/);
+    assert.match(task.pendingContinuationReason,/连接已中断/);
+    assert.ok(Number(task.pendingContinuationSince)>0);
   } finally {h.pause();dom.window.close();}
 });
-
-test('connection interruption without Stop queues a fresh session and never sends the legacy phrase',async()=>{
+test('connection interruption without Stop waits for a same-route refresh and never sends the legacy phrase',async()=>{
   const {h,w,dom}=await fixture(`<main>
     <section data-testid="conversation-turn-1"><div data-message-author-role="user">goal [Fabushi:repeat-interrupt]</div></section>
     <section data-testid="conversation-turn-2"><div class="markdown">当前会话已经完成第一步。</div><div data-message-author-role="assistant" data-message-id="status-first">连接已中断。正在等待完整回复。</div></section>
@@ -5930,14 +5929,21 @@ test('connection interruption without Stop queues a fresh session and never send
     await h.start();
     await h.inspect(task,null);
     assert.equal(sends,0);
-    assert.equal(task.state,'queued');
-    assert.equal(task.url,'');
+    assert.equal(task.state,'waiting');
+    assert.equal(task.url,'https://chatgpt.com/c/repeat-interrupt');
+    assert.equal(task.token,'repeat-interrupt');
     assert.equal(task.round,3);
-    assert.match(task.abnormalFreshCarry,/完成第一步/);
+    assert.match(task.pendingContinuationReason,/连接已中断/);
     assert.equal(w.document.querySelector('#prompt-textarea').value,'');
+    task.pendingContinuationSince=Date.now()-5*60*1000-1;
+    task.pendingContinuationStopProgressSignature=JSON.stringify(h.visibleConversationProgressFingerprint());
+    assert.equal(h.refreshInterruptedStopStall(task,Date.now(),false),true);
+    assert.equal(task.stalledRefreshAttempts,1);
+    assert.equal(task.url,'https://chatgpt.com/c/repeat-interrupt');
   } finally {h.pause();dom.window.close();}
 });
-test('turn-sibling extraction excludes hidden content and foreign user turns',async()=>{
+
+test('turn-sibling extraction excludes hidden content and foreign user turns',async()=>{test('turn-sibling extraction excludes hidden content and foreign user turns',async()=>{
   const {h,w,dom}=await fixture(`<main>
     <section data-testid="conversation-turn-1"><div data-message-author-role="user">goal [Fabushi:scope-check]</div></section>
     <section data-testid="conversation-turn-2"><div class="markdown">SAFE_WORK</div><div class="markdown" hidden>HIDDEN_SECRET</div><div data-message-author-role="assistant">status</div></section>
@@ -5995,7 +6001,7 @@ test('legacy continuation preserves an unrelated old-chat draft while switching 
   } finally {h.pause();dom.window.close();}
 });
 
-test('interrupted recovery with a virtualized task article opens a fresh session without old-chat send',async()=>{
+test('interrupted recovery with a virtualized task article retains the exact route without old-chat send',async()=>{
   const {h,w,dom}=await fixture(`<main>
     <article data-testid="conversation-turn-user"><div data-message-author-role="user">another task [Fabushi:foreign]</div></article>
     <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">partial reply</div></article>
@@ -6012,15 +6018,17 @@ test('interrupted recovery with a virtualized task article opens a fresh session
     await h.start(false);
     await h.inspect(task,null);
     assert.equal(sends,0);
-    assert.equal(task.state,'queued');
-    assert.equal(task.url,'');
-    assert.equal(task.token,'');
+    assert.equal(task.state,'waiting');
+    assert.equal(task.url,'https://chatgpt.com/c/null-article-recovery');
+    assert.equal(task.token,'expected-owner');
     assert.equal(task.phase,'work');
     assert.equal(task.round,7);
+    assert.match(task.pendingContinuationReason,/连接已中断/);
     assert.equal(w.document.querySelector('#prompt-textarea').value,'');
   } finally {h.pause();dom.window.close();}
 });
-test('automatic memory diagnostics never ask the host even when no task is active',async()=>{
+
+test('automatic memory diagnostics never ask the host even when no task is active',async()=>{test('automatic memory diagnostics never ask the host even when no task is active',async()=>{
   const gib=1024*1024*1024;
   const requests=[];
   const {h,w,dom}=await fixture('',window=>{
