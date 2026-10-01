@@ -1,9 +1,17 @@
-# Fabushi 独立自动确认工作台 2.10.20
+# Fabushi 独立自动确认工作台 2.10.21
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.20`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.21`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
 
+## 2.10.21 刷新后连接中断优先于 inherited Stop hydration
+
+- 修复 v2.10.20 的遗漏：第一次 `Connection interrupted. Waiting for the complete answer` 能触发 5 分钟刷新，但刷新后的新 document 可能先命中上一份页面留下的 Stop observation / hydration gate，于是在真正执行连接中断识别之前就提前 `return`，工作台只显示“页面刷新后仍在恢复当前任务内容”，从而再次卡住。
+- 现在**可见的连接中断提示在同一已绑定会话中是更高优先级的恢复证据**。它会在 inherited Stop / reload hydration 早退逻辑之前被处理。
+- 即使刷新后当前 Stop 控件暂时无法被 selector 识别，只要 exact conversation 上明确显示连接中断，仍会建立/续接独立的 5 分钟恢复窗口，不会退回无限 hydration 等待，也不会因为一次 selector/虚拟化差异立即丢弃当前任务现场。
+- 增加专门回归：模拟 previous-document Stop observation + 当前页面明确连接中断 + 当前 Stop 未识别，证明脚本会记录“已识别 ChatGPT 连接中断”、保持原 URL，并在 5 分钟无进展后安排同会话刷新。
+- 所有测试与发布验证继续只通过 GitHub Actions。
+- 详细规格见 [v2.10.21](docs/specs/interruption-preempts-reload-hydration-v2.10.21.md)。
 ## 2.10.20 连接中断/会话加载失败主动刷新 + 5 分钟停滞刷新
 
 - 识别当前 ChatGPT 英文提示 `Connection interrupted. Waiting for the complete answer`；当该状态仍伴随 Stop/生成状态时，不再无限等待。页面连续 **5 分钟**没有可见进展就刷新当前绑定会话，之后仍异常则继续按 5 分钟无进展窗口周期刷新，不重复发送任务。
