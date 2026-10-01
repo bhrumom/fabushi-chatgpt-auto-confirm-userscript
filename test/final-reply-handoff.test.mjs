@@ -286,18 +286,18 @@ test('a stalled conversation refresh preserves the task twice then queues a fres
     assert.equal(task.token, 'stalled-token');
     assert.deepEqual(task.attachments, [{ id:'image-1', name:'画稿.png' }]);
     assert.equal(task.phase, 'work');
-    assert.match(task.messages.at(-1).text, /连续 15 分钟没有可见变化/);
+    assert.match(task.messages.at(-1).text, /连续 5 分钟没有可见变化/);
 
-    assert.equal(hooks.refreshStalledConversation(task, false, 1_800_999), false, 'the fifteen-minute interval prevents an immediate second reload');
-    assert.equal(hooks.refreshStalledConversation(task, false, 1_801_000), true);
+    assert.equal(hooks.refreshStalledConversation(task, false, 1_200_999), false, 'the five-minute interval prevents an immediate second reload');
+    assert.equal(hooks.refreshStalledConversation(task, false, 1_201_000), true);
     assert.equal(task.stalledRefreshAttempts, 2);
-    assert.equal(hooks.refreshStalledConversation(task, false, 1_801_001), false, 'the next window starts after the second reload');
-    assert.equal(hooks.refreshStalledConversation(task, false, 2_701_000), true, 'the third quiet window hands off to a fresh session');
+    assert.equal(hooks.refreshStalledConversation(task, false, 1_201_001), false, 'the next window starts after the second reload');
+    assert.equal(hooks.refreshStalledConversation(task, false, 1_501_000), true, 'the third quiet window hands off to a fresh session');
     assert.equal(task.state, 'queued');
     assert.equal(task.url, '');
     assert.equal(task.phase, 'work');
     assert.equal(task.round, 1);
-    assert.match(task.messages.at(-1).text, /连续三段 15 分钟/);
+    assert.match(task.messages.at(-1).text, /连续三段 5 分钟/);
     assert.match(task.messages.at(-1).text, /切换到新的 ChatGPT 会话/);
     assert.equal(task.stalledRefreshAttempts, 0, 'the fresh session starts its own no-progress streak');
     assert.equal(task.stalledRefreshExhausted, false);
