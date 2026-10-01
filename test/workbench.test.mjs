@@ -2123,47 +2123,21 @@ test('repeated connection interruptions create fresh dispatches while preserving
   dom.window.close();
 });
 
-test('replacement conversation binding retires the prior abnormal carry before a later DOM-loss interruption',async()=>{
-  const {h,w,dom}=await fixture('<main><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">Send</button></form></main>');
+test('later DOM-loss interruption never reuses a snapshot from an older conversation',async()=>{
+  const {h,w,dom}=await fixture('<main><form><textarea id="prompt-textarea"></textarea></form></main>');
   try {
-    const task={id:'latest-hop-bind',ownerTabId:h.getTabId(),goal:'finish the task',mode:'goal',phase:'work',round:5,state:'queued',url:'',token:'',next:'continue exact step',goalRevision:0,messages:[],
-      abnormalFreshCarry:'C1 FIRST INTERRUPTION WORK MUST NOT REAPPEAR',
-      abnormalFreshCarrySourceURL:'https://chatgpt.com/c/c1',
-      abnormalFreshCarryReason:'first interruption',
-      abnormalFreshCarryPhase:'work',
-      abnormalFreshCarryRound:5,
-      abnormalFreshCarryAt:10,
-      abnormalFreshCarrySourceKind:'owned-visible-assistant-transcript',
+    w.history.pushState({},'', '/c/6aba1ad0-50c0-83e8-9b76-ade67716c202');
+    const task={id:'latest-hop-empty',ownerTabId:h.getTabId(),goal:'finish the task',mode:'goal',phase:'work',round:5,state:'waiting',
+      url:'https://chatgpt.com/c/6aba1ad0-50c0-83e8-9b76-ade67716c202',token:'c2-token',attempted:false,next:'continue exact step',goalRevision:0,messages:[],
+      abnormalFreshCarry:'',abnormalFreshCarryPhase:'',abnormalFreshCarryRound:0,
       handoffReplySnapshot:'C1 FIRST INTERRUPTION SNAPSHOT MUST NOT REAPPEAR',
-      handoffReplySnapshotSourceURL:'https://chatgpt.com/c/c1',
-      handoffReplySnapshotPhase:'work',
-      handoffReplySnapshotRound:5,
-      handoffReplySnapshotGoalRevision:0,
-      handoffReplySnapshotAt:11,
+      handoffReplySnapshotSourceURL:'https://chatgpt.com/c/6aba1ad0-50c0-83e8-9b76-ade67716c101',
+      handoffReplySnapshotPhase:'work',handoffReplySnapshotRound:5,handoffReplySnapshotGoalRevision:0,handoffReplySnapshotAt:11,
     };
     h.data.tasks.push(task);
-    const button=w.document.querySelector('[data-testid="send-button"]');
-    button.onclick=()=>{
-      w.history.pushState({},'', '/c/6aba1ad0-50c0-83e8-9b76-ade67716c202');
-      const user=w.document.createElement('article');
-      user.dataset.testid='conversation-turn-user';
-      const content=w.document.createElement('div');
-      content.dataset.messageAuthorRole='user';
-      content.textContent='replacement prompt [Fabushi:'+task.token+']';
-      user.append(content);
-      w.document.querySelector('main').append(user);
-    };
-    await h.start(false);
-    await h.send(task,null);
-    assert.equal(task.url,'https://chatgpt.com/c/6aba1ad0-50c0-83e8-9b76-ade67716c202');
-    assert.equal(task.abnormalFreshCarry||'','', 'once C2 is owned, the C1 carry has been consumed and retired');
-    assert.equal(task.handoffReplySnapshot||'','', 'once C2 is owned, the C1 durable snapshot has been retired');
-
+    assert.equal(h.handoffReplySnapshotForCurrentPhase(task),'','foreign-source snapshot is unusable even when phase/round/goal revision match');
     assert.equal(h.queueInterruptedFreshRetry(
-      task,
-      'second interruption with no current assistant DOM',
-      30_000,
-      null,
+      task,'second interruption with no current assistant DOM',30_000,null,
       {allowExactRouteFallback:true,recoveryLabel:'连接中断接力',historyReason:'connection-interrupted-fresh-chat'},
     ),true);
     assert.equal(task.abnormalFreshCarry||'','');
@@ -2681,7 +2655,13 @@ test('the new route is the only link captured once this task marker appears',asy
       w.document.querySelector('main').append(user);
     },350);
   };
-  const task={id:'route-capture',goal:'capture only owned route',mode:'once',phase:'work',round:1,state:'queued',url:'',token:'',messages:[]};
+  const task={id:'route-capture',goal:'capture only owned route',mode:'once',phase:'work',round:1,state:'queued',url:'',token:'',messages:[],
+    connectionInterruptedFreshDispatch:true,
+    abnormalFreshCarry:'C1 CONSUMED CARRY',abnormalFreshCarrySourceURL:'https://chatgpt.com/c/6aba1ad0-50c0-83e8-9b76-ade67716c101',
+    abnormalFreshCarryReason:'first interruption',abnormalFreshCarryPhase:'work',abnormalFreshCarryRound:1,abnormalFreshCarryAt:10,
+    abnormalFreshCarrySourceKind:'owned-visible-assistant-transcript',
+    handoffReplySnapshot:'C1 CONSUMED SNAPSHOT',handoffReplySnapshotSourceURL:'https://chatgpt.com/c/6aba1ad0-50c0-83e8-9b76-ade67716c101',
+    handoffReplySnapshotPhase:'work',handoffReplySnapshotRound:1,handoffReplySnapshotGoalRevision:0,handoffReplySnapshotAt:11};
   h.data.tasks.push(task);
   await h.start();
   const pending=h.send(task,null);
@@ -2690,6 +2670,8 @@ test('the new route is the only link captured once this task marker appears',asy
   h.pause();
   assert.equal(task.url,`https://chatgpt.com/c/new-route-${task.id}`);
   assert.deepEqual(Array.from(task.sessionUrls),[`https://chatgpt.com/c/new-route-${task.id}`]);
+  assert.equal(task.abnormalFreshCarry||'','', 'successful owned replacement binding retires the consumed prior carry');
+  assert.equal(task.handoffReplySnapshot||'','', 'successful owned replacement binding retires the consumed prior snapshot');
   dom.window.close();
 });
 test('new goals become the next scheduler target instead of waiting behind stale tasks',async()=>{
