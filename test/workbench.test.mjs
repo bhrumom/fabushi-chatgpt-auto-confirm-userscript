@@ -2144,7 +2144,7 @@ test('replacement conversation binding retires the prior abnormal carry before a
     h.data.tasks.push(task);
     const button=w.document.querySelector('[data-testid="send-button"]');
     button.onclick=()=>{
-      w.history.pushState({},'', '/c/c2');
+      w.history.pushState({},'', '/c/6aba1ad0-50c0-83e8-9b76-ade67716c202');
       const user=w.document.createElement('article');
       user.dataset.testid='conversation-turn-user';
       const content=w.document.createElement('div');
@@ -2155,7 +2155,7 @@ test('replacement conversation binding retires the prior abnormal carry before a
     };
     await h.start(false);
     await h.send(task,null);
-    assert.equal(task.url,'https://chatgpt.com/c/c2');
+    assert.equal(task.url,'https://chatgpt.com/c/6aba1ad0-50c0-83e8-9b76-ade67716c202');
     assert.equal(task.abnormalFreshCarry||'','', 'once C2 is owned, the C1 carry has been consumed and retired');
     assert.equal(task.handoffReplySnapshot||'','', 'once C2 is owned, the C1 durable snapshot has been retired');
 
