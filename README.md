@@ -1,9 +1,17 @@
-# Fabushi 独立自动确认工作台 2.10.19
+# Fabushi 独立自动确认工作台 2.10.20
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.19`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.20`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
 
+## 2.10.20 连接中断/会话加载失败主动刷新 + 5 分钟停滞刷新
+
+- 识别当前 ChatGPT 英文提示 `Connection interrupted. Waiting for the complete answer`；当该状态仍伴随 Stop/生成状态时，不再无限等待。页面连续 **5 分钟**没有可见进展就刷新当前绑定会话，之后仍异常则继续按 5 分钟无进展窗口周期刷新，不重复发送任务。
+- 识别当前 ChatGPT 英文页面错误 `Could not load this ChatGPT conversation`。即使 `Try again` 只是普通文字、没有渲染成 button/role=button，只要错误位于主内容区且消息区没有挂载，也进入现有会话加载失败恢复：等待 30 秒后刷新同一会话，最多 7 次，再安全接力到新会话。
+- 通用“页面没有变化”刷新阈值由 **15 分钟改为 5 分钟**；可见消息/工作步骤变化会重新开始 5 分钟计时。
+- 连接中断的专项刷新不受普通“三段停滞后新会话”计数限制，避免在错误页上静止等待；它持续刷新原绑定会话，直到页面恢复、Stop 消失后进入既有异常接力，或状态发生其它可判定变化。
+- 所有验证只通过 GitHub Actions。
+- 详细规格见 [v2.10.20](docs/specs/interrupted-load-failure-five-minute-refresh-v2.10.20.md)。
 ## 2.10.19 连续异常接力始终使用最新中断会话
 
 - 修复连续异常 fresh-chat 接力时，第二次或后续中断可能错误复用第一次异常会话实时回复/工作步骤的问题。
