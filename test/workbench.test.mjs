@@ -5943,7 +5943,7 @@ test('connection interruption without Stop waits for a same-route refresh and ne
   } finally {h.pause();dom.window.close();}
 });
 
-test('turn-sibling extraction excludes hidden content and foreign user turns',async()=>{test('turn-sibling extraction excludes hidden content and foreign user turns',async()=>{
+test('turn-sibling extraction excludes hidden content and foreign user turns',async()=>{
   const {h,w,dom}=await fixture(`<main>
     <section data-testid="conversation-turn-1"><div data-message-author-role="user">goal [Fabushi:scope-check]</div></section>
     <section data-testid="conversation-turn-2"><div class="markdown">SAFE_WORK</div><div class="markdown" hidden>HIDDEN_SECRET</div><div data-message-author-role="assistant">status</div></section>
@@ -6028,7 +6028,7 @@ test('interrupted recovery with a virtualized task article retains the exact rou
   } finally {h.pause();dom.window.close();}
 });
 
-test('automatic memory diagnostics never ask the host even when no task is active',async()=>{test('automatic memory diagnostics never ask the host even when no task is active',async()=>{
+test('automatic memory diagnostics never ask the host even when no task is active',async()=>{
   const gib=1024*1024*1024;
   const requests=[];
   const {h,w,dom}=await fixture('',window=>{
