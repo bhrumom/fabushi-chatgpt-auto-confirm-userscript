@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.18
+// @version      2.10.19
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.18';
+  const VERSION = '2.10.19';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -3889,7 +3889,23 @@ async function bootstrapAttempt() {
     if (String(task.handoffReplySnapshotPhase || '') !== String(task.phase || '')) return '';
     if (Number(task.handoffReplySnapshotRound || 0) !== Number(task.round || 0)) return '';
     if (Number(task.handoffReplySnapshotGoalRevision || 0) !== Number(task.goalRevision || 0)) return '';
+    // A durable snapshot is evidence from exactly one bound conversation.
+    // Never let an older abnormal chat's snapshot cross into a replacement
+    // conversation merely because phase/round/goalRevision are unchanged.
+    const currentURL = canonicalConversationURL(task?.url);
+    const sourceURL = canonicalConversationURL(task?.handoffReplySnapshotSourceURL);
+    if (!currentURL || !sourceURL || sourceURL !== currentURL) return '';
     return snapshot;
+  }
+  function retireConsumedAbnormalHandoff(task) {
+    if (!task) return false;
+    const changed = Boolean(
+      String(task.abnormalFreshCarry || '').trim()
+      || String(task.handoffReplySnapshot || '').trim()
+    );
+    clearAbnormalFreshCarry(task);
+    clearHandoffReplySnapshot(task);
+    return changed;
   }
   function freshHandoffCarryForCurrentPhase(task) {
     const captured = abnormalFreshCarryForCurrentPhase(task);
@@ -6064,6 +6080,11 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
         task.attempted = false;
         task.dispatchOriginURL = '';
         task.dispatchStartedAt = 0;
+        // The replacement prompt has now been durably associated with its new
+        // conversation. Any abnormal carry/snapshot used to build that prompt
+        // belongs to the previous chat and must not be eligible if this new
+        // conversation later interrupts before its assistant DOM rehydrates.
+        retireConsumedAbnormalHandoff(task);
         navigating = false;
         removeSessionStorageRecord(NAV);
         state(task, 'waiting', `${task.phase === 'review' ? '规划/验收' : '工作'}会话已确认发送 · 第 ${task.round} 轮`);
