@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.20
+// @version      2.10.21
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.20';
+  const VERSION = '2.10.21';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -4520,6 +4520,28 @@ async function bootstrapAttempt() {
     }
     return refreshed;
   }
+  function superviseConnectionInterrupted(task, liveURL, now = Date.now(), perform = true, turn = null) {
+    if (!task || !liveURL) return false;
+    const reason = '检测到“连接已中断，正在等待完整回复”';
+    const pendingURLChanged = canonicalConversationURL(task.pendingContinuationURL) !== canonicalConversationURL(liveURL);
+    const firstObservation = pendingURLChanged || !Number(task.pendingContinuationSince || 0);
+    task.pendingContinuationReason = reason;
+    task.pendingContinuationURL = liveURL;
+    if (firstObservation) {
+      task.pendingContinuationSince = now;
+      task.pendingContinuationStopProgressSignature = '';
+    }
+    task.state = 'waiting';
+    task.updatedAt = now;
+    const lastLogAt = Number(task.pendingContinuationLastWaitLogAt || 0);
+    if (firstObservation || !lastLogAt || now - lastLogAt >= 60 * 1000) {
+      task.pendingContinuationLastWaitLogAt = now;
+      log(task, '已识别 ChatGPT 连接中断。保留当前会话与任务现场；若连续 5 分钟没有可见进展就刷新同一会话。刷新后若仍显示中断，会继续按新的 5 分钟无进展窗口恢复，不会卡在页面刷新后的 hydration 等待。');
+    }
+    if (refreshInterruptedStopStall(task, now, perform, turn)) return true;
+    save();
+    return true;
+  }
   function dispatchCooldownRemaining(now = Date.now()) {
     return Math.max(0, Number(data.lastDispatchAt || 0) + MIN_SEND_INTERVAL_MS - now);
   }
@@ -6433,6 +6455,22 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       task.updatedAt = Date.now();
       save();
     }
+    // A visible connection-interrupted product notice is actionable recovery
+    // evidence for this already-bound exact route. Handle it before inherited
+    // Stop/hydration gates: after a same-route reload those gates can be based
+    // on the previous document and otherwise return early forever even while
+    // the current page clearly says it is waiting for the complete answer.
+    const explicitConnectionInterrupted = Boolean(
+      pageBelongsToTask
+      && !approvalBlocking
+      && !currentBlocker
+      && !currentRateLimit
+      && connectionInterruptedNotice(routeEndedOwned ? activityTurn : turn, getPageUiRecords)
+    );
+    if (explicitConnectionInterrupted) {
+      superviseConnectionInterrupted(task, liveURL, now, true, routeEndedOwned ? activityTurn : turn);
+      return;
+    }
     const stopGenerationIdentity = stopObservedGenerationIdentity(task, liveURL);
     if (stopPresent && stopGenerationIdentity) {
       const generationChanged = task.stopObservedGenerationIdentity !== stopGenerationIdentity;
@@ -6733,19 +6771,15 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     if (streamPollingTimeout) {
       if (queueInterruptedFreshRetry(task, '检测到 ChatGPT stream recovery polling timed out', Date.now(), routeEndedOwned ? activityTurn : turn)) return;
     }
-    const interrupted = Boolean(pageBelongsToTask && !approvalBlocking && connectionInterruptedNotice(routeEndedOwned ? activityTurn : turn, getPageUiRecords));
-    if (!approvalBlocking && (interrupted || task.pendingContinuationReason)) {
-      const reason = interrupted
-        ? '检测到“连接已中断，正在等待完整回复”'
-        : '检测到旧版本遗留的连接中断强制续发状态';
+    // Legacy persisted interruption intent can remain after the explicit notice
+    // disappears. Keep supervising it here, but the live product notice itself
+    // is always handled above before inherited reload/hydration early returns.
+    if (!approvalBlocking && task.pendingContinuationReason) {
+      const reason = '检测到旧版本遗留的连接中断强制续发状态';
       if (stopPresent) {
-        const pendingURLChanged = canonicalConversationURL(task.pendingContinuationURL) !== canonicalConversationURL(liveURL);
         task.pendingContinuationReason = reason;
         task.pendingContinuationURL = liveURL;
-        if (pendingURLChanged || !Number(task.pendingContinuationSince || 0)) {
-          task.pendingContinuationSince = now;
-          task.pendingContinuationStopProgressSignature = '';
-        }
+        task.pendingContinuationSince ||= now;
         task.state = 'waiting';
         task.updatedAt = now;
         if (refreshInterruptedStopStall(task, now, true, routeEndedOwned ? activityTurn : turn)) return;
