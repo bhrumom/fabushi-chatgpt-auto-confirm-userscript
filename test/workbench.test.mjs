@@ -3488,6 +3488,13 @@ test('stuck Stop after interruption refreshes the same session after five quiet 
     assert.equal(task.url,'https://chatgpt.com/c/stuck-stop-reload');
     assert.match(task.messages.at(-1).text,/连接中断等待完整回复后连续 5 分钟没有可见进展/);
     assert.equal(h.refreshInterruptedStopStall(task,1_599_999,false),false,'reload retries also observe the 5 minute cooldown');
+    assert.equal(h.refreshInterruptedStopStall(task,1_600_000,false),true,'a second five-minute window refreshes the same interrupted conversation');
+    assert.equal(task.stalledRefreshAttempts,2);
+    assert.equal(task.url,'https://chatgpt.com/c/stuck-stop-reload');
+    assert.equal(h.refreshInterruptedStopStall(task,1_900_000,false),true,'the dedicated interrupted-state loop keeps refreshing instead of becoming a permanent wait at the generic third-window boundary');
+    assert.equal(task.stalledRefreshAttempts,3);
+    assert.equal(task.url,'https://chatgpt.com/c/stuck-stop-reload');
+    assert.equal(task.state,'waiting');
   } finally {h.pause();dom.window.close();}
 });
 
