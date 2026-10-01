@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.19
+// @version      2.10.20
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.19';
+  const VERSION = '2.10.20';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -117,13 +117,13 @@ async function bootstrapAttempt() {
   const RECOVERED_STATIC_FINAL_STABILITY_MS = 8000;
   // A bound conversation can stop changing while ChatGPT is waiting for an
   // authorization card, a renderer update, or an image/tool result. Reload
-  // the same route only after a full fifteen-minute idle period so long-running
-  // tool/agent work is not disturbed by an aggressive generic stall refresh.
-  const STALLED_REFRESH_MS = 15 * 60 * 1000;
-  const INTERRUPTED_STOP_STALL_REFRESH_MS = 15 * 60 * 1000;
+  // the same route after five minutes with no visible progress. The dedicated
+  // connection-interrupted wait uses the same quiet-window threshold.
+  const STALLED_REFRESH_MS = 5 * 60 * 1000;
+  const INTERRUPTED_STOP_STALL_REFRESH_MS = 5 * 60 * 1000;
   // Keep the persisted generic-stall reload interval aligned with the detector.
-  // A page that remains unchanged can therefore be retried forever, but never
-  // more than once per fifteen minutes.
+  // A page that remains unchanged can therefore be retried again, but never
+  // more than once per five minutes.
   const STALLED_REFRESH_COOLDOWN_MS = STALLED_REFRESH_MS;
   // Ambiguous Send confirmation gets one bounded 90-second window. If the
   // current round still has no bindable conversation after that window, the
@@ -2525,14 +2525,16 @@ async function bootstrapAttempt() {
   function visibleConversationHasMessages() {
     return conversationRoleNodes().some(renderedConversationMessage);
   }
-  const conversationLoadFailurePattern = /(?:无法加载(?:此|该)?\s*ChatGPT\s*(?:对话|会话)|unable\s+to\s+load(?:\s+this)?\s+(?:chatgpt\s+)?(?:conversation|chat))/i;
+  const conversationLoadFailurePattern = /(?:无法加载(?:此|该)?\s*ChatGPT\s*(?:对话|会话)|(?:(?:unable\s+to|could\s+not|couldn't|cannot|can't)\s+load)(?:\s+this)?\s+(?:chatgpt\s+)?(?:conversation|chat))/i;
   const conversationLoadRetryPattern = /^(?:重试|再次尝试|再试一次|retry|try again)$/i;
   function conversationLoadFailure(getPageRecords = pageUiTextRecords) {
     if (visibleConversationHasMessages()) return '';
-    for (const record of getPageRecords()) {
+    const records = getPageRecords();
+    for (const record of records) {
       const parent = record.parent;
       if (!parent || !visible(parent) || !conversationLoadFailurePattern.test(record.direct)) continue;
       if (own(parent) || parent.closest?.(conversationRoleSelector)) continue;
+      const mainScoped = Boolean(parent.matches?.('main,[role="main"]') || parent.closest?.('main,[role="main"]'));
       let scope = parent;
       for (let depth = 0; scope && depth < 8; depth += 1, scope = scope.parentElement) {
         if (own(scope)) break;
@@ -2541,6 +2543,12 @@ async function bootstrapAttempt() {
         if (retry) return normalize(record.direct);
         if (scope.matches?.('main,[role="main"],body')) break;
       }
+      // Current ChatGPT can render “Try again” as inert text rather than a
+      // semantic button. The exact route-level load-failure sentence inside the
+      // main surface is already strong evidence when no conversation messages
+      // are mounted, so do not wait forever just because the retry affordance
+      // is not exposed as a button.
+      if (mainScoped) return normalize(record.direct);
     }
     return '';
   }
@@ -3831,7 +3839,7 @@ async function bootstrapAttempt() {
       .trim();
     return boundedConversationLengthCarry(source);
   }
-  const connectionInterruptedPattern = /^(?:连接已中断[。.!]?\s*正在等待完整回复[。.!]?|connection (?:was |has been )?interrupted[.!]?\s*(?:we(?:'re| are) )?waiting for (?:the )?full response[.!]?)$/i;
+  const connectionInterruptedPattern = /^(?:连接已中断[。.!]?\s*正在等待完整回复[。.!]?|connection (?:was |has been )?interrupted[.!]?\s*(?:we(?:'re| are) )?waiting for (?:the )?(?:full|complete) (?:response|answer)[.!]?)$/i;
   function connectionInterruptedNotice(turn = null, getPageRecords = pageUiTextRecords) {
     const matches = value => connectionInterruptedPattern.test(normalize(value));
     // Current ChatGPT builds can render this product error inside the live
@@ -4274,7 +4282,7 @@ async function bootstrapAttempt() {
     const recoveryLabel = options.recoveryLabel
       ? `${options.recoveryLabel}第 ${recoveryCount} 次`
       : `连接中断自动恢复第 ${recoveryCount} 次`;
-    log(task, `${reason}；已立即结束旧会话派发并切换到新的 ChatGPT 会话恢复当前${task.phase === 'review' ? '规划/验收' : 'Work'}阶段（${recoveryLabel}）。${carrySourceNote}${carry ? '新会话提示词会把可见回复和实际工作步骤作为已完成工作现场一起继续承接；' : ''}保留任务、phase、round、目标/next 和附件；新会话会生成新的发送标识与会话链接，不再等待 15 分钟、不刷新旧会话，也不在旧会话发送“${CONTINUATION_PROMPT}”。`);
+    log(task, `${reason}；已结束当前故障会话派发并切换到新的 ChatGPT 会话恢复当前${task.phase === 'review' ? '规划/验收' : 'Work'}阶段（${recoveryLabel}）。${carrySourceNote}${carry ? '新会话提示词会把可见回复和实际工作步骤作为已完成工作现场一起继续承接；' : ''}保留任务、phase、round、目标/next 和附件；新会话会生成新的发送标识与会话链接，不会在故障旧会话重复发送“${CONTINUATION_PROMPT}”。`);
     save();
     return true;
   }
@@ -4393,14 +4401,14 @@ async function bootstrapAttempt() {
     if (task.stalledRefreshExhausted) {
       task.stalledRefreshExhausted = false;
       task.state = 'waiting';
-      log(task, '已迁移旧版停滞恢复计数；连续无进展达到三段 15 分钟后将转入新会话接力。');
+      log(task, '已迁移旧版停滞恢复计数；连续无进展达到三段 5 分钟后将转入新会话接力。');
       save();
     }
     if (now - Number(task.stalledRefreshAt || 0) < STALLED_REFRESH_COOLDOWN_MS) return false;
-    if (attempts >= 2) {
+    if (attempts >= 2 && options.allowUnlimitedRefresh !== true) {
       return queueInterruptedFreshRetry(
         task,
-        '当前会话连续三段 15 分钟没有可见进展',
+        '当前会话连续三段 5 分钟没有可见进展',
         now,
         options.turn || null,
         { allowExactRouteFallback:true, recoveryLabel:'连续停滞接力' },
@@ -4413,14 +4421,14 @@ async function bootstrapAttempt() {
     task.stalledRefreshExhausted = false;
     task.state = 'waiting';
     observations.delete(task.id);
-    log(task, options.message || `当前会话连续 15 分钟没有可见变化；正在刷新当前页面（第 ${nextAttempt}/2 次），保留会话、发送标识、附件和当前阶段，不会重复发送。若连续三段 15 分钟仍无进展，将在当前标签页新开会话并接力已完成的工作。`);
+    log(task, options.message || `当前会话连续 5 分钟没有可见变化；正在刷新当前页面（第 ${nextAttempt}/2 次），保留会话、发送标识、附件和当前阶段，不会重复发送。若连续三段 5 分钟仍无进展，将在当前标签页新开会话并接力已完成的工作。`);
     save();
     if (!perform) return true;
     navigating = true;
     try { location.reload(); } catch (error) {
       navigating = false;
       task.state = 'waiting';
-      log(task, `停滞会话刷新失败：${error.message}；已保留当前任务，15 分钟后继续尝试。`);
+      log(task, `停滞会话刷新失败：${error.message}；已保留当前任务，5 分钟后继续尝试。`);
       save();
       return false;
     }
@@ -4478,30 +4486,39 @@ async function bootstrapAttempt() {
     }
     return true;
   }
-  function refreshInterruptedStopStall(task, now = Date.now(), perform = true) {
-    const stopClickedAt = Number(task?.pendingContinuationStopClickedAt || 0);
-    if (!task?.pendingContinuationStopRecovery || !stopClickedAt) return false;
+  function refreshInterruptedStopStall(task, now = Date.now(), perform = true, turn = null) {
+    const pendingSince = Number(task?.pendingContinuationSince || 0);
+    if (!task?.pendingContinuationReason || !pendingSince) return false;
     const progress = JSON.stringify(visibleConversationProgressFingerprint());
     const previousProgress = String(task.pendingContinuationStopProgressSignature || '');
     if (previousProgress && progress !== previousProgress) {
-      task.pendingContinuationStopClickedAt = now;
+      task.pendingContinuationSince = now;
       task.pendingContinuationStopProgressSignature = progress;
+      task.stalledRefreshAttempts = 0;
+      task.stalledRefreshAt = 0;
+      task.stalledRefreshProgressHash = '';
       save();
       return false;
     }
-    if (!previousProgress) task.pendingContinuationStopProgressSignature = progress;
-    const lastRefreshAt = Number(task.stalledRefreshAt || 0);
-    const stalledSince = Math.max(stopClickedAt, lastRefreshAt);
-    if (now - stalledSince < INTERRUPTED_STOP_STALL_REFRESH_MS) return false;
-    task.pendingContinuationStopClickedAt = 0;
-    if (!refreshStalledConversation(task, perform, now, {
-      force:true,
-      message:`连接中断后 ChatGPT 连续 15 分钟仍未恢复；正在刷新当前会话并保留新会话接力意图（第 ${Number(task.stalledRefreshAttempts || 0) + 1} 次），页面恢复后继续等待停止按钮消失并转入新会话。`,
-    })) {
-      task.pendingContinuationStopClickedAt = stopClickedAt;
-      return false;
+    if (!previousProgress) {
+      task.pendingContinuationStopProgressSignature = progress;
+      save();
     }
-    return true;
+    const lastRefreshAt = Number(task.stalledRefreshAt || 0);
+    const stalledSince = Math.max(Number(task.pendingContinuationSince || now), lastRefreshAt);
+    if (now - stalledSince < INTERRUPTED_STOP_STALL_REFRESH_MS) return false;
+    const refreshed = refreshStalledConversation(task, perform, now, {
+      force:true,
+      allowUnlimitedRefresh:true,
+      turn,
+      message:`检测到连接中断等待完整回复后连续 5 分钟没有可见进展；正在刷新当前会话并保留接力意图（第 ${Number(task.stalledRefreshAttempts || 0) + 1} 次）。页面恢复后继续监督当前会话，不会重复发送任务。`,
+    });
+    if (refreshed && task.pendingContinuationReason) {
+      task.pendingContinuationSince = now;
+      task.pendingContinuationStopProgressSignature = progress;
+      save();
+    }
+    return refreshed;
   }
   function dispatchCooldownRemaining(now = Date.now()) {
     return Math.max(0, Number(data.lastDispatchAt || 0) + MIN_SEND_INTERVAL_MS - now);
@@ -6708,7 +6725,8 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       )) return;
     }
     // Connection errors no longer inject a same-chat continuation. If Stop is
-    // still present, wait for the same Stop-disappearance boundary; if it is
+    // still present, keep the bound conversation but refresh it after each
+    // five-minute no-progress window instead of waiting forever. If Stop is
     // already gone (for example after reload), use the same fresh-session path.
     const streamPollingTimeout = Boolean(pageBelongsToTask && !approvalBlocking && !turn.final
       && streamRecoveryPollingTimeoutNotice(routeEndedOwned ? activityTurn : turn));
@@ -6721,11 +6739,16 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
         ? '检测到“连接已中断，正在等待完整回复”'
         : '检测到旧版本遗留的连接中断强制续发状态';
       if (stopPresent) {
+        const pendingURLChanged = canonicalConversationURL(task.pendingContinuationURL) !== canonicalConversationURL(liveURL);
         task.pendingContinuationReason = reason;
         task.pendingContinuationURL = liveURL;
-        task.pendingContinuationSince ||= now;
+        if (pendingURLChanged || !Number(task.pendingContinuationSince || 0)) {
+          task.pendingContinuationSince = now;
+          task.pendingContinuationStopProgressSignature = '';
+        }
         task.state = 'waiting';
         task.updatedAt = now;
+        if (refreshInterruptedStopStall(task, now, true, routeEndedOwned ? activityTurn : turn)) return;
         save();
         return;
       }
