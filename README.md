@@ -1,9 +1,19 @@
-# Fabushi 独立自动确认工作台 2.10.21
+# Fabushi 独立自动确认工作台 2.10.22
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.21`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.22`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
 
+## 2.10.22 修复连接中断等待导致的页面主线程卡死
+
+- 定位到 v2.10.21 的新连接中断监督路径会在可见标签页的普通 4 秒 runner tick 上持续进入 `superviseConnectionInterrupted()`；即使中断页面完全没有变化，也会更新 `updatedAt`、写本地工作区并触发 Fabushi `paint()`，同时再次计算中断进度指纹。长会话/高内存页面上这会重新制造此前 v2.9.86 专门消除过的主线程卡顿模式。
+- 连接中断状态现在改为**低开销等待**：第一次识别时持久化一次，随后最多每 **15 秒**做一次恢复复核；在 probe deadline 之前 scheduler 直接跳过该任务，不再每 4 秒重复 inspect。
+- 未变化的中断状态不再重复 `save()`、不更新 `updatedAt`、不追加日志，也不触发工作台 repaint；即使有外部/手工重复 inspect，也保持幂等，不会不断向后滑动 probe deadline。
+- 中断专用进度签名改用当前 response boundary、当前 assistant 文本尾部和 Stop/streaming/final 状态，不再为这个错误页周期性调用普通 `visibleConversationProgressFingerprint()` 的全量 bounded activity 扫描。
+- 仍保持原语义：真实进展会重新开始 5 分钟计时；连续 5 分钟无进展才刷新同一会话；刷新后仍中断继续新的 5 分钟恢复窗口；不会重复发送原任务。
+- 新增性能回归合同：明确证明 interrupted wait 在 15 秒 probe 前不会被 scheduler 再次选择，重复 inspect 不产生新的持久化/日志/paint。
+- 所有测试和发布验证继续只通过 GitHub Actions。
+- 详细规格见 [v2.10.22](docs/specs/interruption-main-thread-stall-v2.10.22.md)。
 ## 2.10.21 刷新后连接中断优先于 inherited Stop hydration
 
 - 修复 v2.10.20 的遗漏：第一次 `Connection interrupted. Waiting for the complete answer` 能触发 5 分钟刷新，但刷新后的新 document 可能先命中上一份页面留下的 Stop observation / hydration gate，于是在真正执行连接中断识别之前就提前 `return`，工作台只显示“页面刷新后仍在恢复当前任务内容”，从而再次卡住。
