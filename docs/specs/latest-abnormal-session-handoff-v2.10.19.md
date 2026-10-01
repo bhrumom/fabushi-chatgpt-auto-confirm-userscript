@@ -108,5 +108,5 @@ No local test/build execution is accepted as release evidence.
 
 | Requirement / AC | Status | Evidence |
 | --- | --- | --- |
-| R1-R15 / AC-1-AC-5 | pending implementation | This spec records the production root cause and required regression matrix before product code changes. |
+| R1-R15 / AC-1-AC-5 | implemented, pending CI verification | Runtime now binds durable snapshots to the task's exact canonical conversation URL and retires consumed abnormal carry/snapshot only after a replacement conversation is successfully marker-bound. New regressions cover C1→C2 binding retirement, later DOM-loss with no safe C2 trace, same-route C2 durable fallback, and foreign-source snapshot rejection. |
 | R16-R20 / AC-6 | pending delivery | Requires exact-head GitHub Actions Test, merge, canonical-main Test, Release and release readback. |
