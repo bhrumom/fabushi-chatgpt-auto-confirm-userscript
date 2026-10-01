@@ -1,8 +1,19 @@
-# Fabushi 独立自动确认工作台 2.10.15
+# Fabushi 独立自动确认工作台 2.10.19
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.15`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.19`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+
+## 2.10.19 连续异常接力始终使用最新中断会话
+
+- 修复连续异常 fresh-chat 接力时，第二次或后续中断可能错误复用第一次异常会话实时回复/工作步骤的问题。
+- 根因是旧 `handoffReplySnapshot` 只绑定 phase/round/goalRevision，没有强制绑定其来源 conversation URL；新会话中断时如果 assistant DOM 正好暂时丢失，旧快照会被当成当前会话兜底。
+- 现在 durable snapshot 必须同时匹配**当前任务实际绑定的 canonical conversation URL**；旧会话快照即使 phase/round 完全相同，也不能跨会话读取。
+- replacement prompt 成功发送并确认绑定新的 `/c/<id>` 后，上一异常会话已经消费过的 `abnormalFreshCarry` 与 `handoffReplySnapshot` 会立即退休。新的会话随后只会生成自己的实时 carry/snapshot。
+- 如果最新异常会话当下既没有可安全读取的 assistant 正文/工作步骤，也没有该**同一会话**的 durable snapshot，下一次恢复宁可不附带异常工作记录，也绝不会拿更早会话的内容冒充最新现场。
+- 新增连续异常回归：C1 异常 → C2 成功绑定 → C2 DOM 丢失 → C3 不得出现 C1；以及 C2 已有 durable snapshot 时，C3 必须只携带 C2、排除 C1。
+- 所有测试与发布验证只通过 GitHub Actions。
+- 详细规格见 [v2.10.19](docs/specs/latest-abnormal-session-handoff-v2.10.19.md)。
 
 ## 2.10.15 缺少模型/思考强度选择器时主动刷新
 
