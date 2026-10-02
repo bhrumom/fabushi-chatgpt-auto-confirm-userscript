@@ -1,8 +1,18 @@
-# Fabushi 独立自动确认工作台 2.10.25
+# Fabushi 独立自动确认工作台 2.10.26
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.25`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.26`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+
+## 2.10.26 验收可见报告直接驱动下一轮 Work
+
+- 修复一种剩余的验收漏识别：工作台已经能在“最近可见工作内容快照”中完整保存当前验收 JSON，但最终结果通道仍因原始 Fabushi user marker 被虚拟化、且当前文档没有保留下 Stop/generation identity，而把同一会话误判为“已经结束但没有最终回复”。
+- Review 现在复用异常恢复已经使用的 exact-route 可见 assistant transcript 提取器；只有该实时可见内容能通过现有 `parseReview()` 且精确匹配当前 `taskId + round` 时，才允许把它作为验收 final 语义证据。
+- 该路径仍要求同一 canonical conversation、无外来任务 marker/route owner、无 Stop/streaming/授权/blocker/rate-limit/retryable error、输入框已就绪且为空、不是 ambiguous send；因此不是“仅凭 URL”或“任意自然语言”完成。
+- `status:"next"` 仍由统一 `finish() -> parseReview()` 路径写入 `task.next`、轮次 +1、切回 Work 并排队；`status:"complete"` 仍正常结束任务。
+- 新增回归覆盖：没有历史 Stop identity、task marker 已被虚拟化时，精确当前 Review `next` 仍能经过稳定窗口自动安排下一轮 Work；错误 taskId 的可见报告仍保持 fail-closed。
+- 所有测试与发布只通过 GitHub Actions 或 htch-runtime，不在本地运行。
+- 详细规格见 [v2.10.26](docs/specs/review-visible-report-extraction-v2.10.26.md)。
 
 ## 2.10.25 连接中断直接按异常会话新开接力
 
