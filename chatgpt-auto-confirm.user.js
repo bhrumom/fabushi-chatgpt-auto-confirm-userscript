@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.24
+// @version      2.10.25
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.24';
+  const VERSION = '2.10.25';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -5882,6 +5882,38 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.stopNoApprovalConfirmSince = 0;
     task.stopNoApprovalConfirmSignature = '';
   }
+  function interruptedFreshHandoffApprovalGate(task, liveURL, now = Date.now()) {
+    if (!task || !liveURL) return { state:'blocked', started:false, card:null };
+    const firstPending = cards({ wide:true });
+    if (firstPending.length) {
+      clearStopNoApprovalConfirmation(task);
+      return { state:'approval', started:false, card:firstPending[0] };
+    }
+    const signature = JSON.stringify([
+      'connection-interrupted',
+      canonicalConversationURL(liveURL),
+      DOCUMENT_INSTANCE_ID,
+      String(task.phase || ''),
+      Number(task.round || 0),
+      String(task.token || ''),
+    ]);
+    if (task.stopNoApprovalConfirmSignature !== signature
+      || !Number(task.stopNoApprovalConfirmSince || 0)) {
+      task.stopNoApprovalConfirmSignature = signature;
+      task.stopNoApprovalConfirmSince = now;
+      return { state:'confirming', started:true, card:null };
+    }
+    if (now - Number(task.stopNoApprovalConfirmSince || now) < STOP_NO_APPROVAL_CONFIRM_MS) {
+      return { state:'confirming', started:false, card:null };
+    }
+    const finalPending = cards({ wide:true });
+    if (finalPending.length) {
+      clearStopNoApprovalConfirmation(task);
+      return { state:'approval', started:false, card:finalPending[0] };
+    }
+    clearStopNoApprovalConfirmation(task);
+    return { state:'ready', started:false, card:null };
+  }
   function clearStopObservedGeneration(task) {
     if (!task) return;
     task.stopObservedGenerationIdentity = '';
@@ -6757,7 +6789,37 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && connectionInterruptedNotice(routeEndedOwned ? activityTurn : turn, getPageUiRecords)
     );
     if (explicitConnectionInterrupted) {
-      superviseConnectionInterrupted(task, liveURL, now, true, routeEndedOwned ? activityTurn : turn, { stopPresent, explicit:true });
+      const interruptionTurn = routeEndedOwned ? activityTurn : turn;
+      const handoffGate = interruptedFreshHandoffApprovalGate(task, liveURL, now);
+      if (handoffGate.state === 'approval') {
+        task.state = 'approval';
+        task.updatedAt = now;
+        log(task, '已识别 ChatGPT 异常中断，但实时复核发现授权卡；先留在当前会话处理授权，不会在授权未解决时切换会话。');
+        save();
+        if (data.autoApprove && handoffGate.card) await authorize(handoffGate.card, task, signal);
+        return;
+      }
+      if (handoffGate.state === 'confirming') {
+        task.state = 'waiting';
+        task.updatedAt = now;
+        if (handoffGate.started) {
+          log(task, `已识别 ChatGPT 连接中断，并归类为异常中断；不再等待 5 分钟或刷新旧会话。先进行至少 ${Math.ceil(STOP_NO_APPROVAL_CONFIRM_MS / 1000)} 秒的二次实时授权复核，确认没有授权卡后直接新开会话接力。`);
+        } else {
+          save();
+        }
+        return;
+      }
+      persistHandoffReplySnapshot(task, { allowExactRouteFallback:true, now });
+      if (queueInterruptedFreshRetry(
+        task,
+        '检测到 ChatGPT 连接中断，按异常中断处理',
+        now,
+        interruptionTurn,
+        { allowExactRouteFallback:true, recoveryLabel:'异常中断接力', historyReason:'connection-interrupted-fresh-chat' },
+      )) return;
+      task.state = 'waiting';
+      task.updatedAt = now;
+      save();
       return;
     }
     const stopGenerationIdentity = stopObservedGenerationIdentity(task, liveURL);
@@ -7051,32 +7113,51 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
         { allowExactRouteFallback:true, recoveryLabel:'停止按钮消失接力', historyReason:'stop-disappeared-fresh-chat' },
       )) return;
     }
-    // Connection errors no longer inject a same-chat continuation. If Stop is
-    // still present, keep the bound conversation but refresh it after each
-    // five-minute no-progress window instead of waiting forever. If Stop is
-    // already gone (for example after reload), use the same fresh-session path.
+    // Product-level interruption is handled above as an abnormal fresh-chat
+    // handoff. Other stream recovery failures already use the same fresh-session
+    // path and never inject a continuation into the broken conversation.
     const streamPollingTimeout = Boolean(pageBelongsToTask && !approvalBlocking && !turn.final
       && streamRecoveryPollingTimeoutNotice(routeEndedOwned ? activityTurn : turn));
     if (streamPollingTimeout) {
       if (queueInterruptedFreshRetry(task, '检测到 ChatGPT stream recovery polling timed out', Date.now(), routeEndedOwned ? activityTurn : turn)) return;
     }
-    // Legacy persisted interruption intent can remain after the explicit notice
-    // disappears. Keep supervising it here, but the live product notice itself
-    // is always handled above before inherited reload/hydration early returns.
+    // Legacy persisted interruption intent from older versions is migrated to
+    // the same abnormal fresh-chat policy. Stop presence no longer authorizes a
+    // five-minute same-route wait: after the no-approval safety confirmation,
+    // preserve the visible work and continue in a new conversation.
     if (!approvalBlocking && task.pendingContinuationReason) {
-      const reason = '检测到旧版本遗留的连接中断强制续发状态';
-      if (stopPresent) {
-        superviseConnectionInterrupted(task, liveURL, now, true, routeEndedOwned ? activityTurn : turn, { stopPresent:true, explicit:false, reason });
+      const reason = '检测到旧版本遗留的连接中断状态，按异常中断处理';
+      const interruptionTurn = routeEndedOwned ? activityTurn : turn;
+      const handoffGate = interruptedFreshHandoffApprovalGate(task, liveURL, now);
+      if (handoffGate.state === 'approval') {
+        task.state = 'approval';
+        task.updatedAt = now;
+        log(task, '旧连接中断状态迁移时检测到授权卡；先处理当前授权，不会越过授权直接切换会话。');
+        save();
+        if (data.autoApprove && handoffGate.card) await authorize(handoffGate.card, task, signal);
         return;
       }
+      if (handoffGate.state === 'confirming') {
+        task.state = 'waiting';
+        task.updatedAt = now;
+        if (handoffGate.started) {
+          log(task, `旧连接中断状态已升级为异常中断接力；进行至少 ${Math.ceil(STOP_NO_APPROVAL_CONFIRM_MS / 1000)} 秒授权复核后直接新开会话，不再刷新旧会话。`);
+        } else {
+          save();
+        }
+        return;
+      }
+      persistHandoffReplySnapshot(task, { allowExactRouteFallback:true, now });
       if (queueInterruptedFreshRetry(
         task,
         reason,
         now,
-        routeEndedOwned ? activityTurn : turn,
-        { allowExactRouteFallback:true, recoveryLabel:'连接中断接力', historyReason:'connection-interrupted-fresh-chat' },
+        interruptionTurn,
+        { allowExactRouteFallback:true, recoveryLabel:'异常中断接力', historyReason:'connection-interrupted-fresh-chat' },
       )) return;
       task.state = 'waiting';
+      task.updatedAt = now;
+      save();
       return;
     }
     const loadingStartedAt = performance.now();
@@ -7993,16 +8074,15 @@ NaN
     const node = document.createElement(tag); if (content) node.textContent = content; if (className) node.className = className; return node;
   }
   function taskRecoveryStatusText(task, now = Date.now()) {
-    if (!task?.pendingContinuationReason || !Number(task.pendingContinuationSince || 0)) return '';
-    const stalledSince = Math.max(Number(task.pendingContinuationSince || 0), Number(task.stalledRefreshAt || 0));
-    const refreshAt = stalledSince + INTERRUPTED_STOP_STALL_REFRESH_MS;
-    const remainingMs = Math.max(0, refreshAt - now);
-    const refreshCount = Number(task.stalledRefreshAttempts || 0);
-    if (!remainingMs) return `连接中断恢复：正在执行刷新检查 · 已刷新 ${refreshCount} 次`;
-    const totalSeconds = Math.ceil(remainingMs / 1000);
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = totalSeconds % 60;
-    return `连接中断恢复：约 ${minutes ? minutes + ' 分 ' : ''}${seconds} 秒后刷新当前会话 · 已刷新 ${refreshCount} 次`;
+    const signature = String(task?.stopNoApprovalConfirmSignature || '');
+    if (signature.includes('"connection-interrupted"') && Number(task?.stopNoApprovalConfirmSince || 0)) {
+      const remainingMs = Math.max(0, Number(task.stopNoApprovalConfirmSince || 0) + STOP_NO_APPROVAL_CONFIRM_MS - now);
+      return remainingMs
+        ? `异常中断接力：授权安全复核约 ${Math.ceil(remainingMs / 1000)} 秒后完成，随后新开会话`
+        : '异常中断接力：授权安全复核完成，正在准备新开会话';
+    }
+    if (task?.pendingContinuationReason) return '异常中断接力：旧等待状态已升级，正在准备新开会话';
+    return '';
   }
   function mount() {
     const root = element('div'); root.id = ROOT; root.dataset.version = VERSION;
