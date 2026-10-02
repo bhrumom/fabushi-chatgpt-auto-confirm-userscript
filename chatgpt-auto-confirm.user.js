@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.23
+// @version      2.10.24
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.23';
+  const VERSION = '2.10.24';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -269,12 +269,22 @@ async function bootstrapAttempt() {
   const MEMORY_DIAGNOSTIC_RATIO_MIN_BYTES = 256 * 1024 * 1024;
   const MEMORY_DIAGNOSTIC_ELEVATED_RATIO = 0.5;
   const MEMORY_DIAGNOSTIC_HIGH_RATIO = 0.7;
-  // Keep the durable workbench small even when a task runs for days. The
-  // current goal/result/attachment metadata remain separate fields and are
-  // never removed by this log compaction.
-  const MAX_TASK_MESSAGES = 80;
+  // Keep a rolling two-hour activity window in memory/UI. The canonical
+  // localStorage workbench still stays latest-only; recent human-readable
+  // activity is persisted separately so page refresh/recovery does not erase
+  // what the automation just did.
+  const TASK_MESSAGE_RETENTION_MS = 2 * 60 * 60 * 1000;
+  const MAX_TASK_MESSAGES = 360;
   const MAX_TASK_MESSAGE_TEXT = 12000;
-  const MAX_TASK_MESSAGE_CHARS = 320000;
+  const MAX_TASK_MESSAGE_CHARS = 600000;
+  const MAX_RENDERED_TASK_MESSAGES = 80;
+  const MAX_RENDERED_TASK_MESSAGE_CHARS = 180000;
+  const RECENT_ACTIVITY_SESSION_KEY = 'fabushi-workbench-recent-activity-v1';
+  const RECENT_ACTIVITY_DB = 'fabushi-workbench-recent-activity-v1';
+  const RECENT_ACTIVITY_STORE = 'events';
+  const RECENT_ACTIVITY_MAX_RECORDS = 360;
+  const RECENT_ACTIVITY_MAX_CHARS = 600000;
+  let recentActivityDBPromise = null;
   // localStorage is a shared, synchronous browser-origin quota. Bound the
   // aggregate diagnostic history well below that quota so many long-running
   // tasks cannot independently grow the canonical workbench until setItem()
@@ -287,11 +297,8 @@ async function bootstrapAttempt() {
   const STORAGE_EMERGENCY_MESSAGE_TEXT = 4000;
   const STORAGE_EMERGENCY_TASK_MESSAGE_CHARS = 24000;
   const STORAGE_EMERGENCY_GLOBAL_MESSAGE_CHARS = 200000;
-  // The full durable log remains available in storage, but rendering hundreds
-  // of thousands of characters into the live workbench on every status write
-  // can monopolize the renderer. Keep the visible tail bounded; diagnostics
-  // and the most recent recovery transitions remain visible.
-  const MAX_RENDERED_TASK_MESSAGES = 30;
+  // Rendering is still bounded independently from the two-hour retained log
+  // so a verbose task cannot monopolize the ChatGPT renderer.
   const AUTO_RECOVERABLE_STATE_NAMES = new Set(['queued', 'sending', 'uploading', 'waiting', 'loading', 'generating', 'approval', 'reviewing']);
   const volatileStorageShadow = new Map();
   const fabushiStorageSizeCache = new Map();
@@ -372,6 +379,198 @@ async function bootstrapAttempt() {
   function readSessionStorageString(key) { try { return window.sessionStorage.getItem(String(key || '')); } catch { return null; } }
   function writeSessionStorageRecord(key, value) { try { window.sessionStorage.setItem(String(key || ''), String(value ?? '')); return true; } catch { return false; } }
   function removeSessionStorageRecord(key) { try { window.sessionStorage.removeItem(String(key || '')); return true; } catch { return false; } }
+
+  function normalizeRecentActivityRecord(record, now = Date.now()) {
+    if (!record || typeof record !== 'object') return null;
+    const at = Number(record.at || 0);
+    const taskId = String(record.taskId || '').slice(0, 160);
+    const text = String(record.text || '').slice(0, MAX_TASK_MESSAGE_TEXT);
+    if (!taskId || !text || !Number.isFinite(at) || at <= 0 || now - at > TASK_MESSAGE_RETENTION_MS || at - now > 60_000) return null;
+    return {
+      id:String(record.id || '').slice(0, 200) || crypto.randomUUID(),
+      taskId,
+      ownerTabId:String(record.ownerTabId || '').slice(0, 160),
+      at,
+      role:String(record.role || 'status').slice(0, 40),
+      text,
+      phase:String(record.phase || '').slice(0, 40),
+      round:Number(record.round || 0),
+      state:String(record.state || '').slice(0, 40),
+      url:canonicalConversationURL(record.url) || '',
+    };
+  }
+  function trimRecentActivityRecords(records, now = Date.now()) {
+    const normalized = Array.from(records || [])
+      .map(record => normalizeRecentActivityRecord(record, now))
+      .filter(Boolean)
+      .sort((a,b) => a.at - b.at);
+    const deduped = [];
+    const seen = new Set();
+    for (const record of normalized) {
+      const key = [record.taskId,record.at,record.role,record.text].join('\u0000');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(record);
+    }
+    let next = deduped.slice(-RECENT_ACTIVITY_MAX_RECORDS);
+    let serialized = JSON.stringify(next);
+    while (next.length > 1 && serialized.length > RECENT_ACTIVITY_MAX_CHARS) {
+      next.shift();
+      serialized = JSON.stringify(next);
+    }
+    return next;
+  }
+  function readRecentActivitySession(now = Date.now()) {
+    let parsed = [];
+    try { parsed = JSON.parse(readSessionStorageString(RECENT_ACTIVITY_SESSION_KEY) || '[]'); } catch {}
+    const trimmed = trimRecentActivityRecords(parsed, now);
+    if (trimmed.length !== (Array.isArray(parsed) ? parsed.length : 0)) {
+      writeSessionStorageRecord(RECENT_ACTIVITY_SESSION_KEY, JSON.stringify(trimmed));
+    }
+    return trimmed;
+  }
+  function writeRecentActivitySession(records, now = Date.now()) {
+    const trimmed = trimRecentActivityRecords(records, now);
+    return writeSessionStorageRecord(RECENT_ACTIVITY_SESSION_KEY, JSON.stringify(trimmed)) ? trimmed : [];
+  }
+  function openRecentActivityDB() {
+    if (typeof indexedDB === 'undefined') return Promise.reject(new Error('indexeddb-unavailable'));
+    if (!recentActivityDBPromise) {
+      recentActivityDBPromise = new Promise((resolve, reject) => {
+        let request;
+        try { request = indexedDB.open(RECENT_ACTIVITY_DB, 1); } catch (error) { reject(error); return; }
+        request.onupgradeneeded = () => {
+          const db = request.result;
+          let store;
+          if (!db.objectStoreNames.contains(RECENT_ACTIVITY_STORE)) {
+            store = db.createObjectStore(RECENT_ACTIVITY_STORE, { keyPath:'id' });
+          } else {
+            store = request.transaction.objectStore(RECENT_ACTIVITY_STORE);
+          }
+          if (!store.indexNames.contains('at')) store.createIndex('at','at',{unique:false});
+        };
+        request.onsuccess = () => {
+          const db = request.result;
+          db.onversionchange = () => db.close();
+          resolve(db);
+        };
+        request.onerror = () => reject(request.error || new Error('recent-activity-db-open-failed'));
+        request.onblocked = () => reject(new Error('recent-activity-db-blocked'));
+      }).catch(error => {
+        recentActivityDBPromise = null;
+        throw error;
+      });
+    }
+    return recentActivityDBPromise;
+  }
+  function persistRecentActivityDB(record, now = Date.now()) {
+    const normalized = normalizeRecentActivityRecord(record, now);
+    if (!normalized) return Promise.resolve(false);
+    return openRecentActivityDB().then(db => new Promise((resolve, reject) => {
+      let transaction;
+      try {
+        transaction = db.transaction(RECENT_ACTIVITY_STORE, 'readwrite');
+        const store = transaction.objectStore(RECENT_ACTIVITY_STORE);
+        const index = store.index('at');
+        store.put(normalized);
+        if (typeof IDBKeyRange !== 'undefined') {
+          const oldCursor = index.openCursor(IDBKeyRange.upperBound(now - TASK_MESSAGE_RETENTION_MS, true));
+          oldCursor.onsuccess = () => {
+            const cursor = oldCursor.result;
+            if (!cursor) return;
+            cursor.delete();
+            cursor.continue();
+          };
+          const recentKeys = index.getAllKeys(IDBKeyRange.lowerBound(now - TASK_MESSAGE_RETENTION_MS));
+          recentKeys.onsuccess = () => {
+            const keys = recentKeys.result || [];
+            const overflow = Math.max(0, keys.length - RECENT_ACTIVITY_MAX_RECORDS);
+            for (let indexValue = 0; indexValue < overflow; indexValue += 1) store.delete(keys[indexValue]);
+          };
+        }
+      } catch (error) { reject(error); return; }
+      transaction.oncomplete = () => resolve(true);
+      transaction.onerror = () => reject(transaction.error || new Error('recent-activity-db-write-failed'));
+      transaction.onabort = () => reject(transaction.error || new Error('recent-activity-db-write-aborted'));
+    })).catch(() => false);
+  }
+  function readRecentActivityDB(now = Date.now()) {
+    return openRecentActivityDB().then(db => new Promise((resolve, reject) => {
+      let transaction;
+      try {
+        transaction = db.transaction(RECENT_ACTIVITY_STORE, 'readonly');
+        const store = transaction.objectStore(RECENT_ACTIVITY_STORE);
+        if (typeof IDBKeyRange !== 'undefined') {
+          const request = store.index('at').getAll(IDBKeyRange.lowerBound(now - TASK_MESSAGE_RETENTION_MS));
+          request.onsuccess = () => resolve(trimRecentActivityRecords(request.result || [], now));
+          request.onerror = () => reject(request.error || new Error('recent-activity-db-read-failed'));
+        } else {
+          const request = store.getAll();
+          request.onsuccess = () => resolve(trimRecentActivityRecords(request.result || [], now));
+          request.onerror = () => reject(request.error || new Error('recent-activity-db-read-failed'));
+        }
+      } catch (error) { reject(error); return; }
+    })).catch(() => []);
+  }
+  function recordRecentActivity(task, message, now = Date.now()) {
+    if (!task || !message) return null;
+    const record = normalizeRecentActivityRecord({
+      id:crypto.randomUUID(),
+      taskId:task.id,
+      ownerTabId:task.ownerTabId,
+      at:Number(message.at || now),
+      role:message.role || 'status',
+      text:message.text,
+      phase:task.phase,
+      round:task.round,
+      state:task.state,
+      url:task.url,
+    }, now);
+    if (!record) return null;
+    const session = readRecentActivitySession(now);
+    session.push(record);
+    writeRecentActivitySession(session, now);
+    void persistRecentActivityDB(record, now);
+    return record;
+  }
+  async function restoreRecentActivityMessages(now = Date.now()) {
+    const session = readRecentActivitySession(now);
+    const dbRecords = await readRecentActivityDB(now);
+    const records = trimRecentActivityRecords([...session, ...dbRecords], now);
+    writeRecentActivitySession(records, now);
+    const byTask = new Map();
+    for (const record of records) {
+      if (!byTask.has(record.taskId)) byTask.set(record.taskId, []);
+      byTask.get(record.taskId).push(record);
+    }
+    for (const task of data.tasks || []) {
+      const recovered = byTask.get(String(task.id || '')) || [];
+      const existing = Array.isArray(task.messages) ? task.messages : [];
+      const merged = [];
+      const seen = new Set();
+      for (const item of [...existing, ...recovered.map(record => ({at:record.at,role:record.role,text:record.text}))]) {
+        const at = Number(item?.at || 0);
+        const role = String(item?.role || 'status');
+        const text = String(item?.text || '').slice(0, MAX_TASK_MESSAGE_TEXT);
+        if (!at || !text || now - at > TASK_MESSAGE_RETENTION_MS) continue;
+        const key = [at,role,text].join('\u0000');
+        if (seen.has(key)) continue;
+        seen.add(key);
+        merged.push({at,role,text});
+      }
+      const snapshotAt = Number(task.handoffReplySnapshotAt || 0);
+      const snapshotText = String(task.handoffReplySnapshot || '').trim();
+      if (snapshotText && snapshotAt && now - snapshotAt <= TASK_MESSAGE_RETENTION_MS) {
+        const snapshotMessage = {at:snapshotAt,role:'assistant',text:`刷新/切换前保留的最近工作内容\n${snapshotText.slice(0, MAX_TASK_MESSAGE_TEXT)}`};
+        const key = [snapshotMessage.at,snapshotMessage.role,snapshotMessage.text].join('\u0000');
+        if (!seen.has(key)) merged.push(snapshotMessage);
+      }
+      task.messages = merged.sort((a,b)=>a.at-b.at);
+      compactTaskMessages(task);
+      task.messageVersion = Math.max(Number(task.messageVersion || 0), task.messages.length);
+    }
+    return records.length;
+  }
   function cleanupStaleFabushiStorage(now = Date.now()) {
     if (now - storageCleanupLastAt < STORAGE_CLEANUP_COOLDOWN_MS) return 0;
     storageCleanupLastAt = now;
@@ -499,14 +698,17 @@ async function bootstrapAttempt() {
     maxMessages = MAX_TASK_MESSAGES,
     maxText = MAX_TASK_MESSAGE_TEXT,
     maxChars = MAX_TASK_MESSAGE_CHARS,
+    now = Date.now(),
   } = {}) {
     if (!task || !Array.isArray(task.messages) || !task.messages.length) return false;
     const original = task.messages;
     const normalized = original.map(item => {
-      if (!item || typeof item !== 'object') return { at:Date.now(), role:'status', text:'' };
+      if (!item || typeof item !== 'object') return null;
+      const at = Number(item.at || 0);
       const text = String(item.text || '');
-      return { ...item, at:Number(item.at || Date.now()), role:String(item.role || 'status'), text:text.slice(0, maxText) };
-    });
+      if (!Number.isFinite(at) || at <= 0 || now - at > TASK_MESSAGE_RETENTION_MS || at - now > 60_000 || !text) return null;
+      return { ...item, at, role:String(item.role || 'status'), text:text.slice(0, maxText) };
+    }).filter(Boolean);
     let next = normalized.slice(-Math.max(1, maxMessages));
     let total = 0;
     const bounded = [];
@@ -517,7 +719,7 @@ async function bootstrapAttempt() {
       bounded.unshift(item);
       total += length;
     }
-    next = bounded.length ? bounded : normalized.slice(-1);
+    next = bounded;
     const changed = next.length !== original.length || next.some((item, index) => {
       const previous = original[original.length - next.length + index];
       return !previous || previous.text !== item.text || previous.at !== item.at || previous.role !== item.role;
@@ -570,7 +772,7 @@ async function bootstrapAttempt() {
       'preview','previewSourceURL','previewPhase','previewRound',
       'prompt','transientConversationURLLast','attachmentUploadLastError',
       'navigationGuardNoticeAt','retainedComposerDraftNotedAt',
-      'reasoningPresetConfirmedAt','reasoningPresetConfirmedIndex',
+      'reasoningPresetConfirmedAt','reasoningPresetConfirmedIndex','recentActivitySnapshotLoggedAt',
     ]) delete snapshot[field];
 
     snapshot.id = String(snapshot.id || '').slice(0, 160);
@@ -935,6 +1137,10 @@ async function bootstrapAttempt() {
       : [];
     compactTaskMessages(task);
   }
+  // localStorage intentionally excludes diagnostic history. Restore the
+  // separate rolling two-hour activity log before mounting the workbench so
+  // reloads/recovery never present an empty task timeline.
+  await restoreRecentActivityMessages();
   if (pendingTaskTransfer && tabId === pendingTaskTransfer.targetOwnerTabId) {
     const transferred = data.tasks.find(task => task.id === pendingTaskTransfer.taskId);
     if (transferred && transferred.ownerTabId === pendingTaskTransfer.sourceOwnerTabId) {
@@ -2903,10 +3109,12 @@ async function bootstrapAttempt() {
     if (!task) return;
     task.messages ||= [];
     if (role === 'status' && task.messages.at(-1)?.text === message) return;
-    task.messages.push({ at: Date.now(), role, text: String(message).slice(0, MAX_TASK_MESSAGE_TEXT) });
-    compactTaskMessages(task);
+    const entry = { at: Date.now(), role, text: String(message).slice(0, MAX_TASK_MESSAGE_TEXT) };
+    task.messages.push(entry);
+    recordRecentActivity(task, entry, entry.at);
+    compactTaskMessages(task, { now:entry.at });
     task.messageVersion = Number(task.messageVersion || 0) + 1;
-    task.updatedAt = Date.now();
+    task.updatedAt = entry.at;
     save();
   }
   function state(task, value, message) {
@@ -4176,6 +4384,14 @@ async function bootstrapAttempt() {
     task.handoffReplySnapshotRound = Number(task.round || 0);
     task.handoffReplySnapshotGoalRevision = Number(task.goalRevision || 0);
     task.handoffReplySnapshotAt = now;
+    if (changed && now - Number(task.recentActivitySnapshotLoggedAt || 0) >= 60_000) {
+      task.recentActivitySnapshotLoggedAt = now;
+      recordRecentActivity(task, {
+        at:now,
+        role:'assistant',
+        text:`最近可见工作内容快照\n${snapshot.slice(0, MAX_TASK_MESSAGE_TEXT)}`,
+      }, now);
+    }
     return changed;
   }
   function captureOwnedAbnormalFreshCarry(task, turn = null, reason = '', sessionURL = '', now = Date.now(), { allowExactRouteFallback = false } = {}) {
@@ -7776,6 +7992,18 @@ NaN
   function element(tag, content, className) {
     const node = document.createElement(tag); if (content) node.textContent = content; if (className) node.className = className; return node;
   }
+  function taskRecoveryStatusText(task, now = Date.now()) {
+    if (!task?.pendingContinuationReason || !Number(task.pendingContinuationSince || 0)) return '';
+    const stalledSince = Math.max(Number(task.pendingContinuationSince || 0), Number(task.stalledRefreshAt || 0));
+    const refreshAt = stalledSince + INTERRUPTED_STOP_STALL_REFRESH_MS;
+    const remainingMs = Math.max(0, refreshAt - now);
+    const refreshCount = Number(task.stalledRefreshAttempts || 0);
+    if (!remainingMs) return `连接中断恢复：正在执行刷新检查 · 已刷新 ${refreshCount} 次`;
+    const totalSeconds = Math.ceil(remainingMs / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `连接中断恢复：约 ${minutes ? minutes + ' 分 ' : ''}${seconds} 秒后刷新当前会话 · 已刷新 ${refreshCount} 次`;
+  }
   function mount() {
     const root = element('div'); root.id = ROOT; root.dataset.version = VERSION;
     const style = element('style'); style.id = 'fabushi-auto-confirm-style';
@@ -7951,7 +8179,8 @@ NaN
       memoryStatusNode.textContent=[memoryStatusText(), storageStatusText()].filter(Boolean).join(' · ');
       memoryCleanupButton.disabled=memoryMonitorBusy || hostMemoryPending.size > 0;
       const runnableCount=tabTasks().filter(item=>!terminal.has(item.state)&&item.state!=='paused').length;
-      notice.textContent=`当前标签页工作区 · ${running?`监督中，${runnableCount>1?`多个本页任务每 ${Math.round(SUPERVISION_INTERVAL_MS / 1000)} 秒轮换`:'按当前任务推进'}；任务可单独暂停/继续`:'已暂停，自动操作已停止'} · 扫描 ${measurements.scans} 次，平均 ${(measurements.totalScanMs / Math.max(1, measurements.scans)).toFixed(1)} ms · 界面最近 ${measurements.lastPaintMs.toFixed(1)} ms、侧栏重建 ${measurements.sidebarRebuilds} 次 · ${[memoryStatusText(), storageStatusText()].filter(Boolean).join(' · ')}`;
+      const recoveryStatus = taskRecoveryStatusText(task);
+      notice.textContent=[`当前标签页工作区 · ${running?`监督中，${runnableCount>1?`多个本页任务每 ${Math.round(SUPERVISION_INTERVAL_MS / 1000)} 秒轮换`:'按当前任务推进'}；任务可单独暂停/继续`:'已暂停，自动操作已停止'}`, recoveryStatus, `扫描 ${measurements.scans} 次，平均 ${(measurements.totalScanMs / Math.max(1, measurements.scans)).toFixed(1)} ms · 界面最近 ${measurements.lastPaintMs.toFixed(1)} ms、侧栏重建 ${measurements.sidebarRebuilds} 次`, memoryStatusText(), storageStatusText()].filter(Boolean).join(' · ');
       pauseButton.textContent=task?.state==='paused'?'继续当前任务':(task?.state==='cancelled'||task?.state==='blocked')?'恢复任务':task&&!terminal.has(task.state)?(running?'暂停当前任务':'继续当前任务'):running?'暂停全部':'继续全部';
       globalPauseButton.textContent=running?'暂停全部任务':'继续全部任务';
       globalPauseButton.disabled=tabTasks().length===0;
@@ -8008,6 +8237,8 @@ NaN
         if (taskAttachments(item).length) meta.append(document.createTextNode(` · 📎 ${taskAttachments(item).length}`));
         const recoveryRemaining = Number(item.noFinalReplyRecoveryUntil || 0) - Date.now();
         if (recoveryRemaining > 0) meta.append(document.createTextNode(' · 异常恢复约 '+Math.ceil(recoveryRemaining / 60000)+' 分钟'));
+        const interruptionStatus = taskRecoveryStatusText(item);
+        if (interruptionStatus) meta.append(document.createTextNode(' · '+interruptionStatus.replace('连接中断恢复：','')));
         selectControl.append(meta); row.append(selectControl);
         {
           const actions=element('div','','task-row-actions');
@@ -8068,9 +8299,17 @@ NaN
       if(task)feed.append(element('div',`当前目标：${task.goal}`,'goal'));
       if(task)feed.append(element('div',`ChatGPT 档位：${reasoningPresetLabel(task.reasoningPreset)}`,'reasoning-preset'));
       if(task?.attachments?.length)feed.append(element('div',`任务附件：${taskAttachmentSummary(task)}`,'attachment-summary'));
-      const allMessages=task?.messages||[];
-      const renderedMessages=allMessages.slice(-MAX_RENDERED_TASK_MESSAGES);
-      if(allMessages.length>renderedMessages.length)feed.append(element('small',`为保持页面流畅，仅显示最近 ${renderedMessages.length}/${allMessages.length} 条记录；完整记录仍保存在当前浏览器。`,'render-limit'));
+      const allMessages=(task?.messages||[]).filter(message => Date.now() - Number(message?.at || 0) <= TASK_MESSAGE_RETENTION_MS);
+      const renderedMessages=[];
+      let renderedChars=0;
+      for(let index=allMessages.length-1;index>=0 && renderedMessages.length<MAX_RENDERED_TASK_MESSAGES;index-=1){
+        const message=allMessages[index];
+        const length=String(message?.text||'').length;
+        if(renderedMessages.length && renderedChars+length>MAX_RENDERED_TASK_MESSAGE_CHARS)break;
+        renderedMessages.unshift(message);renderedChars+=length;
+      }
+      if(task)feed.append(element('small',`最近 2 小时记录：已保留 ${allMessages.length} 条；页面刷新/会话切换后继续恢复。`,'render-limit'));
+      if(allMessages.length>renderedMessages.length)feed.append(element('small',`为保持页面流畅，本次显示最近 ${renderedMessages.length}/${allMessages.length} 条；其余仍保存在最近 2 小时记录中。`,'render-limit'));
       for(const message of renderedMessages){const bubble=element('div',message.text,`bubble ${message.role}`);const time=element('time',new Date(message.at).toLocaleTimeString());bubble.append(time);feed.append(bubble);}
       if(task?.preview && !terminal.has(task.state))feed.append(element('div',`实时回复\n${task.preview}`,'bubble assistant'));
       const sessionURL = canonicalConversationURL(task?.url);

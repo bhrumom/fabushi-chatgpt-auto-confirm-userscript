@@ -34,9 +34,49 @@ async function fixture(body='', setup=()=>{}, url='https://chatgpt.com/') {
     const form = w.document.querySelector('form') || w.document.body;
     form.append(trigger);
   }
-  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, assistantResponseBoundaryKey, taskTurnForInspection, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, conversationLoadFailure, clearConversationLoadFailureState, recoverConversationLoadFailure, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, normalizeReasoningPreset, reasoningPresetLabel, taskReasoningPreset, reasoningPickerTrigger, reasoningSliderState, clearReasoningPickerRecovery, waitForReasoningPicker, ensureTaskReasoningPreset, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, refreshInterruptedStopStall, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, storageStatusText, persistWorkbenchState, durableTaskSnapshot, durableWorkbenchSnapshot, fitWorkbenchSnapshotToLocalBudget, writeLocalStorageRecord, readStorageString, readWorkbenchOverflow, cleanupStaleFabushiStorage, fabushiLocalStorageFootprint, storageBudgets:()=>({workbench:WORKBENCH_LOCAL_STORAGE_TARGET_CHARS,total:FABUSHI_LOCAL_STORAGE_MAX_CHARS}), scheduleWorkspaceHeartbeat, workspaceHeartbeatScheduled:()=>Boolean(workspaceHeartbeatTimer), storagePersistenceStatus:()=>storagePersistenceStatus, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), setRunningForTest:value=>{running=Boolean(value);}, getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, assistantResponseBoundaryKey, taskTurnForInspection, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, conversationLoadFailure, clearConversationLoadFailureState, recoverConversationLoadFailure, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, normalizeReasoningPreset, reasoningPresetLabel, taskReasoningPreset, reasoningPickerTrigger, reasoningSliderState, clearReasoningPickerRecovery, waitForReasoningPicker, ensureTaskReasoningPreset, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, refreshInterruptedStopStall, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, storageStatusText, readRecentActivitySession, writeRecentActivitySession, recordRecentActivity, restoreRecentActivityMessages, taskRecoveryStatusText, persistWorkbenchState, durableTaskSnapshot, durableWorkbenchSnapshot, fitWorkbenchSnapshotToLocalBudget, writeLocalStorageRecord, readStorageString, readWorkbenchOverflow, cleanupStaleFabushiStorage, fabushiLocalStorageFootprint, storageBudgets:()=>({workbench:WORKBENCH_LOCAL_STORAGE_TARGET_CHARS,total:FABUSHI_LOCAL_STORAGE_MAX_CHARS}), scheduleWorkspaceHeartbeat, workspaceHeartbeatScheduled:()=>Boolean(workspaceHeartbeatTimer), storagePersistenceStatus:()=>storagePersistenceStatus, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), setRunningForTest:value=>{running=Boolean(value);}, getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
+test('recent activity restores the last two hours after reload without putting history back into localStorage',async()=>{
+  const {h,w,dom}=await fixture();
+  try {
+    const now=Date.now();
+    const task={id:'recent-two-hours',ownerTabId:h.getTabId(),goal:'keep recent activity',mode:'goal',state:'waiting',phase:'work',round:4,url:'https://chatgpt.com/c/recent-two-hours',token:'recent-token',messages:[],updatedAt:now};
+    h.data.tasks.push(task);
+    h.writeRecentActivitySession([
+      {taskId:task.id,ownerTabId:task.ownerTabId,at:now-3*60*60*1000,role:'status',text:'too old'},
+      {taskId:task.id,ownerTabId:task.ownerTabId,at:now-90*60*1000,role:'status',text:'90 minutes ago: refreshed the interrupted conversation'},
+      {taskId:task.id,ownerTabId:task.ownerTabId,at:now-10*60*1000,role:'assistant',text:'10 minutes ago: inspected CI and continued production wiring'},
+    ],now);
+    task.messages=[];
+    await h.restoreRecentActivityMessages(now);
+    assert.equal(task.messages.length,2);
+    assert.equal(task.messages[0].text,'90 minutes ago: refreshed the interrupted conversation');
+    assert.equal(task.messages[1].text,'10 minutes ago: inspected CI and continued production wiring');
+    assert.ok(h.readRecentActivitySession(now).every(item=>now-item.at<=2*60*60*1000));
+
+    h.persistWorkbenchState(h.data);
+    const persisted=JSON.parse(w.localStorage.getItem('fabushi-workbench-v2'));
+    const saved=persisted.tasks.find(item=>item.id===task.id);
+    assert.ok(saved);
+    assert.equal(saved.messages,undefined,'canonical localStorage remains latest-only and never regrows diagnostic history');
+  } finally {dom.window.close();}
+});
+
+test('connection-interrupted recovery exposes the next five-minute refresh deadline and refresh count',async()=>{
+  const {h,dom}=await fixture();
+  try {
+    const now=Date.now();
+    const task={pendingContinuationReason:'connection interrupted',pendingContinuationSince:now-2*60*1000,stalledRefreshAt:0,stalledRefreshAttempts:0};
+    assert.match(h.taskRecoveryStatusText(task,now),/约 3 分 0 秒后刷新当前会话/);
+    assert.match(h.taskRecoveryStatusText(task,now),/已刷新 0 次/);
+    task.stalledRefreshAt=now-60*1000;
+    task.stalledRefreshAttempts=2;
+    assert.match(h.taskRecoveryStatusText(task,now),/约 4 分 0 秒后刷新当前会话/);
+    assert.match(h.taskRecoveryStatusText(task,now),/已刷新 2 次/);
+  } finally {dom.window.close();}
+});
+
 test('canonical workbench persists only latest recovery state and never diagnostic history',async()=>{
   const {h,w,dom}=await fixture();
   try {
@@ -559,7 +599,8 @@ test('resuming a large persisted workspace keeps workbench rendering bounded',as
     };
   });
   try {
-    const task={id:'resume-large',ownerTabId:h.getTabId(),goal:'resume without freezing',mode:'goal',phase:'work',round:3,state:'paused',pausedState:'waiting',url:'https://chatgpt.com/c/resume-large',token:'resume-token',attempted:false,messages:Array.from({length:80},(_,index)=>({at:index+1,role:'status',text:`status-${index}`})),messageVersion:80};
+    const seededAt=Date.now()-60*60*1000;
+    const task={id:'resume-large',ownerTabId:h.getTabId(),goal:'resume without freezing',mode:'goal',phase:'work',round:3,state:'paused',pausedState:'waiting',url:'https://chatgpt.com/c/resume-large',token:'resume-token',attempted:false,messages:Array.from({length:80},(_,index)=>({at:seededAt+index*1000,role:'status',text:`status-${index}`})),messageVersion:80};
     h.data.tasks.push(task);
     for(let index=0;index<72;index++)h.data.tasks.push({id:`archived-${index}`,ownerTabId:`archived-owner-${index%9}`,goal:`archived task ${index}`,mode:'once',phase:'work',round:1,state:'done',messages:[],messageVersion:0});
 
@@ -571,8 +612,8 @@ test('resuming a large persisted workspace keeps workbench rendering bounded',as
 
     assert.ok(workbenchReads<=8,`resume should parse the durable workbench only a bounded number of times, got ${workbenchReads}`);
     assert.equal(h.measurements.sidebarRebuilds,rebuildsAfterResume,'status-only updates must not rebuild every task row');
-    assert.ok(w.document.querySelectorAll('.feed .bubble').length<=30,'the visible log tail stays bounded');
-    assert.match(w.document.querySelector('.feed')?.textContent||'',/完整记录仍保存在当前浏览器/);
+    assert.ok(w.document.querySelectorAll('.feed .bubble').length<=80,'the visible two-hour log tail stays independently bounded');
+    assert.match(w.document.querySelector('.feed')?.textContent||'',/其余仍保存在最近 2 小时记录中/);
   } finally { h.pause(); dom.window.close(); }
 });
 
@@ -3750,14 +3791,14 @@ test('editing a queued review skips the unsent stale planner immediately',async(
   assert.match(task.messages.at(-1).text,/尚未发送的旧验收已跳过/);
   dom.window.close();
 });
-test('message history is bounded after eighty entries',async()=>{
+test('message history keeps a hard-bounded rolling two-hour window',async()=>{
   const {h,dom}=await fixture();
   const task={id:'history',goal:'keep history',messages:[],messageVersion:0};
   h.data.tasks.push(task);
-  for(let index=0;index<120;index++) h.log(task,`记录 ${index}`);
-  assert.equal(task.messages.length,80);
-  assert.equal(task.messages[0].text,'记录 40');
-  assert.equal(task.messages.at(-1).text,'记录 119');
+  for(let index=0;index<420;index++) h.log(task,`记录 ${index}`);
+  assert.equal(task.messages.length,360);
+  assert.equal(task.messages[0].text,'记录 60');
+  assert.equal(task.messages.at(-1).text,'记录 419');
   dom.window.close();
 });
 test('completed, cancelled, and paused tasks can be deleted while live tasks are retained',async()=>{
@@ -4512,8 +4553,8 @@ test('local memory cleanup bounds task logs without deleting task identity or at
   const {h,dom}=await fixture();
   const task=h.enqueue('保留这个目标','once',[{id:'attachment-1',name:'证据.png',type:'image/png',size:10,lastModified:1}]);
   for(let index=0;index<140;index+=1) h.log(task,`${'x'.repeat(10000)}-${index}`,'status');
-  assert.ok(task.messages.length<=80);
-  assert.ok(task.messages.reduce((sum,item)=>sum+item.text.length,0)<=320000);
+  assert.ok(task.messages.length<=360);
+  assert.ok(task.messages.reduce((sum,item)=>sum+item.text.length,0)<=600000);
   assert.equal(task.goal,'保留这个目标');
   assert.equal(task.attachments[0].id,'attachment-1');
   assert.match(task.messages.at(-1).text,/139$/);
@@ -5988,8 +6029,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.10\.23$/m);
-  assert.match(source,/const VERSION = '2\.10\.23'/);
+  assert.match(source,/^\/\/ @version\s+2\.10\.24$/m);
+  assert.match(source,/const VERSION = '2\.10\.24'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
@@ -5999,6 +6040,9 @@ test('the packaged userscript declares its stable remote update and download URL
   assert.match(source,/const ENDED_NO_FINAL_STABILITY_MS = 8000/);
   assert.match(source,/const REVIEW_ENDED_NO_FINAL_STABILITY_MS = 2 \* 60 \* 1000/);
   assert.match(source,/const RELOAD_STOP_ABSENCE_STABILITY_MS = 8000/);
+  assert.match(source,/const TASK_MESSAGE_RETENTION_MS = 2 \* 60 \* 60 \* 1000/);
+  assert.match(source,/const RECENT_ACTIVITY_DB = 'fabushi-workbench-recent-activity-v1'/);
+  assert.match(source,/最近 2 小时记录/);
   assert.doesNotMatch(source,/MEMORY_PRESSURE_SAMPLES|MEMORY_HOST_REQUEST_MIN_BYTES|MEMORY_SAME_TAB_RELOAD_COOLDOWN_MS/);
   assert.doesNotMatch(source,/function memoryReloadSafety|function reloadTaskForMemoryPressure|memoryPressureReloadAt|memoryPressureReloadURL/);
   assert.doesNotMatch(source,/网页 JS 堆估算已连续达到/);
