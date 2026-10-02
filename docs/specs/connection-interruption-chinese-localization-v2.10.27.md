@@ -108,7 +108,7 @@ Exact-head GitHub Actions must prove at least:
 
 | Requirement / AC | Status | Evidence / reason |
 | --- | --- | --- |
-| Detection + cleanup implementation | pending | Awaiting implementation on this branch. |
-| Regression coverage | pending | Awaiting GitHub Actions exact-head evidence. |
-| Authorization/handoff invariants | pending | Must remain covered by the existing interruption regression suite plus the new localized case. |
-| Canonical-main + release delivery | pending | Requires merge after PR exact-head CI succeeds. |
+| Detection + cleanup implementation | passed | PR #144 head `e8a110bf33ca30620d8705cbe238346ef099a5d6` contains the localized detector/cleaner changes and version bump to v2.10.27. |
+| Regression coverage | passed | PR #144 Test run `37002442582` completed successfully for head `e8a110bf33ca30620d8705cbe238346ef099a5d6`; syntax and the full regression suite passed. |
+| Authorization/handoff invariants | passed | The exact-head regression suite passed the existing authorization-safe interruption coverage plus the new `完整答复` fresh-handoff/carry-cleaning case. |
+| Canonical-main + release delivery | pending | PR exact-head verification is green; merge, canonical-main Test, Release workflow and v2.10.27 release readback remain required. |
