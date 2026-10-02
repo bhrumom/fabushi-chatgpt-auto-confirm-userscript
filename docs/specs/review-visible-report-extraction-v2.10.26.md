@@ -96,5 +96,6 @@ Focused tests must prove:
 
 | Requirement / AC | Status | Evidence |
 | --- | --- | --- |
-| Runtime + regressions | pending | Implementation and exact-head GitHub Actions required. |
-| Version + release | pending | Merge, canonical-main Test and v2.10.26 Release required. |
+| Runtime + regressions | passed | PR #143 head `1308ebf516b6bd4c9c71966801953df0073c231a`: Test run `36971079538` passed syntax and the full regression suite, including exact visible Review `next` without stored Stop identity plus mismatched-identity fail-closed coverage. |
+| Version + release | pending | Runtime/README are `2.10.26`; merge, canonical-main Test and v2.10.26 Release remain required. |
+| htch-runtime verification | blocked | Exact branch HEAD was cloned successfully on `htch-runtime`, but that device currently has no `npm`; no local substitute was used. GitHub Actions is the authoritative executable test evidence. |
