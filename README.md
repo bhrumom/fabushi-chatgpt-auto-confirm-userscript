@@ -1,8 +1,18 @@
-# Fabushi 独立自动确认工作台 2.10.26
+# Fabushi 独立自动确认工作台 2.10.27
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.26`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.27`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+
+## 2.10.27 中文“连接已中断”新文案识别
+
+- 兼容 ChatGPT 当前简体中文界面的实际文案：`连接已中断，正在等待完整答复`；此前脚本只接受英文和中文 `完整回复` 变体，因此会漏掉截图中的 `完整答复`。
+- 识别仍然是完整、独立产品状态文本匹配，不把用户引用、普通 assistant 讨论、blockquote 或 Fabushi 自己的日志当成异常。
+- 中文分隔符同时兼容逗号、句号等产品文案变体；旧的 `连接已中断。正在等待完整回复。` 继续支持。
+- 一旦识别，仍严格复用 v2.10.25 的破坏性 handoff 安全门：两次实时授权扫描之间等待至少 8 秒；有授权卡就留在当前会话，确认无授权后才 fresh handoff。
+- 异常接力携带的可见工作内容会同步剔除 `完整答复` / `完整回复` 两种中文中断 banner，避免把产品错误提示带进下一会话。
+- 所有测试与发布仍只通过 GitHub Actions 或 htch-runtime，不在本地运行。
+- 详细规格见 [v2.10.27](docs/specs/connection-interruption-chinese-localization-v2.10.27.md)。
 
 ## 2.10.26 验收可见报告直接驱动下一轮 Work
 
