@@ -93,9 +93,9 @@ Focused regression coverage must prove:
 
 | Requirement / AC | Status | Evidence / reason |
 | --- | --- | --- |
-| Identity-bound 60-second unavailable-authorization recovery | passed | PR #146 head `93648e2171521dc449a250cd5edca84feae5575e` implements the dedicated task/route/token/phase/round recovery episode and same-route refresh cadence. |
-| Preserve conversation/task identity and avoid fresh-chat escalation | passed | Focused regression coverage verifies 60-second same-route retries preserve URL/token/phase/round and do not consume `stalledRefreshAttempts`; PR Test run `37004843783` succeeded. |
+| Identity-bound 60-second unavailable-authorization recovery | passed | PR #146 final head `30724dbb8f0c2ed70470d6cd76ce6ff63780c6b1` implements the dedicated task/route/token/phase/round recovery episode and same-route refresh cadence; it was squash-merged as canonical main `9c4a6dedee25090b49d82f64e036f181a2df9d2e`. |
+| Preserve conversation/task identity and avoid fresh-chat escalation | passed | Focused regression coverage verifies 60-second same-route retries preserve URL/token/phase/round and do not consume `stalledRefreshAttempts`; exact final PR-head Test run `37005037639` succeeded. |
 | Settlement and grant safety | passed | Focused regressions verify successful conversation-scoped approval clears unavailable state and the active 12-second settlement latch suppresses refresh; persistent/global grant selection remains excluded by the existing authorization contract. |
 | Manual approval behavior | passed | Focused regression verifies `autoApprove=false` never performs periodic approval refresh. |
-| v2.10.27 connection-interruption behavior preserved | passed | PR #146 is based on canonical v2.10.27 main and Test run `37004843783` passed the full regression suite including existing localized interruption coverage. |
-| Delivery | pending | Merge, canonical-main Test, and GitHub Release `v2.10.28` still require post-merge evidence. |
+| v2.10.27 connection-interruption behavior preserved | passed | PR #146 preserved canonical v2.10.27 behavior; final PR-head Test run `37005037639` and canonical-main Test run `37005135261` both passed the full regression suite including existing localized interruption coverage. |
+| Delivery | passed | Canonical-main Test run `37005135261` succeeded for `9c4a6dedee25090b49d82f64e036f181a2df9d2e`; Release run `37005205838` succeeded. GitHub Release `v2.10.28` targets that commit and contains `chatgpt-auto-confirm.user.js` (455012 bytes, `sha256:e8a629df152b474a3d152f8e3efb433e709ef11ebf1f5e12ca3bfb21628d1de3`). |
