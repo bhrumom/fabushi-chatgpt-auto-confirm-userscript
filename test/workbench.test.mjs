@@ -6198,6 +6198,9 @@ test('legacy continuation preserves an unrelated old-chat draft while switching 
     h.data.tasks.push(task);
     const input=w.document.querySelector('#prompt-textarea');
     input.value='leave my draft';
+    assert.equal(await h.sendContinuation(task,null,'test recovery intent',Date.now(),{}),false,'first observation only starts the approval-safe handoff confirmation');
+    assert.match(task.stopNoApprovalConfirmSignature,/connection-interrupted/);
+    task.stopNoApprovalConfirmSince=Date.now()-9_000;
     assert.equal(await h.sendContinuation(task,null,'test recovery intent',Date.now(),{}),true);
     assert.equal(input.value,'leave my draft','the old conversation composer is not mutated');
     assert.equal(task.state,'queued');
@@ -6207,7 +6210,7 @@ test('legacy continuation preserves an unrelated old-chat draft while switching 
   } finally {h.pause();dom.window.close();}
 });
 
-test('interrupted recovery with a virtualized task article retains the exact route without old-chat send',async()=>{
+test('interrupted recovery with a virtualized task article fresh-handoffs without old-chat send',async()=>{
   const {h,w,dom}=await fixture(`<main>
     <article data-testid="conversation-turn-user"><div data-message-author-role="user">another task [Fabushi:foreign]</div></article>
     <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">partial reply</div></article>
@@ -6225,11 +6228,16 @@ test('interrupted recovery with a virtualized task article retains the exact rou
     await h.inspect(task,null);
     assert.equal(sends,0);
     assert.equal(task.state,'waiting');
-    assert.equal(task.url,'https://chatgpt.com/c/null-article-recovery');
-    assert.equal(task.token,'expected-owner');
+    assert.match(task.stopNoApprovalConfirmSignature,/connection-interrupted/);
+    task.stopNoApprovalConfirmSince=Date.now()-9_000;
+    await h.inspect(task,null);
+    assert.equal(sends,0);
+    assert.equal(task.state,'queued');
+    assert.equal(task.url,'');
+    assert.equal(task.token,'');
     assert.equal(task.phase,'work');
     assert.equal(task.round,7);
-    assert.match(task.pendingContinuationReason,/连接已中断/);
+    assert.equal(task.connectionInterruptedFreshDispatch,true);
     assert.equal(w.document.querySelector('#prompt-textarea').value,'');
   } finally {h.pause();dom.window.close();}
 });
