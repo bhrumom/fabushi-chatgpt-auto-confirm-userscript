@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.26
+// @version      2.10.27
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.26';
+  const VERSION = '2.10.27';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -188,6 +188,13 @@ async function bootstrapAttempt() {
   // already absent. Keep a short task-scoped settlement latch so one transient
   // DOM gap can never be mistaken for a finished generation slice.
   const APPROVAL_SETTLEMENT_MS = 12 * 1000;
+  // A connector authorization surface can mount before its split controls or
+  // conversation-scoped menu option are fully hydrated. In automatic approval
+  // mode, do not wait on that renderer state forever: reload the same bound
+  // conversation after one quiet minute, then at most once per minute until the
+  // card becomes usable. This is deliberately separate from generic stalled
+  // recovery because unresolved authorization must never escalate to fresh chat.
+  const APPROVAL_UNAVAILABLE_REFRESH_MS = 60 * 1000;
   // Never abandon a bound conversation from one instantaneous "no approval"
   // sample. ChatGPT can mount approval UI between renderer slices, and the
   // current approval card may sit outside the role-derived message scopes.
@@ -2616,8 +2623,82 @@ async function bootstrapAttempt() {
     task.approvalSettlementPhase = '';
     task.approvalSettlementRound = 0;
   }
+  function approvalUnavailableIdentity(task, route = '') {
+    if (!task) return '';
+    const taskURL = canonicalConversationURL(task.url);
+    const liveURL = canonicalConversationURL(route || currentConversationURL() || taskURL);
+    if (!taskURL || !liveURL || liveURL !== taskURL || !task.token) return '';
+    return JSON.stringify([
+      liveURL,
+      String(task.token || ''),
+      String(task.phase || ''),
+      Number(task.round || 0),
+    ]);
+  }
+  function clearApprovalUnavailableRefresh(task) {
+    if (!task) return false;
+    const changed = Boolean(
+      task.approvalUnavailableIdentity
+      || task.approvalUnavailableSince
+      || task.approvalUnavailableRefreshAt
+      || task.approvalUnavailableRefreshCount
+    );
+    task.approvalUnavailableIdentity = '';
+    task.approvalUnavailableSince = 0;
+    task.approvalUnavailableRefreshAt = 0;
+    task.approvalUnavailableRefreshCount = 0;
+    return changed;
+  }
+  function markApprovalUnavailable(task, route = '', now = Date.now()) {
+    const identity = approvalUnavailableIdentity(task, route);
+    if (!identity) return false;
+    const started = task.approvalUnavailableIdentity !== identity
+      || !Number(task.approvalUnavailableSince || 0);
+    if (!started) return false;
+    clearApprovalUnavailableRefresh(task);
+    task.approvalUnavailableIdentity = identity;
+    task.approvalUnavailableSince = now;
+    task.state = 'approval';
+    task.updatedAt = now;
+    return true;
+  }
+  function approvalUnavailableRefreshDue(task, route = '', now = Date.now()) {
+    if (!task || !data.autoApprove) return false;
+    const identity = approvalUnavailableIdentity(task, route);
+    if (!identity || task.approvalUnavailableIdentity !== identity) return false;
+    const since = Number(task.approvalUnavailableSince || 0);
+    if (!since) return false;
+    if (approvalSettlementActive(task, route, now)) return false;
+    const lastRefresh = Number(task.approvalUnavailableRefreshAt || 0);
+    return now - Math.max(since, lastRefresh) >= APPROVAL_UNAVAILABLE_REFRESH_MS;
+  }
+  function refreshUnavailableApproval(task, perform = true, now = Date.now()) {
+    if (!task || task.state === 'paused' || task.state === 'cancelled' || task.attempted || !data.autoApprove) return false;
+    const conversationURL = currentConversationURL() || canonicalConversationURL(task.url);
+    const taskURL = canonicalConversationURL(task.url);
+    if (!conversationURL || !taskURL || conversationURL !== taskURL) return false;
+    if (!approvalUnavailableRefreshDue(task, conversationURL, now)) return false;
+    const nextCount = Number(task.approvalUnavailableRefreshCount || 0) + 1;
+    task.approvalUnavailableRefreshCount = nextCount;
+    task.approvalUnavailableRefreshAt = now;
+    task.state = 'approval';
+    task.updatedAt = now;
+    observations.delete(task.id);
+    log(task, `授权卡持续 ${Math.ceil(APPROVAL_UNAVAILABLE_REFRESH_MS / 1000)} 秒仍未完全加载或暂不可用；正在刷新当前会话（第 ${nextCount} 次），保留会话、发送标识、附件和当前阶段，不会新开会话或重复发送。`);
+    save();
+    if (!perform) return true;
+    navigating = true;
+    try { location.reload(); } catch (error) {
+      navigating = false;
+      log(task, `授权卡恢复刷新失败：${error.message}；已保留当前任务，${Math.ceil(APPROVAL_UNAVAILABLE_REFRESH_MS / 1000)} 秒后继续尝试。`);
+      save();
+      return false;
+    }
+    return true;
+  }
   function beginApprovalSettlement(task, now = Date.now()) {
     if (!task) return;
+    clearApprovalUnavailableRefresh(task);
     task.approvalSettlementUntil = now + APPROVAL_SETTLEMENT_MS;
     task.approvalSettlementURL = canonicalConversationURL(currentConversationURL() || task.url);
     task.approvalSettlementToken = String(task.token || '');
@@ -5376,16 +5457,18 @@ async function bootstrapAttempt() {
     return /^(?:允许本次会话|在此对话中允许|允许此对话|允许\s+.{1,80}?\s+(?:用于|在)?(?:本次会话|此对话)|allow (?:for )?this (?:chat|conversation|session)|allow .{1,80}? for this (?:chat|conversation|session))$/iu.test(value);
   }
   async function authorize(card, task, signal, queueOwned = true) {
-    if (!card?.container?.isConnected || !visible(card.container)) return;
+    if (!card?.container?.isConnected || !visible(card.container)) return false;
     if (!card.actionable || !enabled(card.button) || !enabled(card.arrow)) {
       if (task) {
-        task.state = 'approval';
-        log(task, '授权卡仍存在但控件正在处理或暂不可用；保持当前会话等待，不会把 Stop 消失当成结束。');
+        const started = markApprovalUnavailable(task, currentConversationURL(), Date.now());
+        if (started) {
+          log(task, `授权卡仍存在但控件正在处理或暂不可用；保持当前会话等待。若连续 ${Math.ceil(APPROVAL_UNAVAILABLE_REFRESH_MS / 1000)} 秒仍未恢复，将刷新当前会话而不是一直等待，也不会把 Stop 消失当成结束。`);
+        }
       }
-      return;
+      return false;
     }
     const last = approvalAttempts.get(card.button) || 0;
-    if (Date.now() - last < 15000) return;
+    if (Date.now() - last < 15000) return false;
     approvalAttempts.set(card.button, Date.now());
     const candidates = nodes('button,[role=button]', card.container).filter(enabled);
     const arrow = (enabled(card.arrow) && card.arrow)
@@ -5393,7 +5476,15 @@ async function bootstrapAttempt() {
       || candidates.find(node => node !== card.button && /箭头|展开|选项|更多|menu|options|expand/i.test(label(node)))
       || candidates.find(node => node !== card.button && !text(node) && node.querySelector('svg') && node.parentElement === card.button.parentElement)
       || (enabled(card.button) && card.button.querySelector('svg') ? card.button : null);
-    if (!arrow) { log(task, '授权卡已识别，但尚未找到可用的下拉箭头；保持等待。'); return; }
+    if (!arrow) {
+      if (task) {
+        const started = markApprovalUnavailable(task, currentConversationURL(), Date.now());
+        if (started) log(task, `授权卡已识别，但下拉授权控件尚未完全加载；若连续 ${Math.ceil(APPROVAL_UNAVAILABLE_REFRESH_MS / 1000)} 秒仍不可用，将刷新当前会话。`);
+      } else {
+        log(task, '授权卡已识别，但尚未找到可用的下拉箭头；保持等待。');
+      }
+      return false;
+    }
     checkAuthorizationRun(signal, queueOwned);
     activateControl(arrow);
     for (let attempt = 0; attempt < 6; attempt++) {
@@ -5404,9 +5495,17 @@ async function bootstrapAttempt() {
       activateControl(option);
       if (task) beginApprovalSettlement(task);
       log(task, '已点击“允许本次会话”，进入授权提交保护期；即使卡片暂时 disabled、重挂载或瞬时消失，也不会切换会话。');
-      return;
+      return true;
     }
-    log(task, '授权菜单没有“允许本次会话”；保留当前会话等待处理。');
+    if (task) {
+      const started = markApprovalUnavailable(task, currentConversationURL(), Date.now());
+      if (started) {
+        log(task, `授权菜单尚未加载“允许本次会话”；保持当前会话等待。若连续 ${Math.ceil(APPROVAL_UNAVAILABLE_REFRESH_MS / 1000)} 秒仍缺失，将刷新当前会话，不会选择“始终允许”。`);
+      }
+    } else {
+      log(task, '授权菜单没有“允许本次会话”；保留当前会话等待处理。');
+    }
+    return false;
   }
   async function processGlobalApprovalCards() {
     if (!data.globalAutoApprove || globalApprovalBusy) return false;
@@ -5837,6 +5936,8 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.continuationSentAt = 0;
     task.continuationCount = 0;
     clearStopObservedGeneration(task);
+    clearApprovalUnavailableRefresh(task);
+    clearApprovalSettlement(task);
     task.connectionInterruptedSince = 0;
     task.connectionInterruptedURL = '';
     task.connectionInterruptedRefreshAttempts = 0;
@@ -6514,6 +6615,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.workspaceDocumentRecoveryAttempts = 0;
     task.continuationSentAt = 0;
     task.continuationCount = 0;
+    clearApprovalUnavailableRefresh(task);
     clearApprovalSettlement(task);
     task.connectionInterruptedSince = 0;
     task.connectionInterruptedURL = '';
@@ -6632,6 +6734,11 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const approvalVisible = approvalRouteEligible && pending.length > 0;
     const approvalSettling = approvalRouteEligible && approvalSettlementActive(task, liveURL, now);
     const approvalBlocking = approvalVisible || approvalSettling;
+    if (((!approvalVisible && !approvalSettling) || !data.autoApprove)
+      && clearApprovalUnavailableRefresh(task)) {
+      task.updatedAt = now;
+      save();
+    }
     // If an authorization surface appears while an interruption handoff is in
     // its two-scan confirmation window, cancel that confirmation immediately.
     // After authorization/settlement finishes, a brand-new 8-second no-card
@@ -7444,7 +7551,16 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     }
     if (result.state === 'blocked') throw new Error(result.reason);
     state(task, result.state);
-    if (result.state === 'approval' && data.autoApprove) await authorize(pending[0], task, signal);
+    if (result.state === 'approval' && data.autoApprove) {
+      const approved = await authorize(pending[0], task, signal);
+      const approvalRefreshNow = Date.now();
+      if (!approved
+        && !sample.final
+        && !sample.rateLimit
+        && !sample.blocker
+        && !approvalSettlementActive(task, liveURL, approvalRefreshNow)
+        && refreshUnavailableApproval(task, true, approvalRefreshNow)) return;
+    }
   }
   function schedule(ms = 2000) {
     clearTimeout(timer);
