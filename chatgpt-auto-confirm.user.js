@@ -117,10 +117,10 @@ async function bootstrapAttempt() {
   const RECOVERED_STATIC_FINAL_STABILITY_MS = 8000;
   // A bound conversation can stop changing while ChatGPT is waiting for an
   // authorization card, a renderer update, or an image/tool result. Reload
-  // the same route after five minutes with no visible progress. The dedicated
-  // connection-interrupted wait uses the same quiet-window threshold.
+  // the same route after five minutes with no visible progress. An explicit
+  // ChatGPT connection-interrupted notice is different: it is an abnormal
+  // terminal handoff signal and never enters this same-route stall policy.
   const STALLED_REFRESH_MS = 5 * 60 * 1000;
-  const INTERRUPTED_STOP_STALL_REFRESH_MS = 5 * 60 * 1000;
   // Keep the persisted generic-stall reload interval aligned with the detector.
   // A page that remains unchanged can therefore be retried again, but never
   // more than once per five minutes.
@@ -172,12 +172,6 @@ async function bootstrapAttempt() {
   // their durable /c/<id> URLs instead of holding the tab on one task.
   const SUPERVISION_INTERVAL_MS = 15000;
   const VISIBLE_SCAN_INTERVAL_MS = 4000;
-  // An explicit connection-interrupted page has no useful action between
-  // recovery probes. Poll it less frequently than ordinary live generation so
-  // a large conversation cannot keep the Chrome main thread busy with repeated
-  // DOM scans, persistence, and workbench paints while waiting for the 5-minute
-  // same-route refresh deadline.
-  const INTERRUPTION_PROBE_INTERVAL_MS = 15 * 1000;
   const STREAM_TEXT_TAIL_LIMIT = 6000;
   const SLOW_SCAN_DIAGNOSTIC_THRESHOLD_MS = 1200;
   const SLOW_SCAN_DIAGNOSTIC_INTERVAL_MS = 30000;
@@ -2368,8 +2362,6 @@ async function bootstrapAttempt() {
       Number(task.cooldownUntil || 0),
       Number(task.noFinalReplyRecoveryUntil || 0),
     ];
-    const interruptionProbeAt = Number(task.pendingContinuationProbeAt || 0);
-    if (task.pendingContinuationReason && interruptionProbeAt > now) deadlines.push(interruptionProbeAt);
     const navigationRetryAt = Number(task.navigationGuardRetryAt || 0);
     if (navigationRetryAt > now && !taskMatchesCurrentConversation(task)) deadlines.push(navigationRetryAt);
     const attachmentRetryAt = Number(task.attachmentUploadRetryAt || 0);
@@ -4707,109 +4699,6 @@ async function bootstrapAttempt() {
       log(task, `会话加载失败刷新未提交：${error.message}；已保留任务，将按 30 秒间隔继续重试。`);
       save();
       return false;
-    }
-    return true;
-  }
-  function refreshInterruptedStopStall(task, now = Date.now(), perform = true, turn = null, progressSignature = '') {
-    const pendingSince = Number(task?.pendingContinuationSince || 0);
-    if (!task?.pendingContinuationReason || !pendingSince) return false;
-    const progress = progressSignature || JSON.stringify(visibleConversationProgressFingerprint());
-    const previousProgress = String(task.pendingContinuationStopProgressSignature || '');
-    if (previousProgress && progress !== previousProgress) {
-      task.pendingContinuationSince = now;
-      task.pendingContinuationStopProgressSignature = progress;
-      task.stalledRefreshAttempts = 0;
-      task.stalledRefreshAt = 0;
-      task.stalledRefreshProgressHash = '';
-      save();
-      return false;
-    }
-    if (!previousProgress) {
-      task.pendingContinuationStopProgressSignature = progress;
-      save();
-    }
-    const lastRefreshAt = Number(task.stalledRefreshAt || 0);
-    const stalledSince = Math.max(Number(task.pendingContinuationSince || now), lastRefreshAt);
-    if (now - stalledSince < INTERRUPTED_STOP_STALL_REFRESH_MS) return false;
-    const refreshed = refreshStalledConversation(task, perform, now, {
-      force:true,
-      allowUnlimitedRefresh:true,
-      turn,
-      message:`检测到连接中断等待完整回复后连续 5 分钟没有可见进展；正在刷新当前会话并保留接力意图（第 ${Number(task.stalledRefreshAttempts || 0) + 1} 次）。页面恢复后继续监督当前会话，不会重复发送任务。`,
-    });
-    if (refreshed && task.pendingContinuationReason) {
-      task.pendingContinuationSince = now;
-      task.pendingContinuationStopProgressSignature = progress;
-      task.pendingContinuationProbeAt = now + INTERRUPTION_PROBE_INTERVAL_MS;
-      save();
-    }
-    return refreshed;
-  }
-  function interruptedProgressSignature(turn, liveURL, stopPresent = false) {
-    // Do not call visibleConversationProgressFingerprint() here. That helper
-    // intentionally scans a bounded transcript/activity tail for ordinary
-    // supervision, but repeating it every few seconds while ChatGPT is already
-    // in a product-level interruption state can still make a long page janky.
-    // The interruption banner disappearing returns control to the normal path;
-    // while it remains visible, current assistant text/boundary + Stop state is
-    // sufficient to reset the five-minute recovery window on real progress.
-    return JSON.stringify([
-      canonicalConversationURL(liveURL),
-      assistantResponseBoundaryKey(turn),
-      String(turn?.text || '').slice(-STREAM_TEXT_TAIL_LIMIT),
-      Boolean(stopPresent),
-      Boolean(turn?.streaming),
-      Boolean(turn?.final),
-    ]);
-  }
-  function superviseConnectionInterrupted(task, liveURL, now = Date.now(), perform = true, turn = null, options = {}) {
-    if (!task || !liveURL) return false;
-    const reason = String(options.reason || '检测到“连接已中断，正在等待完整回复”');
-    const explicit = options.explicit !== false;
-    const stopPresent = Boolean(options.stopPresent);
-    const pendingURLChanged = canonicalConversationURL(task.pendingContinuationURL) !== canonicalConversationURL(liveURL);
-    const firstObservation = pendingURLChanged || !Number(task.pendingContinuationSince || 0);
-    const progress = interruptedProgressSignature(turn, liveURL, stopPresent);
-    const previousProgress = String(task.pendingContinuationStopProgressSignature || '');
-    const progressChanged = Boolean(previousProgress && progress !== previousProgress);
-    const existingProbeAt = Number(task.pendingContinuationProbeAt || 0);
-    // The scheduler normally honors this deadline and skips inspect() entirely.
-    // Keep the helper itself idempotent too, so an external/manual inspection
-    // cannot keep extending the deadline or cause another persistence/paint.
-    if (!firstObservation && !progressChanged && previousProgress && existingProbeAt > now) return true;
-    let dirty = false;
-
-    if (task.pendingContinuationReason !== reason) { task.pendingContinuationReason = reason; dirty = true; }
-    if (canonicalConversationURL(task.pendingContinuationURL) !== canonicalConversationURL(liveURL)) { task.pendingContinuationURL = liveURL; dirty = true; }
-    if (task.state !== 'waiting') { task.state = 'waiting'; dirty = true; }
-    if (firstObservation || progressChanged || !previousProgress) {
-      task.pendingContinuationSince = now;
-      task.pendingContinuationStopProgressSignature = progress;
-      if (progressChanged) {
-        task.stalledRefreshAttempts = 0;
-        task.stalledRefreshAt = 0;
-        task.stalledRefreshProgressHash = '';
-      }
-      dirty = true;
-    }
-
-    const stalledSince = Math.max(Number(task.pendingContinuationSince || now), Number(task.stalledRefreshAt || 0));
-    const refreshAt = stalledSince + INTERRUPTED_STOP_STALL_REFRESH_MS;
-    task.pendingContinuationProbeAt = Math.min(refreshAt, now + INTERRUPTION_PROBE_INTERVAL_MS);
-
-    let logged = false;
-    if (firstObservation && explicit) {
-      task.pendingContinuationLastWaitLogAt = now;
-      log(task, '已识别 ChatGPT 连接中断。已切换到低开销恢复等待：不会每 4 秒重复写本地状态/刷新工作台；最多每 15 秒轻量复核一次，连续 5 分钟没有进展才刷新同一会话。');
-      logged = true;
-    }
-
-    if (now >= refreshAt) {
-      if (refreshInterruptedStopStall(task, now, perform, turn, progress)) return true;
-    }
-    if (dirty && !logged) {
-      task.updatedAt = now;
-      save();
     }
     return true;
   }
