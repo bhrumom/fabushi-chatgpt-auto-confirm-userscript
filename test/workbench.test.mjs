@@ -2457,7 +2457,7 @@ test('approval settlement suppresses unavailable-card refresh and successful gra
       const conversation=w.document.createElement('div');conversation.setAttribute('role','menuitem');conversation.textContent='Allow GitHub for this conversation';
       menu.append(conversation);w.document.body.append(menu);
     });
-    assert.equal(await h.authorize(h.cards()[0],task,null,true),true);
+    assert.equal(await h.authorize(h.cards()[0],task,null,false),true);
     assert.ok(Number(task.approvalSettlementUntil)>Date.now());
     assert.equal(task.approvalUnavailableIdentity||'','', 'successful conversation grant clears unavailable-card recovery');
     h.markApprovalUnavailable(task,task.url,Date.now()-120_000);
@@ -2472,7 +2472,7 @@ test('missing conversation-scoped grant enters periodic approval recovery while 
     const task={id:'approval-menu-hydration',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:3,state:'approval',url:'https://chatgpt.com/c/approval-menu-hydration',token:'approval-menu-hydration',attempted:false,messages:[]};
     h.data.tasks.push(task);
     h.data.autoApprove=true;
-    assert.equal(await h.authorize(h.cards()[0],task,null,true),false,'menu without conversation grant stays pending');
+    assert.equal(await h.authorize(h.cards()[0],task,null,false),false,'menu without conversation grant stays pending');
     assert.ok(Number(task.approvalUnavailableSince)>0);
     task.approvalUnavailableSince=Date.now()-61_000;
     h.data.autoApprove=false;
