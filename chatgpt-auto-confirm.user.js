@@ -6632,6 +6632,16 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const approvalVisible = approvalRouteEligible && pending.length > 0;
     const approvalSettling = approvalRouteEligible && approvalSettlementActive(task, liveURL, now);
     const approvalBlocking = approvalVisible || approvalSettling;
+    // If an authorization surface appears while an interruption handoff is in
+    // its two-scan confirmation window, cancel that confirmation immediately.
+    // After authorization/settlement finishes, a brand-new 8-second no-card
+    // window is required before the destructive fresh-chat handoff can resume.
+    if (approvalBlocking
+      && String(task.stopNoApprovalConfirmSignature || '').includes('"connection-interrupted"')) {
+      clearStopNoApprovalConfirmation(task);
+      task.updatedAt = now;
+      save();
+    }
     const currentBlocker = blocker();
     const currentRateLimit = rateLimitNotice(getPageUiRecords);
     // Live review DOM can remove Stop before its response toolbar is mounted.
