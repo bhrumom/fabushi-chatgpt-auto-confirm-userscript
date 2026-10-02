@@ -1,8 +1,19 @@
-# Fabushi 独立自动确认工作台 2.10.23
+# Fabushi 独立自动确认工作台 2.10.24
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.23`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.24`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+
+## 2.10.24 最近 2 小时操作记录 + 连接中断恢复可见化
+
+- 修复工作台“什么记录都没有”的根因：v2.10.18 为了保证 `localStorage` 永远不会被脚本日志撑满，把 `messages/history` 从 canonical durable snapshot 中彻底删除；因此每次 ChatGPT 页面刷新/恢复后，内存中的操作记录都会消失。连接中断路径恰好会按 5 分钟刷新同一会话，所以用户最需要看到恢复记录时反而最容易变成空白。
+- canonical `localStorage` 继续保持 latest-only，不重新把大量日志塞回去；新增独立的**最近 2 小时滚动活动记录**，优先写 IndexedDB，同时写一个严格有界的 sessionStorage 同标签页副本。页面刷新、SPA 会话切换和普通恢复都会重新加载这些记录。
+- 最近活动记录保存状态日志和 assistant 最终内容；在页面刷新/切换前，如果当前会话已有可安全归属的可见工作内容，还会保存一条“最近可见工作内容快照”，这样可以回看刚才实际做到哪里，而不只是看到“等待响应”。
+- 记录严格只保留最近 2 小时，并同时有条数/字符硬上限；工作台渲染也独立限流，避免再次出现长日志导致 Chrome 主线程卡顿或存储配额问题。
+- `Connection interrupted. Waiting for the complete answer` 仍按既定策略：无进展连续 5 分钟才刷新同一会话，不重复发送原任务；现在工作台会直接显示“约 X 分 X 秒后刷新当前会话 · 已刷新 N 次”，不再看起来像无限卡死。
+- 新增回归：2 小时内记录能在恢复后重建、超过 2 小时自动淘汰、canonical localStorage 仍不包含 diagnostic history、连接中断 5 分钟恢复倒计时/刷新次数可见。
+- 所有测试与发布继续只通过 GitHub Actions 或 htch-runtime，不在本地运行。
+- 详细规格见 [v2.10.24](docs/specs/recent-two-hour-activity-log-v2.10.24.md)。
 
 ## 2.10.23 验收最终结果与 Work 共用完成识别
 
