@@ -1948,6 +1948,9 @@ test('legacy continuation with Stop absent queues a fresh session without touchi
     const input=w.document.querySelector('#prompt-textarea');
     let clicks=0;
     w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>clicks++);
+    assert.equal(await h.sendContinuation(task,null,'检测到当前会话已经结束',Date.now(),{}),false);
+    assert.match(task.stopNoApprovalConfirmSignature,/connection-interrupted/);
+    task.stopNoApprovalConfirmSince=Date.now()-9_000;
     assert.equal(await h.sendContinuation(task,null,'检测到当前会话已经结束',Date.now(),{}),true);
     assert.equal(clicks,0,'old-conversation Send must never be clicked');
     assert.equal(input.value,'','old composer must never be filled with the legacy continuation phrase');
@@ -1967,6 +1970,8 @@ test('legacy continuation queues one fresh handoff and clears the old dispatch i
     h.data.tasks.push(task);
     let sends=0;
     w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>sends++);
+    assert.equal(await h.sendContinuation(task,null,'异常中断',Date.now(),{}),false);
+    task.stopNoApprovalConfirmSince=Date.now()-9_000;
     assert.equal(await h.sendContinuation(task,null,'异常中断',Date.now(),{}),true);
     assert.equal(sends,0);
     assert.equal(task.state,'queued');
@@ -1985,6 +1990,8 @@ test('legacy continuation preserves visible work in a fresh handoff regardless o
     h.data.tasks.push(task);
     let sends=0;
     w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>sends++);
+    assert.equal(await h.sendContinuation(task,null,'异常中断',Date.now(),{}),false);
+    task.stopNoApprovalConfirmSince=Date.now()-9_000;
     assert.equal(await h.sendContinuation(task,null,'异常中断',Date.now(),{}),true);
     assert.equal(sends,0);
     assert.equal(w.document.querySelector('#prompt-textarea').value,'');
@@ -2008,6 +2015,8 @@ test('legacy continuation never clicks the old blue-arrow Send control',async()=
     w.history.pushState({},'', '/c/zh-send');
     let clicks=0;
     w.document.querySelector('button[aria-label="发送"]').addEventListener('click',()=>clicks++);
+    assert.equal(await h.sendContinuation(task,null,'检测到当前会话已经结束',Date.now(),{}),false);
+    task.stopNoApprovalConfirmSince=Date.now()-9_000;
     assert.equal(await h.sendContinuation(task,null,'检测到当前会话已经结束',Date.now(),{}),true);
     assert.equal(clicks,0);
     assert.equal(task.state,'queued');
@@ -2015,7 +2024,7 @@ test('legacy continuation never clicks the old blue-arrow Send control',async()=
   } finally { h.pause(); dom.window.close(); }
 });
 
-test('connection interruption waits for Stop to disappear without clicking it, then queues fresh',async()=>{
+test('connection interruption hands off with Stop still visible after authorization-safe confirmation',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">recover [Fabushi:stop-before-send]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">已完成 A，正在做 B。</div><div>连接已中断，正在等待完整回复</div></div></article><form id="composer-form"><textarea id="prompt-textarea"></textarea><button data-testid="stop-button" type="button">Stop</button><button data-testid="send-button" type="button">发送</button></form></main>');
   try {
     const task={id:'stop-before-send',ownerTabId:h.getTabId(),goal:'recover',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/stop-before-send',token:'stop-before-send',attempted:false,messages:[]};
@@ -2030,17 +2039,19 @@ test('connection interruption waits for Stop to disappear without clicking it, t
     assert.equal(sends,0);
     assert.equal(w.document.querySelector('#prompt-textarea').value,'');
     assert.equal(task.url,'https://chatgpt.com/c/stop-before-send');
-    stop.remove();
-    assert.equal(await h.sendContinuation(task,null,'检测到连接中断',Date.now()+10,{}),true);
-    assert.equal(stops,0);
-    assert.equal(sends,0);
+    assert.match(task.stopNoApprovalConfirmSignature,/connection-interrupted/);
+    task.stopNoApprovalConfirmSince=Date.now()-9_000;
+    assert.equal(await h.sendContinuation(task,null,'检测到连接中断',Date.now(),{}),true);
+    assert.equal(stops,0,'fresh handoff never clicks Stop');
+    assert.equal(sends,0,'fresh handoff never sends in the broken conversation');
+    assert.ok(stop.isConnected,'Stop remains visible and is not required to disappear');
     assert.equal(task.state,'queued');
     assert.equal(task.url,'');
     assert.match(task.abnormalFreshCarry,/已完成 A/);
   } finally {h.pause();dom.window.close();}
 });
 
-test('ordinary continuation never clicks a visible Stop control',async()=>{
+test('ordinary legacy recovery entrypoint never clicks a visible Stop control',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">recover [Fabushi:no-stop-click]</div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="stop-button" type="button">Stop</button></form></main>');
   try {
     w.history.pushState({},'', '/c/no-stop-click');
@@ -2052,11 +2063,12 @@ test('ordinary continuation never clicks a visible Stop control',async()=>{
     assert.equal(stops,0);
     assert.equal(w.document.querySelector('#prompt-textarea').value,'');
     assert.equal(task.pendingContinuationStopClickedAt||0,0);
-    assert.equal(task.pendingContinuationReason,'ordinary continuation');
+    assert.equal(task.pendingContinuationReason||'','');
+    assert.match(task.stopNoApprovalConfirmSignature,/connection-interrupted/);
   } finally {h.pause();dom.window.close();}
 });
 
-test('interrupted legacy continuation never clicks Stop or Send while Stop remains visible',async()=>{
+test('interrupted legacy continuation fresh-handoffs without clicking Stop or Send while Stop remains visible',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">recover [Fabushi:stop-stuck]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">连接已中断。正在等待完整回复。</div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="stop-button" type="button">Stop</button><button data-testid="send-button" type="button">发送</button></form></main>');
   try {
     w.history.pushState({},'', '/c/stop-stuck');
@@ -2069,10 +2081,17 @@ test('interrupted legacy continuation never clicks Stop or Send while Stop remai
     assert.equal(stops,0);
     assert.equal(sends,0);
     assert.equal(w.document.querySelector('#prompt-textarea').value,'');
-    assert.equal(task.pendingContinuationStopClickedAt||0,0);
-    assert.equal(task.pendingContinuationStopRecovery||false,false);
+    assert.match(task.stopNoApprovalConfirmSignature,/connection-interrupted/);
+    task.stopNoApprovalConfirmSince=Date.now()-9_000;
+    assert.equal(await h.sendContinuation(task,null,'连接中断',Date.now(),{}),true);
+    assert.equal(stops,0);
+    assert.equal(sends,0);
+    assert.equal(task.state,'queued');
+    assert.equal(task.url,'');
+    assert.equal(task.connectionInterruptedFreshDispatch,true);
   } finally {h.pause();dom.window.close();}
 });
+
 test('unbound exhausted abnormal retries still enter persisted backoff and reset after success',async()=>{
   const {h,dom}=await fixture();
   const task=h.enqueue('keep recovering','once');
