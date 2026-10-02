@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.23
+// @version      2.10.24
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.23';
+  const VERSION = '2.10.24';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -269,12 +269,22 @@ async function bootstrapAttempt() {
   const MEMORY_DIAGNOSTIC_RATIO_MIN_BYTES = 256 * 1024 * 1024;
   const MEMORY_DIAGNOSTIC_ELEVATED_RATIO = 0.5;
   const MEMORY_DIAGNOSTIC_HIGH_RATIO = 0.7;
-  // Keep the durable workbench small even when a task runs for days. The
-  // current goal/result/attachment metadata remain separate fields and are
-  // never removed by this log compaction.
-  const MAX_TASK_MESSAGES = 80;
+  // Keep a rolling two-hour activity window in memory/UI. The canonical
+  // localStorage workbench still stays latest-only; recent human-readable
+  // activity is persisted separately so page refresh/recovery does not erase
+  // what the automation just did.
+  const TASK_MESSAGE_RETENTION_MS = 2 * 60 * 60 * 1000;
+  const MAX_TASK_MESSAGES = 360;
   const MAX_TASK_MESSAGE_TEXT = 12000;
-  const MAX_TASK_MESSAGE_CHARS = 320000;
+  const MAX_TASK_MESSAGE_CHARS = 600000;
+  const MAX_RENDERED_TASK_MESSAGES = 80;
+  const MAX_RENDERED_TASK_MESSAGE_CHARS = 180000;
+  const RECENT_ACTIVITY_SESSION_KEY = 'fabushi-workbench-recent-activity-v1';
+  const RECENT_ACTIVITY_DB = 'fabushi-workbench-recent-activity-v1';
+  const RECENT_ACTIVITY_STORE = 'events';
+  const RECENT_ACTIVITY_MAX_RECORDS = 360;
+  const RECENT_ACTIVITY_MAX_CHARS = 600000;
+  let recentActivityDBPromise = null;
   // localStorage is a shared, synchronous browser-origin quota. Bound the
   // aggregate diagnostic history well below that quota so many long-running
   // tasks cannot independently grow the canonical workbench until setItem()
@@ -287,11 +297,8 @@ async function bootstrapAttempt() {
   const STORAGE_EMERGENCY_MESSAGE_TEXT = 4000;
   const STORAGE_EMERGENCY_TASK_MESSAGE_CHARS = 24000;
   const STORAGE_EMERGENCY_GLOBAL_MESSAGE_CHARS = 200000;
-  // The full durable log remains available in storage, but rendering hundreds
-  // of thousands of characters into the live workbench on every status write
-  // can monopolize the renderer. Keep the visible tail bounded; diagnostics
-  // and the most recent recovery transitions remain visible.
-  const MAX_RENDERED_TASK_MESSAGES = 30;
+  // Rendering is still bounded independently from the two-hour retained log
+  // so a verbose task cannot monopolize the ChatGPT renderer.
   const AUTO_RECOVERABLE_STATE_NAMES = new Set(['queued', 'sending', 'uploading', 'waiting', 'loading', 'generating', 'approval', 'reviewing']);
   const volatileStorageShadow = new Map();
   const fabushiStorageSizeCache = new Map();
