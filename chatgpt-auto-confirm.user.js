@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.25
+// @version      2.10.26
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.25';
+  const VERSION = '2.10.26';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -6644,6 +6644,21 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     }
     const currentBlocker = blocker();
     const currentRateLimit = rateLimitNotice(getPageUiRecords);
+    // Recovery already has a safe exact-route transcript extractor for the
+    // current visible assistant response. Review can additionally prove its
+    // own semantic identity through taskId + round, so keep that text available
+    // even when ChatGPT has virtualized the marker-bearing user turn and this
+    // document never persisted a Stop/generation identity.
+    const visibleReviewTranscript = task.phase === 'review'
+      && routeEndedOwned
+      && !foreignTask
+      && !otherRouteOwner
+        ? visibleAssistantWorkTranscript(task, { allowExactRouteFallback:true })
+        : { text:'', sourceKind:'' };
+    const visibleReviewText = String(visibleReviewTranscript.text || '').trim();
+    const visibleReviewReport = visibleReviewText
+      ? currentReviewReport(visibleReviewText, task)
+      : null;
     // Live review DOM can remove Stop before its response toolbar is mounted.
     // A complete current-task report is stronger than that transient toolbar
     // gap because parseReview still enforces exact taskId/round and schema.
@@ -7078,6 +7093,23 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const cacheRetryAttempted = Boolean(cacheRetry && task.streamCacheRetryKey === cacheRetryKey);
     const retryableError = Boolean(cacheRetry || (pageBelongsToTask && !turn.final && !approvalBlocking
       && sendTimeoutNotice(routeEndedOwned ? activityTurn : turn, getPageUiRecords)));
+    const visibleReviewFinal = Boolean(
+      visibleReviewReport
+      && visibleReviewText
+      && routeOwned
+      && routeEndedOwned
+      && !foreignTask
+      && !otherRouteOwner
+      && !stopPresent
+      && !observedActivityStreaming
+      && !approvalBlocking
+      && !currentBlocker
+      && !currentRateLimit
+      && !retryableError
+      && composerReady
+      && composerEmpty
+      && !task.attempted
+    );
     // ChatGPT can leave aria-busy/stream markers behind after it has rendered
     // an actionable network-error card. The error is terminal evidence only
     // after Stop disappears; the normal ownership, approval, blocker, rate
@@ -7196,13 +7228,16 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       // latest user turn is the message boundary; both are required before
       // reading Stop, approval cards, or an assistant reply.
       routeOwned,
-      owned:Boolean(routeOwned && turn.owned),
-      foreignTaskId:routeOwned && !turn.owned ? (foreignTask?.id || '') : '',
-      text:turn.text,
+      owned:Boolean(routeOwned && (turn.owned || visibleReviewFinal)),
+      foreignTaskId:routeOwned && !turn.owned && !visibleReviewFinal ? (foreignTask?.id || '') : '',
+      text:visibleReviewFinal ? visibleReviewText : turn.text,
       // Final UI/text is completion evidence only after taskTurnForInspection
       // has proved ownership. An unowned final-looking response must not block
       // the bounded Review no-final settlement timer.
-      final:Boolean(turn.owned && (turn.final || structuredReviewFinal)),
+      final:Boolean(
+        (turn.owned && (turn.final || structuredReviewFinal))
+        || visibleReviewFinal
+      ),
       responseActions:turn.responseActions,
       responseActionsComplete:turn.responseActionsComplete,
       explicitFinal:turn.explicitFinal,

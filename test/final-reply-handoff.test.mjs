@@ -1308,3 +1308,110 @@ test('a review result that requests more work keeps the same attachments for the
     dom.window.close();
   }
 });
+
+
+test('marker-virtualized review consumes an exact visible next report without a stored Stop identity', async () => {
+  const taskId = 'visible-review-next';
+  const report = JSON.stringify({
+    taskId,
+    round:8,
+    status:'next',
+    summary:'验收识别到仍有剩余工作',
+    next:'继续处理 strict 第一 blocker，并重新验收。',
+  });
+  const { dom, window, hooks } = await createHarness(`
+    <main>
+      <article data-testid="conversation-turn-assistant">
+        <div data-message-author-role="assistant" data-message-id="visible-review-final">
+          <div class="markdown">${report}</div>
+        </div>
+      </article>
+      <form><textarea id="prompt-textarea"></textarea></form>
+    </main>
+  `);
+  try {
+    window.history.pushState({}, '', '/c/visible-review-next');
+    const task = {
+      id:taskId,
+      ownerTabId:hooks.tabId,
+      goal:'完成全部目标',
+      goalRevision:1,
+      dispatchGoalRevision:1,
+      mode:'goal',
+      phase:'review',
+      round:8,
+      state:'waiting',
+      url:'https://chatgpt.com/c/visible-review-next',
+      token:'visible-review-token',
+      attempted:false,
+      result:'上一轮 Work 已完成。',
+      messages:[],
+    };
+    hooks.data.tasks.push(task);
+    await hooks.start();
+    assert.equal(hooks.latestTurn(task).owned, false, 'the original Fabushi marker is intentionally virtualized');
+    assert.equal(task.stopObservedGenerationIdentity, undefined, 'this regression has no historical Stop identity');
+
+    await hooks.inspect(task, null);
+    const observation = hooks.observations.get(task.id);
+    assert.equal(observation?.final, true, 'the exact current Review report becomes semantic final evidence');
+    assert.equal(observation?.text, report);
+    observation.finalSince = Date.now() - 5_000;
+    observation.since = observation.finalSince;
+
+    await hooks.inspect(task, null);
+    assert.equal(task.phase, 'work');
+    assert.equal(task.round, 9);
+    assert.equal(task.state, 'queued');
+    assert.equal(task.next, '继续处理 strict 第一 blocker，并重新验收。');
+    assert.ok(task.messages.some(item => item.role === 'assistant' && String(item.text || '').includes('"status":"next"')));
+    assert.ok(task.messages.some(item => /规划\/验收要求继续/.test(String(item.text || ''))));
+    assert.equal(task.connectionInterruptedFreshDispatch || false, false);
+  } finally {
+    hooks.pause();
+    dom.window.close();
+  }
+});
+
+test('marker-virtualized review does not promote a visible report for another task', async () => {
+  const { dom, window, hooks } = await createHarness(`
+    <main>
+      <article data-testid="conversation-turn-assistant">
+        <div data-message-author-role="assistant" data-message-id="foreign-review-report">
+          <div class="markdown">{"taskId":"another-task","round":8,"status":"next","summary":"不是当前任务","next":"不应采用"}</div>
+        </div>
+      </article>
+      <form><textarea id="prompt-textarea"></textarea></form>
+    </main>
+  `);
+  try {
+    window.history.pushState({}, '', '/c/visible-review-mismatch');
+    const task = {
+      id:'visible-review-mismatch',
+      ownerTabId:hooks.tabId,
+      goal:'完成全部目标',
+      goalRevision:1,
+      dispatchGoalRevision:1,
+      mode:'goal',
+      phase:'review',
+      round:8,
+      state:'waiting',
+      url:'https://chatgpt.com/c/visible-review-mismatch',
+      token:'visible-review-mismatch-token',
+      attempted:false,
+      result:'上一轮 Work 已完成。',
+      messages:[],
+    };
+    hooks.data.tasks.push(task);
+    await hooks.start();
+    await hooks.inspect(task, null);
+    const observation = hooks.observations.get(task.id);
+    assert.equal(observation?.final, false);
+    assert.equal(task.phase, 'review');
+    assert.equal(task.round, 8);
+    assert.equal(task.next || '', '');
+  } finally {
+    hooks.pause();
+    dom.window.close();
+  }
+});
