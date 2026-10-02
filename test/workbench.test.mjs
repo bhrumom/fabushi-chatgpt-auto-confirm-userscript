@@ -1390,28 +1390,32 @@ test('a true final reply clears temporary length-limit carry state',async()=>{
 });
 
 test('connection interruption recovery recognizes current live assistant status and page chrome without quote false positives',async()=>{
-  const page=await fixture('<div role="status">连接已中断。正在等待完整回复。</div>');
-  assert.equal(page.h.connectionInterruptedNotice(),true);
+  const page=await fixture('<div role="status">连接已中断，正在等待完整答复</div>');
+  assert.equal(page.h.connectionInterruptedNotice(),true,'current Chinese page-chrome wording is recognized');
   page.dom.window.close();
 
-  const live=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:interrupt-live]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">连接已中断。正在等待完整回复。</div></article></main>');
+  const legacyPage=await fixture('<div role="status">连接已中断。正在等待完整回复。</div>');
+  assert.equal(legacyPage.h.connectionInterruptedNotice(),true,'older Chinese wording remains recognized');
+  legacyPage.dom.window.close();
+
+  const live=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:interrupt-live]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">连接已中断，正在等待完整答复</div></article></main>');
   live.w.history.pushState({},'', '/c/interrupt-live');
   const liveTask={id:'interrupt-live',ownerTabId:live.h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/interrupt-live',token:'interrupt-live',messages:[]};
   live.h.data.tasks.push(liveTask);
   const liveTurn=live.h.latestTurn(liveTask);
   assert.equal(liveTurn.owned,true);
-  assert.equal(live.h.connectionInterruptedNotice(liveTurn),true,'standalone current assistant status is the real renderer path');
+  assert.equal(live.h.connectionInterruptedNotice(liveTurn),true,'standalone current Chinese assistant status is the real renderer path');
   live.dom.window.close();
 
-  const quoted=await fixture('<div data-message-author-role="user">连接已中断。正在等待完整回复。</div>');
+  const quoted=await fixture('<div data-message-author-role="user">连接已中断，正在等待完整答复</div>');
   assert.equal(quoted.h.connectionInterruptedNotice(),false,'user transcript must not trigger a refresh');
   const ownNotice=quoted.w.document.createElement('div');
-  ownNotice.textContent='连接已中断。正在等待完整回复。';
+  ownNotice.textContent='连接已中断，正在等待完整答复';
   quoted.w.document.querySelector('#fabushi-auto-confirm-root').append(ownNotice);
   assert.equal(quoted.h.connectionInterruptedNotice(),false,'workbench logs must not self-trigger');
   quoted.dom.window.close();
 
-  const discussed=await fixture('<article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><p>如果页面显示“连接已中断。正在等待完整回复。”，我们需要继续判断下一步。</p><blockquote>连接已中断。正在等待完整回复。</blockquote></div></article>');
+  const discussed=await fixture('<article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><p>如果页面显示“连接已中断，正在等待完整答复”，我们需要继续判断下一步。</p><blockquote>连接已中断，正在等待完整答复</blockquote></div></article>');
   const article=discussed.w.document.querySelector('article');
   assert.equal(discussed.h.connectionInterruptedNotice({owned:true,article}),false,'long assistant discussion and blockquotes are not product-status detections');
   discussed.dom.window.close();
@@ -6083,7 +6087,7 @@ test('marker-virtualized final without a structural response key stays fail-clos
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
   assert.match(source,/^\/\/ @version\s+2\.10\.26$/m);
-  assert.match(source,/const VERSION = '2\.10\.26'/);
+  assert.match(source,/const VERSION = '2.10.27'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
@@ -6196,6 +6200,37 @@ test('connection interruption without Stop fresh-handoffs and never sends the le
     assert.match(task.abnormalFreshCarry,/当前会话已经完成第一步/);
     assert.equal(w.document.querySelector('#prompt-textarea').value,'');
     assert.equal(task.stalledRefreshAttempts||0,0,'connection interruption no longer performs same-route refreshes');
+  } finally {h.pause();dom.window.close();}
+});
+
+test('current Chinese connection interruption fresh-handoffs and strips the localized banner from carry',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <section data-testid="conversation-turn-1"><div data-message-author-role="user">goal [Fabushi:zh-interrupt-answer]</div></section>
+    <section data-testid="conversation-turn-2"><div class="markdown">已经完成生产修复第一步。</div><div data-message-author-role="assistant" data-message-id="status-zh-answer">连接已中断，正在等待完整答复</div></section>
+    <form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/zh-interrupt-answer');
+    const task={id:'zh-interrupt-answer',ownerTabId:h.getTabId(),goal:'goal',mode:'goal',phase:'work',round:4,state:'waiting',url:'https://chatgpt.com/c/zh-interrupt-answer',token:'zh-interrupt-answer',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    let sends=0;
+    w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>sends++);
+    await h.start();
+    await h.inspect(task,null);
+    assert.equal(sends,0);
+    assert.equal(task.state,'waiting');
+    assert.match(task.stopNoApprovalConfirmSignature,/connection-interrupted/);
+    task.stopNoApprovalConfirmSince=Date.now()-9_000;
+    await h.inspect(task,null);
+    assert.equal(sends,0,'localized recovery never sends in the broken conversation');
+    assert.equal(task.state,'queued');
+    assert.equal(task.url,'');
+    assert.equal(task.token,'');
+    assert.equal(task.round,4);
+    assert.equal(task.connectionInterruptedFreshDispatch,true);
+    assert.match(task.abnormalFreshCarry,/已经完成生产修复第一步/);
+    assert.doesNotMatch(task.abnormalFreshCarry,/连接已中断|完整答复/,'localized product banner is removed from carry');
+    assert.equal(w.document.querySelector('#prompt-textarea').value,'');
   } finally {h.pause();dom.window.close();}
 });
 test('turn-sibling extraction excludes hidden content and foreign user turns',async()=>{
