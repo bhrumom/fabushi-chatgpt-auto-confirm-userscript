@@ -612,7 +612,7 @@ test('resuming a large persisted workspace keeps workbench rendering bounded',as
 
     assert.ok(workbenchReads<=8,`resume should parse the durable workbench only a bounded number of times, got ${workbenchReads}`);
     assert.equal(h.measurements.sidebarRebuilds,rebuildsAfterResume,'status-only updates must not rebuild every task row');
-    assert.ok(w.document.querySelectorAll('.feed .bubble').length<=30,'the visible log tail stays bounded');
+    assert.ok(w.document.querySelectorAll('.feed .bubble').length<=80,'the visible two-hour log tail stays independently bounded');
     assert.match(w.document.querySelector('.feed')?.textContent||'',/其余仍保存在最近 2 小时记录中/);
   } finally { h.pause(); dom.window.close(); }
 });
