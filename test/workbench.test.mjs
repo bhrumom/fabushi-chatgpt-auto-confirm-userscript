@@ -599,7 +599,8 @@ test('resuming a large persisted workspace keeps workbench rendering bounded',as
     };
   });
   try {
-    const task={id:'resume-large',ownerTabId:h.getTabId(),goal:'resume without freezing',mode:'goal',phase:'work',round:3,state:'paused',pausedState:'waiting',url:'https://chatgpt.com/c/resume-large',token:'resume-token',attempted:false,messages:Array.from({length:80},(_,index)=>({at:index+1,role:'status',text:`status-${index}`})),messageVersion:80};
+    const seededAt=Date.now()-60*60*1000;
+    const task={id:'resume-large',ownerTabId:h.getTabId(),goal:'resume without freezing',mode:'goal',phase:'work',round:3,state:'paused',pausedState:'waiting',url:'https://chatgpt.com/c/resume-large',token:'resume-token',attempted:false,messages:Array.from({length:80},(_,index)=>({at:seededAt+index*1000,role:'status',text:`status-${index}`})),messageVersion:80};
     h.data.tasks.push(task);
     for(let index=0;index<72;index++)h.data.tasks.push({id:`archived-${index}`,ownerTabId:`archived-owner-${index%9}`,goal:`archived task ${index}`,mode:'once',phase:'work',round:1,state:'done',messages:[],messageVersion:0});
 
@@ -612,7 +613,7 @@ test('resuming a large persisted workspace keeps workbench rendering bounded',as
     assert.ok(workbenchReads<=8,`resume should parse the durable workbench only a bounded number of times, got ${workbenchReads}`);
     assert.equal(h.measurements.sidebarRebuilds,rebuildsAfterResume,'status-only updates must not rebuild every task row');
     assert.ok(w.document.querySelectorAll('.feed .bubble').length<=30,'the visible log tail stays bounded');
-    assert.match(w.document.querySelector('.feed')?.textContent||'',/完整记录仍保存在当前浏览器/);
+    assert.match(w.document.querySelector('.feed')?.textContent||'',/其余仍保存在最近 2 小时记录中/);
   } finally { h.pause(); dom.window.close(); }
 });
 
@@ -3790,14 +3791,14 @@ test('editing a queued review skips the unsent stale planner immediately',async(
   assert.match(task.messages.at(-1).text,/尚未发送的旧验收已跳过/);
   dom.window.close();
 });
-test('message history is bounded after eighty entries',async()=>{
+test('message history keeps a hard-bounded rolling two-hour window',async()=>{
   const {h,dom}=await fixture();
   const task={id:'history',goal:'keep history',messages:[],messageVersion:0};
   h.data.tasks.push(task);
-  for(let index=0;index<120;index++) h.log(task,`记录 ${index}`);
-  assert.equal(task.messages.length,80);
-  assert.equal(task.messages[0].text,'记录 40');
-  assert.equal(task.messages.at(-1).text,'记录 119');
+  for(let index=0;index<420;index++) h.log(task,`记录 ${index}`);
+  assert.equal(task.messages.length,360);
+  assert.equal(task.messages[0].text,'记录 60');
+  assert.equal(task.messages.at(-1).text,'记录 419');
   dom.window.close();
 });
 test('completed, cancelled, and paused tasks can be deleted while live tasks are retained',async()=>{
@@ -4552,8 +4553,8 @@ test('local memory cleanup bounds task logs without deleting task identity or at
   const {h,dom}=await fixture();
   const task=h.enqueue('保留这个目标','once',[{id:'attachment-1',name:'证据.png',type:'image/png',size:10,lastModified:1}]);
   for(let index=0;index<140;index+=1) h.log(task,`${'x'.repeat(10000)}-${index}`,'status');
-  assert.ok(task.messages.length<=80);
-  assert.ok(task.messages.reduce((sum,item)=>sum+item.text.length,0)<=320000);
+  assert.ok(task.messages.length<=360);
+  assert.ok(task.messages.reduce((sum,item)=>sum+item.text.length,0)<=600000);
   assert.equal(task.goal,'保留这个目标');
   assert.equal(task.attachments[0].id,'attachment-1');
   assert.match(task.messages.at(-1).text,/139$/);
