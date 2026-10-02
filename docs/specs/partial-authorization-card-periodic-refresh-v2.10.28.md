@@ -87,3 +87,15 @@ Focused regression coverage must prove:
 - AC-6: No unavailable-authorization path can escalate to fresh-chat recovery.
 - AC-7: Existing v2.10.27 connection-interruption localization behavior is preserved.
 - AC-8: Focused regressions and the full exact-head GitHub Actions test workflow pass.
+
+
+## Spec compliance record
+
+| Requirement / AC | Status | Evidence / reason |
+| --- | --- | --- |
+| Identity-bound 60-second unavailable-authorization recovery | passed | PR #146 head `93648e2171521dc449a250cd5edca84feae5575e` implements the dedicated task/route/token/phase/round recovery episode and same-route refresh cadence. |
+| Preserve conversation/task identity and avoid fresh-chat escalation | passed | Focused regression coverage verifies 60-second same-route retries preserve URL/token/phase/round and do not consume `stalledRefreshAttempts`; PR Test run `37004843783` succeeded. |
+| Settlement and grant safety | passed | Focused regressions verify successful conversation-scoped approval clears unavailable state and the active 12-second settlement latch suppresses refresh; persistent/global grant selection remains excluded by the existing authorization contract. |
+| Manual approval behavior | passed | Focused regression verifies `autoApprove=false` never performs periodic approval refresh. |
+| v2.10.27 connection-interruption behavior preserved | passed | PR #146 is based on canonical v2.10.27 main and Test run `37004843783` passed the full regression suite including existing localized interruption coverage. |
+| Delivery | pending | Merge, canonical-main Test, and GitHub Release `v2.10.28` still require post-merge evidence. |
