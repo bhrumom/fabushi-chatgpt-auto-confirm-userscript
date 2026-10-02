@@ -34,7 +34,7 @@ async function fixture(body='', setup=()=>{}, url='https://chatgpt.com/') {
     const form = w.document.querySelector('form') || w.document.body;
     form.append(trigger);
   }
-  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, assistantResponseBoundaryKey, taskTurnForInspection, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, conversationLoadFailure, clearConversationLoadFailureState, recoverConversationLoadFailure, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, normalizeReasoningPreset, reasoningPresetLabel, taskReasoningPreset, reasoningPickerTrigger, reasoningSliderState, clearReasoningPickerRecovery, waitForReasoningPicker, ensureTaskReasoningPreset, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, refreshInterruptedStopStall, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, storageStatusText, readRecentActivitySession, writeRecentActivitySession, recordRecentActivity, restoreRecentActivityMessages, taskRecoveryStatusText, persistWorkbenchState, durableTaskSnapshot, durableWorkbenchSnapshot, fitWorkbenchSnapshotToLocalBudget, writeLocalStorageRecord, readStorageString, readWorkbenchOverflow, cleanupStaleFabushiStorage, fabushiLocalStorageFootprint, storageBudgets:()=>({workbench:WORKBENCH_LOCAL_STORAGE_TARGET_CHARS,total:FABUSHI_LOCAL_STORAGE_MAX_CHARS}), scheduleWorkspaceHeartbeat, workspaceHeartbeatScheduled:()=>Boolean(workspaceHeartbeatTimer), storagePersistenceStatus:()=>storagePersistenceStatus, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), setRunningForTest:value=>{running=Boolean(value);}, getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, interruptedFreshHandoffApprovalGate, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, assistantResponseBoundaryKey, taskTurnForInspection, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, conversationLoadFailure, clearConversationLoadFailureState, recoverConversationLoadFailure, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, normalizeReasoningPreset, reasoningPresetLabel, taskReasoningPreset, reasoningPickerTrigger, reasoningSliderState, clearReasoningPickerRecovery, waitForReasoningPicker, ensureTaskReasoningPreset, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, storageStatusText, readRecentActivitySession, writeRecentActivitySession, recordRecentActivity, restoreRecentActivityMessages, taskRecoveryStatusText, persistWorkbenchState, durableTaskSnapshot, durableWorkbenchSnapshot, fitWorkbenchSnapshotToLocalBudget, writeLocalStorageRecord, readStorageString, readWorkbenchOverflow, cleanupStaleFabushiStorage, fabushiLocalStorageFootprint, storageBudgets:()=>({workbench:WORKBENCH_LOCAL_STORAGE_TARGET_CHARS,total:FABUSHI_LOCAL_STORAGE_MAX_CHARS}), scheduleWorkspaceHeartbeat, workspaceHeartbeatScheduled:()=>Boolean(workspaceHeartbeatTimer), storagePersistenceStatus:()=>storagePersistenceStatus, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), setRunningForTest:value=>{running=Boolean(value);}, getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('recent activity restores the last two hours after reload without putting history back into localStorage',async()=>{
@@ -63,17 +63,18 @@ test('recent activity restores the last two hours after reload without putting h
   } finally {dom.window.close();}
 });
 
-test('connection-interrupted recovery exposes the next five-minute refresh deadline and refresh count',async()=>{
+test('connection-interrupted recovery exposes only the short approval-safe fresh-handoff countdown',async()=>{
   const {h,dom}=await fixture();
   try {
     const now=Date.now();
-    const task={pendingContinuationReason:'connection interrupted',pendingContinuationSince:now-2*60*1000,stalledRefreshAt:0,stalledRefreshAttempts:0};
-    assert.match(h.taskRecoveryStatusText(task,now),/约 3 分 0 秒后刷新当前会话/);
-    assert.match(h.taskRecoveryStatusText(task,now),/已刷新 0 次/);
-    task.stalledRefreshAt=now-60*1000;
-    task.stalledRefreshAttempts=2;
-    assert.match(h.taskRecoveryStatusText(task,now),/约 4 分 0 秒后刷新当前会话/);
-    assert.match(h.taskRecoveryStatusText(task,now),/已刷新 2 次/);
+    const task={stopNoApprovalConfirmSignature:'["connection-interrupted","https://chatgpt.com/c/x"]',stopNoApprovalConfirmSince:now-2_000};
+    assert.match(h.taskRecoveryStatusText(task,now),/异常中断接力/);
+    assert.match(h.taskRecoveryStatusText(task,now),/约 6 秒后完成/);
+    task.stopNoApprovalConfirmSignature='';
+    task.stopNoApprovalConfirmSince=0;
+    task.pendingContinuationReason='legacy interrupted wait';
+    assert.match(h.taskRecoveryStatusText(task,now),/旧等待状态已升级/);
+    assert.doesNotMatch(h.taskRecoveryStatusText(task,now),/刷新当前会话|5 分钟/);
   } finally {dom.window.close();}
 });
 
@@ -1947,6 +1948,9 @@ test('legacy continuation with Stop absent queues a fresh session without touchi
     const input=w.document.querySelector('#prompt-textarea');
     let clicks=0;
     w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>clicks++);
+    assert.equal(await h.sendContinuation(task,null,'检测到当前会话已经结束',Date.now(),{}),false);
+    assert.match(task.stopNoApprovalConfirmSignature,/connection-interrupted/);
+    task.stopNoApprovalConfirmSince=Date.now()-9_000;
     assert.equal(await h.sendContinuation(task,null,'检测到当前会话已经结束',Date.now(),{}),true);
     assert.equal(clicks,0,'old-conversation Send must never be clicked');
     assert.equal(input.value,'','old composer must never be filled with the legacy continuation phrase');
@@ -1966,6 +1970,8 @@ test('legacy continuation queues one fresh handoff and clears the old dispatch i
     h.data.tasks.push(task);
     let sends=0;
     w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>sends++);
+    assert.equal(await h.sendContinuation(task,null,'异常中断',Date.now(),{}),false);
+    task.stopNoApprovalConfirmSince=Date.now()-9_000;
     assert.equal(await h.sendContinuation(task,null,'异常中断',Date.now(),{}),true);
     assert.equal(sends,0);
     assert.equal(task.state,'queued');
@@ -1984,6 +1990,8 @@ test('legacy continuation preserves visible work in a fresh handoff regardless o
     h.data.tasks.push(task);
     let sends=0;
     w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>sends++);
+    assert.equal(await h.sendContinuation(task,null,'异常中断',Date.now(),{}),false);
+    task.stopNoApprovalConfirmSince=Date.now()-9_000;
     assert.equal(await h.sendContinuation(task,null,'异常中断',Date.now(),{}),true);
     assert.equal(sends,0);
     assert.equal(w.document.querySelector('#prompt-textarea').value,'');
@@ -2007,6 +2015,8 @@ test('legacy continuation never clicks the old blue-arrow Send control',async()=
     w.history.pushState({},'', '/c/zh-send');
     let clicks=0;
     w.document.querySelector('button[aria-label="发送"]').addEventListener('click',()=>clicks++);
+    assert.equal(await h.sendContinuation(task,null,'检测到当前会话已经结束',Date.now(),{}),false);
+    task.stopNoApprovalConfirmSince=Date.now()-9_000;
     assert.equal(await h.sendContinuation(task,null,'检测到当前会话已经结束',Date.now(),{}),true);
     assert.equal(clicks,0);
     assert.equal(task.state,'queued');
@@ -2014,7 +2024,7 @@ test('legacy continuation never clicks the old blue-arrow Send control',async()=
   } finally { h.pause(); dom.window.close(); }
 });
 
-test('connection interruption waits for Stop to disappear without clicking it, then queues fresh',async()=>{
+test('connection interruption hands off with Stop still visible after authorization-safe confirmation',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">recover [Fabushi:stop-before-send]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">已完成 A，正在做 B。</div><div>连接已中断，正在等待完整回复</div></div></article><form id="composer-form"><textarea id="prompt-textarea"></textarea><button data-testid="stop-button" type="button">Stop</button><button data-testid="send-button" type="button">发送</button></form></main>');
   try {
     const task={id:'stop-before-send',ownerTabId:h.getTabId(),goal:'recover',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/stop-before-send',token:'stop-before-send',attempted:false,messages:[]};
@@ -2029,17 +2039,19 @@ test('connection interruption waits for Stop to disappear without clicking it, t
     assert.equal(sends,0);
     assert.equal(w.document.querySelector('#prompt-textarea').value,'');
     assert.equal(task.url,'https://chatgpt.com/c/stop-before-send');
-    stop.remove();
-    assert.equal(await h.sendContinuation(task,null,'检测到连接中断',Date.now()+10,{}),true);
-    assert.equal(stops,0);
-    assert.equal(sends,0);
+    assert.match(task.stopNoApprovalConfirmSignature,/connection-interrupted/);
+    task.stopNoApprovalConfirmSince=Date.now()-9_000;
+    assert.equal(await h.sendContinuation(task,null,'检测到连接中断',Date.now(),{}),true);
+    assert.equal(stops,0,'fresh handoff never clicks Stop');
+    assert.equal(sends,0,'fresh handoff never sends in the broken conversation');
+    assert.ok(stop.isConnected,'Stop remains visible and is not required to disappear');
     assert.equal(task.state,'queued');
     assert.equal(task.url,'');
     assert.match(task.abnormalFreshCarry,/已完成 A/);
   } finally {h.pause();dom.window.close();}
 });
 
-test('ordinary continuation never clicks a visible Stop control',async()=>{
+test('ordinary legacy recovery entrypoint never clicks a visible Stop control',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">recover [Fabushi:no-stop-click]</div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="stop-button" type="button">Stop</button></form></main>');
   try {
     w.history.pushState({},'', '/c/no-stop-click');
@@ -2051,11 +2063,12 @@ test('ordinary continuation never clicks a visible Stop control',async()=>{
     assert.equal(stops,0);
     assert.equal(w.document.querySelector('#prompt-textarea').value,'');
     assert.equal(task.pendingContinuationStopClickedAt||0,0);
-    assert.equal(task.pendingContinuationReason,'ordinary continuation');
+    assert.equal(task.pendingContinuationReason||'','');
+    assert.match(task.stopNoApprovalConfirmSignature,/connection-interrupted/);
   } finally {h.pause();dom.window.close();}
 });
 
-test('interrupted legacy continuation never clicks Stop or Send while Stop remains visible',async()=>{
+test('interrupted legacy continuation fresh-handoffs without clicking Stop or Send while Stop remains visible',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">recover [Fabushi:stop-stuck]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">连接已中断。正在等待完整回复。</div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="stop-button" type="button">Stop</button><button data-testid="send-button" type="button">发送</button></form></main>');
   try {
     w.history.pushState({},'', '/c/stop-stuck');
@@ -2068,10 +2081,17 @@ test('interrupted legacy continuation never clicks Stop or Send while Stop remai
     assert.equal(stops,0);
     assert.equal(sends,0);
     assert.equal(w.document.querySelector('#prompt-textarea').value,'');
-    assert.equal(task.pendingContinuationStopClickedAt||0,0);
-    assert.equal(task.pendingContinuationStopRecovery||false,false);
+    assert.match(task.stopNoApprovalConfirmSignature,/connection-interrupted/);
+    task.stopNoApprovalConfirmSince=Date.now()-9_000;
+    assert.equal(await h.sendContinuation(task,null,'连接中断',Date.now(),{}),true);
+    assert.equal(stops,0);
+    assert.equal(sends,0);
+    assert.equal(task.state,'queued');
+    assert.equal(task.url,'');
+    assert.equal(task.connectionInterruptedFreshDispatch,true);
   } finally {h.pause();dom.window.close();}
 });
+
 test('unbound exhausted abnormal retries still enter persisted backoff and reset after success',async()=>{
   const {h,dom}=await fixture();
   const task=h.enqueue('keep recovering','once');
@@ -3512,31 +3532,6 @@ test('generic stalled conversation refresh cooldown is five minutes while ambigu
   assert.equal(h.refreshStalledConversation(task,false,1_300_000),true,'5 minutes permits the next same-chat stalled refresh');
   assert.equal(task.stalledRefreshAttempts,2);
   dom.window.close();
-});
-
-test('stuck Stop after interruption refreshes the same session after five quiet minutes and retains retry state',async()=>{
-  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">recover [Fabushi:stuck-stop-reload]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">连接已中断，正在等待完整回复</div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="stop-button">Stop</button></form></main>');
-  w.history.pushState({},'', '/c/stuck-stop-reload');
-  const task={id:'stuck-stop-reload',ownerTabId:h.getTabId(),goal:'recover',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/stuck-stop-reload',token:'stuck-stop-reload',attempted:true,messages:[],pendingContinuationReason:'连接中断',pendingContinuationURL:'https://chatgpt.com/c/stuck-stop-reload',pendingContinuationSince:1_000_000,pendingContinuationStopProgressSignature:'initial'};
-  h.data.tasks.push(task);
-  try {
-    assert.equal(h.refreshInterruptedStopStall(task,1_000_000,false),false,'visible conversation progress restarts the no-response timer');
-    assert.equal(task.pendingContinuationSince,1_000_000);
-    assert.equal(h.refreshInterruptedStopStall(task,1_299_999,false),false,'the full 5 quiet minutes are required');
-    assert.equal(h.refreshInterruptedStopStall(task,1_300_000,false),true,'a permanently visible Stop triggers a same-session reload after the quiet period');
-    assert.equal(task.stalledRefreshAttempts,1);
-    assert.equal(task.pendingContinuationReason,'连接中断');
-    assert.equal(task.url,'https://chatgpt.com/c/stuck-stop-reload');
-    assert.match(task.messages.at(-1).text,/连接中断等待完整回复后连续 5 分钟没有可见进展/);
-    assert.equal(h.refreshInterruptedStopStall(task,1_599_999,false),false,'reload retries also observe the 5 minute cooldown');
-    assert.equal(h.refreshInterruptedStopStall(task,1_600_000,false),true,'a second five-minute window refreshes the same interrupted conversation');
-    assert.equal(task.stalledRefreshAttempts,2);
-    assert.equal(task.url,'https://chatgpt.com/c/stuck-stop-reload');
-    assert.equal(h.refreshInterruptedStopStall(task,1_900_000,false),true,'the dedicated interrupted-state loop keeps refreshing instead of becoming a permanent wait at the generic third-window boundary');
-    assert.equal(task.stalledRefreshAttempts,3);
-    assert.equal(task.url,'https://chatgpt.com/c/stuck-stop-reload');
-    assert.equal(task.state,'waiting');
-  } finally {h.pause();dom.window.close();}
 });
 
 test('active assistant turn with no page changes refreshes after five minutes',async()=>{
@@ -5410,7 +5405,7 @@ test('current English connection-interrupted wording is recognized',async()=>{
   } finally { h.pause(); dom.window.close(); }
 });
 
-test('live interruption preempts inherited Stop hydration after a same-route refresh',async()=>{
+test('live interruption preempts inherited Stop hydration and becomes a fresh-chat abnormal handoff',async()=>{
   const {h,w,dom}=await fixture(`<main>
     <article data-testid="conversation-turn-user"><div data-message-author-role="user">continue recovery [Fabushi:interrupt-preempts-hydration]</div></article>
     <div role="status">Connection interrupted. Waiting for the complete answer</div>
@@ -5427,45 +5422,103 @@ test('live interruption preempts inherited Stop hydration after a same-route ref
     await h.inspect(task,null);
     assert.equal(task.url,'https://chatgpt.com/c/interrupt-preempts-hydration');
     assert.equal(task.state,'waiting');
-    assert.match(task.pendingContinuationReason,/连接已中断/);
-    assert.ok(Number(task.pendingContinuationSince)>0,'live interruption starts its own persisted five-minute recovery window');
-    assert.equal(task.connectionInterruptedFreshDispatch||false,false,'the visible interruption is not discarded into an immediate fresh-chat handoff');
-    assert.equal(task.messages.some(item=>/已识别 ChatGPT 连接中断/.test(item.text||'')),true);
+    assert.match(task.stopNoApprovalConfirmSignature,/connection-interrupted/);
+    assert.equal(task.pendingContinuationReason||'','');
+    assert.equal(task.messages.some(item=>/归类为异常中断/.test(item.text||'')),true);
     assert.equal(task.messages.some(item=>/页面刷新后仍在恢复当前任务内容/.test(item.text||'')),false,'the inherited Stop hydration early return must not hide the live interruption');
 
-    task.pendingContinuationSince=Date.now()-5*60*1000-1;
-    task.pendingContinuationStopProgressSignature=JSON.stringify(h.visibleConversationProgressFingerprint());
-    assert.equal(h.refreshInterruptedStopStall(task,Date.now(),false),true,'five quiet minutes schedule a same-route refresh');
-    assert.equal(task.stalledRefreshAttempts,1);
-    assert.equal(task.url,'https://chatgpt.com/c/interrupt-preempts-hydration');
+    task.stopNoApprovalConfirmSince=Date.now()-9_000;
+    await h.inspect(task,null);
+    assert.equal(task.state,'queued');
+    assert.equal(task.url,'');
+    assert.equal(task.token,'');
+    assert.equal(task.connectionInterruptedFreshDispatch,true);
+    assert.match(task.messages.at(-1).text,/异常中断接力/);
+    assert.doesNotMatch(task.messages.at(-1).text,/刷新当前会话|5 分钟/);
   } finally { h.pause(); dom.window.close(); }
 });
-test('interrupted wait is throttled between probes and does not repaint unchanged state',async()=>{
+
+test('connection interruption with Stop still visible hands off after the approval-safe confirmation instead of waiting for Stop',async()=>{
   const {h,w,dom}=await fixture(`<main>
-    <article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:interrupt-throttle]</div></article>
+    <article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:interrupt-stop-visible]</div></article>
+    <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">已完成部分工作。</div></div></article>
     <div role="status">Connection interrupted. Waiting for the complete answer</div>
-    <form><textarea id="prompt-textarea"></textarea></form>
+    <button data-testid="stop-button" aria-label="Stop">Stop</button>
+    <form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">Send</button></form>
   </main>`);
   try {
-    w.history.pushState({},'', '/c/interrupt-throttle');
-    const task={id:'interrupt-throttle',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/interrupt-throttle',token:'interrupt-throttle',attempted:false,messages:[]};
+    w.history.pushState({},'', '/c/interrupt-stop-visible');
+    const task={id:'interrupt-stop-visible',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/interrupt-stop-visible',token:'interrupt-stop-visible',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    let sends=0;
+    w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>sends++);
+    await h.start(false);
+    await h.inspect(task,null);
+    assert.equal(task.state,'waiting');
+    assert.match(task.stopNoApprovalConfirmSignature,/connection-interrupted/);
+    task.stopNoApprovalConfirmSince=Date.now()-9_000;
+    await h.inspect(task,null);
+    assert.equal(sends,0,'the broken old conversation must never receive another Send');
+    assert.equal(task.state,'queued');
+    assert.equal(task.url,'');
+    assert.equal(task.connectionInterruptedFreshDispatch,true);
+    assert.match(task.abnormalFreshCarry,/已完成部分工作/);
+  } finally { h.pause(); dom.window.close(); }
+});
+test('authorization card appearing during interruption confirmation cancels fresh handoff',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue safely [Fabushi:interrupt-auth-race]</div></article><div role="status">Connection interrupted. Waiting for the complete answer</div><form><textarea id="prompt-textarea"></textarea></form></main>');
+  try {
+    w.history.pushState({},'', '/c/interrupt-auth-race');
+    const task={id:'interrupt-auth-race',ownerTabId:h.getTabId(),goal:'continue safely',mode:'once',phase:'work',round:2,state:'waiting',url:'https://chatgpt.com/c/interrupt-auth-race',token:'interrupt-auth-race',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    const started=Date.now();
+    const first=h.interruptedFreshHandoffApprovalGate(task,task.url,started);
+    assert.equal(first.state,'confirming');
+    assert.match(task.stopNoApprovalConfirmSignature,/connection-interrupted/);
+
+    const card=w.document.createElement('div');
+    card.innerHTML='<p>连接器需要授权</p><button>拒绝</button><button>允许</button><button aria-haspopup="menu">⌄</button><div role="menu"><button role="menuitem">允许本次会话</button></div>';
+    w.document.querySelector('main').append(card);
+    const second=h.interruptedFreshHandoffApprovalGate(task,task.url,started+9_000);
+    assert.equal(second.state,'approval');
+    assert.ok(second.card);
+    assert.equal(task.stopNoApprovalConfirmSince||0,0,'approval presence cancels the destructive handoff confirmation');
+    assert.equal(task.url,'https://chatgpt.com/c/interrupt-auth-race');
+    assert.equal(task.connectionInterruptedFreshDispatch||false,false);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('live authorization appearance resets the interruption confirmation before any handoff',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:interrupt-live-auth]</div></article><div role="status">Connection interrupted. Waiting for the complete answer</div><form><textarea id="prompt-textarea"></textarea></form></main>');
+  try {
+    w.history.pushState({},'', '/c/interrupt-live-auth');
+    h.data.autoApprove=false;
+    const task={id:'interrupt-live-auth',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/interrupt-live-auth',token:'interrupt-live-auth',attempted:false,messages:[]};
     h.data.tasks.push(task);
     await h.start(false);
     await h.inspect(task,null);
-    const now=Date.now();
-    const probeAt=Number(task.pendingContinuationProbeAt||0);
-    assert.ok(probeAt>=now+10_000 && probeAt<=now+16_000,'interrupted state schedules the next lightweight probe about 15 seconds later');
-    assert.equal(h.nextSupervisionTask([task],now),null,'scheduler does not inspect the interrupted page again before the probe deadline');
-    assert.equal(h.taskDeferredUntil(task,now),probeAt);
-    const updatedAt=task.updatedAt;
-    const messageVersion=Number(task.messageVersion||0);
-    const paints=h.measurements.paints;
+    assert.match(task.stopNoApprovalConfirmSignature,/connection-interrupted/);
+    task.stopNoApprovalConfirmSince=Date.now()-9_000;
+
+    const card=w.document.createElement('div');
+    card.innerHTML='<p>任意内容</p><button>拒绝</button><button>允许</button><button aria-haspopup="menu">⌄</button><div role="menu"><button role="menuitem">允许本次会话</button></div>';
+    w.document.querySelector('main').append(card);
     await h.inspect(task,null);
-    assert.equal(task.updatedAt,updatedAt,'unchanged early re-inspection does not persist the task again');
-    assert.equal(Number(task.messageVersion||0),messageVersion,'unchanged early re-inspection does not append another status log');
-    assert.equal(h.measurements.paints,paints,'unchanged early re-inspection does not repaint the Fabushi workbench');
-    assert.equal(task.pendingContinuationProbeAt,probeAt,'early re-inspection cannot slide the probe deadline forward');
-  } finally { h.pause(); dom.window.close(); }
+    assert.equal(task.state,'approval');
+    assert.equal(task.url,'https://chatgpt.com/c/interrupt-live-auth');
+    assert.equal(task.token,'interrupt-live-auth');
+    assert.equal(task.connectionInterruptedFreshDispatch||false,false);
+    assert.equal(task.stopNoApprovalConfirmSince||0,0,'authorization appearance invalidates the previous no-card timer');
+    assert.equal(task.stopNoApprovalConfirmSignature||'','','authorization appearance requires a new confirmation after settlement');
+  } finally {h.pause();dom.window.close();}
+});
+test('legacy interruption probe deadline cannot defer fresh-handoff migration',async()=>{
+  const {h,dom}=await fixture();
+  try {
+    const now=Date.now();
+    const task={id:'legacy-probe',goal:'continue',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/legacy-probe',token:'legacy-probe',attempted:false,pendingContinuationReason:'legacy interruption',pendingContinuationProbeAt:now+60_000,messages:[]};
+    assert.equal(h.taskDeferredUntil(task,now),now,'obsolete interruption probe deadlines must not keep a legacy interrupted task asleep');
+  } finally {dom.window.close();}
 });
 test('current English conversation-load failure is recognized even when Try again is inert text',async()=>{
   const {h,dom}=await fixture('<main><section><div>Could not load this ChatGPT conversation</div><div>Try again</div></section></main>');
@@ -6029,14 +6082,12 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.10\.24$/m);
-  assert.match(source,/const VERSION = '2\.10\.24'/);
+  assert.match(source,/^\/\/ @version\s+2\.10\.25$/m);
+  assert.match(source,/const VERSION = '2\.10\.25'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_REFRESH_LIMIT = 7/);
-  assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 5 \* 60 \* 1000/);
-  assert.match(source,/const INTERRUPTION_PROBE_INTERVAL_MS = 15 \* 1000/);
   assert.match(source,/const ENDED_NO_FINAL_STABILITY_MS = 8000/);
   assert.match(source,/const REVIEW_ENDED_NO_FINAL_STABILITY_MS = 2 \* 60 \* 1000/);
   assert.match(source,/const RELOAD_STOP_ABSENCE_STABILITY_MS = 8000/);
@@ -6057,6 +6108,8 @@ test('the packaged userscript declares its stable remote update and download URL
   assert.match(source,/connectionInterruptedFreshDispatch/);
   assert.match(source,/function queueInterruptedFreshRetry/);
   assert.match(source,/connection-interrupted-fresh-chat/);
+  assert.match(source,/function interruptedFreshHandoffApprovalGate/);
+  assert.match(source,/不再等待 5 分钟或刷新旧会话/);
   assert.match(source,/stop-disappeared-fresh-chat/);
   assert.doesNotMatch(source,/setInput\(input,\s*CONTINUATION_PROMPT\)/,'runtime must not fill the old conversation with the legacy phrase');
   assert.match(source,/^\/\/ @updateURL\s+https:\/\/raw\.githubusercontent\.com\/bhrumom\/fabushi-chatgpt-auto-confirm-userscript\/main\/chatgpt-auto-confirm\.user\.js$/m);
@@ -6075,7 +6128,7 @@ test('the workbench mounts while the ChatGPT document is still loading',async()=
 });
 
 
-test('live assistant turn extracts sibling Markdown while interruption waits for the five-minute same-route refresh',async()=>{
+test('live assistant interruption carries sibling Markdown into the fresh recovery conversation',async()=>{
   const {h,w,dom}=await fixture(`<main>
     <section data-testid="conversation-turn-1"><div data-message-author-role="user">goal [Fabushi:live-shape]</div></section>
     <section data-testid="conversation-turn-2">
@@ -6099,15 +6152,22 @@ test('live assistant turn extracts sibling Markdown while interruption waits for
     await h.inspect(task,null);
     assert.equal(sends,0);
     assert.equal(task.state,'waiting');
-    assert.equal(task.url,'https://chatgpt.com/c/live-shape');
-    assert.equal(task.token,'live-shape');
+    assert.match(task.stopNoApprovalConfirmSignature,/connection-interrupted/);
+    task.stopNoApprovalConfirmSince=Date.now()-9_000;
+    await h.inspect(task,null);
+    assert.equal(sends,0);
+    assert.equal(task.state,'queued');
+    assert.equal(task.url,'');
+    assert.equal(task.token,'');
     assert.equal(task.phase,'work');
     assert.equal(task.round,40);
-    assert.match(task.pendingContinuationReason,/连接已中断/);
-    assert.ok(Number(task.pendingContinuationSince)>0);
+    assert.match(task.abnormalFreshCarry,/PR #3 已前移/);
+    assert.match(task.abnormalFreshCarry,/Ledger 共 2046 行/);
+    assert.doesNotMatch(task.abnormalFreshCarry,/连接已中断/);
   } finally {h.pause();dom.window.close();}
 });
-test('connection interruption without Stop waits for a same-route refresh and never sends the legacy phrase',async()=>{
+
+test('connection interruption without Stop fresh-handoffs and never sends the legacy phrase',async()=>{
   const {h,w,dom}=await fixture(`<main>
     <section data-testid="conversation-turn-1"><div data-message-author-role="user">goal [Fabushi:repeat-interrupt]</div></section>
     <section data-testid="conversation-turn-2"><div class="markdown">当前会话已经完成第一步。</div><div data-message-author-role="assistant" data-message-id="status-first">连接已中断。正在等待完整回复。</div></section>
@@ -6123,19 +6183,21 @@ test('connection interruption without Stop waits for a same-route refresh and ne
     await h.inspect(task,null);
     assert.equal(sends,0);
     assert.equal(task.state,'waiting');
-    assert.equal(task.url,'https://chatgpt.com/c/repeat-interrupt');
-    assert.equal(task.token,'repeat-interrupt');
-    assert.equal(task.round,3);
-    assert.match(task.pendingContinuationReason,/连接已中断/);
+    assert.match(task.stopNoApprovalConfirmSignature,/connection-interrupted/);
     assert.equal(w.document.querySelector('#prompt-textarea').value,'');
-    task.pendingContinuationSince=Date.now()-5*60*1000-1;
-    task.pendingContinuationStopProgressSignature=JSON.stringify(h.visibleConversationProgressFingerprint());
-    assert.equal(h.refreshInterruptedStopStall(task,Date.now(),false),true);
-    assert.equal(task.stalledRefreshAttempts,1);
-    assert.equal(task.url,'https://chatgpt.com/c/repeat-interrupt');
+    task.stopNoApprovalConfirmSince=Date.now()-9_000;
+    await h.inspect(task,null);
+    assert.equal(sends,0);
+    assert.equal(task.state,'queued');
+    assert.equal(task.url,'');
+    assert.equal(task.token,'');
+    assert.equal(task.round,3);
+    assert.equal(task.connectionInterruptedFreshDispatch,true);
+    assert.match(task.abnormalFreshCarry,/当前会话已经完成第一步/);
+    assert.equal(w.document.querySelector('#prompt-textarea').value,'');
+    assert.equal(task.stalledRefreshAttempts||0,0,'connection interruption no longer performs same-route refreshes');
   } finally {h.pause();dom.window.close();}
 });
-
 test('turn-sibling extraction excludes hidden content and foreign user turns',async()=>{
   const {h,w,dom}=await fixture(`<main>
     <section data-testid="conversation-turn-1"><div data-message-author-role="user">goal [Fabushi:scope-check]</div></section>
@@ -6185,6 +6247,9 @@ test('legacy continuation preserves an unrelated old-chat draft while switching 
     h.data.tasks.push(task);
     const input=w.document.querySelector('#prompt-textarea');
     input.value='leave my draft';
+    assert.equal(await h.sendContinuation(task,null,'test recovery intent',Date.now(),{}),false,'first observation only starts the approval-safe handoff confirmation');
+    assert.match(task.stopNoApprovalConfirmSignature,/connection-interrupted/);
+    task.stopNoApprovalConfirmSince=Date.now()-9_000;
     assert.equal(await h.sendContinuation(task,null,'test recovery intent',Date.now(),{}),true);
     assert.equal(input.value,'leave my draft','the old conversation composer is not mutated');
     assert.equal(task.state,'queued');
@@ -6194,7 +6259,7 @@ test('legacy continuation preserves an unrelated old-chat draft while switching 
   } finally {h.pause();dom.window.close();}
 });
 
-test('interrupted recovery with a virtualized task article retains the exact route without old-chat send',async()=>{
+test('interrupted recovery with a virtualized task article fresh-handoffs without old-chat send',async()=>{
   const {h,w,dom}=await fixture(`<main>
     <article data-testid="conversation-turn-user"><div data-message-author-role="user">another task [Fabushi:foreign]</div></article>
     <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">partial reply</div></article>
@@ -6212,11 +6277,16 @@ test('interrupted recovery with a virtualized task article retains the exact rou
     await h.inspect(task,null);
     assert.equal(sends,0);
     assert.equal(task.state,'waiting');
-    assert.equal(task.url,'https://chatgpt.com/c/null-article-recovery');
-    assert.equal(task.token,'expected-owner');
+    assert.match(task.stopNoApprovalConfirmSignature,/connection-interrupted/);
+    task.stopNoApprovalConfirmSince=Date.now()-9_000;
+    await h.inspect(task,null);
+    assert.equal(sends,0);
+    assert.equal(task.state,'queued');
+    assert.equal(task.url,'');
+    assert.equal(task.token,'');
     assert.equal(task.phase,'work');
     assert.equal(task.round,7);
-    assert.match(task.pendingContinuationReason,/连接已中断/);
+    assert.equal(task.connectionInterruptedFreshDispatch,true);
     assert.equal(w.document.querySelector('#prompt-textarea').value,'');
   } finally {h.pause();dom.window.close();}
 });

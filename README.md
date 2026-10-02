@@ -1,10 +1,23 @@
-# Fabushi 独立自动确认工作台 2.10.24
+# Fabushi 独立自动确认工作台 2.10.25
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.24`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.25`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
 
+## 2.10.25 连接中断直接按异常会话新开接力
+
+- `Connection interrupted. Waiting for the complete answer` / `连接已中断，正在等待完整回复` 不再进入“原会话等 5 分钟再刷新”的专用恢复循环；一旦在当前任务已绑定会话中确认该产品级中断，就把当前派发归类为**异常中断**。
+- 为避免在授权卡正要出现/刚 remount 时误切会话，破坏性 handoff 仍保持授权安全门：先做一次 wide 实时授权扫描，等待至少 8 秒，再做第二次实时扫描；期间出现授权卡就留在当前会话处理授权。没有授权卡后立即进入 fresh-chat handoff。
+- fresh handoff 会先提取当前异常会话中可安全归属的 assistant 可见回复与实际工作步骤，并排除中断提示本身；随后清理旧会话派发 identity，新开 ChatGPT 会话，把这些现场作为已完成进度接力继续。
+- 即使旧会话仍残留 Stop 按钮，也不再等待 Stop 自然消失、不再刷新旧会话；中断提示本身就是本次派发的异常终止证据。旧会话输入框不会发送“继续完成所有”或任何补偿消息。
+- 老版本持久化下来的 `pendingContinuationReason` 也按同一策略迁移：完成 8 秒授权复核后直接新开会话接力，不再恢复旧 5 分钟同会话刷新状态。
+- 普通页面无变化的 5 分钟 stall 刷新、会话无法加载的 30 秒/7 次恢复、rate-limit 等其它策略不变；本次只改变明确的 connection-interrupted 产品状态。
+- 新增/更新回归覆盖：Stop 仍存在时照样 fresh handoff、无 Stop 时 fresh handoff、可见工作步骤被带入新提示、虚拟化 task article 的异常接力、旧 continuation 状态迁移，以及不再出现连接中断 5 分钟同会话刷新合同。
+- 所有测试与发布仍只通过 GitHub Actions 或 htch-runtime，不在本地运行。
+- 详细规格见 [v2.10.25](docs/specs/connection-interruption-fresh-handoff-v2.10.25.md)。
 ## 2.10.24 最近 2 小时操作记录 + 连接中断恢复可见化
+
+> 历史说明：本节中的“连接中断等待 5 分钟刷新同一会话”策略已由 v2.10.25 取代；最近 2 小时活动记录机制仍继续保留。
 
 - 修复工作台“什么记录都没有”的根因：v2.10.18 为了保证 `localStorage` 永远不会被脚本日志撑满，把 `messages/history` 从 canonical durable snapshot 中彻底删除；因此每次 ChatGPT 页面刷新/恢复后，内存中的操作记录都会消失。连接中断路径恰好会按 5 分钟刷新同一会话，所以用户最需要看到恢复记录时反而最容易变成空白。
 - canonical `localStorage` 继续保持 latest-only，不重新把大量日志塞回去；新增独立的**最近 2 小时滚动活动记录**，优先写 IndexedDB，同时写一个严格有界的 sessionStorage 同标签页副本。页面刷新、SPA 会话切换和普通恢复都会重新加载这些记录。
