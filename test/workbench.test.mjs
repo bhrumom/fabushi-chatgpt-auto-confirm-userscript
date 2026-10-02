@@ -5691,6 +5691,127 @@ test('review no-final recovery remains bounded after two quiet minutes',async()=
     assert.match(task.messages.at(-1).text,/已经结束但没有最终回复/);
   } finally {h.pause();dom.window.close();}
 });
+test('marker-virtualized review final accepts the exact current report even when the renderer exposes no structural response key',async()=>{
+  const taskId='review-result-no-boundary';
+  const review=JSON.stringify({taskId,round:12,status:'next',summary:'还有一个 production blocker。',next:'继续关闭 production blocker 并重跑 exact-head gates。'});
+  const {h,w,dom}=await fixture(`<main>
+    <section id="legacy-wrap">
+      <div id="review-user" data-message-author-role="user">独立验收 [Fabushi:review-result-no-boundary-token]</div>
+      <div id="review-assistant" data-message-author-role="assistant"><div class="markdown">正在核验。</div></div>
+    </section>
+    <button id="stop" data-testid="stop-button" aria-label="停止生成">停止</button>
+    <form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/review-result-no-boundary');
+    const task={id:taskId,ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'review',round:12,state:'waiting',url:'https://chatgpt.com/c/review-result-no-boundary',token:'review-result-no-boundary-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
+    h.data.tasks.push(task);
+    await h.start(false);
+    await h.inspect(task,null);
+    assert.ok(task.stopObservedGenerationIdentity,'the exact dispatch was observed generating');
+    assert.equal(task.stopObservedAssistantBoundaryKey||'','','legacy renderer provides no structural response boundary');
+
+    w.document.querySelector('#review-user').remove();
+    w.document.querySelector('#stop').remove();
+    w.document.querySelector('#review-assistant .markdown').textContent=review;
+
+    const promoted=h.taskTurnForInspection(task);
+    assert.equal(promoted.owned,true,'the exact current taskId+round report is semantic final evidence');
+    assert.equal(promoted.reviewResultFinal,true);
+    assert.equal(promoted.structuredReviewFinal,true);
+    assert.equal(promoted.final,true);
+    assert.equal(promoted.text,review);
+
+    await h.inspect(task,null);
+    const observation=h.observations.get(task.id);
+    assert.equal(observation?.final,true);
+    observation.finalSince=Date.now()-5_000;
+    observation.since=Date.now()-5_000;
+    observation.idleSince=Date.now()-5_000;
+    await h.inspect(task,null);
+    assert.equal(task.state,'queued');
+    assert.equal(task.phase,'work');
+    assert.equal(task.round,13);
+    assert.equal(task.next,'继续关闭 production blocker 并重跑 exact-head gates。');
+    assert.equal(task.connectionInterruptedFreshDispatch||false,false);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('marker-virtualized review final accepts the exact current report after the renderer remounts it under a different structural turn key',async()=>{
+  const taskId='review-result-remounted';
+  const review=JSON.stringify({taskId,round:6,status:'complete',summary:'所有验收项已有证据。',next:''});
+  const {h,w,dom}=await fixture(`<main>
+    <div id="turn-a" data-content-search-turn-key="review-before-remount">
+      <div id="review-user" data-content-search-unit-key="review-before-remount:user"><div data-user-message-bubble="true">独立验收 [Fabushi:review-result-remounted-token]</div></div>
+      <div data-content-search-unit-key="review-before-remount:assistant"><div data-message-content>正在核验。</div></div>
+    </div>
+    <button id="stop" data-testid="stop-button" aria-label="停止生成">停止</button>
+    <form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/review-result-remounted');
+    const task={id:taskId,ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'review',round:6,state:'waiting',url:'https://chatgpt.com/c/review-result-remounted',token:'review-result-remounted-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
+    h.data.tasks.push(task);
+    await h.start(false);
+    await h.inspect(task,null);
+    assert.equal(task.stopObservedAssistantBoundaryKey,'turn:review-before-remount');
+
+    w.document.querySelector('#turn-a').remove();
+    w.document.querySelector('#stop').remove();
+    const replacement=w.document.createElement('div');
+    replacement.dataset.contentSearchTurnKey='review-after-remount';
+    replacement.innerHTML='<div data-content-search-unit-key="review-after-remount:assistant"><div data-message-content></div></div>';
+    replacement.querySelector('[data-message-content]').textContent=review;
+    w.document.querySelector('main').insertBefore(replacement,w.document.querySelector('form'));
+
+    const promoted=h.taskTurnForInspection(task);
+    assert.equal(promoted.owned,true,'valid current Review result survives renderer structural-key remount');
+    assert.equal(promoted.reviewResultFinal,true);
+    assert.equal(promoted.final,true);
+
+    await h.inspect(task,null);
+    const observation=h.observations.get(task.id);
+    assert.equal(observation?.final,true);
+    observation.finalSince=Date.now()-5_000;
+    observation.since=Date.now()-5_000;
+    observation.idleSince=Date.now()-5_000;
+    await h.inspect(task,null);
+    assert.equal(task.state,'done');
+    assert.equal(task.phase,'review');
+    assert.equal(task.connectionInterruptedFreshDispatch||false,false);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('review result fallback rejects a report for a different task or round even after Stop disappears',async()=>{
+  const taskId='review-result-wrong-identity';
+  const wrong=JSON.stringify({taskId:'another-task',round:99,status:'complete',summary:'错误身份。',next:''});
+  const {h,w,dom}=await fixture(`<main>
+    <section>
+      <div id="review-user" data-message-author-role="user">独立验收 [Fabushi:review-result-wrong-token]</div>
+      <div id="review-assistant" data-message-author-role="assistant"><div class="markdown">正在核验。</div></div>
+    </section>
+    <button id="stop" data-testid="stop-button" aria-label="停止生成">停止</button>
+    <form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/review-result-wrong-identity');
+    const task={id:taskId,ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'review',round:4,state:'waiting',url:'https://chatgpt.com/c/review-result-wrong-identity',token:'review-result-wrong-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
+    h.data.tasks.push(task);
+    await h.start(false);
+    await h.inspect(task,null);
+    w.document.querySelector('#review-user').remove();
+    w.document.querySelector('#stop').remove();
+    w.document.querySelector('#review-assistant .markdown').textContent=wrong;
+
+    const candidate=h.taskTurnForInspection(task);
+    assert.equal(candidate.owned,false,'a different taskId/round never gains result ownership');
+    await h.inspect(task,null);
+    assert.equal(task.state,'waiting');
+    assert.equal(task.connectionInterruptedFreshDispatch||false,false);
+    assert.ok(Number(task.abnormalNoFinalSince)>0);
+  } finally {h.pause();dom.window.close();}
+});
+
 test('marker-virtualized review final on the same Stop-observed response parses next and dispatches the next Work round',async()=>{
   const taskId='review-virtualized-next';
   const review=JSON.stringify({taskId,round:9,status:'next',summary:'仍有两个真实阻塞需要继续。',next:'先修 shipping Host/Runner composition，再修 deterministic transcript blocker 并重跑 exact-head gates。'});
@@ -5867,8 +5988,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.10\.22$/m);
-  assert.match(source,/const VERSION = '2\.10\.22'/);
+  assert.match(source,/^\/\/ @version\s+2\.10\.23$/m);
+  assert.match(source,/const VERSION = '2\.10\.23'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
