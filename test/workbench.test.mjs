@@ -6079,7 +6079,7 @@ test('the workbench mounts while the ChatGPT document is still loading',async()=
 });
 
 
-test('live assistant turn extracts sibling Markdown while interruption waits for the five-minute same-route refresh',async()=>{
+test('live assistant interruption carries sibling Markdown into the fresh recovery conversation',async()=>{
   const {h,w,dom}=await fixture(`<main>
     <section data-testid="conversation-turn-1"><div data-message-author-role="user">goal [Fabushi:live-shape]</div></section>
     <section data-testid="conversation-turn-2">
@@ -6103,15 +6103,22 @@ test('live assistant turn extracts sibling Markdown while interruption waits for
     await h.inspect(task,null);
     assert.equal(sends,0);
     assert.equal(task.state,'waiting');
-    assert.equal(task.url,'https://chatgpt.com/c/live-shape');
-    assert.equal(task.token,'live-shape');
+    assert.match(task.stopNoApprovalConfirmSignature,/connection-interrupted/);
+    task.stopNoApprovalConfirmSince=Date.now()-9_000;
+    await h.inspect(task,null);
+    assert.equal(sends,0);
+    assert.equal(task.state,'queued');
+    assert.equal(task.url,'');
+    assert.equal(task.token,'');
     assert.equal(task.phase,'work');
     assert.equal(task.round,40);
-    assert.match(task.pendingContinuationReason,/连接已中断/);
-    assert.ok(Number(task.pendingContinuationSince)>0);
+    assert.match(task.abnormalFreshCarry,/PR #3 已前移/);
+    assert.match(task.abnormalFreshCarry,/Ledger 共 2046 行/);
+    assert.doesNotMatch(task.abnormalFreshCarry,/连接已中断/);
   } finally {h.pause();dom.window.close();}
 });
-test('connection interruption without Stop waits for a same-route refresh and never sends the legacy phrase',async()=>{
+
+test('connection interruption without Stop fresh-handoffs and never sends the legacy phrase',async()=>{
   const {h,w,dom}=await fixture(`<main>
     <section data-testid="conversation-turn-1"><div data-message-author-role="user">goal [Fabushi:repeat-interrupt]</div></section>
     <section data-testid="conversation-turn-2"><div class="markdown">当前会话已经完成第一步。</div><div data-message-author-role="assistant" data-message-id="status-first">连接已中断。正在等待完整回复。</div></section>
@@ -6127,19 +6134,21 @@ test('connection interruption without Stop waits for a same-route refresh and ne
     await h.inspect(task,null);
     assert.equal(sends,0);
     assert.equal(task.state,'waiting');
-    assert.equal(task.url,'https://chatgpt.com/c/repeat-interrupt');
-    assert.equal(task.token,'repeat-interrupt');
-    assert.equal(task.round,3);
-    assert.match(task.pendingContinuationReason,/连接已中断/);
+    assert.match(task.stopNoApprovalConfirmSignature,/connection-interrupted/);
     assert.equal(w.document.querySelector('#prompt-textarea').value,'');
-    task.pendingContinuationSince=Date.now()-5*60*1000-1;
-    task.pendingContinuationStopProgressSignature=JSON.stringify(h.visibleConversationProgressFingerprint());
-    assert.equal(h.refreshInterruptedStopStall(task,Date.now(),false),true);
-    assert.equal(task.stalledRefreshAttempts,1);
-    assert.equal(task.url,'https://chatgpt.com/c/repeat-interrupt');
+    task.stopNoApprovalConfirmSince=Date.now()-9_000;
+    await h.inspect(task,null);
+    assert.equal(sends,0);
+    assert.equal(task.state,'queued');
+    assert.equal(task.url,'');
+    assert.equal(task.token,'');
+    assert.equal(task.round,3);
+    assert.equal(task.connectionInterruptedFreshDispatch,true);
+    assert.match(task.abnormalFreshCarry,/当前会话已经完成第一步/);
+    assert.equal(w.document.querySelector('#prompt-textarea').value,'');
+    assert.equal(task.stalledRefreshAttempts||0,0,'connection interruption no longer performs same-route refreshes');
   } finally {h.pause();dom.window.close();}
 });
-
 test('turn-sibling extraction excludes hidden content and foreign user turns',async()=>{
   const {h,w,dom}=await fixture(`<main>
     <section data-testid="conversation-turn-1"><div data-message-author-role="user">goal [Fabushi:scope-check]</div></section>
