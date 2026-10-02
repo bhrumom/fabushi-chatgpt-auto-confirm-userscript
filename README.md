@@ -1,8 +1,19 @@
-# Fabushi 独立自动确认工作台 2.10.27
+# Fabushi 独立自动确认工作台 2.10.28
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.27`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.28`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+
+## 2.10.28 授权卡未完全加载时周期刷新当前会话
+
+- 修复授权卡已经出现、但控件仍 disabled/处理中或下拉菜单尚未加载“允许本次会话”时可能无限等待的问题。
+- 自动授权开启时，这类未完全加载的授权状态会绑定当前会话 URL + token + phase + round；连续 60 秒仍不可操作就只刷新当前会话，并且之后最多每 60 秒重试一次。
+- 该恢复路径与普通 5 分钟停滞计数完全分离，不会因为授权卡未加载而累计到 fresh-chat 接力；会话、发送标识、附件和阶段都会保留。
+- 已点击“允许本次会话”后的 12 秒 settlement latch 优先级更高，保护期内绝不会因为 disabled/瞬时消失而刷新或切会话。
+- 关闭自动授权时仍保持人工等待，不引入后台自动刷新。
+- v2.10.27 已发布的中文“连接已中断…完整答复”识别与异常接力行为保持不变。
+- 所有测试与发布只通过 GitHub Actions 或 htch-runtime，不在本地运行。
+- 详细规格见 [v2.10.28](docs/specs/partial-authorization-card-periodic-refresh-v2.10.28.md)。
 
 ## 2.10.27 中文“连接已中断”新文案识别
 
