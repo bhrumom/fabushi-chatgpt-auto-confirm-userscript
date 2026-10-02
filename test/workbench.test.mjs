@@ -5488,6 +5488,30 @@ test('authorization card appearing during interruption confirmation cancels fres
   } finally {h.pause();dom.window.close();}
 });
 
+test('live authorization appearance resets the interruption confirmation before any handoff',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:interrupt-live-auth]</div></article><div role="status">Connection interrupted. Waiting for the complete answer</div><form><textarea id="prompt-textarea"></textarea></form></main>');
+  try {
+    w.history.pushState({},'', '/c/interrupt-live-auth');
+    h.data.autoApprove=false;
+    const task={id:'interrupt-live-auth',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/interrupt-live-auth',token:'interrupt-live-auth',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    await h.start(false);
+    await h.inspect(task,null);
+    assert.match(task.stopNoApprovalConfirmSignature,/connection-interrupted/);
+    task.stopNoApprovalConfirmSince=Date.now()-9_000;
+
+    const card=w.document.createElement('div');
+    card.innerHTML='<p>任意内容</p><button>拒绝</button><button>允许</button><button aria-haspopup="menu">⌄</button><div role="menu"><button role="menuitem">允许本次会话</button></div>';
+    w.document.querySelector('main').append(card);
+    await h.inspect(task,null);
+    assert.equal(task.state,'approval');
+    assert.equal(task.url,'https://chatgpt.com/c/interrupt-live-auth');
+    assert.equal(task.token,'interrupt-live-auth');
+    assert.equal(task.connectionInterruptedFreshDispatch||false,false);
+    assert.equal(task.stopNoApprovalConfirmSince||0,0,'authorization appearance invalidates the previous no-card timer');
+    assert.equal(task.stopNoApprovalConfirmSignature||'','','authorization appearance requires a new confirmation after settlement');
+  } finally {h.pause();dom.window.close();}
+});
 test('legacy interruption probe deadline cannot defer fresh-handoff migration',async()=>{
   const {h,dom}=await fixture();
   try {
