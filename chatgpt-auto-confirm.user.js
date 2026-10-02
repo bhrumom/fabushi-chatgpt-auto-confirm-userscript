@@ -379,6 +379,198 @@ async function bootstrapAttempt() {
   function readSessionStorageString(key) { try { return window.sessionStorage.getItem(String(key || '')); } catch { return null; } }
   function writeSessionStorageRecord(key, value) { try { window.sessionStorage.setItem(String(key || ''), String(value ?? '')); return true; } catch { return false; } }
   function removeSessionStorageRecord(key) { try { window.sessionStorage.removeItem(String(key || '')); return true; } catch { return false; } }
+
+  function normalizeRecentActivityRecord(record, now = Date.now()) {
+    if (!record || typeof record !== 'object') return null;
+    const at = Number(record.at || 0);
+    const taskId = String(record.taskId || '').slice(0, 160);
+    const text = String(record.text || '').slice(0, MAX_TASK_MESSAGE_TEXT);
+    if (!taskId || !text || !Number.isFinite(at) || at <= 0 || now - at > TASK_MESSAGE_RETENTION_MS || at - now > 60_000) return null;
+    return {
+      id:String(record.id || '').slice(0, 200) || crypto.randomUUID(),
+      taskId,
+      ownerTabId:String(record.ownerTabId || '').slice(0, 160),
+      at,
+      role:String(record.role || 'status').slice(0, 40),
+      text,
+      phase:String(record.phase || '').slice(0, 40),
+      round:Number(record.round || 0),
+      state:String(record.state || '').slice(0, 40),
+      url:canonicalConversationURL(record.url) || '',
+    };
+  }
+  function trimRecentActivityRecords(records, now = Date.now()) {
+    const normalized = Array.from(records || [])
+      .map(record => normalizeRecentActivityRecord(record, now))
+      .filter(Boolean)
+      .sort((a,b) => a.at - b.at);
+    const deduped = [];
+    const seen = new Set();
+    for (const record of normalized) {
+      const key = [record.taskId,record.at,record.role,record.text].join('\u0000');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(record);
+    }
+    let next = deduped.slice(-RECENT_ACTIVITY_MAX_RECORDS);
+    let serialized = JSON.stringify(next);
+    while (next.length > 1 && serialized.length > RECENT_ACTIVITY_MAX_CHARS) {
+      next.shift();
+      serialized = JSON.stringify(next);
+    }
+    return next;
+  }
+  function readRecentActivitySession(now = Date.now()) {
+    let parsed = [];
+    try { parsed = JSON.parse(readSessionStorageString(RECENT_ACTIVITY_SESSION_KEY) || '[]'); } catch {}
+    const trimmed = trimRecentActivityRecords(parsed, now);
+    if (trimmed.length !== (Array.isArray(parsed) ? parsed.length : 0)) {
+      writeSessionStorageRecord(RECENT_ACTIVITY_SESSION_KEY, JSON.stringify(trimmed));
+    }
+    return trimmed;
+  }
+  function writeRecentActivitySession(records, now = Date.now()) {
+    const trimmed = trimRecentActivityRecords(records, now);
+    return writeSessionStorageRecord(RECENT_ACTIVITY_SESSION_KEY, JSON.stringify(trimmed)) ? trimmed : [];
+  }
+  function openRecentActivityDB() {
+    if (typeof indexedDB === 'undefined') return Promise.reject(new Error('indexeddb-unavailable'));
+    if (!recentActivityDBPromise) {
+      recentActivityDBPromise = new Promise((resolve, reject) => {
+        let request;
+        try { request = indexedDB.open(RECENT_ACTIVITY_DB, 1); } catch (error) { reject(error); return; }
+        request.onupgradeneeded = () => {
+          const db = request.result;
+          let store;
+          if (!db.objectStoreNames.contains(RECENT_ACTIVITY_STORE)) {
+            store = db.createObjectStore(RECENT_ACTIVITY_STORE, { keyPath:'id' });
+          } else {
+            store = request.transaction.objectStore(RECENT_ACTIVITY_STORE);
+          }
+          if (!store.indexNames.contains('at')) store.createIndex('at','at',{unique:false});
+        };
+        request.onsuccess = () => {
+          const db = request.result;
+          db.onversionchange = () => db.close();
+          resolve(db);
+        };
+        request.onerror = () => reject(request.error || new Error('recent-activity-db-open-failed'));
+        request.onblocked = () => reject(new Error('recent-activity-db-blocked'));
+      }).catch(error => {
+        recentActivityDBPromise = null;
+        throw error;
+      });
+    }
+    return recentActivityDBPromise;
+  }
+  function persistRecentActivityDB(record, now = Date.now()) {
+    const normalized = normalizeRecentActivityRecord(record, now);
+    if (!normalized) return Promise.resolve(false);
+    return openRecentActivityDB().then(db => new Promise((resolve, reject) => {
+      let transaction;
+      try {
+        transaction = db.transaction(RECENT_ACTIVITY_STORE, 'readwrite');
+        const store = transaction.objectStore(RECENT_ACTIVITY_STORE);
+        const index = store.index('at');
+        store.put(normalized);
+        if (typeof IDBKeyRange !== 'undefined') {
+          const oldCursor = index.openCursor(IDBKeyRange.upperBound(now - TASK_MESSAGE_RETENTION_MS, true));
+          oldCursor.onsuccess = () => {
+            const cursor = oldCursor.result;
+            if (!cursor) return;
+            cursor.delete();
+            cursor.continue();
+          };
+          const recentKeys = index.getAllKeys(IDBKeyRange.lowerBound(now - TASK_MESSAGE_RETENTION_MS));
+          recentKeys.onsuccess = () => {
+            const keys = recentKeys.result || [];
+            const overflow = Math.max(0, keys.length - RECENT_ACTIVITY_MAX_RECORDS);
+            for (let indexValue = 0; indexValue < overflow; indexValue += 1) store.delete(keys[indexValue]);
+          };
+        }
+      } catch (error) { reject(error); return; }
+      transaction.oncomplete = () => resolve(true);
+      transaction.onerror = () => reject(transaction.error || new Error('recent-activity-db-write-failed'));
+      transaction.onabort = () => reject(transaction.error || new Error('recent-activity-db-write-aborted'));
+    })).catch(() => false);
+  }
+  function readRecentActivityDB(now = Date.now()) {
+    return openRecentActivityDB().then(db => new Promise((resolve, reject) => {
+      let transaction;
+      try {
+        transaction = db.transaction(RECENT_ACTIVITY_STORE, 'readonly');
+        const store = transaction.objectStore(RECENT_ACTIVITY_STORE);
+        if (typeof IDBKeyRange !== 'undefined') {
+          const request = store.index('at').getAll(IDBKeyRange.lowerBound(now - TASK_MESSAGE_RETENTION_MS));
+          request.onsuccess = () => resolve(trimRecentActivityRecords(request.result || [], now));
+          request.onerror = () => reject(request.error || new Error('recent-activity-db-read-failed'));
+        } else {
+          const request = store.getAll();
+          request.onsuccess = () => resolve(trimRecentActivityRecords(request.result || [], now));
+          request.onerror = () => reject(request.error || new Error('recent-activity-db-read-failed'));
+        }
+      } catch (error) { reject(error); return; }
+    })).catch(() => []);
+  }
+  function recordRecentActivity(task, message, now = Date.now()) {
+    if (!task || !message) return null;
+    const record = normalizeRecentActivityRecord({
+      id:crypto.randomUUID(),
+      taskId:task.id,
+      ownerTabId:task.ownerTabId,
+      at:Number(message.at || now),
+      role:message.role || 'status',
+      text:message.text,
+      phase:task.phase,
+      round:task.round,
+      state:task.state,
+      url:task.url,
+    }, now);
+    if (!record) return null;
+    const session = readRecentActivitySession(now);
+    session.push(record);
+    writeRecentActivitySession(session, now);
+    void persistRecentActivityDB(record, now);
+    return record;
+  }
+  async function restoreRecentActivityMessages(now = Date.now()) {
+    const session = readRecentActivitySession(now);
+    const dbRecords = await readRecentActivityDB(now);
+    const records = trimRecentActivityRecords([...session, ...dbRecords], now);
+    writeRecentActivitySession(records, now);
+    const byTask = new Map();
+    for (const record of records) {
+      if (!byTask.has(record.taskId)) byTask.set(record.taskId, []);
+      byTask.get(record.taskId).push(record);
+    }
+    for (const task of data.tasks || []) {
+      const recovered = byTask.get(String(task.id || '')) || [];
+      const existing = Array.isArray(task.messages) ? task.messages : [];
+      const merged = [];
+      const seen = new Set();
+      for (const item of [...existing, ...recovered.map(record => ({at:record.at,role:record.role,text:record.text}))]) {
+        const at = Number(item?.at || 0);
+        const role = String(item?.role || 'status');
+        const text = String(item?.text || '').slice(0, MAX_TASK_MESSAGE_TEXT);
+        if (!at || !text || now - at > TASK_MESSAGE_RETENTION_MS) continue;
+        const key = [at,role,text].join('\u0000');
+        if (seen.has(key)) continue;
+        seen.add(key);
+        merged.push({at,role,text});
+      }
+      const snapshotAt = Number(task.handoffReplySnapshotAt || 0);
+      const snapshotText = String(task.handoffReplySnapshot || '').trim();
+      if (snapshotText && snapshotAt && now - snapshotAt <= TASK_MESSAGE_RETENTION_MS) {
+        const snapshotMessage = {at:snapshotAt,role:'assistant',text:`刷新/切换前保留的最近工作内容\n${snapshotText.slice(0, MAX_TASK_MESSAGE_TEXT)}`};
+        const key = [snapshotMessage.at,snapshotMessage.role,snapshotMessage.text].join('\u0000');
+        if (!seen.has(key)) merged.push(snapshotMessage);
+      }
+      task.messages = merged.sort((a,b)=>a.at-b.at);
+      compactTaskMessages(task);
+      task.messageVersion = Math.max(Number(task.messageVersion || 0), task.messages.length);
+    }
+    return records.length;
+  }
   function cleanupStaleFabushiStorage(now = Date.now()) {
     if (now - storageCleanupLastAt < STORAGE_CLEANUP_COOLDOWN_MS) return 0;
     storageCleanupLastAt = now;
