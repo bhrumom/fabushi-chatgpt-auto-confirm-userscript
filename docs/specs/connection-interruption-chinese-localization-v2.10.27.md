@@ -1,6 +1,6 @@
 # Chinese connection-interruption localization — v2.10.27
 
-Status: active
+Status: completed
 Owner: Fabushi ChatGPT Auto-confirm
 Last updated: 2026-10-02
 Base: `ef6a482cddbd0edd5890c0c902481a9e63cc6647` (main, v2.10.26)
@@ -108,7 +108,7 @@ Exact-head GitHub Actions must prove at least:
 
 | Requirement / AC | Status | Evidence / reason |
 | --- | --- | --- |
-| Detection + cleanup implementation | passed | PR #144 head `e8a110bf33ca30620d8705cbe238346ef099a5d6` contains the localized detector/cleaner changes and version bump to v2.10.27. |
-| Regression coverage | passed | PR #144 Test run `37002442582` completed successfully for head `e8a110bf33ca30620d8705cbe238346ef099a5d6`; syntax and the full regression suite passed. |
-| Authorization/handoff invariants | passed | The exact-head regression suite passed the existing authorization-safe interruption coverage plus the new `完整答复` fresh-handoff/carry-cleaning case. |
-| Canonical-main + release delivery | pending | PR exact-head verification is green; merge, canonical-main Test, Release workflow and v2.10.27 release readback remain required. |
+| Detection + cleanup implementation | passed | PR #144 final head `2884d30833dfefc24323a4fbbbb4b86271776590` was exact-head verified and squash-merged as canonical main `79f6af0568097acd2c7c6feaebfd23ac52c99079`; runtime/README are v2.10.27. |
+| Regression coverage | passed | Final PR-head Test run `37004431583` succeeded for `2884d30833dfefc24323a4fbbbb4b86271776590`; canonical-main Test run `37004516855` succeeded for merge `79f6af0568097acd2c7c6feaebfd23ac52c99079`. |
+| Authorization/handoff invariants | passed | Both exact-head suites passed the existing authorization-safe interruption coverage plus the new `完整答复` detection, false-positive and fresh-handoff/carry-cleaning regressions. |
+| Canonical-main + release delivery | passed | Release run `37004583260` succeeded after canonical-main Test. GitHub Release `v2.10.27` targets `79f6af0568097acd2c7c6feaebfd23ac52c99079` and contains `chatgpt-auto-confirm.user.js` (449323 bytes, `sha256:8591fa8489b42970d0e0743673743be8872d508965d0e867c85e9fee89537405`). |
