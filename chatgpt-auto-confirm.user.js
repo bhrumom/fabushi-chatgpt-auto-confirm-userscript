@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.26
+// @version      2.10.27
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.26';
+  const VERSION = '2.10.27';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -4047,7 +4047,7 @@ async function bootstrapAttempt() {
       .trim();
     return boundedConversationLengthCarry(source);
   }
-  const connectionInterruptedPattern = /^(?:连接已中断[。.!]?\s*正在等待完整回复[。.!]?|connection (?:was |has been )?interrupted[.!]?\s*(?:we(?:'re| are) )?waiting for (?:the )?(?:full|complete) (?:response|answer)[.!]?)$/i;
+  const connectionInterruptedPattern = /^(?:连接已中断[，,。.!；;：:\s]*正在等待完整(?:回复|答复)[。.!]?|connection (?:was |has been )?interrupted[.!]?\s*(?:we(?:'re| are) )?waiting for (?:the )?(?:full|complete) (?:response|answer)[.!]?)$/i;
   function connectionInterruptedNotice(turn = null, getPageRecords = pageUiTextRecords) {
     const matches = value => connectionInterruptedPattern.test(normalize(value));
     // Current ChatGPT builds can render this product error inside the live
@@ -4134,8 +4134,8 @@ async function bootstrapAttempt() {
   }
   function cleanAbnormalFreshReply(value) {
     const source = String(value || '')
-      .replace(/连接已中断[。.!]?\s*正在等待完整回复[。.!]?/gi, ' ')
-      .replace(/connection (?:was |has been )?interrupted[.!]?\s*(?:we(?:'re| are) )?waiting for (?:the )?full response[.!]?/gi, ' ')
+      .replace(/连接已中断[，,。.!；;：:\s]*正在等待完整(?:回复|答复)[。.!]?/gi, ' ')
+      .replace(/connection (?:was |has been )?interrupted[.!]?\s*(?:we(?:'re| are) )?waiting for (?:the )?(?:full|complete) (?:response|answer)[.!]?/gi, ' ')
       .replace(/ChatGPT stream recovery polling timed out[.!]?/gi, ' ')
       .replace(/Stream cache expired[.!]?/gi, ' ')
       .replace(/A network (?:connection )?(?:error|failure)(?: occurred)?[.!]?\s*(?:Please )?(?:check|verify) (?:your )?(?:internet|network|connection)[\s\S]{0,160}?(?:retry|try again)[.!]?/gi, ' ')
