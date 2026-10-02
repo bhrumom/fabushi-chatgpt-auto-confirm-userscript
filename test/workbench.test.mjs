@@ -63,17 +63,18 @@ test('recent activity restores the last two hours after reload without putting h
   } finally {dom.window.close();}
 });
 
-test('connection-interrupted recovery exposes the next five-minute refresh deadline and refresh count',async()=>{
+test('connection-interrupted recovery exposes only the short approval-safe fresh-handoff countdown',async()=>{
   const {h,dom}=await fixture();
   try {
     const now=Date.now();
-    const task={pendingContinuationReason:'connection interrupted',pendingContinuationSince:now-2*60*1000,stalledRefreshAt:0,stalledRefreshAttempts:0};
-    assert.match(h.taskRecoveryStatusText(task,now),/约 3 分 0 秒后刷新当前会话/);
-    assert.match(h.taskRecoveryStatusText(task,now),/已刷新 0 次/);
-    task.stalledRefreshAt=now-60*1000;
-    task.stalledRefreshAttempts=2;
-    assert.match(h.taskRecoveryStatusText(task,now),/约 4 分 0 秒后刷新当前会话/);
-    assert.match(h.taskRecoveryStatusText(task,now),/已刷新 2 次/);
+    const task={stopNoApprovalConfirmSignature:'["connection-interrupted","https://chatgpt.com/c/x"]',stopNoApprovalConfirmSince:now-2_000};
+    assert.match(h.taskRecoveryStatusText(task,now),/异常中断接力/);
+    assert.match(h.taskRecoveryStatusText(task,now),/约 6 秒后完成/);
+    task.stopNoApprovalConfirmSignature='';
+    task.stopNoApprovalConfirmSince=0;
+    task.pendingContinuationReason='legacy interrupted wait';
+    assert.match(h.taskRecoveryStatusText(task,now),/旧等待状态已升级/);
+    assert.doesNotMatch(h.taskRecoveryStatusText(task,now),/刷新当前会话|5 分钟/);
   } finally {dom.window.close();}
 });
 
@@ -5410,7 +5411,7 @@ test('current English connection-interrupted wording is recognized',async()=>{
   } finally { h.pause(); dom.window.close(); }
 });
 
-test('live interruption preempts inherited Stop hydration after a same-route refresh',async()=>{
+test('live interruption preempts inherited Stop hydration and becomes a fresh-chat abnormal handoff',async()=>{
   const {h,w,dom}=await fixture(`<main>
     <article data-testid="conversation-turn-user"><div data-message-author-role="user">continue recovery [Fabushi:interrupt-preempts-hydration]</div></article>
     <div role="status">Connection interrupted. Waiting for the complete answer</div>
@@ -5427,44 +5428,47 @@ test('live interruption preempts inherited Stop hydration after a same-route ref
     await h.inspect(task,null);
     assert.equal(task.url,'https://chatgpt.com/c/interrupt-preempts-hydration');
     assert.equal(task.state,'waiting');
-    assert.match(task.pendingContinuationReason,/连接已中断/);
-    assert.ok(Number(task.pendingContinuationSince)>0,'live interruption starts its own persisted five-minute recovery window');
-    assert.equal(task.connectionInterruptedFreshDispatch||false,false,'the visible interruption is not discarded into an immediate fresh-chat handoff');
-    assert.equal(task.messages.some(item=>/已识别 ChatGPT 连接中断/.test(item.text||'')),true);
+    assert.match(task.stopNoApprovalConfirmSignature,/connection-interrupted/);
+    assert.equal(task.pendingContinuationReason||'','');
+    assert.equal(task.messages.some(item=>/归类为异常中断/.test(item.text||'')),true);
     assert.equal(task.messages.some(item=>/页面刷新后仍在恢复当前任务内容/.test(item.text||'')),false,'the inherited Stop hydration early return must not hide the live interruption');
 
-    task.pendingContinuationSince=Date.now()-5*60*1000-1;
-    task.pendingContinuationStopProgressSignature=JSON.stringify(h.visibleConversationProgressFingerprint());
-    assert.equal(h.refreshInterruptedStopStall(task,Date.now(),false),true,'five quiet minutes schedule a same-route refresh');
-    assert.equal(task.stalledRefreshAttempts,1);
-    assert.equal(task.url,'https://chatgpt.com/c/interrupt-preempts-hydration');
+    task.stopNoApprovalConfirmSince=Date.now()-9_000;
+    await h.inspect(task,null);
+    assert.equal(task.state,'queued');
+    assert.equal(task.url,'');
+    assert.equal(task.token,'');
+    assert.equal(task.connectionInterruptedFreshDispatch,true);
+    assert.match(task.messages.at(-1).text,/异常中断接力/);
+    assert.doesNotMatch(task.messages.at(-1).text,/刷新当前会话|5 分钟/);
   } finally { h.pause(); dom.window.close(); }
 });
-test('interrupted wait is throttled between probes and does not repaint unchanged state',async()=>{
+
+test('connection interruption with Stop still visible hands off after the approval-safe confirmation instead of waiting for Stop',async()=>{
   const {h,w,dom}=await fixture(`<main>
-    <article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:interrupt-throttle]</div></article>
+    <article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:interrupt-stop-visible]</div></article>
+    <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">已完成部分工作。</div></div></article>
     <div role="status">Connection interrupted. Waiting for the complete answer</div>
-    <form><textarea id="prompt-textarea"></textarea></form>
+    <button data-testid="stop-button" aria-label="Stop">Stop</button>
+    <form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">Send</button></form>
   </main>`);
   try {
-    w.history.pushState({},'', '/c/interrupt-throttle');
-    const task={id:'interrupt-throttle',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/interrupt-throttle',token:'interrupt-throttle',attempted:false,messages:[]};
+    w.history.pushState({},'', '/c/interrupt-stop-visible');
+    const task={id:'interrupt-stop-visible',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/interrupt-stop-visible',token:'interrupt-stop-visible',attempted:false,messages:[]};
     h.data.tasks.push(task);
+    let sends=0;
+    w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>sends++);
     await h.start(false);
     await h.inspect(task,null);
-    const now=Date.now();
-    const probeAt=Number(task.pendingContinuationProbeAt||0);
-    assert.ok(probeAt>=now+10_000 && probeAt<=now+16_000,'interrupted state schedules the next lightweight probe about 15 seconds later');
-    assert.equal(h.nextSupervisionTask([task],now),null,'scheduler does not inspect the interrupted page again before the probe deadline');
-    assert.equal(h.taskDeferredUntil(task,now),probeAt);
-    const updatedAt=task.updatedAt;
-    const messageVersion=Number(task.messageVersion||0);
-    const paints=h.measurements.paints;
+    assert.equal(task.state,'waiting');
+    assert.match(task.stopNoApprovalConfirmSignature,/connection-interrupted/);
+    task.stopNoApprovalConfirmSince=Date.now()-9_000;
     await h.inspect(task,null);
-    assert.equal(task.updatedAt,updatedAt,'unchanged early re-inspection does not persist the task again');
-    assert.equal(Number(task.messageVersion||0),messageVersion,'unchanged early re-inspection does not append another status log');
-    assert.equal(h.measurements.paints,paints,'unchanged early re-inspection does not repaint the Fabushi workbench');
-    assert.equal(task.pendingContinuationProbeAt,probeAt,'early re-inspection cannot slide the probe deadline forward');
+    assert.equal(sends,0,'the broken old conversation must never receive another Send');
+    assert.equal(task.state,'queued');
+    assert.equal(task.url,'');
+    assert.equal(task.connectionInterruptedFreshDispatch,true);
+    assert.match(task.abnormalFreshCarry,/已完成部分工作/);
   } finally { h.pause(); dom.window.close(); }
 });
 test('current English conversation-load failure is recognized even when Try again is inert text',async()=>{
@@ -6029,14 +6033,12 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.10\.24$/m);
-  assert.match(source,/const VERSION = '2\.10\.24'/);
+  assert.match(source,/^\/\/ @version\s+2\.10\.25$/m);
+  assert.match(source,/const VERSION = '2\.10\.25'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_REFRESH_LIMIT = 7/);
-  assert.match(source,/const INTERRUPTED_STOP_STALL_REFRESH_MS = 5 \* 60 \* 1000/);
-  assert.match(source,/const INTERRUPTION_PROBE_INTERVAL_MS = 15 \* 1000/);
   assert.match(source,/const ENDED_NO_FINAL_STABILITY_MS = 8000/);
   assert.match(source,/const REVIEW_ENDED_NO_FINAL_STABILITY_MS = 2 \* 60 \* 1000/);
   assert.match(source,/const RELOAD_STOP_ABSENCE_STABILITY_MS = 8000/);
@@ -6057,6 +6059,8 @@ test('the packaged userscript declares its stable remote update and download URL
   assert.match(source,/connectionInterruptedFreshDispatch/);
   assert.match(source,/function queueInterruptedFreshRetry/);
   assert.match(source,/connection-interrupted-fresh-chat/);
+  assert.match(source,/function interruptedFreshHandoffApprovalGate/);
+  assert.match(source,/不再等待 5 分钟或刷新旧会话/);
   assert.match(source,/stop-disappeared-fresh-chat/);
   assert.doesNotMatch(source,/setInput\(input,\s*CONTINUATION_PROMPT\)/,'runtime must not fill the old conversation with the legacy phrase');
   assert.match(source,/^\/\/ @updateURL\s+https:\/\/raw\.githubusercontent\.com\/bhrumom\/fabushi-chatgpt-auto-confirm-userscript\/main\/chatgpt-auto-confirm\.user\.js$/m);
