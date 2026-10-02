@@ -1,8 +1,18 @@
-# Fabushi 独立自动确认工作台 2.10.22
+# Fabushi 独立自动确认工作台 2.10.23
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.22`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.23`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+
+## 2.10.23 验收最终结果与 Work 共用完成识别
+
+- 修复验收会话已经给出本轮最终结果，但 ChatGPT 虚拟化原始任务 user turn、或最终 response remount 后结构 key 变化，导致脚本仍把该会话当作“结束但没有最终回复”并不断新开验收的问题。
+- 验收现在和 Work 一样先判断“当前这一轮是否已经真正结束”，然后读取**当前最终 assistant 结果**。对于 Review，`parseReview()` 成功解析出的精确 `taskId + round + status + summary (+ next)` 本身就是强语义完成证据，不再要求 renderer 的 `data-content-search-turn-key` / message key 必须从生成期间一直稳定到最终 DOM。
+- 该 fallback 仍要求：同一 exact conversation、同一 dispatch identity 曾观察到生成、Stop 已消失、无授权卡、无其它任务 owner/marker，并且最终正文是当前 Review 的精确 taskId/round；错误 taskId/round、普通自然语言、旧回复都不会被接收。
+- 原有 response-local Copy/toolbar 与结构边界仍作为普通 Work/非结构化回复的最终证据和 Review 的额外证据；只是 Review 不再被 renderer remount 的实现细节卡住。
+- 新增回归：无 structural response key 仍能消费正确 Review 结果、response remount 换 key 仍能完成、错误 taskId/round 仍 fail-closed。
+- 所有测试和构建仍只通过 GitHub Actions 或 htch-runtime 执行，不在本地运行。
+- 详细规格见 [v2.10.23](docs/specs/review-final-result-recognition-v2.10.23.md)。
 
 ## 2.10.22 修复连接中断等待导致的页面主线程卡死
 

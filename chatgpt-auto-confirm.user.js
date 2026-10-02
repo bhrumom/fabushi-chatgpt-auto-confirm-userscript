@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.22
+// @version      2.10.23
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.22';
+  const VERSION = '2.10.23';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -4944,21 +4944,38 @@ async function bootstrapAttempt() {
       const candidate = latestTurn();
       const observedBoundaryKey = String(task.stopObservedAssistantBoundaryKey || '');
       const candidateBoundaryKey = assistantResponseBoundaryKey(candidate);
-      const structuredReviewFinal = Boolean(
-        task.phase === 'review'
+      const currentReview = task.phase === 'review'
         && candidate.text
+        && candidate.hasNaturalReply
         && !candidate.streaming
-        && currentReviewReport(candidate.text, task)
-      );
-      if (observedBoundaryKey
+          ? currentReviewReport(candidate.text, task)
+          : null;
+      const structuredReviewFinal = Boolean(currentReview);
+      const sameObservedResponse = Boolean(
+        observedBoundaryKey
         && candidateBoundaryKey === observedBoundaryKey
+      );
+      // Review has a stronger semantic final identity than ordinary Work:
+      // parseReview() requires the exact current taskId + round + status/schema.
+      // Once this exact dispatch was observed generating on this exact route,
+      // a valid current Review result must not depend on renderer-only turn keys
+      // surviving virtualization/remount. Treat the result itself as the final
+      // response signal, while keeping structural-boundary + toolbar recovery
+      // for non-Review replies and malformed Review text.
+      const reviewResultFinal = Boolean(
+        structuredReviewFinal
         && candidate.text
-        && (candidate.final || structuredReviewFinal)
-        && !candidate.streaming) {
+        && candidate.hasNaturalReply
+        && !candidate.streaming
+      );
+      if (candidate.text
+        && !candidate.streaming
+        && ((sameObservedResponse && candidate.final) || reviewResultFinal)) {
         return {
           ...candidate,
-          final:Boolean(candidate.final || structuredReviewFinal),
+          final:Boolean(candidate.final || reviewResultFinal),
           structuredReviewFinal,
+          reviewResultFinal,
           owned:true,
           recoveredRouteOwned:true,
           stopBoundRouteFinal:true,
