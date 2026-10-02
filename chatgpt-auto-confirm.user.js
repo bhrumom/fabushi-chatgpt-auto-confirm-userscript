@@ -6206,37 +6206,37 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.pendingContinuationProbeAt = 0;
   }
   async function sendContinuation(task, signal, reason = '当前会话异常中断', now = Date.now(), options = {}) {
-    // Compatibility entry point for legacy persisted recovery state. Automatic
-    // recovery no longer types or sends “继续完成所有” in the old conversation.
-    // While Stop exists, keep supervising. Once Stop is absent and there is no
-    // authorization card, hand the current work to a fresh session.
+    // Compatibility entry point for abnormal/legacy interruption recovery.
+    // Never type or send “继续完成所有” in the broken conversation. Stop may
+    // remain visible after the product declares an interruption; that notice is
+    // now treated as terminal abnormal evidence for this dispatch. Preserve the
+    // visible work, complete the no-approval safety confirmation, then continue
+    // in a fresh conversation.
     if (!task || terminal.has(task.state) || task.state === 'paused') return false;
     const liveURL = currentConversationURL();
     const taskURL = canonicalConversationURL(task.url);
     if (!liveURL || !taskURL || liveURL !== taskURL) return false;
     const scanContext = createPageScanContext();
-    const pending = scanContext.cards();
-    if (pending.length || blocker() || rateLimitNotice(scanContext.pageRecords)) {
-      task.state = pending.length ? 'approval' : 'waiting';
+    if (blocker() || rateLimitNotice(scanContext.pageRecords)) {
+      task.state = 'waiting';
       return false;
     }
-    if (stopButton()) {
-      task.pendingContinuationReason = String(reason || '当前会话异常中断').slice(0, 1000);
-      task.pendingContinuationURL = liveURL;
-      task.pendingContinuationSince ||= now;
-      task.pendingContinuationStopClickedAt = 0;
-      task.pendingContinuationStopProgressSignature = '';
-      task.pendingContinuationStopRecovery = false;
+    const gate = interruptedFreshHandoffApprovalGate(task, liveURL, now);
+    if (gate.state === 'approval') {
+      task.state = 'approval';
+      task.updatedAt = now;
+      if (data.autoApprove && gate.card) await authorize(gate.card, task, signal);
+      return false;
+    }
+    if (gate.state === 'confirming') {
       task.state = 'waiting';
-      const lastWaitLogAt = Number(task.pendingContinuationLastWaitLogAt || 0);
-      if (!lastWaitLogAt || now - lastWaitLogAt >= 5000) {
-        task.pendingContinuationLastWaitLogAt = now;
-        log(task, `${reason}；停止按钮仍在，继续等待它自然消失；不会点击停止，也不会在旧会话发送“${CONTINUATION_PROMPT}”。`);
-        save();
-      }
+      task.updatedAt = now;
+      if (gate.started) log(task, `${reason}；已归为异常中断，完成至少 ${Math.ceil(STOP_NO_APPROVAL_CONFIRM_MS / 1000)} 秒授权安全复核后将直接新开会话接力，不再等待 Stop 消失或刷新旧会话。`);
+      else save();
       return false;
     }
     const turn = taskTurnForInspection(task, scanContext);
+    persistHandoffReplySnapshot(task, { allowExactRouteFallback:true, now });
     return queueInterruptedFreshRetry(
       task,
       reason,
@@ -6244,8 +6244,8 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       turn,
       {
         allowExactRouteFallback:true,
-        recoveryLabel:options.recoveryLabel || '停止按钮消失接力',
-        historyReason:options.historyReason || 'stop-disappeared-fresh-chat',
+        recoveryLabel:options.recoveryLabel || '异常中断接力',
+        historyReason:options.historyReason || 'connection-interrupted-fresh-chat',
       },
     );
   }
