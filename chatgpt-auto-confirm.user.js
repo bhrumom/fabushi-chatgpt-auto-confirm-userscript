@@ -698,14 +698,17 @@ async function bootstrapAttempt() {
     maxMessages = MAX_TASK_MESSAGES,
     maxText = MAX_TASK_MESSAGE_TEXT,
     maxChars = MAX_TASK_MESSAGE_CHARS,
+    now = Date.now(),
   } = {}) {
     if (!task || !Array.isArray(task.messages) || !task.messages.length) return false;
     const original = task.messages;
     const normalized = original.map(item => {
-      if (!item || typeof item !== 'object') return { at:Date.now(), role:'status', text:'' };
+      if (!item || typeof item !== 'object') return null;
+      const at = Number(item.at || 0);
       const text = String(item.text || '');
-      return { ...item, at:Number(item.at || Date.now()), role:String(item.role || 'status'), text:text.slice(0, maxText) };
-    });
+      if (!Number.isFinite(at) || at <= 0 || now - at > TASK_MESSAGE_RETENTION_MS || at - now > 60_000 || !text) return null;
+      return { ...item, at, role:String(item.role || 'status'), text:text.slice(0, maxText) };
+    }).filter(Boolean);
     let next = normalized.slice(-Math.max(1, maxMessages));
     let total = 0;
     const bounded = [];
@@ -716,7 +719,7 @@ async function bootstrapAttempt() {
       bounded.unshift(item);
       total += length;
     }
-    next = bounded.length ? bounded : normalized.slice(-1);
+    next = bounded;
     const changed = next.length !== original.length || next.some((item, index) => {
       const previous = original[original.length - next.length + index];
       return !previous || previous.text !== item.text || previous.at !== item.at || previous.role !== item.role;
@@ -1134,6 +1137,10 @@ async function bootstrapAttempt() {
       : [];
     compactTaskMessages(task);
   }
+  // localStorage intentionally excludes diagnostic history. Restore the
+  // separate rolling two-hour activity log before mounting the workbench so
+  // reloads/recovery never present an empty task timeline.
+  await restoreRecentActivityMessages();
   if (pendingTaskTransfer && tabId === pendingTaskTransfer.targetOwnerTabId) {
     const transferred = data.tasks.find(task => task.id === pendingTaskTransfer.taskId);
     if (transferred && transferred.ownerTabId === pendingTaskTransfer.sourceOwnerTabId) {
@@ -3102,10 +3109,12 @@ async function bootstrapAttempt() {
     if (!task) return;
     task.messages ||= [];
     if (role === 'status' && task.messages.at(-1)?.text === message) return;
-    task.messages.push({ at: Date.now(), role, text: String(message).slice(0, MAX_TASK_MESSAGE_TEXT) });
-    compactTaskMessages(task);
+    const entry = { at: Date.now(), role, text: String(message).slice(0, MAX_TASK_MESSAGE_TEXT) };
+    task.messages.push(entry);
+    recordRecentActivity(task, entry, entry.at);
+    compactTaskMessages(task, { now:entry.at });
     task.messageVersion = Number(task.messageVersion || 0) + 1;
-    task.updatedAt = Date.now();
+    task.updatedAt = entry.at;
     save();
   }
   function state(task, value, message) {
