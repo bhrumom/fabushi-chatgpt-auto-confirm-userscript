@@ -34,7 +34,7 @@ async function fixture(body='', setup=()=>{}, url='https://chatgpt.com/') {
     const form = w.document.querySelector('form') || w.document.body;
     form.append(trigger);
   }
-  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, interruptedFreshHandoffApprovalGate, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, assistantResponseBoundaryKey, taskTurnForInspection, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, conversationLoadFailure, clearConversationLoadFailureState, recoverConversationLoadFailure, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, normalizeReasoningPreset, reasoningPresetLabel, taskReasoningPreset, reasoningPickerTrigger, reasoningSliderState, clearReasoningPickerRecovery, waitForReasoningPicker, ensureTaskReasoningPreset, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, storageStatusText, readRecentActivitySession, writeRecentActivitySession, recordRecentActivity, restoreRecentActivityMessages, taskRecoveryStatusText, persistWorkbenchState, durableTaskSnapshot, durableWorkbenchSnapshot, fitWorkbenchSnapshotToLocalBudget, writeLocalStorageRecord, readStorageString, readWorkbenchOverflow, cleanupStaleFabushiStorage, fabushiLocalStorageFootprint, storageBudgets:()=>({workbench:WORKBENCH_LOCAL_STORAGE_TARGET_CHARS,total:FABUSHI_LOCAL_STORAGE_MAX_CHARS}), scheduleWorkspaceHeartbeat, workspaceHeartbeatScheduled:()=>Boolean(workspaceHeartbeatTimer), storagePersistenceStatus:()=>storagePersistenceStatus, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), setRunningForTest:value=>{running=Boolean(value);}, getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, interruptedFreshHandoffApprovalGate, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, assistantResponseBoundaryKey, taskTurnForInspection, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, conversationLoadFailure, clearConversationLoadFailureState, recoverConversationLoadFailure, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, normalizeReasoningPreset, reasoningPresetLabel, taskReasoningPreset, reasoningPickerTrigger, reasoningSliderState, clearReasoningPickerRecovery, waitForReasoningPicker, ensureTaskReasoningPreset, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, markApprovalUnavailable, clearApprovalUnavailableRefresh, refreshUnavailableApproval, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, storageStatusText, readRecentActivitySession, writeRecentActivitySession, recordRecentActivity, restoreRecentActivityMessages, taskRecoveryStatusText, persistWorkbenchState, durableTaskSnapshot, durableWorkbenchSnapshot, fitWorkbenchSnapshotToLocalBudget, writeLocalStorageRecord, readStorageString, readWorkbenchOverflow, cleanupStaleFabushiStorage, fabushiLocalStorageFootprint, storageBudgets:()=>({workbench:WORKBENCH_LOCAL_STORAGE_TARGET_CHARS,total:FABUSHI_LOCAL_STORAGE_MAX_CHARS}), scheduleWorkspaceHeartbeat, workspaceHeartbeatScheduled:()=>Boolean(workspaceHeartbeatTimer), storagePersistenceStatus:()=>storagePersistenceStatus, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), setRunningForTest:value=>{running=Boolean(value);}, getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('recent activity restores the last two hours after reload without putting history back into localStorage',async()=>{
@@ -2411,6 +2411,72 @@ test('disabled approval card blocks Stop-disappearance fresh handoff',async()=>{
     assert.equal(task.url,'https://chatgpt.com/c/approval-disabled-race','a disabled but visible approval must retain the same conversation');
     assert.notEqual(task.state,'queued','disabled approval must not queue a fresh-session handoff');
     assert.equal(task.messages.some(item=>/停止按钮已经消失且没有授权卡片/.test(item.text)),false);
+  } finally { h.pause(); dom.window.close(); }
+});
+
+test('disabled automatic approval refreshes the same conversation after one minute without fresh handoff',async()=>{
+  const {w,h,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:approval-refresh]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">partial connector work</div></div></article><div id="approval"><button type="button" disabled>拒绝</button><div><button type="button" id="allow-once" disabled>允许一次</button><button type="button" disabled aria-haspopup="menu" aria-label="审批选项">⌄</button></div></div><form><textarea id="prompt-textarea"></textarea></form></main>');
+  try {
+    w.history.pushState({},'', '/c/approval-refresh');
+    h.data.autoApprove=true;
+    const task={id:'approval-refresh',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/approval-refresh',token:'approval-refresh',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    const card=h.cards()[0];
+    assert.equal(card.actionable,false);
+    assert.equal(await h.authorize(card,task,null,true),false);
+    const started=Number(task.approvalUnavailableSince);
+    assert.ok(started>0,'unavailable automatic approval starts a task-scoped recovery episode');
+    assert.equal(h.refreshUnavailableApproval(task,false,started+59_999),false,'same-route reload is not allowed before a full minute');
+    assert.equal(h.refreshUnavailableApproval(task,false,started+60_000),true,'one minute permits a same-route approval renderer refresh');
+    assert.equal(task.url,'https://chatgpt.com/c/approval-refresh');
+    assert.equal(task.token,'approval-refresh');
+    assert.equal(task.phase,'work');
+    assert.equal(task.round,1);
+    assert.equal(task.state,'approval');
+    assert.equal(task.stalledRefreshAttempts||0,0,'approval renderer recovery must not consume generic stall attempts');
+    assert.equal(h.refreshUnavailableApproval(task,false,started+119_999),false,'the next approval refresh requires another full minute');
+    assert.equal(h.refreshUnavailableApproval(task,false,started+120_000),true);
+    assert.equal(task.approvalUnavailableRefreshCount,2);
+    assert.equal(task.url,'https://chatgpt.com/c/approval-refresh','repeated recovery never creates a fresh conversation');
+  } finally { h.pause(); dom.window.close(); }
+});
+
+test('approval settlement suppresses unavailable-card refresh and successful grant clears recovery episode',async()=>{
+  const {w,h,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:approval-settlement-refresh]</div></article><div id="approval"><button type="button">拒绝</button><div><button type="button">允许一次</button><button type="button" id="arrow" aria-haspopup="menu" aria-label="审批选项">⌄</button></div></div><form><textarea id="prompt-textarea"></textarea></form></main>');
+  try {
+    w.history.pushState({},'', '/c/approval-settlement-refresh');
+    h.data.autoApprove=true;
+    const task={id:'approval-settlement-refresh',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:2,state:'approval',url:'https://chatgpt.com/c/approval-settlement-refresh',token:'approval-settlement-refresh',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    h.markApprovalUnavailable(task,task.url,1_000_000);
+    task.approvalUnavailableRefreshAt=0;
+    const arrow=w.document.querySelector('#arrow');
+    arrow.addEventListener('pointerdown',()=>{
+      if(w.document.querySelector('[role=menu]'))return;
+      const menu=w.document.createElement('div');menu.setAttribute('role','menu');
+      const conversation=w.document.createElement('div');conversation.setAttribute('role','menuitem');conversation.textContent='Allow GitHub for this conversation';
+      menu.append(conversation);w.document.body.append(menu);
+    });
+    assert.equal(await h.authorize(h.cards()[0],task,null,true),true);
+    assert.ok(Number(task.approvalSettlementUntil)>Date.now());
+    assert.equal(task.approvalUnavailableIdentity||'','', 'successful conversation grant clears unavailable-card recovery');
+    h.markApprovalUnavailable(task,task.url,Date.now()-120_000);
+    assert.equal(h.refreshUnavailableApproval(task,false,Date.now()),false,'active settlement latch has precedence over renderer refresh');
+  } finally { h.pause(); dom.window.close(); }
+});
+
+test('missing conversation-scoped grant enters periodic approval recovery while manual mode does not refresh',async()=>{
+  const {w,h,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:approval-menu-hydration]</div></article><div id="approval"><button type="button">拒绝</button><div><button type="button">允许一次</button><button type="button" aria-haspopup="menu" aria-label="审批选项">⌄</button></div></div><form><textarea id="prompt-textarea"></textarea></form></main>');
+  try {
+    w.history.pushState({},'', '/c/approval-menu-hydration');
+    const task={id:'approval-menu-hydration',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:3,state:'approval',url:'https://chatgpt.com/c/approval-menu-hydration',token:'approval-menu-hydration',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    h.data.autoApprove=true;
+    assert.equal(await h.authorize(h.cards()[0],task,null,true),false,'menu without conversation grant stays pending');
+    assert.ok(Number(task.approvalUnavailableSince)>0);
+    task.approvalUnavailableSince=Date.now()-61_000;
+    h.data.autoApprove=false;
+    assert.equal(h.refreshUnavailableApproval(task,false,Date.now()),false,'manual approval mode never performs periodic page reloads');
   } finally { h.pause(); dom.window.close(); }
 });
 
