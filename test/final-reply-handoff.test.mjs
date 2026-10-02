@@ -1348,6 +1348,7 @@ test('marker-virtualized review consumes an exact visible next report without a 
       messages:[],
     };
     hooks.data.tasks.push(task);
+    await hooks.start();
     assert.equal(hooks.latestTurn(task).owned, false, 'the original Fabushi marker is intentionally virtualized');
     assert.equal(task.stopObservedGenerationIdentity, undefined, 'this regression has no historical Stop identity');
 
@@ -1402,6 +1403,7 @@ test('marker-virtualized review does not promote a visible report for another ta
       messages:[],
     };
     hooks.data.tasks.push(task);
+    await hooks.start();
     await hooks.inspect(task, null);
     const observation = hooks.observations.get(task.id);
     assert.equal(observation?.final, false);
