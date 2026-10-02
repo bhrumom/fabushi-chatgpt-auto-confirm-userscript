@@ -772,7 +772,7 @@ async function bootstrapAttempt() {
       'preview','previewSourceURL','previewPhase','previewRound',
       'prompt','transientConversationURLLast','attachmentUploadLastError',
       'navigationGuardNoticeAt','retainedComposerDraftNotedAt',
-      'reasoningPresetConfirmedAt','reasoningPresetConfirmedIndex',
+      'reasoningPresetConfirmedAt','reasoningPresetConfirmedIndex','recentActivitySnapshotLoggedAt',
     ]) delete snapshot[field];
 
     snapshot.id = String(snapshot.id || '').slice(0, 160);
@@ -4384,6 +4384,14 @@ async function bootstrapAttempt() {
     task.handoffReplySnapshotRound = Number(task.round || 0);
     task.handoffReplySnapshotGoalRevision = Number(task.goalRevision || 0);
     task.handoffReplySnapshotAt = now;
+    if (changed && now - Number(task.recentActivitySnapshotLoggedAt || 0) >= 60_000) {
+      task.recentActivitySnapshotLoggedAt = now;
+      recordRecentActivity(task, {
+        at:now,
+        role:'assistant',
+        text:`最近可见工作内容快照\n${snapshot.slice(0, MAX_TASK_MESSAGE_TEXT)}`,
+      }, now);
+    }
     return changed;
   }
   function captureOwnedAbnormalFreshCarry(task, turn = null, reason = '', sessionURL = '', now = Date.now(), { allowExactRouteFallback = false } = {}) {
@@ -7984,6 +7992,18 @@ NaN
   function element(tag, content, className) {
     const node = document.createElement(tag); if (content) node.textContent = content; if (className) node.className = className; return node;
   }
+  function taskRecoveryStatusText(task, now = Date.now()) {
+    if (!task?.pendingContinuationReason || !Number(task.pendingContinuationSince || 0)) return '';
+    const stalledSince = Math.max(Number(task.pendingContinuationSince || 0), Number(task.stalledRefreshAt || 0));
+    const refreshAt = stalledSince + INTERRUPTED_STOP_STALL_REFRESH_MS;
+    const remainingMs = Math.max(0, refreshAt - now);
+    const refreshCount = Number(task.stalledRefreshAttempts || 0);
+    if (!remainingMs) return `连接中断恢复：正在执行刷新检查 · 已刷新 ${refreshCount} 次`;
+    const totalSeconds = Math.ceil(remainingMs / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `连接中断恢复：约 ${minutes ? minutes + ' 分 ' : ''}${seconds} 秒后刷新当前会话 · 已刷新 ${refreshCount} 次`;
+  }
   function mount() {
     const root = element('div'); root.id = ROOT; root.dataset.version = VERSION;
     const style = element('style'); style.id = 'fabushi-auto-confirm-style';
@@ -8159,7 +8179,8 @@ NaN
       memoryStatusNode.textContent=[memoryStatusText(), storageStatusText()].filter(Boolean).join(' · ');
       memoryCleanupButton.disabled=memoryMonitorBusy || hostMemoryPending.size > 0;
       const runnableCount=tabTasks().filter(item=>!terminal.has(item.state)&&item.state!=='paused').length;
-      notice.textContent=`当前标签页工作区 · ${running?`监督中，${runnableCount>1?`多个本页任务每 ${Math.round(SUPERVISION_INTERVAL_MS / 1000)} 秒轮换`:'按当前任务推进'}；任务可单独暂停/继续`:'已暂停，自动操作已停止'} · 扫描 ${measurements.scans} 次，平均 ${(measurements.totalScanMs / Math.max(1, measurements.scans)).toFixed(1)} ms · 界面最近 ${measurements.lastPaintMs.toFixed(1)} ms、侧栏重建 ${measurements.sidebarRebuilds} 次 · ${[memoryStatusText(), storageStatusText()].filter(Boolean).join(' · ')}`;
+      const recoveryStatus = taskRecoveryStatusText(task);
+      notice.textContent=[`当前标签页工作区 · ${running?`监督中，${runnableCount>1?`多个本页任务每 ${Math.round(SUPERVISION_INTERVAL_MS / 1000)} 秒轮换`:'按当前任务推进'}；任务可单独暂停/继续`:'已暂停，自动操作已停止'}`, recoveryStatus, `扫描 ${measurements.scans} 次，平均 ${(measurements.totalScanMs / Math.max(1, measurements.scans)).toFixed(1)} ms · 界面最近 ${measurements.lastPaintMs.toFixed(1)} ms、侧栏重建 ${measurements.sidebarRebuilds} 次`, memoryStatusText(), storageStatusText()].filter(Boolean).join(' · ');
       pauseButton.textContent=task?.state==='paused'?'继续当前任务':(task?.state==='cancelled'||task?.state==='blocked')?'恢复任务':task&&!terminal.has(task.state)?(running?'暂停当前任务':'继续当前任务'):running?'暂停全部':'继续全部';
       globalPauseButton.textContent=running?'暂停全部任务':'继续全部任务';
       globalPauseButton.disabled=tabTasks().length===0;
@@ -8216,6 +8237,8 @@ NaN
         if (taskAttachments(item).length) meta.append(document.createTextNode(` · 📎 ${taskAttachments(item).length}`));
         const recoveryRemaining = Number(item.noFinalReplyRecoveryUntil || 0) - Date.now();
         if (recoveryRemaining > 0) meta.append(document.createTextNode(' · 异常恢复约 '+Math.ceil(recoveryRemaining / 60000)+' 分钟'));
+        const interruptionStatus = taskRecoveryStatusText(item);
+        if (interruptionStatus) meta.append(document.createTextNode(' · '+interruptionStatus.replace('连接中断恢复：','')));
         selectControl.append(meta); row.append(selectControl);
         {
           const actions=element('div','','task-row-actions');
@@ -8276,9 +8299,17 @@ NaN
       if(task)feed.append(element('div',`当前目标：${task.goal}`,'goal'));
       if(task)feed.append(element('div',`ChatGPT 档位：${reasoningPresetLabel(task.reasoningPreset)}`,'reasoning-preset'));
       if(task?.attachments?.length)feed.append(element('div',`任务附件：${taskAttachmentSummary(task)}`,'attachment-summary'));
-      const allMessages=task?.messages||[];
-      const renderedMessages=allMessages.slice(-MAX_RENDERED_TASK_MESSAGES);
-      if(allMessages.length>renderedMessages.length)feed.append(element('small',`为保持页面流畅，仅显示最近 ${renderedMessages.length}/${allMessages.length} 条记录；完整记录仍保存在当前浏览器。`,'render-limit'));
+      const allMessages=(task?.messages||[]).filter(message => Date.now() - Number(message?.at || 0) <= TASK_MESSAGE_RETENTION_MS);
+      const renderedMessages=[];
+      let renderedChars=0;
+      for(let index=allMessages.length-1;index>=0 && renderedMessages.length<MAX_RENDERED_TASK_MESSAGES;index-=1){
+        const message=allMessages[index];
+        const length=String(message?.text||'').length;
+        if(renderedMessages.length && renderedChars+length>MAX_RENDERED_TASK_MESSAGE_CHARS)break;
+        renderedMessages.unshift(message);renderedChars+=length;
+      }
+      if(task)feed.append(element('small',`最近 2 小时记录：已保留 ${allMessages.length} 条；页面刷新/会话切换后继续恢复。`,'render-limit'));
+      if(allMessages.length>renderedMessages.length)feed.append(element('small',`为保持页面流畅，本次显示最近 ${renderedMessages.length}/${allMessages.length} 条；其余仍保存在最近 2 小时记录中。`,'render-limit'));
       for(const message of renderedMessages){const bubble=element('div',message.text,`bubble ${message.role}`);const time=element('time',new Date(message.at).toLocaleTimeString());bubble.append(time);feed.append(bubble);}
       if(task?.preview && !terminal.has(task.state))feed.append(element('div',`实时回复\n${task.preview}`,'bubble assistant'));
       const sessionURL = canonicalConversationURL(task?.url);
