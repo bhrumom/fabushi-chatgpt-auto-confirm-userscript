@@ -1,8 +1,19 @@
-# Fabushi 独立自动确认工作台 2.10.28
+# Fabushi 独立自动确认工作台 2.10.29
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.28`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.29`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+
+## 2.10.29 发送前强制确认 Chat 模式
+
+- 修复 ChatGPT 新会话页处于 Work 模式时，Fabushi 仍可能直接发送任务的问题。
+- 每次新任务派发都会在模型/思考强度选择、附件上传和 Send 之前检查 Chat / Work 模式。
+- 支持中文 `聊天 / 工作` 和英文 `Chat / Work`；如果当前明确选中 Work，会自动切换到 Chat，并且只有确认 Chat 已选中后才继续发送。
+- 如果模式选择器存在但选中状态无法可靠确认、切换后仍停留在 Work、或页面显示 `使用 ChatGPT Work / Use ChatGPT Work` 但模式控件尚未加载，都会 fail closed：保留同一发送意图等待页面恢复，绝不会在 Work 中发送。
+- 没有 Work 能力、也没有任何 Work 特征的 Chat-only 页面保持原有兼容行为。
+- 模式识别依赖可访问语义状态（如 `aria-selected` / `aria-pressed` / `data-state`），不依赖颜色或像素判断。
+- 所有测试与发布只通过 GitHub Actions 或 htch-runtime，不在本地运行。
+- 详细规格见 [v2.10.29](docs/specs/force-chat-mode-before-send-v2.10.29.md)。
 
 ## 2.10.28 授权卡未完全加载时周期刷新当前会话
 
