@@ -34,7 +34,7 @@ async function fixture(body='', setup=()=>{}, url='https://chatgpt.com/') {
     const form = w.document.querySelector('form') || w.document.body;
     form.append(trigger);
   }
-  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, interruptedFreshHandoffApprovalGate, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, assistantResponseBoundaryKey, taskTurnForInspection, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, conversationLoadFailure, clearConversationLoadFailureState, recoverConversationLoadFailure, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, normalizeReasoningPreset, reasoningPresetLabel, taskReasoningPreset, reasoningPickerTrigger, reasoningSliderState, clearReasoningPickerRecovery, waitForReasoningPicker, ensureTaskReasoningPreset, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, markApprovalUnavailable, clearApprovalUnavailableRefresh, refreshUnavailableApproval, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, storageStatusText, readRecentActivitySession, writeRecentActivitySession, recordRecentActivity, restoreRecentActivityMessages, taskRecoveryStatusText, persistWorkbenchState, durableTaskSnapshot, durableWorkbenchSnapshot, fitWorkbenchSnapshotToLocalBudget, writeLocalStorageRecord, readStorageString, readWorkbenchOverflow, cleanupStaleFabushiStorage, fabushiLocalStorageFootprint, storageBudgets:()=>({workbench:WORKBENCH_LOCAL_STORAGE_TARGET_CHARS,total:FABUSHI_LOCAL_STORAGE_MAX_CHARS}), scheduleWorkspaceHeartbeat, workspaceHeartbeatScheduled:()=>Boolean(workspaceHeartbeatTimer), storagePersistenceStatus:()=>storagePersistenceStatus, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), setRunningForTest:value=>{running=Boolean(value);}, getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, interruptedFreshHandoffApprovalGate, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, assistantResponseBoundaryKey, taskTurnForInspection, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, conversationLoadFailure, clearConversationLoadFailureState, recoverConversationLoadFailure, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, normalizeReasoningPreset, reasoningPresetLabel, taskReasoningPreset, localizedChatWorkModeKind, chatWorkModeSelection, chatWorkModeControls, workModeEvidence, chatWorkModeState, ensureChatMode, reasoningPickerTrigger, reasoningSliderState, clearReasoningPickerRecovery, waitForReasoningPicker, ensureTaskReasoningPreset, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, markApprovalUnavailable, clearApprovalUnavailableRefresh, refreshUnavailableApproval, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, storageStatusText, readRecentActivitySession, writeRecentActivitySession, recordRecentActivity, restoreRecentActivityMessages, taskRecoveryStatusText, persistWorkbenchState, durableTaskSnapshot, durableWorkbenchSnapshot, fitWorkbenchSnapshotToLocalBudget, writeLocalStorageRecord, readStorageString, readWorkbenchOverflow, cleanupStaleFabushiStorage, fabushiLocalStorageFootprint, storageBudgets:()=>({workbench:WORKBENCH_LOCAL_STORAGE_TARGET_CHARS,total:FABUSHI_LOCAL_STORAGE_MAX_CHARS}), scheduleWorkspaceHeartbeat, workspaceHeartbeatScheduled:()=>Boolean(workspaceHeartbeatTimer), storagePersistenceStatus:()=>storagePersistenceStatus, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), setRunningForTest:value=>{running=Boolean(value);}, getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('recent activity restores the last two hours after reload without putting history back into localStorage',async()=>{
@@ -535,6 +535,116 @@ test('missing reasoning picker waits, then actively refreshes the same page inst
     assert.equal(ticket?.task,task.id);
     assert.match(task.messages.at(-1)?.text||'',/正在刷新当前 ChatGPT 页面重新检查（第 1 次）/);
 
+  } finally {h.pause();dom.window.close();}
+});
+
+test('Chinese Work mode switches to Chat and verifies semantic selection before dispatch continues',async()=>{
+  const {w,h,dom}=await fixture(`<main>
+    <div role="tablist">
+      <button type="button" role="tab" aria-selected="false">聊天</button>
+      <button type="button" role="tab" aria-selected="true">工作</button>
+    </div>
+    <form><textarea id="prompt-textarea" placeholder="使用 ChatGPT Work"></textarea></form>
+  </main>`);
+  try {
+    const [chat,work]=w.document.querySelectorAll('[role=tab]');
+    chat.addEventListener('click',()=>{
+      chat.setAttribute('aria-selected','true');
+      work.setAttribute('aria-selected','false');
+      w.document.querySelector('#prompt-textarea').setAttribute('placeholder','向 ChatGPT 发送消息');
+    });
+    const task={id:'chat-mode-zh',ownerTabId:h.getTabId(),goal:'chat only',mode:'once',phase:'work',round:1,state:'sending',messages:[]};
+    h.data.tasks.push(task);
+    h.setRunningForTest(true);
+    assert.equal(h.chatWorkModeState().state,'work');
+    assert.equal(await h.ensureChatMode(task,null),true);
+    assert.equal(h.chatWorkModeState().state,'chat');
+    assert.match(task.messages.at(-1)?.text||'',/已在发送前切换到聊天 \/ Chat 模式/);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('English Work mode switches to Chat with localized labels',async()=>{
+  const {w,h,dom}=await fixture(`<main>
+    <div role="tablist">
+      <button type="button" role="tab" aria-selected="false">Chat</button>
+      <button type="button" role="tab" aria-selected="true">Work</button>
+    </div>
+    <form><textarea id="prompt-textarea" placeholder="Use ChatGPT Work"></textarea></form>
+  </main>`);
+  try {
+    const [chat,work]=w.document.querySelectorAll('[role=tab]');
+    chat.addEventListener('click',()=>{
+      chat.setAttribute('aria-selected','true');
+      work.setAttribute('aria-selected','false');
+      w.document.querySelector('#prompt-textarea').setAttribute('placeholder','Message ChatGPT');
+    });
+    const task={id:'chat-mode-en',ownerTabId:h.getTabId(),goal:'chat only',mode:'once',phase:'work',round:1,state:'sending',messages:[]};
+    h.data.tasks.push(task);
+    h.setRunningForTest(true);
+    assert.equal(h.localizedChatWorkModeKind(chat),'chat');
+    assert.equal(h.localizedChatWorkModeKind(work),'work');
+    assert.equal(await h.ensureChatMode(task,null),true);
+    assert.equal(h.chatWorkModeState().state,'chat');
+  } finally {h.pause();dom.window.close();}
+});
+
+test('ambiguous Chat Work selector fails closed instead of guessing from appearance',async()=>{
+  const {h,dom}=await fixture(`<main>
+    <div><button type="button">聊天</button><button type="button">工作</button></div>
+    <form><textarea id="prompt-textarea"></textarea></form>
+  </main>`);
+  try {
+    const task={id:'chat-mode-ambiguous',ownerTabId:h.getTabId(),goal:'do not guess',mode:'once',phase:'work',round:1,state:'sending',messages:[]};
+    h.data.tasks.push(task);
+    h.setRunningForTest(true);
+    assert.equal(h.chatWorkModeState().state,'ambiguous');
+    assert.equal(await h.ensureChatMode(task,null),false);
+    assert.match(task.messages.at(-1)?.text||'',/当前模式无法可靠确认/);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('Work-specific composer evidence blocks dispatch while the selector is not hydrated',async()=>{
+  const {h,dom}=await fixture('<main><form><textarea id="prompt-textarea" placeholder="使用 ChatGPT Work"></textarea></form></main>');
+  try {
+    const task={id:'work-evidence-only',ownerTabId:h.getTabId(),goal:'wait for selector',mode:'once',phase:'work',round:1,state:'sending',messages:[]};
+    h.data.tasks.push(task);
+    h.setRunningForTest(true);
+    assert.equal(h.chatWorkModeState().state,'work-evidence');
+    assert.equal(await h.ensureChatMode(task,null),false);
+    assert.match(task.messages.at(-1)?.text||'',/ChatGPT Work 页面/);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('Chat-only surfaces without mode controls remain compatible',async()=>{
+  const {h,dom}=await fixture('<main><form><textarea id="prompt-textarea" placeholder="Message ChatGPT"></textarea></form></main>');
+  try {
+    const task={id:'chat-only-surface',ownerTabId:h.getTabId(),goal:'compatibility',mode:'once',phase:'work',round:1,state:'sending',messages:[]};
+    h.data.tasks.push(task);
+    h.setRunningForTest(true);
+    assert.equal(h.chatWorkModeState().state,'absent');
+    assert.equal(await h.ensureChatMode(task,null),true);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('Send never clicks while Work remains selected after Chat activation',async()=>{
+  const {w,h,dom}=await fixture(`<main>
+    <div role="tablist">
+      <button type="button" role="tab" aria-selected="false">Chat</button>
+      <button type="button" role="tab" aria-selected="true">Work</button>
+    </div>
+    <form><textarea id="prompt-textarea" placeholder="Use ChatGPT Work"></textarea><button type="button" data-testid="send-button">Send</button></form>
+  </main>`);
+  let sends=0;
+  w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>sends++);
+  const task={id:'work-stuck-send-guard',ownerTabId:h.getTabId(),goal:'never send in Work',mode:'once',phase:'work',round:1,state:'queued',url:'',token:'',messages:[]};
+  h.data.tasks.push(task);
+  h.setRunningForTest(true);
+  try {
+    assert.equal(await h.send(task,null),undefined);
+    assert.equal(sends,0);
+    assert.equal(task.sendPrepared,true,'prepared intent remains durable while mode verification blocks Send');
+    assert.equal(h.chatWorkModeState().state,'work');
+    assert.match(task.messages.at(-1)?.text||'',/未能确认聊天模式已选中/);
   } finally {h.pause();dom.window.close();}
 });
 
@@ -6152,8 +6262,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2\.10\.28$/m);
-  assert.match(source,/const VERSION = '2.10.28'/);
+  assert.match(source,/^\/\/ @version\s+2.10.29$/m);
+  assert.match(source,/const VERSION = '2.10.29'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
