@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.28
+// @version      2.10.29
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.28';
+  const VERSION = '2.10.29';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -3315,6 +3315,121 @@ async function bootstrapAttempt() {
     });
   }
   function composer() { return nodes('#prompt-textarea,textarea,[contenteditable=true]').find(enabled); }
+  const CHAT_MODE_LABEL_RE = /^(?:聊天(?:模式)?|chat(?: mode)?)$/iu;
+  const WORK_MODE_LABEL_RE = /^(?:工作(?:模式)?|work(?: mode)?)$/iu;
+  const CHATGPT_WORK_EVIDENCE_RE = /^(?:使用\s*ChatGPT\s*Work|Use\s+ChatGPT\s+Work)$/iu;
+  function localizedChatWorkModeKind(node) {
+    if (!node) return '';
+    const candidates = [
+      text(node),
+      normalize(node.getAttribute?.('aria-label') || ''),
+      normalize(node.getAttribute?.('title') || ''),
+    ].filter(Boolean);
+    if (candidates.some(value => CHAT_MODE_LABEL_RE.test(value))) return 'chat';
+    if (candidates.some(value => WORK_MODE_LABEL_RE.test(value))) return 'work';
+    return '';
+  }
+  function chatWorkModeSelection(node) {
+    if (!node) return null;
+    const booleanAttributes = ['aria-selected','aria-pressed','aria-checked'];
+    for (const name of booleanAttributes) {
+      const raw = String(node.getAttribute?.(name) || '').trim().toLowerCase();
+      if (raw === 'true') return true;
+      if (raw === 'false') return false;
+    }
+    const current = String(node.getAttribute?.('aria-current') || '').trim().toLowerCase();
+    if (current && current !== 'false') return true;
+    if (current === 'false') return false;
+    for (const name of ['data-selected','data-active','data-checked']) {
+      const raw = String(node.getAttribute?.(name) || '').trim().toLowerCase();
+      if (raw === 'true' || raw === '1' || raw === 'yes') return true;
+      if (raw === 'false' || raw === '0' || raw === 'no') return false;
+    }
+    const state = String(node.getAttribute?.('data-state') || '').trim().toLowerCase();
+    if (['active','selected','checked','on'].includes(state)) return true;
+    if (['inactive','unselected','unchecked','off'].includes(state)) return false;
+    if (node.getAttribute?.('role') === 'tab') {
+      const tabIndex = Number(node.getAttribute?.('tabindex'));
+      if (Number.isInteger(tabIndex)) {
+        if (tabIndex === 0) return true;
+        if (tabIndex === -1) return false;
+      }
+    }
+    return null;
+  }
+  function modePairDistance(left, right) {
+    if (!left || !right) return Number.POSITIVE_INFINITY;
+    const leftAncestors = [];
+    for (let node = left; node && node !== document.body && leftAncestors.length < 6; node = node.parentElement) leftAncestors.push(node);
+    const rightAncestors = new Map();
+    let depth = 0;
+    for (let node = right; node && node !== document.body && depth < 6; node = node.parentElement, depth++) rightAncestors.set(node, depth);
+    let best = Number.POSITIVE_INFINITY;
+    leftAncestors.forEach((node, leftDepth) => {
+      if (rightAncestors.has(node)) best = Math.min(best, leftDepth + rightAncestors.get(node));
+    });
+    return best;
+  }
+  function chatWorkModeControls() {
+    const controls = nodes('button,[role="tab"],[role="radio"]').filter(visible);
+    const chats = controls.filter(node => localizedChatWorkModeKind(node) === 'chat');
+    const works = controls.filter(node => localizedChatWorkModeKind(node) === 'work');
+    let best = null;
+    for (const chat of chats) {
+      for (const work of works) {
+        const distance = modePairDistance(chat, work);
+        if (!Number.isFinite(distance) || distance > 6) continue;
+        if (!best || distance < best.distance) best = { chat, work, distance };
+      }
+    }
+    return best;
+  }
+  function workModeEvidence() {
+    return nodes('textarea,[contenteditable=true],[placeholder],[aria-label],button,div,span,p')
+      .some(node => visible(node) && [
+        normalize(node.getAttribute?.('placeholder') || ''),
+        normalize(node.getAttribute?.('aria-label') || ''),
+        text(node),
+      ].some(value => value && CHATGPT_WORK_EVIDENCE_RE.test(value)));
+  }
+  function chatWorkModeState() {
+    const pair = chatWorkModeControls();
+    if (!pair) return { state:workModeEvidence() ? 'work-evidence' : 'absent', pair:null };
+    const chatSelected = chatWorkModeSelection(pair.chat);
+    const workSelected = chatWorkModeSelection(pair.work);
+    if (chatSelected === true && workSelected !== true) return { state:'chat', pair, chatSelected, workSelected };
+    if (workSelected === true && chatSelected !== true) return { state:'work', pair, chatSelected, workSelected };
+    return { state:'ambiguous', pair, chatSelected, workSelected };
+  }
+  async function ensureChatMode(task, signal) {
+    let observed = chatWorkModeState();
+    if (observed.state === 'absent') return true;
+    if (observed.state === 'work-evidence') {
+      waitForSendUI(task, '检测到 ChatGPT Work 页面，但聊天/工作模式选择器尚未就绪');
+      return false;
+    }
+    if (observed.state === 'chat') return true;
+    if (observed.state === 'ambiguous') {
+      waitForSendUI(task, '已识别 ChatGPT 聊天/工作模式选择器，但当前模式无法可靠确认');
+      return false;
+    }
+    if (!enabled(observed.pair?.chat)) {
+      waitForSendUI(task, '当前处于 ChatGPT Work，但“聊天/Chat”模式按钮暂不可用');
+      return false;
+    }
+    activateControl(observed.pair.chat);
+    for (let attempt = 0; attempt < 8; attempt++) {
+      await delay(100, signal); check(signal);
+      observed = chatWorkModeState();
+      if (observed.state === 'chat') {
+        log(task, '检测到 ChatGPT Work，已在发送前切换到聊天 / Chat 模式并完成确认。');
+        return true;
+      }
+      if (observed.state === 'ambiguous' || observed.state === 'absent' || observed.state === 'work-evidence') break;
+    }
+    waitForSendUI(task, '已尝试从 ChatGPT Work 切换到聊天 / Chat，但未能确认聊天模式已选中');
+    return false;
+  }
   function reasoningPickerTrigger() {
     return nodes('button[data-codex-intelligence-trigger="true"],button[data-composer-navigation-target="reasoning"]')
       .find(node => enabled(node) && (node.getAttribute('aria-haspopup') === 'menu' || node.hasAttribute('data-selected-reasoning-effort')));
@@ -6364,6 +6479,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const input = composer();
     if (!input) return waitForSendUI(task, '未找到 ChatGPT 输入框');
     if (conversationRoleNodes('user').length) return waitForSendUI(task, '新会话页面仍保留旧消息');
+    if (!await ensureChatMode(task, signal)) return;
     if (!await ensureTaskReasoningPreset(task, signal)) return;
     if (!await ensureTaskAttachments(task, input, signal)) return;
     const prompt = task.preparedPrompt || (task.phase === 'review' ? plannerPrompt(task) : workPrompt(task));
