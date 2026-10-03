@@ -3,7 +3,7 @@
 Status: active
 Owner: Fabushi ChatGPT auto-confirm
 Last updated: 2026-10-03
-Related issue/task/PR: user-reported Work-mode misdispatch; implementation PR pending
+Related issue/task/PR: user-reported Work-mode misdispatch; PR #147
 
 ## 1. Context / problem
 
@@ -136,5 +136,5 @@ Task log should explicitly say when Work was detected and Chat was selected, or 
 
 | Requirement / AC | Status | Evidence / reason |
 | --- | --- | --- |
-| R1-R12 | blocked | Implementation and exact-head CI pending. |
-| AC-1-AC-8 | blocked | Implementation and exact-head CI pending. |
+| R1-R12 | passed | PR #147 implements localized Chat/Work recognition, semantic selection verification, Work->Chat switching before reasoning/attachments/Send, fail-closed ambiguous/Work-only evidence handling, and preserves Chat-only compatibility. Exact-head Test run `37088170317` passed syntax and the full regression suite on head `6e204d876f0b435b5451d30be9a60b39dc9bea5b`. |
+| AC-1-AC-8 | passed | Chinese/English switching, ambiguous selection, stuck-Work no-Send, Work-evidence-only blocking, Chat-only compatibility, and existing regressions all passed in exact-head Test run `37088170317`. |
