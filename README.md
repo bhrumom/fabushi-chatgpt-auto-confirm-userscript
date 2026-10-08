@@ -1,8 +1,17 @@
-# Fabushi 独立自动确认工作台 2.10.37
+# Fabushi 独立自动确认工作台 2.10.38
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.37`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.38`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+
+## 2.10.38 授权卡识别不再依赖具体文案
+
+- 授权卡识别改为**结构优先、内容无关**：只要 ChatGPT 当前显示的是可识别的 approval / authorization / permission card surface，就先判定“存在授权”，不再要求标题必须类似“允许 ChatGPT 使用 GitHub？”。
+- 显式授权卡即使按钮还没加载、按钮语言未知、connector/provider 名称变化，也会作为 non-actionable authorization 保留当前会话并阻止 Send / 异常接力。
+- 对没有显式 card metadata 的 renderer，脚本会使用授权控件拓扑识别：Allow/Approve + Reject/Deny，或 Allow/Approve + split/options，只要它们位于真实 card/group/dialog/surface 中就算授权卡；完整 Reject + Allow + split-menu 才进入原有可自动授权路径。
+- 标题文字匹配只保留为兼容兜底，不再是授权卡成立条件。普通孤立 Allow 按钮、聊天正文、引用/代码、composer、导航和 Fabushi 自己的 UI 仍不会被误判。
+- 恢复任务、普通监控、Stop 消失前复核、Send 前检查和全局授权扫描继续共用同一个 `cards()` 结果，因此不同授权卡内容不会走不同分支。
+- 详细规范见 [v2.10.38](docs/specs/content-independent-authorization-card-v2.10.38.md)。
 
 ## 2.10.37 恢复任务优先识别当前授权 surface
 
