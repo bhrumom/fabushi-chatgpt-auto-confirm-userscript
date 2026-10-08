@@ -5781,7 +5781,7 @@ async function bootstrapAttempt() {
   function authorizationCardShell(node) {
     if (!node || node === document.body || node.tagName === 'MAIN') return false;
     if (node.matches?.(liveApprovalSurfaceSelector)) return true;
-    if (node.matches?.('section,[role="group"],[role="dialog"],[role="alertdialog"],[data-radix-dialog-content],[data-dialog-content]')) return true;
+    if (node.matches?.('[role="dialog"],[role="alertdialog"],[data-radix-dialog-content],[data-dialog-content]')) return true;
     const structural = normalize(`${node.getAttribute?.('class') || ''} ${node.getAttribute?.('data-testid') || ''}`);
     return /(?:^|[\\s_:/-])(?:card|panel|surface|rounded|border|container)(?:$|[\\s_:/-])/i.test(structural);
   }
