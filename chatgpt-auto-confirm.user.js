@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.35
+// @version      2.10.36
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.35';
+  const VERSION = '2.10.36';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -221,6 +221,8 @@ async function bootstrapAttempt() {
   // Require a second stable no-approval observation after a wide structural
   // re-scan before Stop-disappearance recovery is allowed.
   const STOP_NO_APPROVAL_CONFIRM_MS = 8 * 1000;
+  const CHAT_WORK_STAY_RETRY_MS = 3000;
+  const CHAT_WORK_STAY_SETTLEMENT_MS = 45 * 1000;
   const POPUP_DISMISS_SCAN_MS = 5000;
   const HIDDEN_POPUP_DISMISS_SCAN_MS = 15000;
   // A full ChatGPT navigation creates a new document before the previous
@@ -5851,6 +5853,127 @@ async function bootstrapAttempt() {
       return buttonBounds && buttonBounds.top <= bounds.top + 96 && buttonBounds.right >= bounds.right - 140;
     }) || null;
   }
+  // The ChatGPT Work *continuation offer* is a product decision in an
+  // already-running Chat conversation, not a connector authorization card,
+  // final reply, or connection interruption. Its Stop button may disappear
+  // while the short-lived choice is shown. Only the exact titled, two-action
+  // surface may trigger the requested "stay in chat" action.
+  const chatWorkOfferStayLabel = /^(?:留在聊天模式|留在聊天中|保持聊天模式|stay in chat(?: mode)?|keep chatting)(?:\s*[（(]?\d{1,3}(?:\s*(?:秒|s|sec))?[）)]?)?$/iu;
+  const chatWorkOfferMoveLabel = /^(?:在\s*(?:ChatGPT\s*)?Work\s*中继续|continue (?:in|with) (?:ChatGPT\s*)?Work)$/iu;
+  const chatWorkOfferTitleLabel = /^(?:在\s*ChatGPT\s*Work\s*中继续|continue (?:in|with) ChatGPT\s*Work)$/iu;
+  function chatWorkContinueOffer() {
+    const main = document.querySelector('main,[role="main"]');
+    if (!main || !visible(main)) return null;
+    // Button-first search avoids walking/materializing a long transcript on
+    // every four-second task scan; the ancestor/title checks are only for the
+    // few buttons that match the exact "stay" action.
+    const buttons = nodes('button,[role="button"]', main);
+    for (const stay of buttons.slice(-80)) {
+      if (!visible(stay) || stay.closest('nav,aside,form,blockquote,pre,code,[contenteditable="true"],[data-message-author-role="user"],[data-user-message-bubble="true"]')) continue;
+      const labels = [actionText(stay),stay.getAttribute('aria-label'),stay.getAttribute('title')];
+      if (!labels.some(value => chatWorkOfferStayLabel.test(normalize(value)))) continue;
+      for (let scope = stay.parentElement, depth = 0;
+        scope && scope !== main && !scope.matches('body,html') && depth < 8;
+        scope = scope.parentElement, depth++) {
+        if (own(scope) || !visible(scope)) break;
+        // Exclude response-sized ancestors: a title elsewhere in the thread
+        // must never be combined with an unrelated "stay" button.
+        const direct = nodes('button,[role="button"]', scope);
+        if (direct.length < 2 || direct.length > 6) continue;
+        const work = direct.find(node => node !== stay && visible(node)
+          && [actionText(node),node.getAttribute('aria-label'),node.getAttribute('title')]
+            .some(value => chatWorkOfferMoveLabel.test(normalize(value))));
+        if (!work) continue;
+        const headings = nodes('h1,h2,h3,h4,[role="heading"],div,span,p,strong', scope);
+        const title = headings.find(node => visible(node)
+          && !node.closest('button,[role="button"],blockquote,pre,code,[data-message-author-role="user"],[data-user-message-bubble="true"]')
+          && chatWorkOfferTitleLabel.test(text(node)));
+        if (title) return {container:scope,stay,work,title};
+      }
+    }
+    return null;
+  }
+  function chatWorkStayIdentity(task, liveURL = currentConversationURL()) {
+    const taskURL = canonicalConversationURL(task?.url);
+    if (!taskURL || taskURL !== canonicalConversationURL(liveURL) || !task?.token) return '';
+    return JSON.stringify([taskURL,String(task.token),String(task.phase || ''),Number(task.round || 0),Number(task.goalRevision || 0)]);
+  }
+  function clearChatWorkStayState(task) {
+    if (!task) return false;
+    const changed = Boolean(task.chatWorkStayIdentity || task.chatWorkStayClickedAt || task.chatWorkStayLastAttemptAt);
+    task.chatWorkStayIdentity = '';
+    task.chatWorkStayClickedAt = 0;
+    task.chatWorkStayLastAttemptAt = 0;
+    return changed;
+  }
+  function handleChatWorkContinueOffer(task, signal, now = Date.now()) {
+    if (!task || !running || data.autoResume === false || !taskBelongsToTab(task)
+      || terminal.has(task.state) || task.state === 'paused' || task.attempted) return false;
+    const identity = chatWorkStayIdentity(task);
+    if (!identity || tabTasks().some(other => other.id !== task.id && other.token && hasTaskMarker(other))
+      || conversationURLOwner(canonicalConversationURL(task.url), task.id)) return false;
+    const offer = chatWorkContinueOffer();
+    if (task.chatWorkStayIdentity && task.chatWorkStayIdentity !== identity) {
+      clearChatWorkStayState(task);
+      task.updatedAt = now;
+      save();
+    }
+    if (offer) {
+      // Connector permissions take precedence over this product prompt.
+      if (cards({wide:true}).length) return false;
+      check(signal);
+      if (task.chatWorkStayIdentity !== identity) {
+        clearChatWorkStayState(task);
+        task.chatWorkStayIdentity = identity;
+        log(task, '当前会话出现“在 ChatGPT Work 中继续”卡片；将选择留在聊天模式，停止按钮暂时消失不代表异常中断。');
+      }
+      if (enabled(offer.stay) && now - Number(task.chatWorkStayLastAttemptAt || 0) >= CHAT_WORK_STAY_RETRY_MS) {
+        task.chatWorkStayLastAttemptAt = now;
+        // Latch before clicking: React may immediately unmount the buttons.
+        task.chatWorkStayClickedAt = now;
+        activateControl(offer.stay);
+        log(task, '已在当前 ChatGPT 会话点击“留在聊天模式”；保持原会话等待回复恢复，不新开会话。');
+      }
+      // The unchosen, pending or disabled offer is still a live product gate.
+      // Do not release the existing conversation when Stop is temporarily gone.
+      clearStopNoApprovalConfirmation(task);
+      task.abnormalNoFinalSince = 0;
+      task.abnormalNoFinalSignature = '';
+      task.state = 'waiting';
+      task.updatedAt = now;
+      save();
+      return true;
+    }
+    if (task.chatWorkStayIdentity === identity) {
+      if (stopButton()) {
+        // A new Stop means the existing conversation really resumed.
+        clearChatWorkStayState(task);
+        task.updatedAt = now;
+        save();
+        return false;
+      }
+      if (task.chatWorkStayClickedAt
+        && now - Number(task.chatWorkStayClickedAt) < CHAT_WORK_STAY_SETTLEMENT_MS) {
+        // Do not promote the transient absence of both card and Stop to an
+        // ended/no-final event while ChatGPT hydrates its resumed Chat stream.
+        clearStopNoApprovalConfirmation(task);
+        task.abnormalNoFinalSince = 0;
+        task.abnormalNoFinalSignature = '';
+        if (task.state !== 'waiting') {
+          task.state = 'waiting';
+          task.updatedAt = now;
+          save();
+        }
+        return true;
+      }
+      // A vanished card without a verified click is not proof of staying in
+      // Chat; ordinary route/response guards decide what to do next.
+      clearChatWorkStayState(task);
+      task.updatedAt = now;
+      save();
+    }
+    return false;
+  }
   let lastRunnerOverlayScanAt = 0;
   function dismissUnexpectedModals(task = null, scanContext = null) {
     const approvalContainers = (scanContext?.cards() || cards()).map(card => card.container);
@@ -6406,6 +6529,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.continuationSentAt = 0;
     task.continuationCount = 0;
     clearStopObservedGeneration(task);
+    clearChatWorkStayState(task);
     clearApprovalUnavailableRefresh(task);
     clearApprovalSettlement(task);
     task.connectionInterruptedSince = 0;
@@ -7103,6 +7227,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.workspaceDocumentRecoveryAttempts = 0;
     task.continuationSentAt = 0;
     task.continuationCount = 0;
+    clearChatWorkStayState(task);
     clearApprovalUnavailableRefresh(task);
     clearApprovalSettlement(task);
     task.connectionInterruptedSince = 0;
@@ -7161,6 +7286,10 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       state(task, 'waiting', '正在等待切换到当前任务会话；不会读取其他任务的页面内容。');
       return;
     }
+    // Handle an in-response Work upsell before any generic modal dismissal or
+    // Stop-absent/connection-interrupted fresh-chat decision. The exact task
+    // route was checked above and no second ChatGPT prompt is sent here.
+    if (handleChatWorkContinueOffer(task, signal)) return;
     const begin = performance.now();
     resetScanDiagnostics();
     // The context is created only after async navigation and route ownership
