@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.36
+// @version      2.10.37
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.36';
+  const VERSION = '2.10.37';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -3577,15 +3577,27 @@ async function bootstrapAttempt() {
     trigger.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',code:'Escape',bubbles:true}));
     if (trigger.getAttribute('aria-expanded') === 'true') trigger.click();
   }
+  function modelPickerVisibleSurface() {
+    if (reasoningSliderState()) return 'strength';
+    if (modelRadioOptions().length) return 'models';
+    const firstLevel = modelSubmenuEntry() || nodes('[role="menuitem"]')
+      .find(node => enabled(node) && /^(?:强度|Strength)$/i.test(normalize(node.getAttribute('aria-label') || label(node))));
+    return firstLevel ? 'parent' : 'closed';
+  }
   function safeModelPickerDismissTarget(trigger) {
     // The real ChatGPT model submenu can ignore Escape and clicks on its
     // trigger until a pointer interaction lands outside its portal.
-    // Never dismiss through Send, navigation, transcript or Fabushi controls.
-    const candidates = nodes('main h1,main h2,[role="main"] h1,[role="main"] h2');
-    return candidates.find(node => node.isConnected && visible(node) && !own(node)
+    // Prefer inert headings, but active conversations do not always render
+    // one. The main conversation surface itself is a safe fallback.
+    const safe = node => node && node.isConnected && visible(node) && !own(node)
       && node !== trigger && !node.contains(trigger)
       && !node.closest('button,a,[role="button"],[role="menu"],[role="dialog"],form,nav,aside')
-      && !node.closest('[contenteditable="true"]')) || null;
+      && !node.closest('[contenteditable="true"]');
+    const headings = nodes('main h1,main h2,[role="main"] h1,[role="main"] h2');
+    const heading = headings.find(safe);
+    if (heading) return heading;
+    return nodes('main,[role="main"]').find(node => safe(node)
+      && !node.matches?.('button,a,[role="button"],[role="menu"],[role="dialog"],form,nav,aside,[contenteditable="true"]')) || null;
   }
   async function dismissModelPickerOutside(trigger, signal) {
     const target = safeModelPickerDismissTarget(trigger);
@@ -3594,30 +3606,38 @@ async function bootstrapAttempt() {
       const EventClass = type.startsWith('pointer') && typeof PointerEvent === 'function' ? PointerEvent : MouseEvent;
       target.dispatchEvent(new EventClass(type,{bubbles:true,cancelable:true,button:0}));
     }
-    await delay(100,signal); check(signal);
-    return !modelRadioOptions().length && trigger.getAttribute('aria-expanded') !== 'true';
+    await delay(120,signal); check(signal);
+    // ChatGPT can leave aria-expanded=true stale for a render after the portal
+    // is already gone. The visible surface is authoritative for reopening.
+    return modelPickerVisibleSurface() === 'closed';
   }
   async function reopenModelPicker(trigger, signal) {
     if (!trigger || !enabled(trigger) || !trigger.isConnected) return false;
-    // Escape/hover alone is insufficient on the authenticated nested menu.
+    let surface = modelPickerVisibleSurface();
+    if (surface === 'strength' || surface === 'parent') return true;
+
+    // Escape and pointer release are cheap first steps. If a model radio
+    // portal is still visible, dismiss it through a safe outside surface.
     trigger.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',code:'Escape',bubbles:true}));
     trigger.dispatchEvent(new MouseEvent('mouseout',{bubbles:true,relatedTarget:document.body}));
     trigger.dispatchEvent(new MouseEvent('mouseleave',{bubbles:false,relatedTarget:document.body}));
     trigger.blur?.();
     await delay(90,signal); check(signal);
-    if (modelRadioOptions().length || trigger.getAttribute('aria-expanded') === 'true') {
-      if (!await dismissModelPickerOutside(trigger,signal)) {
-        // Legacy first-level menus may still close through the trigger;
-        // never trust that toggle while radio options remain visible.
-        if (modelRadioOptions().length) return false;
-        if (trigger.getAttribute('aria-expanded') === 'true') trigger.click();
-        await delay(90,signal); check(signal);
-      }
-    }
-    if (modelRadioOptions().length || !enabled(trigger) || !trigger.isConnected) return false;
-    if (trigger.getAttribute('aria-expanded') !== 'true') trigger.click();
-    await delay(120,signal); check(signal);
-    return trigger.isConnected && trigger.getAttribute('aria-expanded') === 'true';
+    surface = modelPickerVisibleSurface();
+    if (surface === 'strength' || surface === 'parent') return true;
+    if (surface === 'models' && !await dismissModelPickerOutside(trigger,signal)) return false;
+
+    surface = modelPickerVisibleSurface();
+    if (surface === 'strength' || surface === 'parent') return true;
+    if (surface !== 'closed' || !enabled(trigger) || !trigger.isConnected) return false;
+
+    // Do not gate this click on aria-expanded. The authenticated renderer can
+    // leave that attribute stale after outside dismissal; one real reopen
+    // click from a visibly closed state reliably restores the strength menu.
+    trigger.click();
+    await delay(150,signal); check(signal);
+    surface = modelPickerVisibleSurface();
+    return trigger.isConnected && (surface === 'strength' || surface === 'parent' || surface === 'models');
   }
   async function openModelRadioList(trigger, signal) {
     let radios = modelRadioOptions();

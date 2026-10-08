@@ -728,6 +728,27 @@ test('sticky model radios recover strength only after safe outside heading point
   }finally{h.pause();dom.window.close();}
 });
 
+test('stale aria-expanded after outside dismissal still reopens strength with one click',async()=>{
+  const {h,w,dom}=await fixture('<main id="chat-main"><button type="button" data-codex-intelligence-trigger="true" data-composer-navigation-target="reasoning" aria-haspopup="menu" aria-expanded="false" data-selected-reasoning-effort="medium">中</button><form><textarea id="prompt-textarea"></textarea></form></main>',window=>{
+    const d=window.document,trigger=d.querySelector('[data-codex-intelligence-trigger]');
+    const main=d.querySelector('#chat-main');
+    let opened=0;
+    const drawModels=()=>{const menu=d.createElement('div');menu.setAttribute('role','menu');menu.innerHTML='<div role="menuitemradio" aria-checked="true">GPT-5.6 Sol</div>';d.body.append(menu);};
+    const drawStrength=()=>{const menu=d.createElement('div');menu.setAttribute('role','menu');menu.innerHTML='<div role="menuitem" aria-label="强度" data-reasoning-slider="true"><span role="slider" aria-valuemin="0" aria-valuemax="4" aria-valuenow="3"></span></div>';d.body.append(menu);};
+    trigger.addEventListener('click',()=>{opened++;trigger.setAttribute('aria-expanded','true');drawStrength();});
+    main.addEventListener('pointerdown',()=>{d.querySelector('[role=menu]')?.remove(); /* intentionally leave aria-expanded stale */ });
+    trigger.setAttribute('aria-expanded','true');drawModels();
+    window.__staleExpanded=()=>opened;
+  });
+  try{
+    const task={id:'stale-expanded-strength',ownerTabId:h.getTabId(),goal:'reasoning',state:'sending',phase:'work',round:1,reasoningPreset:3,messages:[]};
+    h.data.tasks.push(task);h.setRunningForTest(true);
+    assert.equal(await h.ensureTaskReasoningPreset(task,null),true);
+    assert.equal(task.reasoningPresetConfirmedIndex,3);
+    assert.equal(w.__staleExpanded(),1,'visibly closed picker with stale aria-expanded must reopen exactly once');
+  }finally{h.pause();dom.window.close();}
+});
+
 test('sticky radio cannot be dismissed without a safe outside heading and fails closed',async()=>{
   const {h,w,dom}=await fixture('<main><button type="button" data-codex-intelligence-trigger="true" data-composer-navigation-target="reasoning" aria-haspopup="menu" aria-expanded="false" data-selected-reasoning-effort="medium">中</button><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">Send</button></form></main>',window=>{
     const d=window.document,trigger=d.querySelector('[data-codex-intelligence-trigger]');
@@ -6889,8 +6910,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2.10.36$/m);
-  assert.match(source,/const VERSION = '2.10.36'/);
+  assert.match(source,/^\/\/ @version\s+2.10.37$/m);
+  assert.match(source,/const VERSION = '2.10.37'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
