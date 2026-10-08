@@ -101,6 +101,10 @@ async function bootstrapAttempt() {
   const TASK_TRANSFER_KEY = 'fabushi-workbench-task-transfer-v1:';
   const LEGACY_OWNER_KEY = 'fabushi-workbench-legacy-owner-v1';
   const ROOT = 'fabushi-auto-confirm-root';
+  // Model presets are declared with the bootstrap constants because storage
+  // persistence can run before the workbench/task helpers are initialized
+  // (for example while claiming a task-transfer ticket). Keep normalization
+  // available for every durable snapshot path from the first bootstrap pass.
   // This limit is only for unbound ambiguous sends that still have no durable
   // conversation identity after recovery. Once a real /c/<id> URL is bound,
   // abnormal reply recovery stays in that conversation until a true final reply.
