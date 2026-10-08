@@ -3261,6 +3261,14 @@ test('approval submission latch survives a transient card DOM gap and expires sa
   } finally { h.pause(); dom.window.close(); }
 });
 
+test('ordinary section-level allow and deny controls without card chrome are not authorization',async()=>{
+  const {h,dom}=await fixture('<main><section id="ordinary-preference"><h3>普通设置</h3><button>拒绝</button><button>允许一次</button></section></main>');
+  try {
+    assert.equal(h.cards().length,0,'generic section semantics alone are not enough to claim authorization');
+    assert.equal(h.cards({wide:true}).length,0);
+  } finally { dom.window.close(); }
+});
+
 test('ordinary allow controls are not mistaken for authorization cards',async()=>{
   const {h,dom}=await fixture('<main><button>允许</button><button>允许一次</button><div><button>拒绝</button><button>允许</button></div><div><button>拒绝</button><button>允许一次</button></div><div><button>允许</button><button aria-haspopup="menu">选项</button></div></main>');
   assert.equal(h.cards().length,0);
