@@ -1,8 +1,17 @@
-# Fabushi 独立自动确认工作台 2.10.36
+# Fabushi 独立自动确认工作台 2.10.37
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.36`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.37`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+
+## 2.10.37 恢复任务优先识别当前授权 surface
+
+- 修复任务恢复到已有会话时，页面已经显示“允许 ChatGPT 使用 GitHub？”等 connector 授权提示，却因为 Reject / split-menu 尚未挂载或 wrapper 结构变化而被误判为“没有授权卡”的问题。
+- 授权检测现在明确分成**存在性**与**可操作性**：可信的 connector grant 标题 + 真实 Allow/Allow once 控件已经足够证明“授权存在”；只有 Reject + Allow + split-menu 完整且可用时才允许自动执行现有的“允许本次会话”流程。
+- 暂时缺少 Reject/下拉控件的授权 surface 会作为 non-actionable pending authorization 保留当前会话，并继续沿用原有 60 秒同会话 renderer 恢复，不会进入发送按钮恢复、新开会话或重复发送。
+- 恢复暂停任务时，如果当前页就是该任务绑定的 exact conversation，会立即进行一次 wide authorization presence scan；Send 前也使用同一安全扫描，授权优先于模型、思考强度、附件和发送按钮。
+- 用户/assistant 正文、引用、代码块、composer 和普通 Allow 控件不能冒充授权卡；route ownership、foreign task、conversation-scoped-only grant 等既有安全边界保持不变。
+- 详细规范见 [v2.10.37](docs/specs/resume-authorization-surface-presence-v2.10.37.md)。
 
 ## 2.10.36 “在 ChatGPT Work 中继续”卡片留在当前聊天
 
