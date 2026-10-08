@@ -596,6 +596,63 @@ test('transient radio overlay is dismissed then reasoning slider is reacquired',
  try{const task={id:'transient-strength',ownerTabId:h.getTabId(),goal:'reasoning',state:'sending',phase:'work',round:1,reasoningPreset:3,messages:[]};h.data.tasks.push(task);h.setRunningForTest(true);assert.equal(await h.ensureTaskReasoningPreset(task,null),true);assert.equal(task.reasoningPresetConfirmedIndex,3);const state=w.__transient();assert.ok(state.opens>=2);assert.ok(state.dismiss>=1);assert.equal(state.hoverExited,true);}finally{h.pause();dom.window.close();}
 });
 
+test('sticky model radios recover strength only after safe outside heading pointerdown',async()=>{
+  const {h,w,dom}=await fixture('<main><h1 id="chat-heading">今天有什么安排？</h1><button type="button" data-codex-intelligence-trigger="true" data-composer-navigation-target="reasoning" aria-haspopup="menu" aria-expanded="false" data-selected-reasoning-effort="medium">中</button><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">Send</button></form></main>',window=>{
+    const d=window.document,trigger=d.querySelector('[data-codex-intelligence-trigger]');
+    const heading=d.querySelector('#chat-heading');
+    const state={opens:0,outside:0,triggerClicks:0};
+    let sticky=true;
+    const draw=()=>{
+      const menu=d.createElement('div');
+      menu.setAttribute('role','menu');menu.dataset.state='open';
+      menu.innerHTML=sticky?'<div role="menuitemradio" aria-checked="true">GPT-5.6 Sol</div>':'<div role="menuitem" aria-label="强度" data-reasoning-slider="true"><span role="slider" aria-valuemin="0" aria-valuemax="4" aria-valuenow="3"></span></div>';
+      d.body.append(menu);
+    };
+    trigger.addEventListener('click',()=>{
+      state.triggerClicks++;
+      if(sticky && trigger.getAttribute('aria-expanded')==='true')return;
+      if(trigger.getAttribute('aria-expanded')==='true'){
+        d.querySelector('[role=menu]')?.remove();trigger.setAttribute('aria-expanded','false');return;
+      }
+      state.opens++;trigger.setAttribute('aria-expanded','true');draw();
+    });
+    heading.addEventListener('pointerdown',()=>{
+      state.outside++;sticky=false;
+      d.querySelector('[role=menu]')?.remove();trigger.setAttribute('aria-expanded','false');
+    });
+    window.__stickyModelState=state;
+  });
+  try{
+    const task={id:'sticky-strength',ownerTabId:h.getTabId(),goal:'reasoning',state:'sending',phase:'work',round:1,reasoningPreset:3,messages:[]};
+    h.data.tasks.push(task);h.setRunningForTest(true);
+    assert.equal(await h.ensureTaskReasoningPreset(task,null),true);
+    assert.equal(task.reasoningPresetConfirmedIndex,3);
+    assert.ok(w.__stickyModelState.outside>=1,'outside pointerdown must dismiss stuck radio menu');
+    assert.ok(w.__stickyModelState.opens>=2,'reopen after confirmed dismissal');
+  }finally{h.pause();dom.window.close();}
+});
+
+test('sticky radio cannot be dismissed without a safe outside heading and fails closed',async()=>{
+  const {h,w,dom}=await fixture('<main><button type="button" data-codex-intelligence-trigger="true" data-composer-navigation-target="reasoning" aria-haspopup="menu" aria-expanded="false" data-selected-reasoning-effort="medium">中</button><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">Send</button></form></main>',window=>{
+    const d=window.document,trigger=d.querySelector('[data-codex-intelligence-trigger]');
+    trigger.addEventListener('click',()=>{
+      if(trigger.getAttribute('aria-expanded')==='true')return;
+      trigger.setAttribute('aria-expanded','true');
+      const menu=d.createElement('div');menu.setAttribute('role','menu');menu.dataset.state='open';
+      menu.innerHTML='<div role="menuitemradio" aria-checked="true">GPT-5.6 Sol</div>';
+      d.body.append(menu);
+    });
+  });
+  try{
+    const task={id:'no-outside-dismiss',ownerTabId:h.getTabId(),goal:'reasoning',state:'sending',phase:'work',round:1,reasoningPreset:3,messages:[]};
+    h.data.tasks.push(task);h.setRunningForTest(true);
+    assert.equal(await h.ensureTaskReasoningPreset(task,null),false);
+    assert.notEqual(task.reasoningPresetConfirmedIndex,3);
+    assert.equal(w.document.querySelector('[data-testid="send-button"]').textContent,'Send');
+    assert.equal(task.state,'sending','pending intention is retained for recovery');
+  }finally{h.pause();dom.window.close();}
+});
+
 test('send gate verifies Chat mode, then model, then reasoning, then attachments',()=>{
   const begin=source.indexOf('async function send(task, signal)');
   const end=source.indexOf('function reviewParseError',begin);
@@ -6556,8 +6613,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2.10.33$/m);
-  assert.match(source,/const VERSION = '2.10.33'/);
+  assert.match(source,/^\/\/ @version\s+2.10.34$/m);
+  assert.match(source,/const VERSION = '2.10.34'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
