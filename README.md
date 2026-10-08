@@ -1,8 +1,12 @@
-# Fabushi 独立自动确认工作台 2.10.33
+# Fabushi 独立自动确认工作台 2.10.34
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.33`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.34`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+
+### v2.10.34 — Sticky model submenu outside-dismiss recovery
+
+When ChatGPT keeps the model radio list open despite Escape, mouseleave, or a repeat click on the same model/strength button, the script now safely dismisses it through an inert heading inside the active chat main surface, verifies closure, and reopens the strength view. Without a safe outside target it retains the task and blocks Send rather than selecting an unverified model or reasoning level. All builds and tests run through GitHub Actions.
 
 ## 2.10.33 模型菜单与思考强度瞬态恢复
 
