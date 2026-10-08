@@ -4054,6 +4054,7 @@ test('pre-Send wide authorization presence blocks a partial connector grant befo
   try {
     const task={id:'send-partial-approval',ownerTabId:h.getTabId(),goal:'must not send',mode:'once',phase:'work',round:1,state:'queued',url:'',token:'',attempted:false,messages:[],attachments:[]};
     h.data.tasks.push(task);
+    h.setRunningForTest(true);
     let sends=0;
     w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>sends++);
     const controller=new w.AbortController();
