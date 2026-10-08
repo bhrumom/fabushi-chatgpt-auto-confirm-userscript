@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.30
+// @version      2.10.31
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.30';
+  const VERSION = '2.10.31';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -101,6 +101,26 @@ async function bootstrapAttempt() {
   const TASK_TRANSFER_KEY = 'fabushi-workbench-task-transfer-v1:';
   const LEGACY_OWNER_KEY = 'fabushi-workbench-legacy-owner-v1';
   const ROOT = 'fabushi-auto-confirm-root';
+  // Model presets must exist before any bootstrap persistence path. Task
+  // transfer/recovery can persist the workbench before the later UI helpers
+  // are initialized, so durable snapshots need model normalization here.
+  const MODEL_PRESETS = Object.freeze([
+    Object.freeze({ key:'gpt-5.6-sol', label:'GPT-5.6 Sol', aliases:Object.freeze(['GPT-5.6 Sol','GPT 5.6 Sol','5.6']) }),
+    Object.freeze({ key:'gpt-6', label:'GPT-6', aliases:Object.freeze(['GPT-6','GPT 6']) }),
+    Object.freeze({ key:'gpt-5.5', label:'GPT-5.5', aliases:Object.freeze(['GPT-5.5','GPT 5.5']) }),
+  ]);
+  const DEFAULT_MODEL_PRESET = 'gpt-5.6-sol';
+  function normalizeModelPreset(value) {
+    const raw = String(value ?? '').trim().toLowerCase();
+    const preset = MODEL_PRESETS.find(item => item.key === raw
+      || item.label.toLowerCase() === raw
+      || item.aliases.some(alias => alias.toLowerCase() === raw));
+    return preset?.key || DEFAULT_MODEL_PRESET;
+  }
+  // Model presets are declared with the bootstrap constants because storage
+  // persistence can run before the workbench/task helpers are initialized
+  // (for example while claiming a task-transfer ticket). Keep normalization
+  // available for every durable snapshot path from the first bootstrap pass.
   // This limit is only for unbound ambiguous sends that still have no durable
   // conversation identity after recovery. Once a real /c/<id> URL is bound,
   // abnormal reply recovery stays in that conversation until a true final reply.
@@ -773,7 +793,7 @@ async function bootstrapAttempt() {
       'preview','previewSourceURL','previewPhase','previewRound',
       'prompt','transientConversationURLLast','attachmentUploadLastError',
       'navigationGuardNoticeAt','retainedComposerDraftNotedAt',
-      'reasoningPresetConfirmedAt','reasoningPresetConfirmedIndex','recentActivitySnapshotLoggedAt',
+      'reasoningPresetConfirmedAt','reasoningPresetConfirmedIndex','modelPresetConfirmedAt','modelPresetConfirmedKey','recentActivitySnapshotLoggedAt',
     ]) delete snapshot[field];
 
     snapshot.id = String(snapshot.id || '').slice(0, 160);
@@ -846,6 +866,7 @@ async function bootstrapAttempt() {
       defaultReasoningPreset:Number.isInteger(Number(source.defaultReasoningPreset)) && Number(source.defaultReasoningPreset) >= 0 && Number(source.defaultReasoningPreset) <= 4
         ? Number(source.defaultReasoningPreset)
         : 3,
+      defaultModelPreset:normalizeModelPreset(source.defaultModelPreset),
     };
   }
   function normalizeLeanSnapshotReferences(snapshot) {
@@ -1248,6 +1269,21 @@ async function bootstrapAttempt() {
     Object.freeze({ index:4, key:'pro', label:'Pro', effort:'medium' }),
   ]);
   const DEFAULT_REASONING_PRESET = 3;
+  function modelPresetDefinition(value) {
+    const key = normalizeModelPreset(value);
+    return MODEL_PRESETS.find(item => item.key === key) || MODEL_PRESETS[0];
+  }
+  function modelPresetLabel(value) {
+    return modelPresetDefinition(value).label;
+  }
+  function taskModelPreset(task) {
+    return normalizeModelPreset(task?.modelPreset);
+  }
+  // Persisted tasks are loaded before MODEL_PRESETS is initialized. Normalize
+  // the backward-compatible model field only after the preset table exists;
+  // doing this in the earlier storage bootstrap would hit the const TDZ and
+  // abort recovery for any workspace that already contains tasks.
+  for (const task of data.tasks) task.modelPreset = normalizeModelPreset(task.modelPreset);
   function normalizeReasoningPreset(value) {
     const numeric = Number(value);
     return Number.isInteger(numeric) && numeric >= 0 && numeric < REASONING_PRESETS.length
@@ -3433,6 +3469,105 @@ async function bootstrapAttempt() {
   function reasoningPickerTrigger() {
     return nodes('button[data-codex-intelligence-trigger="true"],button[data-composer-navigation-target="reasoning"]')
       .find(node => enabled(node) && (node.getAttribute('aria-haspopup') === 'menu' || node.hasAttribute('data-selected-reasoning-effort')));
+  }
+  function modelPickerTrigger() {
+    const explicit = nodes([
+      'button[data-testid="model-switcher-dropdown-button"]',
+      'button[data-composer-navigation-target="model"]',
+      'button[data-model-switcher]',
+      'button[data-testid*="model-switcher" i]',
+    ].join(',')).find(node => enabled(node));
+    return explicit || reasoningPickerTrigger();
+  }
+  function modelControlStrings(node) {
+    if (!node) return [];
+    const raw = String(node.innerText || node.textContent || '');
+    const values = [
+      ...raw.split(/\n+/),
+      node.getAttribute?.('aria-label') || '',
+      node.getAttribute?.('title') || '',
+    ].map(value => normalize(value)).filter(Boolean);
+    return [...new Set(values)];
+  }
+  function modelValueMatches(value, target) {
+    const normalized = normalize(value);
+    if (!normalized) return false;
+    const preset = modelPresetDefinition(target);
+    return preset.aliases.some(alias => {
+      const expected = normalize(alias);
+      if (normalized === expected) return true;
+      if (!normalized.startsWith(expected + ' ')) return false;
+      const suffix = normalized.slice(expected.length).trim();
+      return /^(?:即时|中|高|极高|Pro|Instant|Medium|High|Extra High)(?:\b|$)/i.test(suffix);
+    });
+  }
+  function modelTriggerMatches(trigger, target) {
+    return modelControlStrings(trigger).some(value => modelValueMatches(value, target));
+  }
+  function modelMenuOption(target) {
+    const preset = modelPresetDefinition(target);
+    const interactive = nodes('button,[role="menuitem"],[role="option"]')
+      .filter(node => visible(node) && !own(node));
+    const scoped = interactive.filter(node => Boolean(node.closest?.(
+      '[role="menu"],[role="listbox"],[data-radix-menu-content],[data-radix-popper-content-wrapper],[data-state="open"]'
+    )));
+    const candidates = scoped.length ? scoped : interactive.filter(node => node.getAttribute('role') === 'menuitem' || node.getAttribute('role') === 'option');
+    return candidates.find(node => modelControlStrings(node).some(value =>
+      preset.aliases.some(alias => normalize(value).toLowerCase() === normalize(alias).toLowerCase())
+    )) || null;
+  }
+  async function ensureTaskModelPreset(task, signal) {
+    const target = taskModelPreset(task);
+    let trigger = modelPickerTrigger();
+    if (!trigger) {
+      waitForReasoningPicker(task, '未找到 ChatGPT 模型选择器');
+      return false;
+    }
+    if (modelTriggerMatches(trigger, target)) {
+      if (trigger.getAttribute('aria-expanded') === 'true') {
+        trigger.click();
+        await delay(80, signal); check(signal);
+      }
+      task.modelPresetConfirmedAt = Date.now();
+      task.modelPresetConfirmedKey = target;
+      return true;
+    }
+    if (trigger.getAttribute('aria-expanded') !== 'true') {
+      trigger.click();
+      await delay(120, signal); check(signal);
+    }
+    const option = modelMenuOption(target);
+    if (!option) {
+      trigger = modelPickerTrigger();
+      if (trigger?.getAttribute('aria-expanded') === 'true') trigger.click();
+      waitForReasoningPicker(task, `ChatGPT 模型菜单未提供所选模型：${modelPresetLabel(target)}`);
+      return false;
+    }
+    if (!enabled(option)) {
+      trigger = modelPickerTrigger();
+      if (trigger?.getAttribute('aria-expanded') === 'true') trigger.click();
+      waitForSendUI(task, `ChatGPT 当前账号暂不可用所选模型：${modelPresetLabel(target)}`);
+      return false;
+    }
+    activateControl(option);
+    for (let attempt = 0; attempt < 8; attempt++) {
+      await delay(120, signal); check(signal);
+      trigger = modelPickerTrigger();
+      if (trigger && modelTriggerMatches(trigger, target)) {
+        if (trigger.getAttribute('aria-expanded') === 'true') {
+          trigger.click();
+          await delay(80, signal); check(signal);
+        }
+        task.modelPresetConfirmedAt = Date.now();
+        task.modelPresetConfirmedKey = target;
+        log(task, `发送前已确认 ChatGPT 模型：${modelPresetLabel(target)}。`);
+        return true;
+      }
+    }
+    trigger = modelPickerTrigger();
+    if (trigger?.getAttribute('aria-expanded') === 'true') trigger.click();
+    waitForSendUI(task, `ChatGPT 模型切换后无法确认目标模型：${modelPresetLabel(target)}`);
+    return false;
   }
   function clearReasoningPickerRecovery(task) {
     if (!task) return false;
@@ -6485,6 +6620,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     if (!input) return waitForSendUI(task, '未找到 ChatGPT 输入框');
     if (conversationRoleNodes('user').length) return waitForSendUI(task, '新会话页面仍保留旧消息');
     if (!await ensureChatMode(task, signal)) return;
+    if (!await ensureTaskModelPreset(task, signal)) return;
     if (!await ensureTaskReasoningPreset(task, signal)) return;
     if (!await ensureTaskAttachments(task, input, signal)) return;
     const prompt = task.preparedPrompt || (task.phase === 'review' ? plannerPrompt(task) : workPrompt(task));
@@ -7903,11 +8039,11 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     haltRunnerForPause();
     paint();
   }
-  function enqueue(goal, taskMode = mode, attachments = [], reasoningPreset = DEFAULT_REASONING_PRESET) {
+  function enqueue(goal, taskMode = mode, attachments = [], reasoningPreset = DEFAULT_REASONING_PRESET, modelPreset = DEFAULT_MODEL_PRESET) {
     if (!goal.trim()) throw new Error('请输入任务目标');
     if (tabTasks().length >= 50) throw new Error('每个标签页最多保存 50 个任务，请先归档已完成任务。');
     const normalizedAttachments = Array.from(attachments || []).map(normalizeAttachmentMeta).filter(Boolean);
-    const task = { id:id(), ownerTabId:tabId, goal:goal.trim().slice(0,16000), mode:taskMode, reasoningPreset:normalizeReasoningPreset(reasoningPreset), state:'queued', phase:'work', round:1, url:'', attachments:normalizedAttachments, messages:[], messageVersion:0, goalRevision:0 };
+    const task = { id:id(), ownerTabId:tabId, goal:goal.trim().slice(0,16000), mode:taskMode, modelPreset:normalizeModelPreset(modelPreset), reasoningPreset:normalizeReasoningPreset(reasoningPreset), state:'queued', phase:'work', round:1, url:'', attachments:normalizedAttachments, messages:[], messageVersion:0, goalRevision:0 };
     data.tasks.push(task); selected = task.id;
     // A newly submitted goal must not wait behind an older task whose
     // persisted URL is stale or synthetic. Make it the next scheduler target
@@ -8424,7 +8560,18 @@ NaN
     });
     const controls = element('div','','tools'), select = element('select'); select.setAttribute('aria-label','任务模式');
     for (const [value,name] of [['once','单次任务'],['goal','持续目标']]) { const option=element('option',name); option.value=value; select.append(option); }
-    const reasoningSelect = element('select'); reasoningSelect.setAttribute('aria-label','ChatGPT 模型 / 思考强度');
+    const modelSelect = element('select'); modelSelect.setAttribute('aria-label','ChatGPT 模型');
+    for (const preset of MODEL_PRESETS) {
+      const option = element('option',preset.label);
+      option.value = preset.key;
+      modelSelect.append(option);
+    }
+    modelSelect.value = normalizeModelPreset(data.defaultModelPreset);
+    modelSelect.onchange = () => {
+      data.defaultModelPreset = normalizeModelPreset(modelSelect.value);
+      save();
+    };
+    const reasoningSelect = element('select'); reasoningSelect.setAttribute('aria-label','ChatGPT 思考强度');
     for (const preset of REASONING_PRESETS) {
       const option = element('option', preset.index === 4 ? 'Pro（第 5 档）' : preset.label);
       option.value = String(preset.index);
@@ -8438,7 +8585,7 @@ NaN
     const auto = element('input'); auto.type='checkbox'; auto.checked=data.autoApprove !== false;
     const autoLabel=element('label'); autoLabel.append(auto,document.createTextNode('本次会话自动授权'));
     const submit = element('button','↑','send'); submit.type='submit'; submit.setAttribute('aria-label','发送任务');
-    controls.append(select,reasoningSelect,autoLabel,submit); compose.append(input,attachmentBox,controls); chat.append(settings,feed,notice,compose); desk.append(sidebar,chat);
+    controls.append(select,modelSelect,reasoningSelect,autoLabel,submit); compose.append(input,attachmentBox,controls); chat.append(settings,feed,notice,compose); desk.append(sidebar,chat);
     const launch=element('button','⚡ Fabushi 脚本','launch'); root.append(desk,launch); document.documentElement.append(style); (document.body || document.documentElement).append(root);
     let signature='', sidebarSignature='';
     paint = () => {
@@ -8567,7 +8714,7 @@ NaN
       feed.replaceChildren();
       if(!task)feed.append(element('p','在下方输入任务。单次任务等待一次最终回复；持续目标在每轮结束后新开规划/验收会话，由规划结果安排下一轮。会话恢复按已记录的唯一链接进行，不需要手动点击继续。'));
       if(task)feed.append(element('div',`当前目标：${task.goal}`,'goal'));
-      if(task)feed.append(element('div',`ChatGPT 档位：${reasoningPresetLabel(task.reasoningPreset)}`,'reasoning-preset'));
+      if(task)feed.append(element('div',`ChatGPT：${modelPresetLabel(task.modelPreset)} · ${reasoningPresetLabel(task.reasoningPreset)}`,'reasoning-preset'));
       if(task?.attachments?.length)feed.append(element('div',`任务附件：${taskAttachmentSummary(task)}`,'attachment-summary'));
       const allMessages=(task?.messages||[]).filter(message => Date.now() - Number(message?.at || 0) <= TASK_MESSAGE_RETENTION_MS);
       const renderedMessages=[];
@@ -8642,8 +8789,9 @@ NaN
         const attachments=files.map(normalizeAttachmentMeta).filter(Boolean);
         if (attachments.length !== files.length) throw new Error('有附件缺少文件名，无法安全保存。');
         if (files.length) await openAttachmentDB();
+        data.defaultModelPreset = normalizeModelPreset(modelSelect.value);
         data.defaultReasoningPreset = normalizeReasoningPreset(reasoningSelect.value);
-        task=enqueue(input.value,select.value,attachments,data.defaultReasoningPreset);
+        task=enqueue(input.value,select.value,attachments,data.defaultReasoningPreset,data.defaultModelPreset);
         if (files.length) {
           try { await storeTaskAttachmentFiles(task,files,attachments); }
           catch (error) {
@@ -8666,7 +8814,7 @@ NaN
     if(tool==='cleanup_memory')return requestHostMemoryCleanup({reason:'manual-tool',userInitiated:true});
     if(['pause_queue','stop'].includes(tool)){pause();return{running:false};}
     if(['start_queue','resume_queue'].includes(tool))return start();
-    if(tool==='enqueue_tasks'){for(const task of args.tasks||[])enqueue(task.prompt||task.goal||'',task.mode||'once',task.attachments||[],task.reasoningPreset);return tabTasks();}
+    if(tool==='enqueue_tasks'){for(const task of args.tasks||[])enqueue(task.prompt||task.goal||'',task.mode||'once',task.attachments||[],task.reasoningPreset,task.modelPreset);return tabTasks();}
     if(tool==='get_reply'){
       const task = data.tasks.find(item => item.id === current && taskBelongsToTab(item))
         || data.tasks.find(item => item.id === selected && taskBelongsToTab(item));
