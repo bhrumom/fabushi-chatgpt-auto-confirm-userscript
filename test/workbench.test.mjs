@@ -4015,6 +4015,54 @@ test('resumed exact-route task recognizes an approval card after its user marker
   assert.equal(w.document.querySelector('#approval [aria-haspopup]').getAttribute('aria-haspopup'),'menu','detection does not open or click the approval control');
   dom.window.close();
 });
+test('partial semantic connector grant is present before legacy reject and split controls hydrate',async()=>{
+  const {h,dom}=await fixture('<main><section id="semantic-grant"><h3>允许 ChatGPT 使用 GitHub？</h3><button id="allow">允许一次</button></section><form><textarea id="prompt-textarea"></textarea></form></main>');
+  try {
+    const pending=h.cards();
+    assert.equal(pending.length,1,'grant title + real Allow control is enough to prove authorization presence');
+    assert.equal(pending[0].container.id,'semantic-grant');
+    assert.equal(pending[0].button.id,'allow');
+    assert.equal(pending[0].actionable,false,'missing Reject/split controls must remain non-actionable');
+    assert.equal(pending[0].deny,null);
+    assert.equal(pending[0].arrow,null);
+  } finally { dom.window.close(); }
+});
+
+test('quoted authorization wording inside assistant transcript cannot synthesize a live grant surface',async()=>{
+  const {h,dom}=await fixture('<main><article data-message-author-role="assistant"><div class="markdown"><h3>允许 ChatGPT 使用 GitHub？</h3><p>下面只是说明文字。</p><button>允许一次</button></div></article><form><textarea id="prompt-textarea"></textarea></form></main>');
+  try {
+    assert.equal(h.cards().length,0,'transcript content and its ordinary Allow button stay excluded');
+    assert.equal(h.cards({wide:true}).length,0,'wide safety scans preserve the transcript exclusion');
+  } finally { dom.window.close(); }
+});
+
+test('restoring a paused exact-route task immediately classifies an already-visible partial authorization surface',async()=>{
+  const {w,h,dom}=await fixture('<main><section><h3>允许 ChatGPT 使用 GitHub？</h3><button>允许一次</button></section><form><textarea id="prompt-textarea"></textarea></form></main>',()=>{},'https://chatgpt.com/c/resume-partial-approval');
+  try {
+    const task={id:'resume-partial-approval',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:2,state:'paused',pausedState:'waiting',url:'https://chatgpt.com/c/resume-partial-approval',token:'resume-partial-token',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    assert.equal(h.cards({wide:true}).length,1,'fixture exposes the pending semantic grant');
+    assert.equal(h.restorePausedTasks(),true);
+    assert.equal(task.state,'approval','resume prioritizes authorization before loading/final recovery');
+    assert.equal(task.url,'https://chatgpt.com/c/resume-partial-approval');
+    assert.equal(task.token,'resume-partial-token');
+  } finally { h.pause(); dom.window.close(); }
+});
+
+test('pre-Send wide authorization presence blocks a partial connector grant before send-button recovery',async()=>{
+  const {w,h,dom}=await fixture('<main><section><h3>Allow ChatGPT to use GitHub?</h3><button>Allow once</button></section><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">Send</button></form></main>');
+  try {
+    const task={id:'send-partial-approval',ownerTabId:h.getTabId(),goal:'must not send',mode:'once',phase:'work',round:1,state:'queued',url:'',token:'',attempted:false,messages:[],attachments:[]};
+    h.data.tasks.push(task);
+    let sends=0;
+    w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>sends++);
+    const controller=new w.AbortController();
+    await assert.rejects(h.send(task,controller.signal),/仍在生成或等待授权/);
+    assert.equal(sends,0);
+    assert.equal(task.sendPrepared||false,false,'authorization blocks before a new dispatch intent is prepared');
+  } finally { h.pause(); dom.window.close(); }
+});
+
 test('resumed approval card stays unassigned when a foreign task marker owns the visible turn',async()=>{
   const {h,dom}=await fixture('<main><article data-message-author-role="user">[Fabushi:foreign-token] Other task</article><article data-message-author-role="assistant" aria-busy="true">Other task in progress</article><div><button>拒绝</button><button>允许一次</button><button aria-haspopup="menu">⌄</button></div><form><textarea id="prompt-textarea"></textarea></form></main>',()=>{},'https://chatgpt.com/c/resumed-approval-foreign');
   const task={id:'resumed-approval-task',ownerTabId:h.getTabId(),goal:'resume task',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/resumed-approval-foreign',token:'virtualized-marker',attempted:true,messages:[]};
