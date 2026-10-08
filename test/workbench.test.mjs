@@ -1020,6 +1020,68 @@ test('an older Copy-only toolbar cannot complete a newer assistant reply',async(
   } finally {h.pause();dom.window.close();}
 });
 
+test('thinking-only response with final toolbar is ended without a final answer',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish [Fabushi:thought-only]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="thinking">思考了 3m 2s</div></div><button aria-label="复制回复"></button><button aria-label="分享回复"></button></article><div role="status" class="loading">loading</div><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">发送</button></form></main>');
+  try {
+    w.history.pushState({},'', '/c/thought-only');
+    const task={id:'thought-only',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/thought-only',token:'thought-only',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    const turn=h.latestTurn(task);
+    assert.equal(turn.terminalEmptyReply,true);
+    assert.equal(turn.final,false,'thinking duration is not a final answer');
+    let clicks=0;
+    w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>clicks++);
+    await h.start(false);
+    await h.inspect(task,null);
+    assert.equal(task.state,'waiting');
+    assert.ok(task.abnormalNoFinalSince>0,'stale broad loading must not suppress the bounded recovery');
+    const first=task.abnormalNoFinalSince;
+    task.abnormalNoFinalSince=Date.now()-9_000;
+    await h.inspect(task,null);
+    assert.equal(task.state,'queued');
+    assert.equal(task.connectionInterruptedFreshDispatch,true);
+    assert.equal(task.continuationCount||0,0);
+    assert.equal(clicks,0,'do not click Send in the terminated old conversation');
+    assert.ok(first>0);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('thinking-only termination needs a complete current toolbar and exact ownership',async()=>{
+  const body='<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish [Fabushi:thought-guards]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="thinking">思考了 3m 2s</div></div><button aria-label="复制回复"></button><button aria-label="分享回复"></button></article><form><textarea id="prompt-textarea"></textarea></form></main>';
+  const {h,w,dom}=await fixture(body);
+  try {
+    w.history.pushState({},'', '/c/thought-guards');
+    const task={id:'thought-guards',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/thought-guards',token:'thought-guards',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    assert.equal(h.latestTurn(task).terminalEmptyReply,true);
+    w.document.querySelector('[aria-label="分享回复"]').remove();
+    assert.equal(h.latestTurn(task).terminalEmptyReply,false,'Copy alone cannot turn an empty answer into terminal evidence');
+    const secondary=w.document.createElement('button');secondary.setAttribute('aria-label','分享回复');w.document.querySelector('[data-testid="conversation-turn-assistant"]').append(secondary);
+    const stop=w.document.createElement('button');stop.dataset.testid='stop-button';stop.setAttribute('aria-label','停止生成');w.document.querySelector('main').append(stop);
+    assert.equal(h.latestTurn(task).terminalEmptyReply,false,'active Stop blocks terminal signal');
+    stop.remove();
+    w.document.querySelector('[data-message-author-role="assistant"]').setAttribute('aria-busy','true');
+    assert.equal(h.latestTurn(task).terminalEmptyReply,false,'busy assistant is not terminal');
+    w.document.querySelector('[data-message-author-role="assistant"]').removeAttribute('aria-busy');
+    w.history.pushState({},'', '/c/foreign-route');
+    await h.start(false);
+    assert.equal(h.latestTurn(task).owned,false);
+    assert.equal(h.latestTurn(task).terminalEmptyReply,undefined);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('old response toolbar cannot declare newer thinking-only turn terminated',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish [Fabushi:thought-new]</div></article><article data-testid="conversation-turn-assistant-old"><div data-message-author-role="assistant"><div class="markdown">旧回复</div></div><button aria-label="复制回复"></button><button aria-label="分享回复"></button></article><article data-testid="conversation-turn-assistant-new"><div data-message-author-role="assistant"><div class="thinking">思考了 3m 2s</div></div></article><form><textarea id="prompt-textarea"></textarea></form></main>');
+  try {
+    w.history.pushState({},'', '/c/thought-new');
+    const task={id:'thought-new',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/thought-new',token:'thought-new',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    const turn=h.latestTurn(task);
+    assert.equal(turn.final,false);
+    assert.equal(turn.terminalEmptyReply,false);
+  } finally {h.pause();dom.window.close();}
+});
+
 test('stable owned natural reply completes after eight seconds when renderer exposes no action row',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish [Fabushi:natural-final]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">这是已经完成的最终自然语言回复。</div></div></article><form><textarea id="prompt-textarea"></textarea></form></main>');
   try {
@@ -6262,8 +6324,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2.10.29$/m);
-  assert.match(source,/const VERSION = '2.10.29'/);
+  assert.match(source,/^\/\/ @version\s+2.10.30$/m);
+  assert.match(source,/const VERSION = '2.10.30'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
