@@ -5809,7 +5809,7 @@ async function bootstrapAttempt() {
     // surface (for example class="@container/approval-card"). This surface is
     // authoritative even when it sits outside the role-derived message nodes.
     for (const surface of nodes(liveApprovalSurfaceSelector, document)) {
-      if (visible(surface)) add(surface);
+      if (visible(surface) && !surface.closest(authorizationStructuralExcludedSelector)) add(surface);
     }
     // Renderer revisions can change card copy and provider names. Discover
     // authorization by product structure first: a real Allow/Approve control
@@ -5942,7 +5942,7 @@ async function bootstrapAttempt() {
     // our action-label vocabulary). Record presence as non-actionable so every
     // lifecycle path fails closed on the current conversation.
     for (const surface of nodes(liveApprovalSurfaceSelector, document)) {
-      if (!visible(surface) || own(surface)) continue;
+      if (!visible(surface) || own(surface) || surface.closest(authorizationStructuralExcludedSelector)) continue;
       const alreadyCovered = result.some(card => card.container === surface
         || surface.contains(card.container)
         || card.container?.contains?.(surface));
