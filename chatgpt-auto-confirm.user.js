@@ -5858,9 +5858,9 @@ async function bootstrapAttempt() {
   // final reply, or connection interruption. Its Stop button may disappear
   // while the short-lived choice is shown. Only the exact titled, two-action
   // surface may trigger the requested "stay in chat" action.
-  const chatWorkOfferStayLabel = /^(?:留在聊天模式|留在聊天中|保持聊天模式|stay in chat(?: mode)?|keep chatting)(?:\\s*[（(]?\\d{1,3}(?:\\s*(?:秒|s|sec))?[）)]?)?$/iu;
-  const chatWorkOfferMoveLabel = /^(?:在\\s*(?:ChatGPT\\s*)?Work\\s*中继续|continue (?:in|with) (?:ChatGPT\\s*)?Work)$/iu;
-  const chatWorkOfferTitleLabel = /^(?:在\\s*ChatGPT\\s*Work\\s*中继续|continue (?:in|with) ChatGPT\\s*Work)$/iu;
+  const chatWorkOfferStayLabel = /^(?:留在聊天模式|留在聊天中|保持聊天模式|stay in chat(?: mode)?|keep chatting)(?:\s*[（(]?\d{1,3}(?:\s*(?:秒|s|sec))?[）)]?)?$/iu;
+  const chatWorkOfferMoveLabel = /^(?:在\s*(?:ChatGPT\s*)?Work\s*中继续|continue (?:in|with) (?:ChatGPT\s*)?Work)$/iu;
+  const chatWorkOfferTitleLabel = /^(?:在\s*ChatGPT\s*Work\s*中继续|continue (?:in|with) ChatGPT\s*Work)$/iu;
   function chatWorkContinueOffer() {
     const main = document.querySelector('main,[role="main"]');
     if (!main || !visible(main)) return null;
