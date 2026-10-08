@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.31
+// @version      2.10.32
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.31';
+  const VERSION = '2.10.32';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -3516,6 +3516,85 @@ async function bootstrapAttempt() {
       preset.aliases.some(alias => normalize(value).toLowerCase() === normalize(alias).toLowerCase())
     )) || null;
   }
+  function modelSubmenuEntry() {
+    return nodes('[role="menuitem"],button')
+      .filter(node => visible(node) && !own(node))
+      .find(node => {
+        const aria = normalize(node.getAttribute?.('aria-label') || '');
+        const title = normalize(node.getAttribute?.('title') || '');
+        const semantic = normalize(`${aria} ${title}`);
+        return /^(?:选择模型|select model)$/i.test(aria)
+          || /(?:^|\s)(?:选择模型|select model)(?:\s|$)/i.test(semantic)
+          || /(?:选择模型|select model)/i.test(label(node));
+      }) || null;
+  }
+  function modelRadioOptions() {
+    return nodes('[role="menuitemradio"]')
+      .filter(node => visible(node) && !own(node) && Boolean(node.closest?.(
+        '[role="menu"],[role="listbox"],[data-radix-menu-content],[data-radix-popper-content-wrapper],[data-state="open"]'
+      )));
+  }
+  function modelRadioOption(target) {
+    const preset = modelPresetDefinition(target);
+    return modelRadioOptions().find(node => modelControlStrings(node).some(value => {
+      const actual = normalize(value).toLowerCase();
+      return preset.aliases.some(alias => {
+        const expected = normalize(alias).toLowerCase();
+        return actual === expected || actual.startsWith(expected + ' ');
+      });
+    })) || null;
+  }
+  function modelRadioSelected(node) {
+    return Boolean(node) && (node.getAttribute('aria-checked') === 'true'
+      || node.getAttribute('data-state') === 'checked');
+  }
+  function modelSubmenuHintMatches(entry, target) {
+    if (!entry) return false;
+    const short = {
+      'gpt-5.6-sol':['5.6','GPT-5.6 Sol'],
+      'gpt-6':['6','GPT-6'],
+      'gpt-5.5':['5.5','GPT-5.5'],
+    }[normalizeModelPreset(target)] || [];
+    const lines = String(entry.innerText || entry.textContent || '')
+      .split(/\n+/).map(value => normalize(value)).filter(Boolean);
+    return short.some(expected => lines.some(value => value.toLowerCase() === expected.toLowerCase()));
+  }
+  function closeModelPickerMenu() {
+    const trigger = modelPickerTrigger();
+    if (trigger?.getAttribute('aria-expanded') === 'true') trigger.click();
+  }
+  async function openModelRadioList(trigger, signal) {
+    let radios = modelRadioOptions();
+    if (radios.length) return radios;
+    if (!trigger || trigger.getAttribute('aria-expanded') !== 'true') {
+      trigger?.click();
+      await delay(120, signal); check(signal);
+    }
+    let entry = null;
+    for (let attempt = 0; attempt < 8; attempt++) {
+      radios = modelRadioOptions();
+      if (radios.length) return radios;
+      entry = modelSubmenuEntry();
+      if (entry) break;
+      await delay(80, signal); check(signal);
+    }
+    if (!entry || !enabled(entry)) return [];
+    activateControl(entry);
+    for (let attempt = 0; attempt < 8; attempt++) {
+      await delay(100, signal); check(signal);
+      radios = modelRadioOptions();
+      if (radios.length) return radios;
+    }
+    return [];
+  }
+  async function confirmModelRadioSelection(target, signal) {
+    const trigger = modelPickerTrigger();
+    if (!trigger) return false;
+    const radios = await openModelRadioList(trigger, signal);
+    if (!radios.length) return false;
+    const option = modelRadioOption(target);
+    return Boolean(option && enabled(option) && modelRadioSelected(option));
+  }
   async function ensureTaskModelPreset(task, signal) {
     const target = taskModelPreset(task);
     let trigger = modelPickerTrigger();
@@ -3523,49 +3602,98 @@ async function bootstrapAttempt() {
       waitForReasoningPicker(task, '未找到 ChatGPT 模型选择器');
       return false;
     }
+
+    // Older renderers exposed the selected model directly on the closed
+    // trigger. Keep that safe fast path, but the current ChatGPT renderer uses
+    // a two-level menu and is verified below through aria-checked radio state.
     if (modelTriggerMatches(trigger, target)) {
-      if (trigger.getAttribute('aria-expanded') === 'true') {
-        trigger.click();
-        await delay(80, signal); check(signal);
-      }
+      closeModelPickerMenu();
       task.modelPresetConfirmedAt = Date.now();
       task.modelPresetConfirmedKey = target;
       return true;
+    }
+
+    const radios = await openModelRadioList(trigger, signal);
+    if (radios.length) {
+      let option = modelRadioOption(target);
+      if (!option) {
+        closeModelPickerMenu();
+        waitForReasoningPicker(task, `ChatGPT 模型列表未提供所选模型：${modelPresetLabel(target)}`);
+        return false;
+      }
+      if (!enabled(option)) {
+        closeModelPickerMenu();
+        waitForSendUI(task, `ChatGPT 当前账号暂不可用所选模型：${modelPresetLabel(target)}`);
+        return false;
+      }
+      if (modelRadioSelected(option)) {
+        closeModelPickerMenu();
+        task.modelPresetConfirmedAt = Date.now();
+        task.modelPresetConfirmedKey = target;
+        return true;
+      }
+
+      activateControl(option);
+      await delay(120, signal); check(signal);
+
+      // Live ChatGPT returns from the radio list to the first popup after a
+      // model click. Re-enter the visible "选择模型" row (whose text becomes
+      // e.g. "5.6\n中") and require the target radio's aria-checked=true.
+      if (await confirmModelRadioSelection(target, signal)) {
+        closeModelPickerMenu();
+        task.modelPresetConfirmedAt = Date.now();
+        task.modelPresetConfirmedKey = target;
+        log(task, `发送前已切换并确认 ChatGPT 模型：${modelPresetLabel(target)}。`);
+        return true;
+      }
+      closeModelPickerMenu();
+      waitForSendUI(task, `ChatGPT 模型切换后无法确认目标模型：${modelPresetLabel(target)}`);
+      return false;
+    }
+
+    // Compatibility fallback for older one-level model menus.
+    trigger = modelPickerTrigger();
+    if (!trigger) {
+      waitForReasoningPicker(task, 'ChatGPT 模型选择器在展开过程中消失');
+      return false;
     }
     if (trigger.getAttribute('aria-expanded') !== 'true') {
       trigger.click();
       await delay(120, signal); check(signal);
     }
-    const option = modelMenuOption(target);
-    if (!option) {
-      trigger = modelPickerTrigger();
-      if (trigger?.getAttribute('aria-expanded') === 'true') trigger.click();
+    const entry = modelSubmenuEntry();
+    if (entry && modelSubmenuHintMatches(entry, target)) {
+      // The current renderer exposes a useful visible hint such as 5.6 on the
+      // first-level row, but this hint is never enough to Send without the
+      // authoritative radio-list confirmation above.
+      closeModelPickerMenu();
+      waitForReasoningPicker(task, `已看到 ${modelPresetLabel(target)} 的模型提示，但无法打开模型列表完成发送前确认`);
+      return false;
+    }
+    const directOption = modelMenuOption(target);
+    if (!directOption) {
+      closeModelPickerMenu();
       waitForReasoningPicker(task, `ChatGPT 模型菜单未提供所选模型：${modelPresetLabel(target)}`);
       return false;
     }
-    if (!enabled(option)) {
-      trigger = modelPickerTrigger();
-      if (trigger?.getAttribute('aria-expanded') === 'true') trigger.click();
+    if (!enabled(directOption)) {
+      closeModelPickerMenu();
       waitForSendUI(task, `ChatGPT 当前账号暂不可用所选模型：${modelPresetLabel(target)}`);
       return false;
     }
-    activateControl(option);
+    activateControl(directOption);
     for (let attempt = 0; attempt < 8; attempt++) {
       await delay(120, signal); check(signal);
       trigger = modelPickerTrigger();
       if (trigger && modelTriggerMatches(trigger, target)) {
-        if (trigger.getAttribute('aria-expanded') === 'true') {
-          trigger.click();
-          await delay(80, signal); check(signal);
-        }
+        closeModelPickerMenu();
         task.modelPresetConfirmedAt = Date.now();
         task.modelPresetConfirmedKey = target;
         log(task, `发送前已确认 ChatGPT 模型：${modelPresetLabel(target)}。`);
         return true;
       }
     }
-    trigger = modelPickerTrigger();
-    if (trigger?.getAttribute('aria-expanded') === 'true') trigger.click();
+    closeModelPickerMenu();
     waitForSendUI(task, `ChatGPT 模型切换后无法确认目标模型：${modelPresetLabel(target)}`);
     return false;
   }

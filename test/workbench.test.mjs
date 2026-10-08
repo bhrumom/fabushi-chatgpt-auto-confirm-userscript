@@ -34,7 +34,7 @@ async function fixture(body='', setup=()=>{}, url='https://chatgpt.com/') {
     const form = w.document.querySelector('form') || w.document.body;
     form.append(trigger);
   }
-  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, interruptedFreshHandoffApprovalGate, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, assistantResponseBoundaryKey, taskTurnForInspection, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, conversationLoadFailure, clearConversationLoadFailureState, recoverConversationLoadFailure, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, normalizeModelPreset, modelPresetLabel, taskModelPreset, normalizeReasoningPreset, reasoningPresetLabel, taskReasoningPreset, localizedChatWorkModeKind, chatWorkModeSelection, chatWorkModeControls, workModeEvidence, chatWorkModeState, ensureChatMode, modelPickerTrigger, modelTriggerMatches, modelMenuOption, ensureTaskModelPreset, reasoningPickerTrigger, reasoningSliderState, clearReasoningPickerRecovery, waitForReasoningPicker, ensureTaskReasoningPreset, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, markApprovalUnavailable, clearApprovalUnavailableRefresh, refreshUnavailableApproval, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, storageStatusText, readRecentActivitySession, writeRecentActivitySession, recordRecentActivity, restoreRecentActivityMessages, taskRecoveryStatusText, persistWorkbenchState, durableTaskSnapshot, durableWorkbenchSnapshot, fitWorkbenchSnapshotToLocalBudget, writeLocalStorageRecord, readStorageString, readWorkbenchOverflow, cleanupStaleFabushiStorage, fabushiLocalStorageFootprint, storageBudgets:()=>({workbench:WORKBENCH_LOCAL_STORAGE_TARGET_CHARS,total:FABUSHI_LOCAL_STORAGE_MAX_CHARS}), scheduleWorkspaceHeartbeat, workspaceHeartbeatScheduled:()=>Boolean(workspaceHeartbeatTimer), storagePersistenceStatus:()=>storagePersistenceStatus, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), setRunningForTest:value=>{running=Boolean(value);}, getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, interruptedFreshHandoffApprovalGate, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, assistantResponseBoundaryKey, taskTurnForInspection, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, conversationLoadFailure, clearConversationLoadFailureState, recoverConversationLoadFailure, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, normalizeModelPreset, modelPresetLabel, taskModelPreset, normalizeReasoningPreset, reasoningPresetLabel, taskReasoningPreset, localizedChatWorkModeKind, chatWorkModeSelection, chatWorkModeControls, workModeEvidence, chatWorkModeState, ensureChatMode, modelPickerTrigger, modelTriggerMatches, modelMenuOption, modelSubmenuEntry, modelRadioOptions, modelRadioOption, modelRadioSelected, modelSubmenuHintMatches, openModelRadioList, confirmModelRadioSelection, ensureTaskModelPreset, reasoningPickerTrigger, reasoningSliderState, clearReasoningPickerRecovery, waitForReasoningPicker, ensureTaskReasoningPreset, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, markApprovalUnavailable, clearApprovalUnavailableRefresh, refreshUnavailableApproval, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, storageStatusText, readRecentActivitySession, writeRecentActivitySession, recordRecentActivity, restoreRecentActivityMessages, taskRecoveryStatusText, persistWorkbenchState, durableTaskSnapshot, durableWorkbenchSnapshot, fitWorkbenchSnapshotToLocalBudget, writeLocalStorageRecord, readStorageString, readWorkbenchOverflow, cleanupStaleFabushiStorage, fabushiLocalStorageFootprint, storageBudgets:()=>({workbench:WORKBENCH_LOCAL_STORAGE_TARGET_CHARS,total:FABUSHI_LOCAL_STORAGE_MAX_CHARS}), scheduleWorkspaceHeartbeat, workspaceHeartbeatScheduled:()=>Boolean(workspaceHeartbeatTimer), storagePersistenceStatus:()=>storagePersistenceStatus, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), setRunningForTest:value=>{running=Boolean(value);}, getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('recent activity restores the last two hours after reload without putting history back into localStorage',async()=>{
@@ -431,13 +431,13 @@ test('workbench exposes model selection beside reasoning and defaults to 5.6 / E
   } finally {h.pause();dom.window.close();}
 });
 
-test('already-selected compact 5.6 trigger is accepted without opening the model menu',async()=>{
+test('older renderer may still confirm a model directly from the closed trigger',async()=>{
   let clicks=0;
-  const {w,h,dom}=await fixture('<main><button type="button" aria-haspopup="menu" aria-expanded="false" data-codex-intelligence-trigger="true" data-composer-navigation-target="reasoning" data-selected-reasoning-effort="max">5.6 极高</button><form><textarea id="prompt-textarea"></textarea></form></main>',window=>{
+  const {h,dom}=await fixture('<main><button type="button" aria-haspopup="menu" aria-expanded="false" data-codex-intelligence-trigger="true" data-composer-navigation-target="reasoning" data-selected-reasoning-effort="max">5.6 极高</button><form><textarea id="prompt-textarea"></textarea></form></main>',window=>{
     window.document.querySelector('[data-codex-intelligence-trigger]').addEventListener('click',()=>clicks++);
   });
   try {
-    const task={id:'model-already-56',ownerTabId:h.getTabId(),goal:'model',phase:'work',round:1,state:'sending',modelPreset:'gpt-5.6-sol',messages:[]};
+    const task={id:'model-old-renderer-56',ownerTabId:h.getTabId(),goal:'model',phase:'work',round:1,state:'sending',modelPreset:'gpt-5.6-sol',messages:[]};
     h.data.tasks.push(task);h.setRunningForTest(true);
     assert.equal(await h.ensureTaskModelPreset(task,null),true);
     assert.equal(task.modelPresetConfirmedKey,'gpt-5.6-sol');
@@ -445,74 +445,139 @@ test('already-selected compact 5.6 trigger is accepted without opening the model
   } finally {h.pause();dom.window.close();}
 });
 
-async function modelSwitchFixture(initialLabel='GPT-5.6 Sol') {
-  return fixture('<main><button type="button" aria-label="选择 ChatGPT 模型" aria-haspopup="menu" aria-expanded="false" data-state="closed" data-codex-intelligence-trigger="true" data-composer-navigation-target="reasoning" data-selected-reasoning-effort="max">'+initialLabel+' 极高</button><form><textarea id="prompt-textarea"></textarea></form></main>',window=>{
+async function liveNestedModelFixture(initialLabel='GPT-6', options={}) {
+  const state={selected:initialLabel,triggerClicks:0,submenuClicks:0,targetClicks:0,lastParentText:''};
+  const result=await fixture('<main><button type="button" aria-label="选择 ChatGPT 模型" aria-haspopup="menu" aria-expanded="false" data-state="closed" data-codex-intelligence-trigger="true" data-composer-navigation-target="reasoning" data-selected-reasoning-effort="medium">思考强度</button><article><button id="transcript-model">GPT-5.6 Sol</button></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">Send</button></form></main>',window=>{
     const trigger=window.document.querySelector('[data-codex-intelligence-trigger]');
-    trigger.addEventListener('click',()=>{
-      const open=trigger.getAttribute('aria-expanded')==='true';
-      trigger.setAttribute('aria-expanded',open?'false':'true');
-      trigger.dataset.state=open?'closed':'open';
-      if(open){window.document.querySelector('[role=menu]')?.remove();return;}
-      const menu=window.document.createElement('div');menu.setAttribute('role','menu');menu.dataset.state='open';
+    const menu=()=>window.document.querySelector('[role="menu"]');
+    const shortLabel=label=>label==='GPT-5.6 Sol'?'5.6':label==='GPT-5.5'?'5.5':label==='GPT-6'?'6':label;
+    const mountShell=()=>{
+      let node=menu();
+      if(!node){node=window.document.createElement('div');node.setAttribute('role','menu');node.setAttribute('aria-label','选择 ChatGPT 模型');node.dataset.state='open';window.document.body.append(node);}
+      return node;
+    };
+    const renderParent=()=>{
+      const node=mountShell();node.innerHTML='';
+      const strength=window.document.createElement('div');strength.setAttribute('role','menuitem');strength.setAttribute('aria-label','强度');strength.textContent='强度';node.append(strength);
+      if(options.missingEntry)return;
+      const entry=window.document.createElement('div');entry.setAttribute('role','menuitem');entry.setAttribute('aria-label','选择模型');
+      entry.textContent=shortLabel(state.selected)+'\n中';state.lastParentText=entry.textContent;
+      entry.addEventListener('click',()=>{state.submenuClicks++;renderRadios();});
+      node.append(entry);
+    };
+    const renderRadios=()=>{
+      const node=mountShell();node.innerHTML='';
       for(const label of ['GPT-6','GPT-5.6 Sol','GPT-5.5']){
-        const option=window.document.createElement('button');option.type='button';option.setAttribute('role','menuitem');option.textContent=label;
-        option.addEventListener('click',()=>{trigger.textContent=label+' 极高';trigger.setAttribute('aria-expanded','false');trigger.dataset.state='closed';menu.remove();});
-        menu.append(option);
+        if(options.missingTarget===label)continue;
+        const option=window.document.createElement('div');option.setAttribute('role','menuitemradio');
+        option.setAttribute('aria-checked',String(state.selected===label));
+        option.textContent=label==='GPT-5.5'?'GPT-5.5 将于 10月14日下线':label;
+        if(options.disabledTarget===label)option.setAttribute('aria-disabled','true');
+        option.addEventListener('click',()=>{
+          if(label===options.ignoredTarget){state.targetClicks++;return;}
+          state.targetClicks++;state.selected=label;renderParent();
+        });
+        node.append(option);
       }
-      window.document.body.append(menu);
+    };
+    trigger.addEventListener('click',()=>{
+      state.triggerClicks++;
+      const open=trigger.getAttribute('aria-expanded')==='true';
+      trigger.setAttribute('aria-expanded',open?'false':'true');trigger.dataset.state=open?'closed':'open';
+      if(open){menu()?.remove();return;}
+      renderParent();
     });
+    window.__liveNestedModelState=state;
   });
+  return {...result,state};
 }
 
-test('model enforcement switches 5.6 to GPT-6 and verifies the changed composer trigger',async()=>{
-  const {w,h,dom}=await modelSwitchFixture('GPT-5.6 Sol');
+test('live nested menu recognizes already-selected GPT-5.6 Sol from aria-checked without reselecting it',async()=>{
+  const {h,dom,state}=await liveNestedModelFixture('GPT-5.6 Sol');
   try {
-    const task={id:'model-to-six',ownerTabId:h.getTabId(),goal:'model',phase:'work',round:1,state:'sending',modelPreset:'gpt-6',messages:[]};
-    h.data.tasks.push(task);h.setRunningForTest(true);
-    assert.equal(await h.ensureTaskModelPreset(task,null),true);
-    assert.equal(task.modelPresetConfirmedKey,'gpt-6');
-    assert.match(w.document.querySelector('[data-codex-intelligence-trigger]').textContent,/GPT-6/);
-  } finally {h.pause();dom.window.close();}
-});
-
-test('model enforcement can switch back from GPT-6 to the default GPT-5.6 Sol',async()=>{
-  const {w,h,dom}=await modelSwitchFixture('GPT-6');
-  try {
-    const task={id:'model-back-56',ownerTabId:h.getTabId(),goal:'model',phase:'review',round:4,state:'sending',modelPreset:'gpt-5.6-sol',messages:[]};
+    const task={id:'live-already-56',ownerTabId:h.getTabId(),goal:'model',phase:'work',round:1,state:'sending',modelPreset:'gpt-5.6-sol',messages:[]};
     h.data.tasks.push(task);h.setRunningForTest(true);
     assert.equal(await h.ensureTaskModelPreset(task,null),true);
     assert.equal(task.modelPresetConfirmedKey,'gpt-5.6-sol');
-    assert.match(w.document.querySelector('[data-codex-intelligence-trigger]').textContent,/GPT-5\.6 Sol/);
+    assert.equal(state.targetClicks,0,'already-selected 5.6 must not be clicked again');
+    assert.equal(state.submenuClicks,1,'the live Medium/中 row is entered once to prove checked state');
+    assert.equal(state.lastParentText,'5.6\n中');
   } finally {h.pause();dom.window.close();}
 });
 
-test('missing, disabled, or unconfirmed requested model fails closed',async()=>{
-  for(const variant of ['missing','disabled','ignored']){
-    const {w,h,dom}=await fixture('<main><button type="button" aria-label="选择 ChatGPT 模型" aria-haspopup="menu" aria-expanded="false" data-codex-intelligence-trigger="true" data-composer-navigation-target="reasoning" data-selected-reasoning-effort="max">GPT-5.6 Sol 极高</button><article><button id="transcript-model">GPT-6</button></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">Send</button></form></main>',window=>{
-      const trigger=window.document.querySelector('[data-codex-intelligence-trigger]');
-      trigger.addEventListener('click',()=>{
-        const open=trigger.getAttribute('aria-expanded')==='true';trigger.setAttribute('aria-expanded',open?'false':'true');
-        if(open){window.document.querySelector('[role=menu]')?.remove();return;}
-        const menu=window.document.createElement('div');menu.setAttribute('role','menu');menu.dataset.state='open';
-        const five=window.document.createElement('button');five.setAttribute('role','menuitem');five.textContent='GPT-5.6 Sol';menu.append(five);
-        if(variant!=='missing'){
-          const six=window.document.createElement('button');six.setAttribute('role','menuitem');six.textContent='GPT-6';
-          if(variant==='disabled')six.disabled=true;
-          if(variant==='ignored')six.addEventListener('click',()=>{});
-          menu.append(six);
-        }
-        window.document.body.append(menu);
-      });
-    });
+test('live nested menu switches GPT-6 to GPT-5.6 Sol, reopens the submenu, and verifies checked state',async()=>{
+  const {h,dom,state}=await liveNestedModelFixture('GPT-6');
+  try {
+    const task={id:'live-to-56',ownerTabId:h.getTabId(),goal:'model',phase:'work',round:1,state:'sending',modelPreset:'gpt-5.6-sol',messages:[]};
+    h.data.tasks.push(task);h.setRunningForTest(true);
+    assert.equal(await h.ensureTaskModelPreset(task,null),true);
+    assert.equal(state.selected,'GPT-5.6 Sol');
+    assert.equal(state.targetClicks,1);
+    assert.equal(state.submenuClicks,2,'one entry opens the model list and the second proves the post-click selection');
+    assert.equal(state.lastParentText,'5.6\n中','the first-level row exposes the visible 5.6 hint seen on the real page');
+    assert.equal(task.modelPresetConfirmedKey,'gpt-5.6-sol');
+  } finally {h.pause();dom.window.close();}
+});
+
+test('live nested menu switches GPT-5.6 Sol to GPT-6 with the same radio verification flow',async()=>{
+  const {h,dom,state}=await liveNestedModelFixture('GPT-5.6 Sol');
+  try {
+    const task={id:'live-to-six',ownerTabId:h.getTabId(),goal:'model',phase:'review',round:4,state:'sending',modelPreset:'gpt-6',messages:[]};
+    h.data.tasks.push(task);h.setRunningForTest(true);
+    assert.equal(await h.ensureTaskModelPreset(task,null),true);
+    assert.equal(state.selected,'GPT-6');
+    assert.equal(state.targetClicks,1);
+    assert.equal(state.submenuClicks,2);
+    assert.equal(task.modelPresetConfirmedKey,'gpt-6');
+  } finally {h.pause();dom.window.close();}
+});
+
+test('live nested menu matches GPT-5.5 even when ChatGPT appends retirement text',async()=>{
+  const {h,dom,state}=await liveNestedModelFixture('GPT-6');
+  try {
+    const task={id:'live-to-55',ownerTabId:h.getTabId(),goal:'model',phase:'work',round:1,state:'sending',modelPreset:'gpt-5.5',messages:[]};
+    h.data.tasks.push(task);h.setRunningForTest(true);
+    assert.equal(await h.ensureTaskModelPreset(task,null),true);
+    assert.equal(state.selected,'GPT-5.5');
+    assert.equal(task.modelPresetConfirmedKey,'gpt-5.5');
+  } finally {h.pause();dom.window.close();}
+});
+
+test('live nested model menu fails closed for missing submenu, missing target, disabled target, or ignored click',async()=>{
+  const cases=[
+    ['missing-entry',{missingEntry:true}],
+    ['missing-target',{missingTarget:'GPT-5.6 Sol'}],
+    ['disabled-target',{disabledTarget:'GPT-5.6 Sol'}],
+    ['ignored-click',{ignoredTarget:'GPT-5.6 Sol'}],
+  ];
+  for(const [name,options] of cases){
+    const {w,h,dom,state}=await liveNestedModelFixture('GPT-6',options);
     try {
-      const task={id:'model-fail-'+variant,ownerTabId:h.getTabId(),goal:'model',phase:'work',round:1,state:'sending',modelPreset:'gpt-6',messages:[]};
+      const task={id:'live-fail-'+name,ownerTabId:h.getTabId(),goal:'model',phase:'work',round:1,state:'sending',modelPreset:'gpt-5.6-sol',messages:[]};
       h.data.tasks.push(task);h.setRunningForTest(true);
-      assert.equal(await h.ensureTaskModelPreset(task,null),false,variant);
-      assert.notEqual(task.modelPresetConfirmedKey,'gpt-6');
+      assert.equal(await h.ensureTaskModelPreset(task,null),false,name);
+      assert.notEqual(task.modelPresetConfirmedKey,'gpt-5.6-sol');
       assert.notEqual(task.state,'done');
-      assert.equal(w.document.querySelector('#transcript-model').textContent,'GPT-6','transcript button must never satisfy model menu selection');
+      assert.equal(w.document.querySelector('#transcript-model').textContent,'GPT-5.6 Sol','transcript text must never satisfy live model selection');
+      if(name==='ignored-click')assert.equal(state.selected,'GPT-6');
     } finally {h.pause();dom.window.close();}
   }
+});
+
+test('first-level live model row exposes the 5.6 hint but hint alone is not treated as final proof',async()=>{
+  const {w,h,dom}=await liveNestedModelFixture('GPT-5.6 Sol');
+  try {
+    const trigger=w.document.querySelector('[data-codex-intelligence-trigger]');trigger.click();
+    const entry=h.modelSubmenuEntry();
+    assert.ok(entry);
+    assert.equal(entry.getAttribute('aria-label'),'选择模型');
+    assert.equal(entry.textContent,'5.6\n中');
+    assert.equal(h.modelSubmenuHintMatches(entry,'gpt-5.6-sol'),true);
+    entry.remove();
+    const task={id:'hint-only',ownerTabId:h.getTabId(),goal:'model',phase:'work',round:1,state:'sending',modelPreset:'gpt-5.6-sol',messages:[]};
+    h.data.tasks.push(task);h.setRunningForTest(true);
+    assert.equal(await h.ensureTaskModelPreset(task,null),false,'5.6 visible text without an openable radio list must fail closed');
+  } finally {h.pause();dom.window.close();}
 });
 
 test('send gate verifies Chat mode, then model, then reasoning, then attachments',()=>{
@@ -6475,8 +6540,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2.10.31$/m);
-  assert.match(source,/const VERSION = '2.10.31'/);
+  assert.match(source,/^\/\/ @version\s+2.10.32$/m);
+  assert.match(source,/const VERSION = '2.10.32'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
