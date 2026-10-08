@@ -1134,7 +1134,6 @@ async function bootstrapAttempt() {
     if (!Array.isArray(task.messages)) task.messages = [];
     if (!Number.isFinite(Number(task.messageVersion))) task.messageVersion = task.messages.length;
     if (!Number.isFinite(Number(task.goalRevision))) task.goalRevision = 0;
-    task.modelPreset = normalizeModelPreset(task.modelPreset);
     task.attachments = Array.isArray(task.attachments)
       ? task.attachments.map(normalizeAttachmentMeta).filter(Boolean)
       : [];
@@ -1273,6 +1272,11 @@ async function bootstrapAttempt() {
   function taskModelPreset(task) {
     return normalizeModelPreset(task?.modelPreset);
   }
+  // Persisted tasks are loaded before MODEL_PRESETS is initialized. Normalize
+  // the backward-compatible model field only after the preset table exists;
+  // doing this in the earlier storage bootstrap would hit the const TDZ and
+  // abort recovery for any workspace that already contains tasks.
+  for (const task of data.tasks) task.modelPreset = normalizeModelPreset(task.modelPreset);
   function normalizeReasoningPreset(value) {
     const numeric = Number(value);
     return Number.isInteger(numeric) && numeric >= 0 && numeric < REASONING_PRESETS.length
