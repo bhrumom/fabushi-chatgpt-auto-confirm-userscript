@@ -1,6 +1,6 @@
 # Resume authorization-surface presence and fail-closed recovery — v2.10.37
 
-Status: implementation
+Status: verified
 Owner: Fabushi ChatGPT auto-confirm
 Last updated: 2026-10-08
 
@@ -107,5 +107,12 @@ No persisted-state migration is required. Rollback is a normal revert of the sem
 
 | Requirement / AC | Status | Evidence / reason |
 | --- | --- | --- |
-| R1-R12 | pending | Implementation and exact-head GitHub Actions evidence pending. |
-| AC-1-AC-8 | pending | Implementation and exact-head GitHub Actions evidence pending. |
+| R1-R5 | passed | Production `cards()` keeps the complete Reject + Allow + split-menu matcher for actionable authorization, while explicit/semantic grant surfaces now remain present as non-actionable when that cluster is incomplete. |
+| R6 | passed | `restorePausedTask()` performs an exact-route, no-competing-owner `cards({ wide:true })` presence scan and restores directly to `approval`. |
+| R7 | passed | `send()` now uses the wide presence scan before dispatch intent/model/reasoning/attachment/send-button work. |
+| R8 | passed | Resume attribution still requires exact canonical route, no foreign mounted task marker, and no competing `conversationURLOwner`. |
+| R9-R10 | passed | Partial cards flow through existing `authorize()` non-actionable handling and the identity-bound 60-second same-route unavailable-authorization recovery; manual mode does not auto-refresh. |
+| R11 | passed | Existing Stop-disappearance wide recheck/8-second confirmation code is unchanged and the full regression suite remains green. |
+| R12 | passed | Verification was performed only in GitHub Actions. No local build/test was run. |
+| AC-1-AC-7 | passed | Focused regressions cover classless partial GitHub grant presence, non-actionability, transcript false-positive exclusion, immediate resume classification, and pre-Send blocking; existing authorization safety regressions also pass. |
+| AC-8 | passed | PR implementation head `16fcc772fe8f08252612ebf7d5e036bf5020216a` passed Test run `37746906381`: syntax check success, 377 tests / 370 passed / 0 failed / 7 skipped. The following compliance-record-only commit changes no runtime or test logic and is revalidated by the same required PR Test before merge. |
