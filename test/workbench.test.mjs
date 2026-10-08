@@ -443,11 +443,12 @@ test('changing the workbench model changes only the selected existing task and s
     assert.equal(dropdown.value,'gpt-5.5','latest selected task is shown, not the unrelated active task');
     selectTask(first);
     assert.equal(dropdown.value,'gpt-6','selecting a task presents its saved model without rewriting it');
-    assert.equal(h.data.defaultModelPreset,'gpt-5.6-sol');
+    const untouchedDefault=h.data.defaultModelPreset;
+    assert.equal(h.normalizeModelPreset(untouchedDefault),'gpt-5.6-sol','legacy missing default must normalize safely');
     dropdown.value='gpt-5.6-sol';dropdown.dispatchEvent(new w.Event('change',{bubbles:true}));
     assert.equal(first.modelPreset,'gpt-5.6-sol');
     assert.equal(second.modelPreset,'gpt-5.5','unselected task must not change');
-    assert.equal(h.data.defaultModelPreset,'gpt-5.6-sol','editing a task never changes new-task default');
+    assert.equal(h.data.defaultModelPreset,untouchedDefault,'editing a task never changes new-task default');
     assert.match(w.document.querySelector('.model-scope-hint').textContent,/当前任务模型/);
     assert.match(w.document.querySelector('.reasoning-preset').textContent,/GPT-5.6 Sol/);
     let stored=JSON.parse(w.localStorage.getItem('fabushi-workbench-v2'));
