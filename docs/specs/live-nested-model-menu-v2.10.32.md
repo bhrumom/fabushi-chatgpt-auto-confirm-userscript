@@ -66,3 +66,11 @@ Model submenu after switch:
 - AC3: GPT-6 and GPT-5.5 use the same nested flow.
 - AC4: Direct first-level model-row assumptions are removed from live-path tests.
 - AC5: Exact-head GitHub Actions Test passes; after merge canonical-main Test and release succeed.
+
+
+## Spec compliance record
+
+| Requirement / AC | Status | Evidence / reason |
+| --- | --- | --- |
+| R1-R14 / AC1-AC4 | passed | PR #150 executable head `21619f6c12e468cd63ed661da5d928f2da9c8703` passed GitHub Actions Test run 37734526616 / job 113170951834: userscript syntax succeeded; full suite 360 tests, 353 pass, 0 fail, 7 existing skips. Focused fixtures reproduce the live two-level flow `思考强度 -> 选择模型 -> menuitemradio`, 5.6 visible hint, authoritative `aria-checked=true`, GPT-5.5 suffix, and fail-closed cases. This evidence predates this documentation-only commit, so the final PR HEAD must still rerun Test before merge. |
+| AC5 | blocked | Final PR-head Test, canonical-main Test, Release/tag/asset provenance pending. |
