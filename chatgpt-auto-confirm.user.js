@@ -5766,7 +5766,14 @@ async function bootstrapAttempt() {
     return null;
   }
   const authorizationStructuralExcludedSelector = [
-    authorizationSemanticExcludedSelector,
+    'blockquote',
+    'pre',
+    'code',
+    '.markdown',
+    '[data-message-content]',
+    '[data-selected-text-overlay-target]',
+    'textarea',
+    '[contenteditable="true"]',
     'nav',
     'aside',
     'header',
