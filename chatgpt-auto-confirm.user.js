@@ -102,6 +102,22 @@ async function bootstrapAttempt() {
   const TASK_TRANSFER_KEY = 'fabushi-workbench-task-transfer-v1:';
   const LEGACY_OWNER_KEY = 'fabushi-workbench-legacy-owner-v1';
   const ROOT = 'fabushi-auto-confirm-root';
+  // Model presets must exist before any bootstrap persistence path. Task
+  // transfer/recovery can persist the workbench before the later UI helpers
+  // are initialized, so durable snapshots need model normalization here.
+  const MODEL_PRESETS = Object.freeze([
+    Object.freeze({ key:'gpt-5.6-sol', label:'GPT-5.6 Sol', aliases:Object.freeze(['GPT-5.6 Sol','GPT 5.6 Sol','5.6']) }),
+    Object.freeze({ key:'gpt-6', label:'GPT-6', aliases:Object.freeze(['GPT-6','GPT 6']) }),
+    Object.freeze({ key:'gpt-5.5', label:'GPT-5.5', aliases:Object.freeze(['GPT-5.5','GPT 5.5']) }),
+  ]);
+  const DEFAULT_MODEL_PRESET = 'gpt-5.6-sol';
+  function normalizeModelPreset(value) {
+    const raw = String(value ?? '').trim().toLowerCase();
+    const preset = MODEL_PRESETS.find(item => item.key === raw
+      || item.label.toLowerCase() === raw
+      || item.aliases.some(alias => alias.toLowerCase() === raw));
+    return preset?.key || DEFAULT_MODEL_PRESET;
+  }
   // Model presets are declared with the bootstrap constants because storage
   // persistence can run before the workbench/task helpers are initialized
   // (for example while claiming a task-transfer ticket). Keep normalization
@@ -1254,19 +1270,6 @@ async function bootstrapAttempt() {
     Object.freeze({ index:4, key:'pro', label:'Pro', effort:'medium' }),
   ]);
   const DEFAULT_REASONING_PRESET = 3;
-  const MODEL_PRESETS = Object.freeze([
-    Object.freeze({ key:'gpt-5.6-sol', label:'GPT-5.6 Sol', aliases:Object.freeze(['GPT-5.6 Sol','GPT 5.6 Sol','5.6']) }),
-    Object.freeze({ key:'gpt-6', label:'GPT-6', aliases:Object.freeze(['GPT-6','GPT 6']) }),
-    Object.freeze({ key:'gpt-5.5', label:'GPT-5.5', aliases:Object.freeze(['GPT-5.5','GPT 5.5']) }),
-  ]);
-  const DEFAULT_MODEL_PRESET = 'gpt-5.6-sol';
-  function normalizeModelPreset(value) {
-    const raw = String(value ?? '').trim().toLowerCase();
-    const preset = MODEL_PRESETS.find(item => item.key === raw
-      || item.label.toLowerCase() === raw
-      || item.aliases.some(alias => alias.toLowerCase() === raw));
-    return preset?.key || DEFAULT_MODEL_PRESET;
-  }
   function modelPresetDefinition(value) {
     const key = normalizeModelPreset(value);
     return MODEL_PRESETS.find(item => item.key === key) || MODEL_PRESETS[0];
