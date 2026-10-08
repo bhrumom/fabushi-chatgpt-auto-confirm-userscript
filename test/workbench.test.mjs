@@ -1020,6 +1020,66 @@ test('an older Copy-only toolbar cannot complete a newer assistant reply',async(
   } finally {h.pause();dom.window.close();}
 });
 
+test('thinking-only response with final toolbar is ended without a final answer',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish [Fabushi:thought-only]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="thinking">思考了 3m 2s</div></div><button aria-label="复制回复"></button><button aria-label="分享回复"></button></article><div role="status" class="loading">loading</div><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">发送</button></form></main>');
+  try {
+    w.history.pushState({},'', '/c/thought-only');
+    const task={id:'thought-only',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/thought-only',token:'thought-only',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    const turn=h.latestTurn(task);
+    assert.equal(turn.terminalEmptyReply,true);
+    assert.equal(turn.final,false,'thinking duration is not a final answer');
+    let clicks=0;
+    w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>clicks++);
+    await h.start(false);
+    await h.inspect(task,null);
+    assert.equal(task.state,'waiting');
+    assert.ok(task.abnormalNoFinalSince>0,'stale broad loading must not suppress the bounded recovery');
+    const first=task.abnormalNoFinalSince;
+    task.abnormalNoFinalSince=Date.now()-9_000;
+    await h.inspect(task,null);
+    assert.equal(task.state,'queued');
+    assert.equal(task.connectionInterruptedFreshDispatch,true);
+    assert.equal(task.continuationCount||0,0);
+    assert.equal(clicks,0,'do not click Send in the terminated old conversation');
+    assert.ok(first>0);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('thinking-only termination needs a complete current toolbar and exact ownership',async()=>{
+  const body='<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish [Fabushi:thought-guards]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="thinking">思考了 3m 2s</div></div><button aria-label="复制回复"></button><button aria-label="分享回复"></button></article><form><textarea id="prompt-textarea"></textarea></form></main>';
+  const {h,w,dom}=await fixture(body);
+  try {
+    w.history.pushState({},'', '/c/thought-guards');
+    const task={id:'thought-guards',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/thought-guards',token:'thought-guards',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    assert.equal(h.latestTurn(task).terminalEmptyReply,true);
+    w.document.querySelector('[aria-label="分享回复"]').remove();
+    assert.equal(h.latestTurn(task).terminalEmptyReply,false,'Copy alone cannot turn an empty answer into terminal evidence');
+    const secondary=w.document.createElement('button');secondary.setAttribute('aria-label','分享回复');w.document.querySelector('[data-testid="conversation-turn-assistant"]').append(secondary);
+    const stop=w.document.createElement('button');stop.dataset.testid='stop-button';stop.setAttribute('aria-label','停止生成');w.document.querySelector('main').append(stop);
+    assert.equal(h.latestTurn(task).terminalEmptyReply,false,'active Stop blocks terminal signal');
+    stop.remove();
+    w.document.querySelector('[data-message-author-role="assistant"]').setAttribute('aria-busy','true');
+    assert.equal(h.latestTurn(task).terminalEmptyReply,false,'busy assistant is not terminal');
+    w.document.querySelector('[data-message-author-role="assistant"]').removeAttribute('aria-busy');
+    w.history.pushState({},'', '/c/foreign-route');
+    assert.equal(h.classify({routeOwned:false,owned:false,terminalEmptyReply:true,stop:false,streaming:false,cards:0,loading:false,blocker:'',rateLimit:''},null,Date.now()).state,'waiting','route mismatch cannot complete despite response-local toolbar');
+  } finally {h.pause();dom.window.close();}
+});
+
+test('old response toolbar cannot declare newer thinking-only turn terminated',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish [Fabushi:thought-new]</div></article><article data-testid="conversation-turn-assistant-old"><div data-message-author-role="assistant"><div class="markdown">旧回复</div></div><button aria-label="复制回复"></button><button aria-label="分享回复"></button></article><article data-testid="conversation-turn-assistant-new"><div data-message-author-role="assistant"><div class="thinking">思考了 3m 2s</div></div></article><form><textarea id="prompt-textarea"></textarea></form></main>');
+  try {
+    w.history.pushState({},'', '/c/thought-new');
+    const task={id:'thought-new',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/thought-new',token:'thought-new',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    const turn=h.latestTurn(task);
+    assert.equal(turn.final,false);
+    assert.equal(turn.terminalEmptyReply,false);
+  } finally {h.pause();dom.window.close();}
+});
+
 test('stable owned natural reply completes after eight seconds when renderer exposes no action row',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish [Fabushi:natural-final]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">这是已经完成的最终自然语言回复。</div></div></article><form><textarea id="prompt-textarea"></textarea></form></main>');
   try {
@@ -2408,6 +2468,33 @@ test('abnormal later-round recovery preserves both prior completed result and in
   assert.match(prompt,/原始目标/);
   assert.ok(prompt.indexOf('round two finished baseline') < prompt.indexOf('round three interrupted progress'));
   dom.window.close();
+});
+
+test('review final JSON must itself contain only executable Work instructions',async()=>{
+  const {h,dom}=await fixture();
+  try {
+    const task={id:'review-output-contract',round:7,goal:'完成所有生产代码职责',phase:'review',result:'当前 main 的完整性门仍未关闭',token:'review-contract-token'};
+    const prompt=h.plannerPrompt(task);
+    assert.match(prompt,/本次验收身份固定为 taskId="review-output-contract"、round=7/);
+    assert.match(prompt,/MAHAYANA_TASK_REPORT_V1/);
+    assert.match(prompt,/严格只输出以下 MAHAYANA_TASK_REPORT_V1 JSON/);
+    assert.match(prompt,/脚本不会替你删词或改写 next/,'the Review author, not userscript postprocessing, owns final language');
+    assert.match(prompt,/全部自然语言字段（特别是 summary、next）禁止出现角色分派/);
+    assert.match(prompt,/「下一轮」「下轮」/,'explicitly forbid the misleading handoff vocabulary in the authored final report');
+    assert.match(prompt,/如果它在安排谁来执行、或说明自己只读，就先自行重写为动作指令/);
+    assert.match(prompt,/next 必须以直接实施的动词或「第一步」开头/);
+    assert.match(prompt,/保留具体仓库、文件、PR、SHA、步骤顺序和验收门槛/);
+    assert.match(prompt,/status 为 complete 时.*next 必须为空字符串/);
+    assert.match(prompt,/"next":"status 为 next 时：直接写可立即实施的具体代码、验证和提交动作；status 为 complete 时为空字符串"/);
+    assert.doesNotMatch(prompt,/"next":"status 为 next 时下一轮的具体工作安排/,'JSON output example cannot teach the reviewer to write another-session narration');
+    const next='第一步重新读取 main 与 PR exact HEAD；第二步修复生产代码；第三步在 GitHub Actions 验证并提交。';
+    const report=h.parseReview(JSON.stringify({taskId:task.id,round:task.round,status:'next',summary:'仍有未闭合的真实生产缺口',next}),task);
+    assert.equal(report.next,next,'Review JSON content is passed through without scripted rewriting');
+    const work=h.workPrompt({...task,phase:'work',round:8,next,token:'work-direct-token'});
+    assert.ok(work.includes(next),'the execution instruction is emitted verbatim to Work');
+    assert.doesNotMatch(work,/MAHAYANA_TASK_REPORT_V1/,'Work must not be asked to author a Review JSON');
+    assert.throws(()=>h.parseReview(JSON.stringify({...report,taskId:'foreign-task'}),task),'existing identity guard remains intact');
+  } finally {h.pause();dom.window.close();}
 });
 
 test('work prompt stays natural while the fresh planner alone receives the report contract',async()=>{
@@ -6262,8 +6349,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2.10.29$/m);
-  assert.match(source,/const VERSION = '2.10.29'/);
+  assert.match(source,/^\/\/ @version\s+2.10.30$/m);
+  assert.match(source,/const VERSION = '2.10.30'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);

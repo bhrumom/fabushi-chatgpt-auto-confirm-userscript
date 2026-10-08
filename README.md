@@ -1,8 +1,21 @@
-# Fabushi 独立自动确认工作台 2.10.29
+# Fabushi 独立自动确认工作台 2.10.30
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.29`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.30`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+
+## 2.10.30 验收最终报告直接生成可执行任务
+
+- 规划/验收会话的最终 `MAHAYANA_TASK_REPORT_V1` JSON 必须由验收模型**自己**写成无歧义的结果；`summary` 只呈现证据与缺口，`status=next` 时 `next` 直接列出当前 Work 可立即实施的代码修改、GitHub Actions 验证与提交步骤。
+- 最终报告文字不应出现“下一轮”“交由 Work”“交回 Work”“本验收会话只读”等会让 Work 继续验收而不执行的会话分派措辞。
+- 只更新 `plannerPrompt()` 的验收输出约束，不修改 `parseReview()`、`finish()`、`workPrompt()`，**不在脚本中做字符串清洗或自动改写**。过去已经生成并保存的 `next` 不会被擅自变更。
+- 详细规范见 [验收最终输出契约](docs/specs/review-work-executable-handoff-v2.10.30.md)。
+
+## 2.10.30 仅有思考记录的已结束回复恢复
+
+- 对当前任务最后一条回复，如果只有“思考了 3m 2s”之类的折叠思考记录，没有普通最终正文，但当前回复的复制和第二个操作按钮已经出现，识别为**本轮生成已经结束，但没有可用最终回答**，不会误报为整个任务已完成。
+- 在 Stop、实际生成、授权和安全阻塞均已排除、当前任务与会话归属一致且输入框空闲时，忽略残留的页面级加载标识，经原有 8 秒稳定窗口触发新会话自动接力；不会往旧会话重复发消息。
+- 完整规范见 [v2.10.30](docs/specs/thinking-only-terminal-no-final-v2.10.30.md)。
 
 ## 2.10.29 发送前强制确认 Chat 模式
 
