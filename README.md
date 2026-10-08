@@ -1,8 +1,16 @@
-# Fabushi 独立自动确认工作台 2.10.36
+# Fabushi 独立自动确认工作台 2.10.37
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.36`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.37`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+
+## 2.10.37 模型切换后稳定恢复思考强度
+
+- 实站复现确认：切换模型后 ChatGPT 会短暂停留在模型 radio 列表，随后回到一级菜单；此时 aria-expanded 可能比可见 portal 慢一拍，继续按旧属性判断会误以为菜单仍开着，导致脚本反复重试却打不开思考强度。
+- 新逻辑以“当前可见菜单表面”为准：强度滑块 / 一级菜单 / 模型列表 / 已关闭分别识别。若模型列表还在，先 Escape、释放 hover/focus，并通过安全的聊天主区域做 outside-dismiss；一旦 portal 真正关闭，即使 aria-expanded=true 仍残留，也只点击一次模型按钮重新打开。
+- 如果强度滑块已经出现，不再额外关闭/重开；避免把刚恢复的正确菜单再次切走。仍保持发送前的模型 radio checked 证明、思考强度确认和 fail-closed 行为。
+- 新增回归：模型 portal 已关闭但 aria-expanded 仍为 true 时，必须从可见关闭状态仅重开一次并成功确认强度；没有可靠菜单时仍禁止 Send。
+- 构建和测试继续只在 GitHub Actions 执行。
 
 ## 2.10.36 “在 ChatGPT Work 中继续”卡片留在当前聊天
 
