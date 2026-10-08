@@ -42,6 +42,28 @@ Boundedly retry and actively reacquire the desired menu surface (model radio lis
 - R-E: Permanently missing radio or slider remains fail-closed with no task Send and existing navigation recovery unchanged.
 - R-F: Prior tests for Work/Chat mode, default GPT-5.6 Sol, 5-level reasoning, transfer, attachments, and Review contract remain green.
 
+
+## Additional live evidence and model-label contract (user correction)
+
+The same authenticated tab was examined again using visible browser locators, not estimated selectors:
+
+- With GPT-5.6 Sol selected, the closed composer trigger shows a compact **5.6** model marker; the first-level `选择模型` row shows `5.6\n中`.
+- Switching the live radio to **GPT-6** changes the closed trigger / first-level row to show the reasoning-strength label with **no model version marker**. Reopening the model list confirms `GPT-6` `aria-checked=true`. Therefore model-label absence **on an otherwise ready, recognized composer trigger** is a GPT-6 hint, not missing-model proof. A truly blank, loading, missing, or unrecognized trigger must not be assumed GPT-6.
+- The model-radio overlay persisted after a click on the picker button while the mouse remained over that control. Reproduction of the recovery sequence succeeded: **Escape to dismiss the overlay → move the pointer away to the inert chat heading → click the composer picker button → first-level strength slider reappears**.
+- GPT-5.6 Sol was restored after inspection and the menu was closed; no prompt was sent.
+
+Additional requirements:
+
+13. Determine a model hint from the actual closed composer control: compact `5.6` means GPT-5.6 Sol; `5.5` means GPT-5.5; absence of a model version *with the recognized strength label and an actual visible model control* means GPT-6. Never promote such a hint over an available model-radio `aria-checked` check.
+14. Recovery must dismiss the active overlay, remove pointer/focus ownership from the picker, and reopen the same composer button; a blind click while the pointer is still over it is insufficient. Since page JavaScript cannot literally move a physical mouse cursor, use DOM pointerleave/mouseout, Escape/focus transfer and a safe inert outside dismiss where possible, then check actual resulting DOM rather than assuming these synthetic events worked.
+15. Keep this recovery scoped to the model/reasoning menu; never click Send, user transcript controls, or other page navigation.
+
+Additional regressions:
+
+- R-G: Ready closed GPT-6 trigger with no version suffix yields a GPT-6 hint, while empty/loading/unrecognized trigger does not.
+- R-H: First click stays stuck on model radios; Escape, pointerleave and focus transfer before reopening recovers the live strength slider. A plain repeated trigger click without dismissal is insufficient.
+- R-I: Recovered menu must be visibly the strength slider, not merely first-level menu text or a model radio.
+
 ## Definition of done
 
 Only GitHub Actions Test on the final PR exact HEAD, a green canonical-main Test after merge, and release/tag asset SHA evidence justify calling v2.10.33 published. Mac menu inspection is observation only; no live task Send should be performed on the user's active session.
