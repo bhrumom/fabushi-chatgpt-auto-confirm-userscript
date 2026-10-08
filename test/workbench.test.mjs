@@ -2470,6 +2470,33 @@ test('abnormal later-round recovery preserves both prior completed result and in
   dom.window.close();
 });
 
+test('review final JSON must itself contain only executable Work instructions',async()=>{
+  const {h,dom}=await fixture();
+  try {
+    const task={id:'review-output-contract',round:7,goal:'完成所有生产代码职责',phase:'review',result:'当前 main 的完整性门仍未关闭',token:'review-contract-token'};
+    const prompt=h.plannerPrompt(task);
+    assert.match(prompt,/本次验收身份固定为 taskId="review-output-contract"、round=7/);
+    assert.match(prompt,/MAHAYANA_TASK_REPORT_V1/);
+    assert.match(prompt,/严格只输出以下 MAHAYANA_TASK_REPORT_V1 JSON/);
+    assert.match(prompt,/脚本不会替你删词或改写 next/,'the Review author, not userscript postprocessing, owns final language');
+    assert.match(prompt,/全部自然语言字段（特别是 summary、next）禁止出现角色分派/);
+    assert.match(prompt,/「下一轮」「下轮」/,'explicitly forbid the misleading handoff vocabulary in the authored final report');
+    assert.match(prompt,/如果它在安排谁来执行、或说明自己只读，就先自行重写为动作指令/);
+    assert.match(prompt,/next 必须以直接实施的动词或「第一步」开头/);
+    assert.match(prompt,/保留具体仓库、文件、PR、SHA、步骤顺序和验收门槛/);
+    assert.match(prompt,/status 为 complete 时.*next 必须为空字符串/);
+    assert.match(prompt,/"next":"status 为 next 时：直接写可立即实施的具体代码、验证和提交动作；status 为 complete 时为空字符串"/);
+    assert.doesNotMatch(prompt,/"next":"status 为 next 时下一轮的具体工作安排/,'JSON output example cannot teach the reviewer to write another-session narration');
+    const next='第一步重新读取 main 与 PR exact HEAD；第二步修复生产代码；第三步在 GitHub Actions 验证并提交。';
+    const report=h.parseReview(JSON.stringify({taskId:task.id,round:task.round,status:'next',summary:'仍有未闭合的真实生产缺口',next}),task);
+    assert.equal(report.next,next,'Review JSON content is passed through without scripted rewriting');
+    const work=h.workPrompt({...task,phase:'work',round:8,next,token:'work-direct-token'});
+    assert.ok(work.includes(next),'the execution instruction is emitted verbatim to Work');
+    assert.doesNotMatch(work,/MAHAYANA_TASK_REPORT_V1/,'Work must not be asked to author a Review JSON');
+    assert.throws(()=>h.parseReview(JSON.stringify({...report,taskId:'foreign-task'}),task),'existing identity guard remains intact');
+  } finally {h.pause();dom.window.close();}
+});
+
 test('work prompt stays natural while the fresh planner alone receives the report contract',async()=>{
   const {h,dom}=await fixture();
   const task={id:'a',round:1,goal:'do work',next:'',result:'natural result',token:'t'};
