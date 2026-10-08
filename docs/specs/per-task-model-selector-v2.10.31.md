@@ -150,5 +150,5 @@ Record PR head, Test run/job, canonical main SHA, main Test, Release run, tag an
 
 | Requirement / AC | Status | Evidence / reason |
 | --- | --- | --- |
-| R1–R15 / AC-1–AC-5 | blocked | Implementation and exact-head tests pending. |
-| R16 / AC-6 | blocked | PR/main/release evidence pending. |
+| R1–R15 / AC-1–AC-5 | passed | PR #149 implementation is present. GitHub Actions Test run 37730983115 on executable head 16ab74b34f109960ecb739f5421efc4efec757f2 passed syntax and the full 357-test suite: 350 pass, 0 fail, 7 existing skips. Coverage includes default 5.6, model UI, already-selected 5.6, 5.6↔GPT-6 switching, fail-closed states, persistence and pre-Send order. Final cleanup/doc HEAD still requires its own Test. |
+| R16 / AC-6 | blocked | Final PR-head Test, canonical-main Test, Release/tag/asset provenance pending. |

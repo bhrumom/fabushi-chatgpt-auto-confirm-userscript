@@ -41,8 +41,7 @@ function showBootstrapFailure() {
 }
 
 function runBootstrap() {
-  return bootstrapAttempt().catch(async error => {
-    console.warn('[Fabushi] 工作台初始化失败，准备按有界策略重试。', error);
+  return bootstrapAttempt().catch(async () => {
     if (window.__FABUSHI_AUTO_CONFIRM_INSTANCE__?.active) return;
     await bootstrapCleanup().catch(() => {});
     const marker = document.getElementById(BOOTSTRAP_MARKER);

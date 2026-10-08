@@ -1032,7 +1032,7 @@ test('new tab claims the transfer workspace and adopts only the ticketed task',a
     window.localStorage.setItem('fabushi-workbench-task-transfer-v1:'+token,JSON.stringify(ticket));
   },'https://chatgpt.com/#fabushi-assign-task='+token);
   assert.equal(h.getTabId(),owner);
-  assert.equal(h.tabTasks().length,1,'transfer state: '+JSON.stringify(h.data.tasks.map(item=>({id:item.id,ownerTabId:item.ownerTabId,state:item.state,modelPreset:item.modelPreset}))));
+  assert.equal(h.tabTasks().length,1);
   assert.equal(h.tabTasks()[0].id,task.id);
   assert.equal(h.tabTasks()[0].phase,'review');
   assert.equal(h.tabTasks()[0].round,3);
