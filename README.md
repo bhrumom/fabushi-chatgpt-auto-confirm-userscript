@@ -8,12 +8,12 @@
 
 When ChatGPT keeps the model radio list open despite Escape, mouseleave, or a repeat click on the same model/strength button, the script now safely dismisses it through an inert heading inside the active chat main surface, verifies closure, and reopens the strength view. Without a safe outside target it retains the task and blocks Send rather than selecting an unverified model or reasoning level. All builds and tests run through GitHub Actions.
 
-## 2.10.34 模型菜单与思考强度瞬态恢复
+## 2.10.33 模型菜单与思考强度瞬态恢复
 
 - 实站验证：GPT-6 在关闭的模型触发器上只显示思考强度，而 GPT-5.6 Sol / GPT-5.5 显示 5.6 / 5.5。脚本提供这个提示识别，但最终仍以模型列表 radio 的 checked 状态确认型号。
 - 当模型列表占据菜单、强度滑块消失时，先 Escape 关闭，发出鼠标离开/移开焦点事件，再重新点击相同触发器；在有界尝试内重新检查真实强度滑块。
 - 模型列表和「选择模型」入口因加载暂时消失，也会尝试关闭并重开，未确认成功始终禁止发送。
-- 规范见 [v2.10.34](docs/specs/transient-model-reasoning-picker-v2.10.34.md)。
+- 规范见 [v2.10.33](docs/specs/transient-model-reasoning-picker-v2.10.33.md)。
 
 ## 2.10.32 按实站 Medium/中 → 选择模型 → radio 的二级菜单切换模型
 
