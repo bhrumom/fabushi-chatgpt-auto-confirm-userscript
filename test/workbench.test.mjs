@@ -34,7 +34,7 @@ async function fixture(body='', setup=()=>{}, url='https://chatgpt.com/') {
     const form = w.document.querySelector('form') || w.document.body;
     form.append(trigger);
   }
-  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, interruptedFreshHandoffApprovalGate, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, assistantResponseBoundaryKey, taskTurnForInspection, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, conversationLoadFailure, clearConversationLoadFailureState, recoverConversationLoadFailure, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, normalizeModelPreset, modelPresetLabel, taskModelPreset, normalizeReasoningPreset, reasoningPresetLabel, taskReasoningPreset, localizedChatWorkModeKind, chatWorkModeSelection, chatWorkModeControls, workModeEvidence, chatWorkModeState, ensureChatMode, modelPickerTrigger, modelTriggerMatches, closedComposerModelHint, reopenModelPicker, modelMenuOption, modelSubmenuEntry, modelRadioOptions, modelRadioOption, modelRadioSelected, modelSubmenuHintMatches, openModelRadioList, confirmModelRadioSelection, ensureTaskModelPreset, currentTaskModelStillConfirmed, reasoningPickerTrigger, reasoningSliderState, clearReasoningPickerRecovery, waitForReasoningPicker, ensureTaskReasoningPreset, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, markApprovalUnavailable, clearApprovalUnavailableRefresh, refreshUnavailableApproval, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, storageStatusText, readRecentActivitySession, writeRecentActivitySession, recordRecentActivity, restoreRecentActivityMessages, taskRecoveryStatusText, persistWorkbenchState, durableTaskSnapshot, durableWorkbenchSnapshot, fitWorkbenchSnapshotToLocalBudget, writeLocalStorageRecord, readStorageString, readWorkbenchOverflow, cleanupStaleFabushiStorage, fabushiLocalStorageFootprint, storageBudgets:()=>({workbench:WORKBENCH_LOCAL_STORAGE_TARGET_CHARS,total:FABUSHI_LOCAL_STORAGE_MAX_CHARS}), scheduleWorkspaceHeartbeat, workspaceHeartbeatScheduled:()=>Boolean(workspaceHeartbeatTimer), storagePersistenceStatus:()=>storagePersistenceStatus, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), setRunningForTest:value=>{running=Boolean(value);}, getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, interruptedFreshHandoffApprovalGate, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, assistantResponseBoundaryKey, taskTurnForInspection, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, conversationLoadFailure, clearConversationLoadFailureState, recoverConversationLoadFailure, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, normalizeModelPreset, modelPresetLabel, taskModelPreset, normalizeReasoningPreset, reasoningPresetLabel, taskReasoningPreset, localizedChatWorkModeKind, chatWorkModeSelection, chatWorkModeControls, workModeEvidence, chatWorkModeState, ensureChatMode, chatWorkContinueOffer, chatWorkStayIdentity, clearChatWorkStayState, handleChatWorkContinueOffer, modelPickerTrigger, modelTriggerMatches, closedComposerModelHint, reopenModelPicker, modelMenuOption, modelSubmenuEntry, modelRadioOptions, modelRadioOption, modelRadioSelected, modelSubmenuHintMatches, openModelRadioList, confirmModelRadioSelection, ensureTaskModelPreset, currentTaskModelStillConfirmed, reasoningPickerTrigger, reasoningSliderState, clearReasoningPickerRecovery, waitForReasoningPicker, ensureTaskReasoningPreset, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, markApprovalUnavailable, clearApprovalUnavailableRefresh, refreshUnavailableApproval, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, storageStatusText, readRecentActivitySession, writeRecentActivitySession, recordRecentActivity, restoreRecentActivityMessages, taskRecoveryStatusText, persistWorkbenchState, durableTaskSnapshot, durableWorkbenchSnapshot, fitWorkbenchSnapshotToLocalBudget, writeLocalStorageRecord, readStorageString, readWorkbenchOverflow, cleanupStaleFabushiStorage, fabushiLocalStorageFootprint, storageBudgets:()=>({workbench:WORKBENCH_LOCAL_STORAGE_TARGET_CHARS,total:FABUSHI_LOCAL_STORAGE_MAX_CHARS}), scheduleWorkspaceHeartbeat, workspaceHeartbeatScheduled:()=>Boolean(workspaceHeartbeatTimer), storagePersistenceStatus:()=>storagePersistenceStatus, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), setRunningForTest:value=>{running=Boolean(value);}, getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('recent activity restores the last two hours after reload without putting history back into localStorage',async()=>{
@@ -1006,6 +1006,186 @@ test('Send never clicks while Work remains selected after Chat activation',async
     assert.equal(h.chatWorkModeState().state,'work');
     assert.match(task.messages.at(-1)?.text||'',/未能确认聊天模式已选中/);
   } finally {h.pause();dom.window.close();}
+});
+
+
+test('Stop disappears for the live Chinese Work offer: choose 留在聊天模式 and retain exact conversation',async()=>{
+  const {w,h,dom}=await fixture(`<main>
+    <article data-testid="conversation-turn-user"><div data-message-author-role="user">修复生产系统 [Fabushi:stay-chat-token]</div></article>
+    <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">这项任务需要直接读取 GitHub 仓库并检查 PR。</div></div></article>
+    <button id="original-stop" data-testid="stop-button" aria-label="停止生成">停止</button>
+    <form><textarea id="prompt-textarea"></textarea></form>
+  </main>`);
+  try{
+    w.history.pushState({},'', '/c/stay-chat');
+    const task={id:'stay-chat',ownerTabId:h.getTabId(),goal:'修复生产系统',mode:'goal',phase:'work',round:2,goalRevision:0,state:'waiting',url:'https://chatgpt.com/c/stay-chat',token:'stay-chat-token',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    h.setRunningForTest(true);
+    await h.inspect(task,null);
+    assert.ok(task.stopObservedGenerationIdentity,'the active generation initially had Stop evidence');
+    w.document.querySelector('#original-stop').remove();
+    const card=w.document.createElement('section');
+    card.id='chat-work-offer';
+    card.innerHTML='<div><strong>在 ChatGPT Work 中继续</strong><p>创建和编辑文档、使用应用并完成多步骤任务</p></div><div><button id="stay-chat-choice">留在聊天模式 <span>30</span></button><button id="switch-work-choice">在 Work 中继续</button></div>';
+    w.document.querySelector('main').insertBefore(card,w.document.querySelector('form'));
+    let chatClicks=0,workClicks=0,sendClicks=0;
+    const stay=card.querySelector('#stay-chat-choice');
+    const work=card.querySelector('#switch-work-choice');
+    work.addEventListener('click',()=>workClicks++);
+    stay.addEventListener('click',()=>{chatClicks++;card.remove();});
+    w.document.querySelector('#prompt-textarea').addEventListener('input',()=>sendClicks++);
+    assert.ok(h.chatWorkContinueOffer(),'full card recognized with visible 30-second countdown');
+    await h.inspect(task,null);
+    assert.equal(chatClicks,1,'click only the stay-in-chat action');
+    assert.equal(workClicks,0,'never choose Work');
+    assert.equal(sendClicks,0,'do not author a new message');
+    assert.equal(w.location.pathname,'/c/stay-chat');
+    assert.equal(task.url,'https://chatgpt.com/c/stay-chat');
+    assert.equal(task.token,'stay-chat-token');
+    assert.equal(task.phase,'work');
+    assert.equal(task.round,2);
+    assert.ok(task.chatWorkStayClickedAt>0);
+    assert.equal(task.connectionInterruptedFreshDispatch||false,false);
+    assert.notEqual(task.state,'queued','Stop disappearance cannot fresh-queue a Chat Work choice');
+    await h.inspect(task,null);
+    assert.equal(task.url,'https://chatgpt.com/c/stay-chat');
+    assert.equal(task.connectionInterruptedFreshDispatch||false,false);
+    assert.equal(task.abnormalNoFinalSince||0,0,'post-click hydration grace blocks no-final classification');
+    const resumed=w.document.createElement('button');
+    resumed.setAttribute('data-testid','stop-button');
+    resumed.setAttribute('aria-label','停止生成');
+    resumed.textContent='停止';
+    w.document.querySelector('main').append(resumed);
+    await h.inspect(task,null);
+    assert.equal(task.chatWorkStayIdentity,'','resumed Stop clears the temporary settlement latch');
+    assert.equal(task.url,'https://chatgpt.com/c/stay-chat','normal inspection continues on same chat');
+    assert.equal(workClicks,0);
+  }finally{h.pause();dom.window.close();}
+});
+
+test('English Work offer countdown is recognized and retries Stay in chat only after bounded cooldown',async()=>{
+  const {w,h,dom}=await fixture(`<main><section id="offer">
+    <div><strong>Continue in ChatGPT Work</strong></div>
+    <div><button id="stay">Stay in chat 28</button><button id="work">Continue in Work</button></div>
+  </section><form><textarea id="prompt-textarea"></textarea></form></main>`);
+  try{
+    w.history.pushState({},'', '/c/stay-english');
+    const task={id:'stay-english',ownerTabId:h.getTabId(),goal:'current ongoing goal',mode:'goal',phase:'review',round:4,state:'waiting',url:'https://chatgpt.com/c/stay-english',token:'stay-english-token',messages:[]};
+    h.data.tasks.push(task);h.setRunningForTest(true);
+    let stayClicks=0,workClicks=0;
+    w.document.querySelector('#stay').addEventListener('click',()=>stayClicks++);
+    w.document.querySelector('#work').addEventListener('click',()=>workClicks++);
+    assert.ok(h.chatWorkContinueOffer());
+    assert.equal(h.handleChatWorkContinueOffer(task,null),true);
+    assert.equal(stayClicks,1);
+    assert.equal(h.handleChatWorkContinueOffer(task,null),true);
+    assert.equal(stayClicks,1,'no immediate double click');
+    w.document.querySelector('#stay').textContent='Stay in chat 27';
+    task.chatWorkStayLastAttemptAt=Date.now()-4000;
+    assert.equal(h.handleChatWorkContinueOffer(task,null),true);
+    assert.equal(stayClicks,2,'bounded retry while same real offer remains');
+    assert.equal(workClicks,0);
+    assert.equal(task.round,4);
+    assert.equal(task.phase,'review');
+    assert.equal(task.token,'stay-english-token');
+    assert.equal(task.url,'https://chatgpt.com/c/stay-english');
+  }finally{h.pause();dom.window.close();}
+});
+
+test('Work continuation detection ignores text-only, user quote, sidebar and Fabushi workbench lookalikes',async()=>{
+  const {w,h,dom}=await fixture(`<main><article data-message-author-role="user">
+    <section id="quoted"><strong>在 ChatGPT Work 中继续</strong><button>留在聊天模式 30</button><button>在 Work 中继续</button></section>
+  </article><p>用户讨论：留在聊天模式 30，或者在 Work 中继续</p><form><textarea id="prompt-textarea"></textarea></form></main>
+  <aside><section id="sidebar-offer"><strong>在 ChatGPT Work 中继续</strong><button>留在聊天模式 30</button><button>在 Work 中继续</button></section></aside>`);
+  try{
+    assert.equal(h.chatWorkContinueOffer(),null);
+    const main=w.document.querySelector('main');
+    const card=w.document.createElement('section');
+    card.innerHTML='<strong>在 ChatGPT Work 中继续</strong><button id="fake-stay">留在聊天模式 30</button>';
+    main.insertBefore(card,main.querySelector('form'));
+    assert.equal(h.chatWorkContinueOffer(),null,'a single stay button is not the genuine two-choice card');
+    const work=w.document.createElement('button');work.textContent='在 Work 中继续';card.append(work);
+    assert.ok(h.chatWorkContinueOffer(),'a complete real product card is recognized');
+    card.querySelector('strong').textContent='这是任务说明中引用的标题';
+    assert.equal(h.chatWorkContinueOffer(),null,'title must be a genuine product title, not arbitrary quote');
+    card.remove();
+    const own=w.document.querySelector('#fabushi-auto-confirm-root');
+    const fake=w.document.createElement('div');
+    fake.innerHTML='<strong>在 ChatGPT Work 中继续</strong><button>留在聊天模式 30</button><button>在 Work 中继续</button>';
+    own.append(fake);
+    assert.equal(h.chatWorkContinueOffer(),null,'Fabushi workbench cannot forge the page card');
+  }finally{h.pause();dom.window.close();}
+});
+
+test('disabled Chat-stay button and connector approval never authorize a Work switch or fresh session',async()=>{
+  const {w,h,dom}=await fixture(`<main><section id="offer">
+    <strong>在 ChatGPT Work 中继续</strong><button id="stay" disabled>留在聊天模式 <span>29</span></button><button id="work">在 Work 中继续</button>
+  </section><form><textarea id="prompt-textarea"></textarea></form></main>`);
+  try{
+    w.history.pushState({},'', '/c/stay-disabled');
+    const task={id:'stay-disabled',ownerTabId:h.getTabId(),goal:'goal',mode:'goal',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/stay-disabled',token:'stay-disabled-token',messages:[]};
+    h.data.tasks.push(task);h.setRunningForTest(true);
+    let chats=0,works=0;
+    const stay=w.document.querySelector('#stay');
+    stay.addEventListener('click',()=>chats++);
+    w.document.querySelector('#work').addEventListener('click',()=>works++);
+    assert.equal(h.handleChatWorkContinueOffer(task,null),true,'a disabled offer still blocks the destructive path');
+    assert.equal(chats,0);
+    assert.equal(works,0);
+    assert.equal(task.url,'https://chatgpt.com/c/stay-disabled');
+    assert.equal(task.chatWorkStayClickedAt||0,0);
+    const card=w.document.createElement('section');
+    card.className='approval-card';
+    card.innerHTML='<button>拒绝</button><div><button>允许一次</button><button aria-haspopup="menu" aria-label="审批选项">▾</button></div>';
+    w.document.querySelector('main').append(card);
+    assert.ok(h.cards({wide:true}).length,'the real authorization-card structural matcher still works');
+    stay.disabled=false;
+    assert.equal(h.handleChatWorkContinueOffer(task,null),false,'real authorization has higher priority');
+    assert.equal(chats,0);
+    card.remove();
+    assert.equal(h.handleChatWorkContinueOffer(task,null),true);
+    assert.equal(chats,1);
+    assert.equal(works,0);
+  }finally{h.pause();dom.window.close();}
+});
+
+test('foreign task identity and paused runner never click the ChatGPT Work continuation card',async()=>{
+  const {w,h,dom}=await fixture(`<main>
+    <article data-testid="conversation-turn-user"><div data-message-author-role="user">other goal [Fabushi:other-token]</div></article>
+    <section><strong>在 ChatGPT Work 中继续</strong><button id="stay">留在聊天模式 30</button><button id="work">在 Work 中继续</button></section>
+    <form><textarea id="prompt-textarea"></textarea></form></main>`);
+  try{
+    w.history.pushState({},'', '/c/stay-foreign');
+    const task={id:'stay-foreign',ownerTabId:h.getTabId(),goal:'our goal',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/stay-foreign',token:'our-token',messages:[]};
+    const other={id:'other-task',ownerTabId:h.getTabId(),goal:'different',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/another',token:'other-token',messages:[]};
+    h.data.tasks.push(task,other);h.setRunningForTest(true);
+    let clicks=0;
+    w.document.querySelector('#stay').addEventListener('click',()=>clicks++);
+    assert.equal(h.handleChatWorkContinueOffer(task,null),false);
+    assert.equal(clicks,0);
+    other.token='';
+    task.state='paused';
+    assert.equal(h.handleChatWorkContinueOffer(task,null),false);
+    assert.equal(clicks,0);
+  }finally{h.pause();dom.window.close();}
+});
+
+test('post-Work-offer grace is bounded and clears without disabling genuine later recovery',async()=>{
+  const {w,h,dom}=await fixture(`<main><section id="offer"><strong>在 ChatGPT Work 中继续</strong>
+    <button id="stay">留在聊天模式 30</button><button id="work">在 Work 中继续</button>
+  </section><form><textarea id="prompt-textarea"></textarea></form></main>`);
+  try{
+    w.history.pushState({},'', '/c/stay-expiry');
+    const task={id:'stay-expiry',ownerTabId:h.getTabId(),goal:'continue goal',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/stay-expiry',token:'stay-expiry-token',messages:[]};
+    h.data.tasks.push(task);h.setRunningForTest(true);
+    w.document.querySelector('#stay').addEventListener('click',()=>w.document.querySelector('#offer')?.remove());
+    assert.equal(h.handleChatWorkContinueOffer(task,null),true);
+    assert.equal(h.handleChatWorkContinueOffer(task,null),true,'same chat remains guarded after card removal');
+    task.chatWorkStayClickedAt=Date.now()-46000;
+    assert.equal(h.handleChatWorkContinueOffer(task,null),false,'expired latch releases to existing recovery rather than blocking forever');
+    assert.equal(task.chatWorkStayIdentity,'');
+    assert.equal(task.url,'https://chatgpt.com/c/stay-expiry','latch expiry itself does not navigate or resend');
+  }finally{h.pause();dom.window.close();}
 });
 
 test('runtime blocked transition immediately becomes a fresh queued resend',async()=>{
@@ -6709,8 +6889,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2.10.35$/m);
-  assert.match(source,/const VERSION = '2.10.35'/);
+  assert.match(source,/^\/\/ @version\s+2.10.36$/m);
+  assert.match(source,/const VERSION = '2.10.36'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
