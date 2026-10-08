@@ -1,6 +1,6 @@
 # Content-independent authorization-card recognition — v2.10.38
 
-Status: implementation
+Status: verified
 Owner: Fabushi ChatGPT auto-confirm
 Last updated: 2026-10-08
 
@@ -108,5 +108,8 @@ No persisted-state migration is required. Rollback is a normal revert of the str
 
 | Requirement / AC | Status | Evidence / reason |
 | --- | --- | --- |
-| R1-R12 | pending | Implementation and exact-head GitHub Actions evidence pending. |
-| AC-1-AC-6 | pending | Implementation and exact-head GitHub Actions evidence pending. |
+| R1-R7 | passed | Production detection is content-independent for explicit authorization metadata and for card-scoped partial approval topology; title matching remains compatibility-only. Complete cards retain the existing actionable path. |
+| R8-R11 | passed | Resume, pre-Send, inspection, Stop/interruption rechecks and global scans all consume the same `cards()` presence authority. Non-actionable cards remain on the exact conversation and existing conversation-scoped-only authorization safeguards are unchanged. |
+| R12 | passed | Verification ran only in GitHub Actions; no local build/test was used. |
+| AC-1-AC-5 | passed | Regressions cover arbitrary titles/providers, explicit cards with unknown controls, partial Allow+Reject and Allow+split topology, ordinary-section/isolated-Allow false positives, transcript exclusions, resume and pre-Send behavior. |
+| AC-6 | passed | Exact implementation head `42fdcda5de120b8802f305c194fe084fa4b4576f` passed GitHub Actions Test run `37748889318`: syntax check success; 383 tests, 376 passed, 0 failed, 7 skipped. |
