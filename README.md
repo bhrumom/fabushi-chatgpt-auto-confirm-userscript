@@ -1,8 +1,15 @@
-# Fabushi 独立自动确认工作台 2.10.32
+# Fabushi 独立自动确认工作台 2.10.33
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.32`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.33`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+
+## 2.10.33 模型菜单与思考强度瞬态恢复
+
+- 实站验证：GPT-6 在关闭的模型触发器上只显示思考强度，而 GPT-5.6 Sol / GPT-5.5 显示 5.6 / 5.5。脚本提供这个提示识别，但最终仍以模型列表 radio 的 checked 状态确认型号。
+- 当模型列表占据菜单、强度滑块消失时，先 Escape 关闭，发出鼠标离开/移开焦点事件，再重新点击相同触发器；在有界尝试内重新检查真实强度滑块。
+- 模型列表和「选择模型」入口因加载暂时消失，也会尝试关闭并重开，未确认成功始终禁止发送。
+- 规范见 [v2.10.33](docs/specs/transient-model-reasoning-picker-v2.10.33.md)。
 
 ## 2.10.32 按实站 Medium/中 → 选择模型 → radio 的二级菜单切换模型
 
