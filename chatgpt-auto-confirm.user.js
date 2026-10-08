@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.36
+// @version      2.10.37
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.36';
+  const VERSION = '2.10.37';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -3145,6 +3145,18 @@ async function bootstrapAttempt() {
     delete task.pausedState;
     if (global) task.pauseRevision = revision;
     task.state = resumeState;
+    // Resume is a safety boundary: if the exact already-bound conversation is
+    // currently showing an authorization surface, classify it immediately
+    // before loading/final/send recovery gets another chance to run.
+    const liveResumeURL = currentConversationURL();
+    const resumeApprovalEligible = Boolean(
+      knownURL
+      && liveResumeURL
+      && knownURL === liveResumeURL
+      && !tabTasks().some(other => other.id !== task.id && other.token && hasTaskMarker(other))
+      && !conversationURLOwner(liveResumeURL, task.id)
+    );
+    if (resumeApprovalEligible && cards({ wide:true }).length) task.state = 'approval';
     // A pause/resume boundary starts a fresh supervision window. Reusing the
     // pre-pause progress observation can make an already-old 15-minute stall
     // fire only seconds after the user explicitly resumes the task.
@@ -5713,6 +5725,41 @@ async function bootstrapAttempt() {
     '[data-testid*="authorization-card" i]',
     '[data-testid*="permission-card" i]',
   ].join(',');
+  const authorizationGrantTitlePattern = /^(?:允许|授权)\s*ChatGPT\s*(?:使用|访问)\s*[^？?]{1,120}[？?]?$/iu;
+  const englishAuthorizationGrantTitlePattern = /^Allow\s+ChatGPT\s+to\s+(?:use|access)\s+.{1,120}[?]?$/iu;
+  const authorizationSemanticTextSelector = 'h1,h2,h3,h4,h5,h6,[role="heading"],p,strong,span,div';
+  const authorizationSemanticExcludedSelector = [
+    'blockquote',
+    'pre',
+    'code',
+    '.markdown',
+    '[data-message-content]',
+    '[data-selected-text-overlay-target]',
+    'form',
+    'textarea',
+    '[contenteditable="true"]',
+  ].join(',');
+  function authorizationGrantTitleNode(scope) {
+    if (!scope?.querySelectorAll) return null;
+    const candidates = [];
+    if (scope.matches?.(authorizationSemanticTextSelector)) candidates.push(scope);
+    candidates.push(...nodes(authorizationSemanticTextSelector, scope));
+    return candidates.find(node => {
+      if (!visible(node) || node.closest(authorizationSemanticExcludedSelector)) return false;
+      const value = text(node);
+      return authorizationGrantTitlePattern.test(value) || englishAuthorizationGrantTitlePattern.test(value);
+    }) || null;
+  }
+  function semanticAuthorizationSurface(button) {
+    if (!button || own(button) || !visible(button) || button.hasAttribute('aria-haspopup')) return null;
+    if (button.closest(authorizationSemanticExcludedSelector)) return null;
+    let container = button.parentElement;
+    for (let depth = 0; container && depth < 9; depth += 1, container = container.parentElement) {
+      if (container === document.body || container.tagName === 'MAIN') break;
+      if (authorizationGrantTitleNode(container)) return container;
+    }
+    return null;
+  }
   function authorizationCardScopes({ wide = false } = {}) {
     const scopes = [];
     const add = node => {
@@ -5724,6 +5771,17 @@ async function bootstrapAttempt() {
     // authoritative even when it sits outside the role-derived message nodes.
     for (const surface of nodes(liveApprovalSurfaceSelector, document)) {
       if (visible(surface)) add(surface);
+    }
+    // Renderer revisions can temporarily drop the historical approval-card
+    // class/test-id while the grant title + Allow control are already visible.
+    // Discover that semantic surface independently so "authorization exists"
+    // never depends on the complete Reject + Allow + split-menu action cluster.
+    if (main) {
+      for (const button of nodes('button,[role=button]', main)) {
+        if (!actionMatches(button, allowLabel) || button.hasAttribute('aria-haspopup')) continue;
+        const surface = semanticAuthorizationSurface(button);
+        if (surface) add(surface);
+      }
     }
     const dialogs = document.querySelectorAll('[role="dialog"],[role="alertdialog"],[aria-modal="true"],[data-radix-dialog-content],[data-dialog-content]');
     for (const dialog of dialogs) {
@@ -5759,9 +5817,9 @@ async function bootstrapAttempt() {
       }
       anchor = anchor.parentElement;
     }
-    // Wide mode is used only at the destructive Stop-disappearance boundary.
-    // The structural Reject + Allow + split-menu checks in cards() still apply,
-    // so this does not turn arbitrary page "Allow" controls into approvals.
+    // Wide mode is reserved for safety-critical boundaries (resume, pre-Send,
+    // interruption/Stop handoff). Semantic matching still requires a real
+    // grant title + Allow control, so ordinary page Allow controls are excluded.
     if (wide) add(main || document.body);
     return scopes;
   }
@@ -5790,27 +5848,52 @@ async function bootstrapAttempt() {
     scanDiagnostics.cardsCandidates += allowCandidates.length;
     for (const button of allowCandidates) {
       if (!actionMatches(button, allowLabel) || button.hasAttribute('aria-haspopup')) continue;
+      let completeContainer = null;
+      let completeDeny = null;
+      let completeArrow = null;
       let container = button.parentElement;
       for (let depth = 0; container && depth < 9; depth++, container = container.parentElement) {
         if (container === document.body || container.tagName === 'MAIN') break;
         const actions = nodes('button,[role=button]', container);
         const deny = actions.find(node => actionMatches(node, denyLabel));
         const arrow = actions.find(node => approvalArrow(node, button));
-        // Structural presence does not depend on enabled state. The actionable
-        // flag tells authorize() whether it is safe to interact in this scan.
         if (deny && arrow) {
-          if (!seen.has(container)) {
-            seen.add(container);
-            result.push({
-              container,
-              button,
-              arrow,
-              deny,
-              actionable:Boolean(enabled(button) && enabled(arrow) && enabled(deny)),
-            });
-          }
+          completeContainer = container;
+          completeDeny = deny;
+          completeArrow = arrow;
           break;
         }
+      }
+      if (completeContainer) {
+        if (!seen.has(completeContainer)) {
+          seen.add(completeContainer);
+          result.push({
+            container:completeContainer,
+            button,
+            arrow:completeArrow,
+            deny:completeDeny,
+            actionable:Boolean(enabled(button) && enabled(completeArrow) && enabled(completeDeny)),
+          });
+        }
+        continue;
+      }
+      // Presence fallback: a renderer can show the explicit approval wrapper
+      // or a semantic "Allow ChatGPT to use <connector>?" title before Reject
+      // and the split menu have hydrated. Return a non-actionable card so all
+      // safety paths stay on this exact conversation and reuse the existing
+      // unavailable-authorization recovery instead of treating the grant as 0.
+      const trustedContainer = button.closest?.(liveApprovalSurfaceSelector)
+        || semanticAuthorizationSurface(button);
+      if (trustedContainer && !seen.has(trustedContainer)) {
+        seen.add(trustedContainer);
+        const actions = nodes('button,[role=button]', trustedContainer);
+        result.push({
+          container:trustedContainer,
+          button,
+          arrow:actions.find(node => approvalArrow(node, button)) || null,
+          deny:actions.find(node => actionMatches(node, denyLabel)) || null,
+          actionable:false,
+        });
       }
     }
     scanDiagnostics.cardsCalls += 1;
@@ -6941,7 +7024,10 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     check(signal);
     if (!holdForChatGPTLoading(task)) return;
     dismissUnexpectedModals(task, createPageScanContext());
-    if (stopButton() || cards().length) throw new Error('当前页面仍在生成或等待授权，禁止发送。');
+    // Pre-Send is another destructive boundary. Use the wide presence scan so
+    // an already-visible but partially hydrated connector grant can never fall
+    // through into model/reasoning/send-button recovery.
+    if (stopButton() || cards({ wide:true }).length) throw new Error('当前页面仍在生成或等待授权，禁止发送。');
     if (blocker()) throw new Error(blocker());
     const dispatchWait = (task.connectionInterruptedFreshDispatch || task.immediateFreshDispatch) ? 0 : dispatchCooldownRemaining();
     if (dispatchWait > 0) {
