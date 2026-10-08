@@ -5783,7 +5783,7 @@ async function bootstrapAttempt() {
     if (node.matches?.(liveApprovalSurfaceSelector)) return true;
     if (node.matches?.('[role="dialog"],[role="alertdialog"],[data-radix-dialog-content],[data-dialog-content]')) return true;
     const structural = normalize(`${node.getAttribute?.('class') || ''} ${node.getAttribute?.('data-testid') || ''}`);
-    return /(?:^|[\\s_:/-])(?:card|panel|surface|rounded|border|container)(?:$|[\\s_:/-])/i.test(structural);
+    return /(?:^|[\s_:/-])(?:card|panel|surface|rounded|border|container)(?:$|[\s_:/-])/i.test(structural);
   }
   function structuralAuthorizationSurface(button) {
     if (!button || own(button) || !visible(button) || button.hasAttribute('aria-haspopup')) return null;
