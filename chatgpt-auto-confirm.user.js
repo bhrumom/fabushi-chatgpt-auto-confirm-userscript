@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.37
+// @version      2.10.38
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.37';
+  const VERSION = '2.10.38';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -5720,10 +5720,15 @@ async function bootstrapAttempt() {
   const actionMatches = (node, pattern) => [actionText(node), node?.getAttribute('aria-label'), node?.getAttribute('title')]
     .some(value => pattern.test(normalize(value)));
   const liveApprovalSurfaceSelector = [
-    '[class*="approval-card"]',
+    '[class*="approval-card" i]',
+    '[class*="authorization-card" i]',
+    '[class*="permission-card" i]',
     '[data-testid*="approval-card" i]',
     '[data-testid*="authorization-card" i]',
     '[data-testid*="permission-card" i]',
+    '[data-approval-card]',
+    '[data-authorization-card]',
+    '[data-permission-card]',
   ].join(',');
   const authorizationGrantTitlePattern = /^(?:允许|授权)\s*ChatGPT\s*(?:使用|访问)\s*[^？?]{1,120}[？?]?$/iu;
   const englishAuthorizationGrantTitlePattern = /^Allow\s+ChatGPT\s+to\s+(?:use|access)\s+.{1,120}[?]?$/iu;
@@ -5760,6 +5765,40 @@ async function bootstrapAttempt() {
     }
     return null;
   }
+  const authorizationStructuralExcludedSelector = [
+    'blockquote',
+    'pre',
+    'code',
+    '.markdown',
+    '[data-message-content]',
+    '[data-selected-text-overlay-target]',
+    'textarea',
+    '[contenteditable="true"]',
+    'nav',
+    'aside',
+    'header',
+  ].join(',');
+  function authorizationCardShell(node) {
+    if (!node || node === document.body || node.tagName === 'MAIN') return false;
+    if (node.matches?.(liveApprovalSurfaceSelector)) return true;
+    if (node.matches?.('[role="dialog"],[role="alertdialog"],[data-radix-dialog-content],[data-dialog-content]')) return true;
+    const structural = normalize(`${node.getAttribute?.('class') || ''} ${node.getAttribute?.('data-testid') || ''}`);
+    return /(?:^|[\s_:/-])(?:card|panel|surface|rounded|border|container)(?:$|[\s_:/-])/i.test(structural);
+  }
+  function structuralAuthorizationSurface(button) {
+    if (!button || own(button) || !visible(button) || button.hasAttribute('aria-haspopup')) return null;
+    if (button.closest(authorizationStructuralExcludedSelector)) return null;
+    let container = button.parentElement;
+    for (let depth = 0; container && depth < 9; depth += 1, container = container.parentElement) {
+      if (container === document.body || container.tagName === 'MAIN') break;
+      if (!authorizationCardShell(container)) continue;
+      const actions = nodes('button,[role=button]', container);
+      const deny = actions.find(node => actionMatches(node, denyLabel));
+      const arrow = actions.find(node => approvalArrow(node, button));
+      if (deny || arrow) return container;
+    }
+    return null;
+  }
   function authorizationCardScopes({ wide = false } = {}) {
     const scopes = [];
     const add = node => {
@@ -5770,16 +5809,17 @@ async function bootstrapAttempt() {
     // surface (for example class="@container/approval-card"). This surface is
     // authoritative even when it sits outside the role-derived message nodes.
     for (const surface of nodes(liveApprovalSurfaceSelector, document)) {
-      if (visible(surface)) add(surface);
+      if (visible(surface) && !surface.closest(authorizationStructuralExcludedSelector)) add(surface);
     }
-    // Renderer revisions can temporarily drop the historical approval-card
-    // class/test-id while the grant title + Allow control are already visible.
-    // Discover that semantic surface independently so "authorization exists"
-    // never depends on the complete Reject + Allow + split-menu action cluster.
+    // Renderer revisions can change card copy and provider names. Discover
+    // authorization by product structure first: a real Allow/Approve control
+    // plus independent approval topology on a card-like live surface. Semantic
+    // title matching remains only a compatibility hint, never a requirement.
     if (main) {
       for (const button of nodes('button,[role=button]', main)) {
         if (!actionMatches(button, allowLabel) || button.hasAttribute('aria-haspopup')) continue;
-        const surface = semanticAuthorizationSurface(button);
+        const surface = structuralAuthorizationSurface(button)
+          || semanticAuthorizationSurface(button);
         if (surface) add(surface);
       }
     }
@@ -5818,8 +5858,9 @@ async function bootstrapAttempt() {
       anchor = anchor.parentElement;
     }
     // Wide mode is reserved for safety-critical boundaries (resume, pre-Send,
-    // interruption/Stop handoff). Semantic matching still requires a real
-    // grant title + Allow control, so ordinary page Allow controls are excluded.
+    // interruption/Stop handoff). Explicit authorization metadata and approval
+    // control topology are content-independent; isolated ordinary Allow
+    // controls still do not qualify.
     if (wide) add(main || document.body);
     return scopes;
   }
@@ -5877,12 +5918,12 @@ async function bootstrapAttempt() {
         }
         continue;
       }
-      // Presence fallback: a renderer can show the explicit approval wrapper
-      // or a semantic "Allow ChatGPT to use <connector>?" title before Reject
-      // and the split menu have hydrated. Return a non-actionable card so all
-      // safety paths stay on this exact conversation and reuse the existing
-      // unavailable-authorization recovery instead of treating the grant as 0.
+      // Presence fallback: authorization-card identity is structural first.
+      // A renderer may expose explicit approval metadata, or only part of the
+      // approval-control topology, before the full Reject + Allow + split-menu
+      // cluster hydrates. Title/provider copy is never required.
       const trustedContainer = button.closest?.(liveApprovalSurfaceSelector)
+        || structuralAuthorizationSurface(button)
         || semanticAuthorizationSurface(button);
       if (trustedContainer && !seen.has(trustedContainer)) {
         seen.add(trustedContainer);
@@ -5895,6 +5936,27 @@ async function bootstrapAttempt() {
           actionable:false,
         });
       }
+    }
+    // An explicit authorization-card surface is authoritative even before
+    // any known Allow label has mounted (or when the UI is localized beyond
+    // our action-label vocabulary). Record presence as non-actionable so every
+    // lifecycle path fails closed on the current conversation.
+    for (const surface of nodes(liveApprovalSurfaceSelector, document)) {
+      if (!visible(surface) || own(surface) || surface.closest(authorizationStructuralExcludedSelector)) continue;
+      const alreadyCovered = result.some(card => card.container === surface
+        || surface.contains(card.container)
+        || card.container?.contains?.(surface));
+      if (alreadyCovered) continue;
+      seen.add(surface);
+      const actions = nodes('button,[role=button]', surface);
+      const allow = actions.find(node => actionMatches(node, allowLabel) && !node.hasAttribute('aria-haspopup')) || null;
+      result.push({
+        container:surface,
+        button:allow,
+        arrow:allow ? (actions.find(node => approvalArrow(node, allow)) || null) : null,
+        deny:actions.find(node => actionMatches(node, denyLabel)) || null,
+        actionable:false,
+      });
     }
     scanDiagnostics.cardsCalls += 1;
     scanDiagnostics.cardsMs += performance.now() - startedAt;
