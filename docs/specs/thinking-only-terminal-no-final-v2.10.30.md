@@ -108,6 +108,6 @@ Record source SHA, PR, exact-head Test, main Test, Release/tag/asset provenance 
 
 | Requirement / AC | Status | Evidence / reason |
 | --- | --- | --- |
-| R1-R9 / AC-1-AC-3 | blocked | Pending implementation and exact-HEAD CI. |
-| R10 / AC-4 | blocked | Pending PR, exact-HEAD CI, merge and release evidence. |
+| R1-R9 / AC-1-AC-3 | passed | PR #148 implements strongly response-local thinking-only terminal evidence without marking the task complete. GitHub Actions Test run 37728262719 on executable head c7c91bccd0e24fe4197023b8927ee3c7efccf8e4 passed syntax and 350 tests (343 pass, 0 fail, 7 pre-existing skips); final doc-only HEAD requires separate verification. |
+| R10 / AC-4 | blocked | Final PR-head Test, main Test, Release, tag and published asset checks pending. |
 | Live browser DOM confirmation | blocked | Screenshots supplied; exact authenticated DOM was not captured. |

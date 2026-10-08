@@ -105,6 +105,6 @@ Record PR head, current-head Test, main Test, Release and published version. The
 
 | Requirement / AC | Status | Evidence / reason |
 | --- | --- | --- |
-| R1–R9, AC-1–AC-3 | blocked | Reviewer-template patch and exact-HEAD tests pending. |
-| R10, AC-4 | blocked | Current-head, main and Release evidence pending. |
+| R1–R9, AC-1–AC-3 | passed | Only plannerPrompt() output instructions were changed; parser, finish and Work prompt are unchanged. GitHub Actions Test run 37728262719 on executable head c7c91bccd0e24fe4197023b8927ee3c7efccf8e4 passed syntax and 350 tests (343 pass, 0 fail, 7 pre-existing skips), including the reviewer final-output contract regression. This is static contract evidence, not live model compliance. |
+| R10, AC-4 | blocked | Final PR-head Test, canonical-main Test, Release/tag/asset evidence pending. |
 | Live generated Review report compliance | blocked | Static contract tests cannot prove future model output. |
