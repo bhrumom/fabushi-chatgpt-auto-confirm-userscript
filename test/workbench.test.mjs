@@ -4048,7 +4048,7 @@ test('explicit authorization-card metadata is detected without depending on titl
 });
 
 test('partial structural authorization card with arbitrary title is detected from Allow plus Reject topology',async()=>{
-  const {h,dom}=await fixture('<main data-test-no-reasoning-picker><section id="structural-deny" class="rounded-3xl border"><h3>任意供应商的任意提示</h3><form><button type="button">拒绝</button><div><button type="button">允许一次</button></div></form></section><form><textarea id="prompt-textarea"></textarea></form></main>');
+  const {h,dom}=await fixture('<main data-test-no-reasoning-picker><section id="structural-deny" class="rounded-3xl border"><h3>任意供应商的任意提示</h3><div><button type="button">拒绝</button><div><button type="button">允许一次</button></div></div></section><form><textarea id="prompt-textarea"></textarea></form></main>');
   try {
     const pending=h.cards();
     assert.equal(pending.length,1);
