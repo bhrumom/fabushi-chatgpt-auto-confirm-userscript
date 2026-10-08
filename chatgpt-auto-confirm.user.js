@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.29
+// @version      2.10.30
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.29';
+  const VERSION = '2.10.30';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -5186,18 +5186,22 @@ async function bootstrapAttempt() {
     // Share/feedback/source/more remain useful diagnostics, but renderer
     // variants may delay or omit them and must not turn a visible final answer
     // into "conversation ended without final reply".
+    const substantiveReply = Boolean(content && !/^(?:思考了?\s*\d+\s*(?:h|m|s|小时|分钟|秒)(?:\s*\d+\s*(?:m|s|分钟|秒))*|thought for\s*\d+\s*(?:h|m|s|hours?|minutes?|seconds?)(?:\s*\d+\s*(?:m|s|minutes?|seconds?))*)[。.!]?$/iu.test(normalize(content)));
+    // A settled thought-only action row proves the generation ended, not that
+    // the task delivered a readable answer. Keep this out of final/results.
+    const terminalEmptyReply = Boolean(!substantiveReply && responseActionsComplete && !stopVisible && !streaming);
     const finalByCopy = Boolean(
-      content
+      substantiveReply
       && responseActions.has('copy')
       && !streaming
       && !stopVisible,
     );
-    const finalByActions = Boolean(content && responseActionsComplete && !stopVisible);
+    const finalByActions = Boolean(substantiveReply && responseActionsComplete && !stopVisible);
     // Keep the explicit marker path for compatibility and diagnostics. Copy is
     // still response-local and ownership-bound; a bare static marker alone is
     // never sufficient.
     const finalByStaticCopy = Boolean(
-      content
+      substantiveReply
       && explicitFinal
       && !streaming
       && responseActions.has('copy')
@@ -5217,6 +5221,7 @@ async function bootstrapAttempt() {
       responseActions: [...responseActions],
       responseActionsComplete,
       explicitFinal,
+      terminalEmptyReply,
       streaming,
       hasNaturalReply,
       article,
@@ -7370,8 +7375,26 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && composerReady
       && !task.attempted
     );
+    // A completed response-local action row can outlive a decorative page
+    // spinner. Only a strongly owned, idle empty-answer terminal may ignore it.
+    const terminalEmptyReply = Boolean(
+      turn.terminalEmptyReply
+      && turn.owned
+      && routeOwned
+      && !foreignTask
+      && !otherRouteOwner
+      && !stopPresent
+      && !observedActivityStreaming
+      && !approvalBlocking
+      && !currentBlocker
+      && !currentRateLimit
+      && !retryableError
+      && composerReady
+      && composerEmpty
+      && !task.attempted
+    );
     const effectiveLoading = Boolean(
-      rawLoading
+      rawLoading && !terminalEmptyReply
       && (
         (turn.recoveredStaticCandidate && !retryableErrorEnded && !recoveredStaticStaleLoadingEnd)
         || (!turn.owned && !routeEndedOwned)
@@ -7466,6 +7489,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       explicitFinal:turn.explicitFinal,
       recoveredStaticCandidate:Boolean(turn.recoveredStaticCandidate),
       naturalFinalCandidate,
+      terminalEmptyReply,
       recoveredStaticStaleLoadingEnd,
       routeEndedOwned,
       activityText,
