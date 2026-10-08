@@ -564,7 +564,7 @@ test('live nested model menu fails closed for missing submenu, missing target, d
   }
 });
 
-test('first-level live model row exposes the 5.6 hint but hint alone is not treated as final proof',async()=>{
+test('missing first-level row can be recovered only by reopening and confirming the target radio',async()=>{
   const {w,h,dom}=await liveNestedModelFixture('GPT-5.6 Sol');
   try {
     const trigger=w.document.querySelector('[data-codex-intelligence-trigger]');trigger.click();
@@ -576,7 +576,8 @@ test('first-level live model row exposes the 5.6 hint but hint alone is not trea
     entry.remove();
     const task={id:'hint-only',ownerTabId:h.getTabId(),goal:'model',phase:'work',round:1,state:'sending',modelPreset:'gpt-5.6-sol',messages:[]};
     h.data.tasks.push(task);h.setRunningForTest(true);
-    assert.equal(await h.ensureTaskModelPreset(task,null),false,'5.6 visible text without an openable radio list must fail closed');
+    assert.equal(await h.ensureTaskModelPreset(task,null),true,'a disappeared row may be reopened, but success still requires authoritative checked radio');
+    assert.equal(task.modelPresetConfirmedKey,'gpt-5.6-sol');
   } finally {h.pause();dom.window.close();}
 });
 
