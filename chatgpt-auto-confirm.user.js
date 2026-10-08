@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.32
+// @version      2.10.33
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.32';
+  const VERSION = '2.10.33';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -3504,6 +3504,16 @@ async function bootstrapAttempt() {
   function modelTriggerMatches(trigger, target) {
     return modelControlStrings(trigger).some(value => modelValueMatches(value, target));
   }
+  function closedComposerModelHint(trigger) {
+    if (!trigger || !visible(trigger) || trigger.getAttribute('aria-expanded') === 'true') return null;
+    const text = normalize(trigger.innerText || trigger.textContent || '');
+    if (/\b5\.6\b/i.test(text)) return 'gpt-5.6-sol';
+    if (/\b5\.5\b/i.test(text)) return 'gpt-5.5';
+    // On current ChatGPT a ready trigger contains reasoning strength only
+    // for GPT-6. Empty or loading controls never imply GPT-6.
+    if (/^(?:思考强度|即时|中|高|极高|Pro|Instant|Medium|High|Extra High)(?:\s.*)?$/i.test(text)) return 'gpt-6';
+    return null;
+  }
   function modelMenuOption(target) {
     const preset = modelPresetDefinition(target);
     const interactive = nodes('button,[role="menuitem"],[role="option"]')
@@ -3561,7 +3571,24 @@ async function bootstrapAttempt() {
   }
   function closeModelPickerMenu() {
     const trigger = modelPickerTrigger();
-    if (trigger?.getAttribute('aria-expanded') === 'true') trigger.click();
+    if (!trigger) return;
+    trigger.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',code:'Escape',bubbles:true}));
+    if (trigger.getAttribute('aria-expanded') === 'true') trigger.click();
+  }
+  async function reopenModelPicker(trigger, signal) {
+    if (!trigger) return false;
+    // The live overlay can remain on model radios while pointer hover owns
+    // the trigger. Dismiss, relinquish hover/focus, then reopen deliberately.
+    trigger.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',code:'Escape',bubbles:true}));
+    trigger.dispatchEvent(new MouseEvent('mouseout',{bubbles:true,relatedTarget:document.body}));
+    trigger.dispatchEvent(new MouseEvent('mouseleave',{bubbles:false,relatedTarget:document.body}));
+    trigger.blur?.();
+    await delay(90,signal); check(signal);
+    if (trigger.getAttribute('aria-expanded') === 'true') trigger.click();
+    await delay(90,signal); check(signal);
+    if (trigger.getAttribute('aria-expanded') !== 'true') trigger.click();
+    await delay(120,signal); check(signal);
+    return trigger.getAttribute('aria-expanded') === 'true';
   }
   async function openModelRadioList(trigger, signal) {
     let radios = modelRadioOptions();
@@ -3578,12 +3605,29 @@ async function bootstrapAttempt() {
       if (entry) break;
       await delay(80, signal); check(signal);
     }
-    if (!entry || !enabled(entry)) return [];
+    if (!entry || !enabled(entry)) {
+      // The menu may be showing radios or have lost its first-level item
+      // during hydration. One bounded dismissal/reopen can restore it.
+      if (!await reopenModelPicker(trigger,signal)) return [];
+      entry = modelSubmenuEntry();
+      if (!entry || !enabled(entry)) return [];
+    }
     activateControl(entry);
     for (let attempt = 0; attempt < 8; attempt++) {
       await delay(100, signal); check(signal);
       radios = modelRadioOptions();
       if (radios.length) return radios;
+    }
+    if (await reopenModelPicker(trigger,signal)) {
+      const retryEntry = modelSubmenuEntry();
+      if (retryEntry && enabled(retryEntry)) {
+        activateControl(retryEntry);
+        for (let attempt=0;attempt<8;attempt++) {
+          await delay(100,signal);check(signal);
+          radios=modelRadioOptions();
+          if (radios.length) return radios;
+        }
+      }
     }
     return [];
   }
@@ -3799,10 +3843,19 @@ async function bootstrapAttempt() {
       await delay(120, signal); check(signal);
     }
     let slider = reasoningSliderState();
+    for (let attempt=0; !slider && attempt<4; attempt++) {
+      const strength = nodes('[role="menuitem"]').find(node=>enabled(node) && /^(?:强度|Strength)$/i.test(normalize(node.getAttribute('aria-label') || label(node))));
+      if (strength && !modelRadioOptions().length) activateControl(strength);
+      await delay(120,signal); check(signal);
+      slider=reasoningSliderState();
+      if (slider) break;
+      trigger=reasoningPickerTrigger();
+      if (!await reopenModelPicker(trigger,signal)) break;
+      slider=reasoningSliderState();
+    }
     if (!slider) {
-      trigger = reasoningPickerTrigger();
-      if (trigger?.getAttribute('aria-expanded') === 'true') trigger.click();
-      waitForReasoningPicker(task, 'ChatGPT 模型菜单已打开，但未找到思考强度滑块');
+      closeModelPickerMenu();
+      waitForReasoningPicker(task, 'ChatGPT 模型菜单已打开，但强度滑块暂时消失，重新打开后仍未恢复');
       return false;
     }
     if (target < slider.min || target > slider.max) {
@@ -3822,10 +3875,17 @@ async function bootstrapAttempt() {
         cancelable:true,
       }));
       await delay(120, signal); check(signal);
-      const next = reasoningSliderState();
+      let next = reasoningSliderState();
       if (!next) {
-        waitForReasoningPicker(task, '调整 ChatGPT 思考强度时滑块消失');
-        return false;
+        for(let retry=0;retry<3 && !next;retry++) {
+          trigger=reasoningPickerTrigger();
+          if (!await reopenModelPicker(trigger,signal)) break;
+          next=reasoningSliderState();
+        }
+        if (!next) {
+          waitForReasoningPicker(task, '调整 ChatGPT 思考强度时滑块消失，重新打开后仍未恢复');
+          return false;
+        }
       }
       if (next.current === slider.current) {
         trigger = reasoningPickerTrigger();
