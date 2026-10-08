@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.33
+// @version      2.10.34
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.33';
+  const VERSION = '2.10.34';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -3575,20 +3575,47 @@ async function bootstrapAttempt() {
     trigger.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',code:'Escape',bubbles:true}));
     if (trigger.getAttribute('aria-expanded') === 'true') trigger.click();
   }
+  function safeModelPickerDismissTarget(trigger) {
+    // The real ChatGPT model submenu can ignore Escape and clicks on its
+    // trigger until a pointer interaction lands outside its portal.
+    // Never dismiss through Send, navigation, transcript or Fabushi controls.
+    const candidates = nodes('main h1,main h2,[role="main"] h1,[role="main"] h2');
+    return candidates.find(node => node.isConnected && visible(node) && !own(node)
+      && node !== trigger && !node.contains(trigger)
+      && !node.closest('button,a,[role="button"],[role="menu"],[role="dialog"],form,nav,aside')
+      && !node.closest('[contenteditable="true"]')) || null;
+  }
+  async function dismissModelPickerOutside(trigger, signal) {
+    const target = safeModelPickerDismissTarget(trigger);
+    if (!target) return false;
+    for (const type of ['pointerdown','mousedown','pointerup','mouseup','click']) {
+      const EventClass = type.startsWith('pointer') && typeof PointerEvent === 'function' ? PointerEvent : MouseEvent;
+      target.dispatchEvent(new EventClass(type,{bubbles:true,cancelable:true,button:0}));
+    }
+    await delay(100,signal); check(signal);
+    return !modelRadioOptions().length && trigger.getAttribute('aria-expanded') !== 'true';
+  }
   async function reopenModelPicker(trigger, signal) {
-    if (!trigger) return false;
-    // The live overlay can remain on model radios while pointer hover owns
-    // the trigger. Dismiss, relinquish hover/focus, then reopen deliberately.
+    if (!trigger || !enabled(trigger) || !trigger.isConnected) return false;
+    // Escape/hover alone is insufficient on the authenticated nested menu.
     trigger.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',code:'Escape',bubbles:true}));
     trigger.dispatchEvent(new MouseEvent('mouseout',{bubbles:true,relatedTarget:document.body}));
     trigger.dispatchEvent(new MouseEvent('mouseleave',{bubbles:false,relatedTarget:document.body}));
     trigger.blur?.();
     await delay(90,signal); check(signal);
-    if (trigger.getAttribute('aria-expanded') === 'true') trigger.click();
-    await delay(90,signal); check(signal);
+    if (modelRadioOptions().length || trigger.getAttribute('aria-expanded') === 'true') {
+      if (!await dismissModelPickerOutside(trigger,signal)) {
+        // Legacy first-level menus may still close through the trigger;
+        // never trust that toggle while radio options remain visible.
+        if (modelRadioOptions().length) return false;
+        if (trigger.getAttribute('aria-expanded') === 'true') trigger.click();
+        await delay(90,signal); check(signal);
+      }
+    }
+    if (modelRadioOptions().length || !enabled(trigger) || !trigger.isConnected) return false;
     if (trigger.getAttribute('aria-expanded') !== 'true') trigger.click();
     await delay(120,signal); check(signal);
-    return trigger.getAttribute('aria-expanded') === 'true';
+    return trigger.isConnected && trigger.getAttribute('aria-expanded') === 'true';
   }
   async function openModelRadioList(trigger, signal) {
     let radios = modelRadioOptions();
