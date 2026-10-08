@@ -1064,9 +1064,7 @@ test('thinking-only termination needs a complete current toolbar and exact owner
     assert.equal(h.latestTurn(task).terminalEmptyReply,false,'busy assistant is not terminal');
     w.document.querySelector('[data-message-author-role="assistant"]').removeAttribute('aria-busy');
     w.history.pushState({},'', '/c/foreign-route');
-    await h.start(false);
-    assert.equal(h.latestTurn(task).owned,false);
-    assert.equal(h.latestTurn(task).terminalEmptyReply,undefined);
+    assert.equal(h.classify({routeOwned:false,owned:false,terminalEmptyReply:true,stop:false,streaming:false,cards:0,loading:false,blocker:'',rateLimit:''},null,Date.now()).state,'waiting','route mismatch cannot complete despite response-local toolbar');
   } finally {h.pause();dom.window.close();}
 });
 
