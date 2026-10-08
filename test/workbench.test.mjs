@@ -34,7 +34,7 @@ async function fixture(body='', setup=()=>{}, url='https://chatgpt.com/') {
     const form = w.document.querySelector('form') || w.document.body;
     form.append(trigger);
   }
-  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, interruptedFreshHandoffApprovalGate, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, assistantResponseBoundaryKey, taskTurnForInspection, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, conversationLoadFailure, clearConversationLoadFailureState, recoverConversationLoadFailure, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, normalizeModelPreset, modelPresetLabel, taskModelPreset, normalizeReasoningPreset, reasoningPresetLabel, taskReasoningPreset, localizedChatWorkModeKind, chatWorkModeSelection, chatWorkModeControls, workModeEvidence, chatWorkModeState, ensureChatMode, modelPickerTrigger, modelTriggerMatches, closedComposerModelHint, reopenModelPicker, modelMenuOption, modelSubmenuEntry, modelRadioOptions, modelRadioOption, modelRadioSelected, modelSubmenuHintMatches, openModelRadioList, confirmModelRadioSelection, ensureTaskModelPreset, reasoningPickerTrigger, reasoningSliderState, clearReasoningPickerRecovery, waitForReasoningPicker, ensureTaskReasoningPreset, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, markApprovalUnavailable, clearApprovalUnavailableRefresh, refreshUnavailableApproval, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, storageStatusText, readRecentActivitySession, writeRecentActivitySession, recordRecentActivity, restoreRecentActivityMessages, taskRecoveryStatusText, persistWorkbenchState, durableTaskSnapshot, durableWorkbenchSnapshot, fitWorkbenchSnapshotToLocalBudget, writeLocalStorageRecord, readStorageString, readWorkbenchOverflow, cleanupStaleFabushiStorage, fabushiLocalStorageFootprint, storageBudgets:()=>({workbench:WORKBENCH_LOCAL_STORAGE_TARGET_CHARS,total:FABUSHI_LOCAL_STORAGE_MAX_CHARS}), scheduleWorkspaceHeartbeat, workspaceHeartbeatScheduled:()=>Boolean(workspaceHeartbeatTimer), storagePersistenceStatus:()=>storagePersistenceStatus, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), setRunningForTest:value=>{running=Boolean(value);}, getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, interruptedFreshHandoffApprovalGate, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, assistantResponseBoundaryKey, taskTurnForInspection, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, conversationLoadFailure, clearConversationLoadFailureState, recoverConversationLoadFailure, cards, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, normalizeModelPreset, modelPresetLabel, taskModelPreset, normalizeReasoningPreset, reasoningPresetLabel, taskReasoningPreset, localizedChatWorkModeKind, chatWorkModeSelection, chatWorkModeControls, workModeEvidence, chatWorkModeState, ensureChatMode, modelPickerTrigger, modelTriggerMatches, closedComposerModelHint, reopenModelPicker, modelMenuOption, modelSubmenuEntry, modelRadioOptions, modelRadioOption, modelRadioSelected, modelSubmenuHintMatches, openModelRadioList, confirmModelRadioSelection, ensureTaskModelPreset, currentTaskModelStillConfirmed, reasoningPickerTrigger, reasoningSliderState, clearReasoningPickerRecovery, waitForReasoningPicker, ensureTaskReasoningPreset, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, markApprovalUnavailable, clearApprovalUnavailableRefresh, refreshUnavailableApproval, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, storageStatusText, readRecentActivitySession, writeRecentActivitySession, recordRecentActivity, restoreRecentActivityMessages, taskRecoveryStatusText, persistWorkbenchState, durableTaskSnapshot, durableWorkbenchSnapshot, fitWorkbenchSnapshotToLocalBudget, writeLocalStorageRecord, readStorageString, readWorkbenchOverflow, cleanupStaleFabushiStorage, fabushiLocalStorageFootprint, storageBudgets:()=>({workbench:WORKBENCH_LOCAL_STORAGE_TARGET_CHARS,total:FABUSHI_LOCAL_STORAGE_MAX_CHARS}), scheduleWorkspaceHeartbeat, workspaceHeartbeatScheduled:()=>Boolean(workspaceHeartbeatTimer), storagePersistenceStatus:()=>storagePersistenceStatus, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), setRunningForTest:value=>{running=Boolean(value);}, getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('recent activity restores the last two hours after reload without putting history back into localStorage',async()=>{
@@ -429,6 +429,102 @@ test('workbench exposes model selection beside reasoning and defaults to 5.6 / E
     assert.equal(reasoning.value,'3');
     assert.ok(model.compareDocumentPosition(reasoning)&w.Node.DOCUMENT_POSITION_FOLLOWING,'model selector is directly before reasoning selector');
   } finally {h.pause();dom.window.close();}
+});
+
+test('changing the workbench model changes only the selected existing task and survives persistence',async()=>{
+  const {w,h,dom}=await fixture();
+  try{
+    const first=h.enqueue('first ongoing goal','goal',[],3,'gpt-6');
+    first.state='generating';
+    const second=h.enqueue('second independent goal','goal',[],3,'gpt-5.5');
+    const dropdown=w.document.querySelector('select[aria-label="ChatGPT 模型"]');
+    const rows=()=>Array.from(w.document.querySelectorAll('.task-row'));
+    const selectTask=task=>rows().find(row=>row.dataset.taskId===task.id)?.querySelector('button.task-select').click();
+    assert.equal(dropdown.value,'gpt-5.5','latest selected task is shown, not the unrelated active task');
+    selectTask(first);
+    assert.equal(dropdown.value,'gpt-6','selecting a task presents its saved model without rewriting it');
+    const untouchedDefault=h.data.defaultModelPreset;
+    assert.equal(h.normalizeModelPreset(untouchedDefault),'gpt-5.6-sol','legacy missing default must normalize safely');
+    dropdown.value='gpt-5.6-sol';dropdown.dispatchEvent(new w.Event('change',{bubbles:true}));
+    assert.equal(first.modelPreset,'gpt-5.6-sol');
+    assert.equal(second.modelPreset,'gpt-5.5','unselected task must not change');
+    assert.equal(h.data.defaultModelPreset,untouchedDefault,'editing a task never changes new-task default');
+    assert.match(w.document.querySelector('.model-scope-hint').textContent,/当前任务模型/);
+    assert.match(w.document.querySelector('.reasoning-preset').textContent,/GPT-5.6 Sol/);
+    let stored=JSON.parse(w.localStorage.getItem('fabushi-workbench-v2'));
+    assert.equal(stored.tasks.find(task=>task.id===first.id).modelPreset,'gpt-5.6-sol');
+    assert.equal(stored.tasks.find(task=>task.id===second.id).modelPreset,'gpt-5.5');
+    selectTask(second);
+    assert.equal(dropdown.value,'gpt-5.5','switching task scope restores its own model');
+    assert.equal(second.modelPreset,'gpt-5.5');
+    const fresh=Array.from(w.document.querySelectorAll('#fabushi-auto-confirm-root button')).find(button=>button.textContent==='＋ 新任务');
+    assert.ok(fresh);
+    fresh.click();
+    assert.equal(dropdown.value,'gpt-5.6-sol','new-task view restores persisted default');
+    assert.match(w.document.querySelector('.model-scope-hint').textContent,/新任务默认模型/);
+    dropdown.value='gpt-6';dropdown.dispatchEvent(new w.Event('change',{bubbles:true}));
+    assert.equal(h.data.defaultModelPreset,'gpt-6');
+    assert.equal(first.modelPreset,'gpt-5.6-sol','changing default does not rewrite an earlier task');
+    assert.equal(second.modelPreset,'gpt-5.5');
+    selectTask(first);
+    assert.equal(dropdown.value,'gpt-5.6-sol');
+    assert.equal(h.data.defaultModelPreset,'gpt-6','merely viewing another task does not reset the default');
+    stored=JSON.parse(w.localStorage.getItem('fabushi-workbench-v2'));
+    assert.equal(stored.defaultModelPreset,'gpt-6');
+  }finally{h.pause();dom.window.close();}
+});
+
+test('running Work task model change is used in the next Review and later Work dispatch',async()=>{
+  const {w,h,dom,state}=await liveNestedModelFixture('GPT-5.6 Sol');
+  try{
+    const task=h.enqueue('continuous goal','goal',[],3,'gpt-5.6-sol');
+    task.state='generating';task.phase='work';task.round=3;
+    task.token='already-sent-token';task.url='https://chatgpt.com/c/already-sent';
+    task.modelPresetConfirmedKey='gpt-5.6-sol';task.modelPresetConfirmedAt=Date.now();
+    const dropdown=w.document.querySelector('select[aria-label="ChatGPT 模型"]');
+    assert.equal(dropdown.value,'gpt-5.6-sol');
+    dropdown.value='gpt-6';dropdown.dispatchEvent(new w.Event('change',{bubbles:true}));
+    assert.equal(task.modelPreset,'gpt-6');
+    assert.equal(task.modelPresetConfirmedKey,'','the prior model verification cannot authorize the next dispatch');
+    assert.equal(task.round,3,'editing a model must not restart this round');
+    assert.equal(task.phase,'work');
+    assert.equal(task.token,'already-sent-token','an already sent conversation must retain its token');
+    assert.equal(task.url,'https://chatgpt.com/c/already-sent','active conversation identity must remain untouched');
+    assert.equal(state.selected,'GPT-5.6 Sol','ChatGPT must not be changed while existing round generates');
+    const snapshot=h.durableTaskSnapshot(task);
+    assert.equal(snapshot.modelPreset,'gpt-6','new setting is durable');
+    assert.equal(snapshot.modelPresetConfirmedKey,undefined,'transient verification is not durable');
+    // The scheduler advances an already-completed Work turn into Review.
+    task.phase='review';task.round=4;task.state='queued';task.url='';task.token='';
+    h.setRunningForTest(true);
+    assert.equal(await h.ensureTaskModelPreset(task,null),true);
+    assert.equal(state.selected,'GPT-6','the next Review round switches to latest Fabushi selection');
+    assert.equal(task.modelPresetConfirmedKey,'gpt-6');
+    assert.equal(h.currentTaskModelStillConfirmed(task,'gpt-6'),true);
+    dropdown.value='gpt-5.5';dropdown.dispatchEvent(new w.Event('change',{bubbles:true}));
+    assert.equal(task.modelPreset,'gpt-5.5');
+    assert.equal(h.currentTaskModelStillConfirmed(task,'gpt-6'),false,'changing during preflight invalidates stale Send');
+    assert.equal(task.modelPresetConfirmedKey,'');
+    task.phase='work';task.round=5;
+    assert.equal(await h.ensureTaskModelPreset(task,null),true);
+    assert.equal(state.selected,'GPT-5.5','a later Work round uses the newly changed model');
+    assert.equal(h.currentTaskModelStillConfirmed(task,'gpt-5.5'),true);
+  }finally{h.pause();dom.window.close();}
+});
+
+test('pre-Send gate rejects an in-flight selector change after model/strength preparation',()=>{
+  const begin=source.indexOf('async function send(task, signal)');
+  const end=source.indexOf('function reviewParseError',begin);
+  const body=source.slice(begin,end);
+  const capture=body.indexOf('const verifiedModelPreset = taskModelPreset(task)');
+  const model=body.indexOf('ensureTaskModelPreset(task, signal)');
+  const reasoning=body.indexOf('ensureTaskReasoningPreset(task, signal)');
+  const attachments=body.indexOf('ensureTaskAttachments(task, input, signal)');
+  const check=body.indexOf('currentTaskModelStillConfirmed(task, verifiedModelPreset)');
+  const click=body.indexOf('button.click()');
+  assert.ok([capture,model,reasoning,attachments,check,click].every(i=>i>=0));
+  assert.ok(capture<model&&model<reasoning&&reasoning<attachments&&attachments<check&&check<click);
+  assert.match(body.slice(check,click),/保留本轮内容/);
 });
 
 test('older renderer may still confirm a model directly from the closed trigger',async()=>{
@@ -6613,8 +6709,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2.10.34$/m);
-  assert.match(source,/const VERSION = '2.10.34'/);
+  assert.match(source,/^\/\/ @version\s+2.10.35$/m);
+  assert.match(source,/const VERSION = '2.10.35'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
