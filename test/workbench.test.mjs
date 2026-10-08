@@ -4028,6 +4028,68 @@ test('partial semantic connector grant is present before legacy reject and split
   } finally { dom.window.close(); }
 });
 
+test('explicit authorization-card metadata is detected without depending on title or action copy',async()=>{
+  const {h,dom}=await fixture('<main><section id="generic-explicit" data-testid="authorization-card"><h3>这个工具请求额外能力</h3><p>文案可以完全变化。</p></section><form><textarea id="prompt-textarea"></textarea></form></main>');
+  try {
+    const pending=h.cards();
+    assert.equal(pending.length,1,'explicit authorization-card metadata alone proves authorization presence');
+    assert.equal(pending[0].container.id,'generic-explicit');
+    assert.equal(pending[0].button,null,'presence recognition does not require a known Allow label to have hydrated');
+    assert.equal(pending[0].actionable,false);
+  } finally { dom.window.close(); }
+});
+
+test('partial structural authorization card with arbitrary title is detected from Allow plus Reject topology',async()=>{
+  const {h,dom}=await fixture('<main><section id="structural-deny"><h3>任意供应商的任意提示</h3><form><button type="button">拒绝</button><div><button type="button">允许一次</button></div></form></section><form><textarea id="prompt-textarea"></textarea></form></main>');
+  try {
+    const pending=h.cards();
+    assert.equal(pending.length,1);
+    assert.equal(pending[0].container.id,'structural-deny');
+    assert.equal(pending[0].actionable,false,'missing split/options control keeps the card non-actionable');
+    assert.ok(pending[0].deny);
+    assert.equal(pending[0].arrow,null);
+  } finally { dom.window.close(); }
+});
+
+test('partial structural authorization card with arbitrary title is detected from Allow plus split-options topology',async()=>{
+  const {h,dom}=await fixture('<main><section id="structural-split"><h3>完全不同的授权文案</h3><div><button type="button">允许一次</button><button type="button" aria-haspopup="menu" aria-label="选项">⌄</button></div></section><form><textarea id="prompt-textarea"></textarea></form></main>');
+  try {
+    const pending=h.cards();
+    assert.equal(pending.length,1);
+    assert.equal(pending[0].container.id,'structural-split');
+    assert.equal(pending[0].actionable,false,'missing Reject control keeps the card non-actionable');
+    assert.equal(pending[0].deny,null);
+    assert.ok(pending[0].arrow);
+  } finally { dom.window.close(); }
+});
+
+test('resume recognizes an explicit authorization card even when its content and controls are unknown',async()=>{
+  const {h,dom}=await fixture('<main><section id="resume-generic" data-testid="permission-card"><h3>需要继续前的确认</h3></section><form><textarea id="prompt-textarea"></textarea></form></main>',()=>{},'https://chatgpt.com/c/resume-generic-approval');
+  try {
+    const task={id:'resume-generic-approval',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:3,state:'paused',pausedState:'waiting',url:'https://chatgpt.com/c/resume-generic-approval',token:'resume-generic-token',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    assert.equal(h.cards({wide:true}).length,1);
+    assert.equal(h.restorePausedTasks(),true);
+    assert.equal(task.state,'approval','resume must prioritize any explicit authorization card independent of copy');
+    assert.equal(task.url,'https://chatgpt.com/c/resume-generic-approval');
+  } finally { h.pause(); dom.window.close(); }
+});
+
+test('pre-Send blocks an explicit authorization card even when no known authorization button has hydrated',async()=>{
+  const {w,h,dom}=await fixture('<main><section data-testid="approval-card"><h3>完全未知的授权内容</h3><button type="button">继续</button></section><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">Send</button></form></main>');
+  try {
+    const task={id:'send-generic-approval',ownerTabId:h.getTabId(),goal:'must not send',mode:'once',phase:'work',round:1,state:'queued',url:'',token:'',attempted:false,messages:[],attachments:[]};
+    h.data.tasks.push(task);
+    h.setRunningForTest(true);
+    let sends=0;
+    w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>sends++);
+    const controller=new w.AbortController();
+    await assert.rejects(h.send(task,controller.signal),/仍在生成或等待授权/);
+    assert.equal(sends,0);
+    assert.equal(task.sendPrepared||false,false,'authorization blocks before dispatch intent regardless of card content');
+  } finally { h.pause(); dom.window.close(); }
+});
+
 test('quoted authorization wording inside assistant transcript cannot synthesize a live grant surface',async()=>{
   const {h,dom}=await fixture('<main><article data-message-author-role="assistant"><div class="markdown"><h3>允许 ChatGPT 使用 GitHub？</h3><p>下面只是说明文字。</p><button>允许一次</button></div></article><form><textarea id="prompt-textarea"></textarea></form></main>');
   try {
@@ -6938,8 +7000,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2.10.37$/m);
-  assert.match(source,/const VERSION = '2.10.37'/);
+  assert.match(source,/^\/\/ @version\s+2.10.38$/m);
+  assert.match(source,/const VERSION = '2.10.38'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
