@@ -1,8 +1,15 @@
-# Fabushi 独立自动确认工作台 2.10.34
+# Fabushi 独立自动确认工作台 2.10.35
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.34`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.35`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+
+## 2.10.35 正在运行的任务支持随时切换模型
+
+- 在 Fabushi 工作台**选中一个尚未完成的任务**时，下方“ChatGPT 模型”现在显示并修改**该任务**的模型，不再只修改新任务默认值。可在任务运行中切换 GPT-5.6 Sol、GPT-6、GPT-5.5；已发送的当前会话不会被取消、重发或强行改变模型。
+- 后续尚未发送的 Work / Review / 持续目标轮次会使用该任务最近一次保存的模型，并且仍在 Send 前强制确认 Chat 模式、真实模型 radio、思考强度和附件。即使用户在发送准备期间修改模型，也会等待重新验证最新值，拒绝在旧模型下误发。
+- 选择其他任务时会自动显示该任务自己的模型，不会修改先前任务；点击“＋ 新任务”时模型下拉框恢复到新任务默认设置。每个任务的模型和新任务默认值分别持久化，思考强度保持独立。
+- 详细规范见 [v2.10.35](docs/specs/live-running-task-model-preset-v2.10.35.md)。
 
 ### v2.10.34 — Sticky model submenu outside-dismiss recovery
 
