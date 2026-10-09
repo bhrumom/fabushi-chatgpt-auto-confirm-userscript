@@ -2122,9 +2122,11 @@ test('model picker trigger clicks retain the single-click quiet interval',async(
     const trigger=w.document.querySelector('[data-codex-intelligence-trigger]');
     // Two controlled retries used to be 90-120ms apart. The second gesture
     // must wait for the previous picker interaction to settle.
+    h.setRunningForTest(true);
     assert.equal(await h.reopenModelPicker(trigger,null),true);
+    assert.equal(await h.reopenModelPicker(trigger,null),true,'second open must close old menu then reopen with spacing');
     const times=w.__modelClickTimes;
-    assert.ok(times.length>=1);
+    assert.ok(times.length>=3,'fixture must actually exercise multiple clicks');
     for(let i=1;i<times.length;i++) assert.ok(times[i]-times[i-1]>=600,'model trigger was rapidly toggled');
   } finally {h.pause();dom.window.close();}
 });
@@ -7061,8 +7063,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2.10.38$/m);
-  assert.match(source,/const VERSION = '2.10.38'/);
+  assert.match(source,/^\/\/ @version\s+2.10.39$/m);
+  assert.match(source,/const VERSION = '2.10.39'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
