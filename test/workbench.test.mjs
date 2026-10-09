@@ -11,6 +11,8 @@ async function fixture(body='', setup=()=>{}, url='https://chatgpt.com/') {
   w.SVGElement.prototype.getClientRects = function(){return this.hidden ? [] : [{}];};
   const held = new Set();
   w.navigator.locks = {query:async()=>({held:[...held].map(name=>({name}))}),request:async(name,options,callback)=>{callback ||= options;if(held.has(name))return callback(null);held.add(name);try{return await callback({name});}finally{held.delete(name);}}};
+  Object.defineProperty(w.document,'hidden',{configurable:true,value:false});
+  Object.defineProperty(w.document,'visibilityState',{configurable:true,value:'visible'});
   setup(w);
   // Production now blocks Send until ChatGPT's model/thinking preset is
   // structurally confirmed. Most historical fixtures predate that UI and are
@@ -34,7 +36,7 @@ async function fixture(body='', setup=()=>{}, url='https://chatgpt.com/') {
     const form = w.document.querySelector('form') || w.document.body;
     form.append(trigger);
   }
-  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, interruptedFreshHandoffApprovalGate, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, assistantResponseBoundaryKey, taskTurnForInspection, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, conversationLoadFailure, clearConversationLoadFailureState, recoverConversationLoadFailure, cards, authorizationCardShell, structuralAuthorizationSurface, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, normalizeModelPreset, modelPresetLabel, taskModelPreset, normalizeReasoningPreset, reasoningPresetLabel, taskReasoningPreset, localizedChatWorkModeKind, chatWorkModeSelection, chatWorkModeControls, workModeEvidence, chatWorkModeState, ensureChatMode, chatWorkContinueOffer, chatWorkStayIdentity, clearChatWorkStayState, handleChatWorkContinueOffer, modelPickerTrigger, modelTriggerMatches, closedComposerModelHint, reopenModelPicker, modelMenuOption, modelSubmenuEntry, modelRadioOptions, modelRadioOption, modelRadioSelected, modelSubmenuHintMatches, openModelRadioList, confirmModelRadioSelection, ensureTaskModelPreset, currentTaskModelStillConfirmed, reasoningPickerTrigger, reasoningSliderState, clearReasoningPickerRecovery, waitForReasoningPicker, ensureTaskReasoningPreset, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, markApprovalUnavailable, clearApprovalUnavailableRefresh, refreshUnavailableApproval, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, storageStatusText, readRecentActivitySession, writeRecentActivitySession, recordRecentActivity, restoreRecentActivityMessages, taskRecoveryStatusText, persistWorkbenchState, durableTaskSnapshot, durableWorkbenchSnapshot, fitWorkbenchSnapshotToLocalBudget, writeLocalStorageRecord, readStorageString, readWorkbenchOverflow, cleanupStaleFabushiStorage, fabushiLocalStorageFootprint, storageBudgets:()=>({workbench:WORKBENCH_LOCAL_STORAGE_TARGET_CHARS,total:FABUSHI_LOCAL_STORAGE_MAX_CHARS}), scheduleWorkspaceHeartbeat, workspaceHeartbeatScheduled:()=>Boolean(workspaceHeartbeatTimer), storagePersistenceStatus:()=>storagePersistenceStatus, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), setRunningForTest:value=>{running=Boolean(value);}, getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { delay, wakeBackgroundWork, backgroundWaits, blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, interruptedFreshHandoffApprovalGate, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, assistantResponseBoundaryKey, taskTurnForInspection, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, conversationLoadFailure, clearConversationLoadFailureState, recoverConversationLoadFailure, cards, authorizationCardShell, structuralAuthorizationSurface, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, normalizeModelPreset, modelPresetLabel, taskModelPreset, normalizeReasoningPreset, reasoningPresetLabel, taskReasoningPreset, localizedChatWorkModeKind, chatWorkModeSelection, chatWorkModeControls, workModeEvidence, chatWorkModeState, ensureChatMode, chatWorkContinueOffer, chatWorkStayIdentity, clearChatWorkStayState, handleChatWorkContinueOffer, modelPickerTrigger, modelTriggerMatches, closedComposerModelHint, reopenModelPicker, modelMenuOption, modelSubmenuEntry, modelRadioOptions, modelRadioOption, modelRadioSelected, modelSubmenuHintMatches, openModelRadioList, confirmModelRadioSelection, ensureTaskModelPreset, currentTaskModelStillConfirmed, reasoningPickerTrigger, reasoningSliderState, clearReasoningPickerRecovery, waitForReasoningPicker, ensureTaskReasoningPreset, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, markApprovalUnavailable, clearApprovalUnavailableRefresh, refreshUnavailableApproval, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, storageStatusText, readRecentActivitySession, writeRecentActivitySession, recordRecentActivity, restoreRecentActivityMessages, taskRecoveryStatusText, persistWorkbenchState, durableTaskSnapshot, durableWorkbenchSnapshot, fitWorkbenchSnapshotToLocalBudget, writeLocalStorageRecord, readStorageString, readWorkbenchOverflow, cleanupStaleFabushiStorage, fabushiLocalStorageFootprint, storageBudgets:()=>({workbench:WORKBENCH_LOCAL_STORAGE_TARGET_CHARS,total:FABUSHI_LOCAL_STORAGE_MAX_CHARS}), scheduleWorkspaceHeartbeat, workspaceHeartbeatScheduled:()=>Boolean(workspaceHeartbeatTimer), storagePersistenceStatus:()=>storagePersistenceStatus, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), setRunningForTest:value=>{running=Boolean(value);}, getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('recent activity restores the last two hours after reload without putting history back into localStorage',async()=>{
@@ -5423,7 +5425,7 @@ test('automatic memory monitoring never reloads or interrupts an active task at 
     assert.equal(task.memoryPressureReloadURL,undefined);
     assert.equal(h.getNavigationState().navigating,false);
     assert.equal(w.sessionStorage.getItem('fabushi-workbench-navigation-v2'),null,'memory monitoring must not create a recovery navigation ticket');
-    assert.match(h.memoryStatusText(),/仅诊断，不会自动刷新或中断任务/);
+    assert.match(h.memoryStatusText(),/安全释放并重载原标签页/);
   } finally {h.pause();dom.window.close();}
 });
 
@@ -5450,7 +5452,7 @@ test('automatic memory monitoring remains non-disruptive above 2 GiB',async()=>{
   } finally {h.pause();dom.window.close();}
 });
 
-test('non-user memory cleanup requests fail closed without reloading or contacting the host',async()=>{
+test('visible non-user memory requests fail closed without contacting the host',async()=>{
   const gib=1024*1024*1024;
   const requests=[];
   const {h,w,dom}=await fixture('',window=>{
@@ -5462,7 +5464,7 @@ test('non-user memory cleanup requests fail closed without reloading or contacti
     const task={id:'memory-disabled-direct',ownerTabId:h.getTabId(),goal:'stay on this task',mode:'once',phase:'work',round:2,state:'waiting',url:'https://chatgpt.com/c/memory-disabled-direct',token:'same-token',attempted:false,attachments:[],messages:[]};
     h.data.tasks.push(task);
     const result=await h.requestHostMemoryCleanup({reason:'memory-pressure'});
-    assert.equal(result.reason,'automatic-memory-recovery-disabled');
+    assert.equal(result.reason,'unsafe-state');
     assert.equal(result.reloaded,false);
     assert.equal(requests.length,0);
     assert.equal(task.url,'https://chatgpt.com/c/memory-disabled-direct');
@@ -5470,7 +5472,7 @@ test('non-user memory cleanup requests fail closed without reloading or contacti
     assert.equal(task.state,'waiting');
     assert.equal(h.getNavigationState().navigating,false);
     assert.equal(w.sessionStorage.getItem('fabushi-workbench-navigation-v2'),null);
-    assert.match(h.memoryStatusText(),/自动内存恢复已禁用/);
+    assert.match(h.memoryStatusText(),/安全释放并重载原标签页/);
   } finally {h.pause();dom.window.close();}
 });
 
@@ -7012,8 +7014,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2.10.38$/m);
-  assert.match(source,/const VERSION = '2.10.38'/);
+  assert.match(source,/^\/\/ @version\s+2.10.39$/m);
+  assert.match(source,/const VERSION = '2.10.39'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
@@ -7027,7 +7029,7 @@ test('the packaged userscript declares its stable remote update and download URL
   assert.doesNotMatch(source,/MEMORY_PRESSURE_SAMPLES|MEMORY_HOST_REQUEST_MIN_BYTES|MEMORY_SAME_TAB_RELOAD_COOLDOWN_MS/);
   assert.doesNotMatch(source,/function memoryReloadSafety|function reloadTaskForMemoryPressure|memoryPressureReloadAt|memoryPressureReloadURL/);
   assert.doesNotMatch(source,/网页 JS 堆估算已连续达到/);
-  assert.match(source,/automatic-memory-recovery-disabled/);
+  assert.doesNotMatch(source,/automatic-memory-recovery-disabled/);
   assert.doesNotMatch(source,/ABNORMAL_NO_FINAL_CONTINUE_AFTER_MS/);
   assert.doesNotMatch(source,/AMBIGUOUS_SEND_REFRESH_MS|AMBIGUOUS_SEND_REFRESH_LIMIT/);
   assert.doesNotMatch(source,/STOP_MISSING_CONTINUE_GRACE_MS|stopMissingSince|stopMissingSignature/);
@@ -7265,7 +7267,7 @@ test('automatic memory diagnostics never ask the host even when no task is activ
     assert.equal(requests.length,0);
     assert.equal(h.memorySnapshot().usedBytes,1.8*gib);
     assert.match(h.memoryStatusText(),/网页 JS 堆估算/);
-    assert.match(h.memoryStatusText(),/仅诊断，不会自动刷新或中断任务/);
+    assert.match(h.memoryStatusText(),/安全释放并重载原标签页/);
   } finally {h.pause();dom.window.close();}
 });
 
@@ -7342,3 +7344,123 @@ for (const variant of ['owned','virtualized','inside','sibling','stop','quote','
     } finally {h.pause();dom.window.close();}
   });
 }
+
+function hiddenFixture(window) {
+  Object.defineProperty(window.document,'hidden',{configurable:true,value:true});
+  Object.defineProperty(window.document,'visibilityState',{configurable:true,value:'hidden'});
+}
+test('hidden async wait resolves via host response with page timers withheld',async()=>{
+  const {h,w,dom}=await fixture('',hiddenFixture);
+  try {
+    const original=w.setTimeout;
+    w.setTimeout=()=>123;
+    w.addEventListener('message',event=>{
+      const m=event.data;
+      if(m?.type==='background-clock.request') {
+        // Deliver host response synchronously, independent of withheld timers.
+        w.dispatchEvent(new w.MessageEvent('message',{source:w,data:{source:'fabushi-extension',type:'background-clock.response',requestId:m.requestId,ok:true}}));
+      }
+    });
+    const before=h.backgroundWaits.size;
+    await h.delay(250,null);
+    assert.ok(h.backgroundWaits.size<=before);
+    w.setTimeout=original;
+  } finally {h.pause();dom.window.close();}
+});
+test('hidden host-clock wait aborts and removes pending callback',async()=>{
+  const {h,w,dom}=await fixture('',hiddenFixture);
+  try {
+    const controller=new w.AbortController();
+    const before=h.backgroundWaits.size;
+    const pending=h.delay(1000,controller.signal);
+    assert.equal(h.backgroundWaits.size,before+1);
+    controller.abort();
+    await assert.rejects(pending,/已暂停/);
+    assert.equal(h.backgroundWaits.size,before);
+  } finally {h.pause();dom.window.close();}
+});
+test('hidden sustained memory pressure checkpoints identity before same-tab host request',async()=>{
+  const requests=[];
+  const {h,w,dom}=await fixture('',window=>{
+    hiddenFixture(window);
+    const gib=1024**3;
+    Object.defineProperty(window.performance,'memory',{value:{usedJSHeapSize:1.8*gib,totalJSHeapSize:2*gib,jsHeapSizeLimit:4*gib}});
+    window.addEventListener('message',event=>{
+      const m=event.data;
+      if(m?.type!=='tab-memory.request')return;
+      requests.push(m);
+      const saved=JSON.parse(window.localStorage.getItem('fabushi-workbench-v2'));
+      assert.equal(saved.tasks[0].token,'original-token');
+      assert.equal(saved.tasks[0].round,4);
+      window.dispatchEvent(new window.MessageEvent('message',{source:window,data:{source:'fabushi-extension',type:'tab-memory.response',requestId:m.requestId,ok:true,result:{ok:true,discarded:true,reloaded:true}}}));
+    });
+  });
+  try {
+    w.history.pushState({},'', '/c/pressure');
+    const task={id:'pressure',ownerTabId:h.getTabId(),goal:'continue',state:'generating',mode:'goal',phase:'work',round:4,url:w.location.href,token:'original-token',attempted:false,attachments:[],messages:[]};
+    h.data.tasks.push(task);
+    await h.inspectMemoryPressure();
+    await h.inspectMemoryPressure();
+    await h.inspectMemoryPressure();
+    assert.equal(requests.length,1,'cooldown prevents repeated discard');
+    assert.equal(requests[0].payload.resumeAfterDiscard,true);
+    assert.equal(requests[0].payload.capability,'tab-memory-discard-resume');
+    assert.equal(requests[0].payload.safeToDiscard,true);
+    assert.equal(task.url,w.location.href);
+    assert.equal(task.token,'original-token');
+    assert.equal(h.getNavigationState().navigating,false);
+  } finally {h.pause();dom.window.close();}
+});
+test('hidden memory recovery rejects drafts, ambiguous sends and failed checkpoints',async()=>{
+  const {h,w,dom}=await fixture('<textarea id="prompt-textarea">unsaved draft</textarea>',hiddenFixture);
+  try {
+    assert.equal((await h.requestHostMemoryCleanup({reason:'memory-pressure'})).reason,'unsafe-state');
+    w.document.querySelector('textarea').value='';
+    h.data.tasks.push({id:'pending',ownerTabId:h.getTabId(),state:'sending',attempted:true,token:'pending',messages:[]});
+    assert.equal((await h.requestHostMemoryCleanup({reason:'memory-pressure'})).reason,'unsafe-state');
+    h.data.tasks=[];
+    w.Storage.prototype.setItem=()=>{throw new w.DOMException('quota','QuotaExceededError');};
+    assert.equal((await h.requestHostMemoryCleanup({reason:'memory-pressure'})).reason,'checkpoint-failed');
+  } finally {h.pause();dom.window.close();}
+});
+test('host wake preserves manually paused runner',async()=>{
+  const {h,w,dom}=await fixture('',hiddenFixture);
+  try {
+    h.data.autoResume=false;
+    h.data.globalAutoApprove=false;
+    await h.wakeBackgroundWork();
+    assert.equal(h.getNavigationState().timer,false);
+    assert.equal(h.measurements.sends,0);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('whole hidden runner completes a response via host scheduling with page timers withheld',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-message-author-role="user">finish [Fabushi:hidden-final]</article><article data-message-author-role="assistant"><div class="markdown">工作已经完成。</div></article><form><textarea id="prompt-textarea"></textarea></form>',hiddenFixture);
+  const hostRequests=[];
+  try {
+    w.history.pushState({},'', '/c/hidden-final');
+    const original=w.setTimeout;
+    let fakeHandle=789;w.setTimeout=()=>fakeHandle++;
+    w.addEventListener('message',e=>{if(e.data?.type==='background-clock.request')hostRequests.push(e.data);});
+    const task={id:'hidden-final',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:w.location.href,token:'hidden-final',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    await h.start(false);
+    await new Promise(r=>setTimeout(r,100));
+    const initial=hostRequests.find(m=>m.payload.delayMs===100);
+    assert.ok(initial,'runner start uses host scheduler');
+    const reply=m=>w.dispatchEvent(new w.MessageEvent('message',{source:w,data:{source:'fabushi-extension',type:'background-clock.response',requestId:m.requestId,ok:true}}));
+    reply(initial);
+    await new Promise(r=>setTimeout(r,100));
+    assert.ok(h.measurements.scans>=1);
+    const observation=h.observations.get(task.id);
+    assert.ok(observation?.naturalFinalCandidate);
+    h.observations.set(task.id,{...observation,naturalFinalSince:Date.now()-9000});
+    const next=hostRequests.findLast(m=>m.payload.delayMs===15000);
+    assert.ok(next,'subsequent hidden runner ticks use host clock');
+    reply(next);
+    await new Promise(r=>setTimeout(r,100));
+    assert.equal(task.state,'done');
+    assert.equal(h.measurements.sends,0,'completion does not resend the prompt');
+    w.setTimeout=original;
+  } finally {h.pause();dom.window.close();}
+});

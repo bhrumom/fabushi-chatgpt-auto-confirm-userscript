@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.38
+// @version      2.10.39
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.38';
+  const VERSION = '2.10.39';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -260,6 +260,7 @@ async function bootstrapAttempt() {
   // may compact script-owned stale state, but it never reloads/navigates/releases
   // the active task because of a memory threshold. Host discard remains manual.
   const HOST_MEMORY_CAPABILITY = 'tab-memory-discard';
+  const HOST_MEMORY_RESUME_CAPABILITY = 'tab-memory-discard-resume';
   const HOST_MEMORY_REQUEST_TYPE = 'tab-memory.request';
   const HOST_MEMORY_RESPONSE_TYPE = 'tab-memory.response';
   const HOST_MEMORY_PLUGIN_ID = 'chatgpt-auto-confirm';
@@ -1317,6 +1318,9 @@ async function bootstrapAttempt() {
   let memorySnapshot = { supported:false, source:'performance.memory', at:0, reason:'not-sampled' };
   let memoryPressure = 'unsupported';
   let memoryLastAction = '';
+  let memoryPressureSamples = 0;
+  const backgroundWaits = new Map();
+  const backgroundTimers = new Map();
   let readTransientUIState = () => ({ hasDraft:false, hasFiles:false });
   let releaseTransientUIResources = () => false;
   let attachmentDBPromise = null;
@@ -1706,7 +1710,7 @@ async function bootstrapAttempt() {
       || ['sending','uploading','loading','approval'].includes(String(task.state || '')));
     const hasDraft = Boolean(transient.hasDraft || hasUnsavedComposerInput());
     const hasPendingAttachment = Boolean(transient.hasFiles || tabTasks().some(task => task.attachmentUploadPending));
-    const safe = !busy && !navigating && !hasDraft && !hasPendingAttachment && !taskInFlight;
+    const safe = !busy && !navigating && !hasDraft && !hasPendingAttachment && !taskInFlight && !globalApprovalBusy && !cards().length;
     return {
       safe,
       hidden: document.visibilityState === 'hidden',
@@ -1754,7 +1758,7 @@ async function bootstrapAttempt() {
     const ratio = Number(memorySnapshot.ratio || 0);
     const level = memoryPressure === 'high' ? '高' : memoryPressure === 'elevated' ? '偏高' : '正常';
     const action = memoryLastAction ? ` · ${memoryLastAction.slice(0, 96)}` : '';
-    return `网页 JS 堆估算 ${formatMemoryBytes(memorySnapshot.usedBytes)} / ${formatMemoryBytes(memorySnapshot.limitBytes)}（${Math.round(ratio * 100)}%，${level}；仅诊断，不会自动刷新或中断任务）${action}`;
+    return `网页 JS 堆估算 ${formatMemoryBytes(memorySnapshot.usedBytes)} / ${formatMemoryBytes(memorySnapshot.limitBytes)}（${Math.round(ratio * 100)}%，${level}；连续高压时请求宿主安全释放并重载原标签页）${action}`;
   }
   function settleHostMemoryRequest(requestId, result) {
     const pending = hostMemoryPending.get(requestId);
@@ -1770,11 +1774,15 @@ async function bootstrapAttempt() {
     memorySnapshot = snapshot;
     memoryPressure = memoryPressureLevel(snapshot);
     const safety = memoryDiscardSafety();
-    if (!userInitiated) {
-      cleanupLocalMemory({ reason });
-      memoryLastAction = '自动内存恢复已禁用；内存监测仅保留诊断与脚本本地清理，当前任务持续运行且不会因内存阈值刷新页面。';
-      paint?.();
-      return { ok:false, discarded:false, reloaded:false, reason:'automatic-memory-recovery-disabled', safety };
+    if (!userInitiated && (!safety.hidden || !safety.safe)) {
+      return { ok:false, discarded:false, reloaded:false, reason:'unsafe-state', safety };
+    }
+    // A successful bounded write can still omit overflow tasks. Require the
+    // complete checkpoint; session/memory fallbacks cannot survive discard.
+    save();
+    if (!persistWorkbenchState(data) || storagePersistenceStatus.trimmed) {
+      memoryLastAction = '任务状态未完整保存，暂缓释放标签页。';
+      return { ok:false, discarded:false, reason:'checkpoint-failed', safety };
     }
     if (now - memoryLastHostRequestAt < memoryHostCooldownMs) {
       return { ok:false, discarded:false, reason:'cooldown', safety };
@@ -1783,7 +1791,7 @@ async function bootstrapAttempt() {
     if (hostMemoryPending.size) return { ok:false, discarded:false, reason:'request-pending', safety };
     const requestId = `fabushi-memory-${id()}`;
     const payload = {
-      capability:HOST_MEMORY_CAPABILITY,
+      capability:userInitiated ? HOST_MEMORY_CAPABILITY : HOST_MEMORY_RESUME_CAPABILITY,
       version:VERSION,
       pressure:memoryPressure,
       usedBytes:snapshot.supported ? Math.min(Number(snapshot.usedBytes || 0), 16 * 1024 * 1024 * 1024) : 0,
@@ -1795,6 +1803,7 @@ async function bootstrapAttempt() {
       hasDraft:safety.hasDraft,
       hasPendingAttachment:safety.hasPendingAttachment,
       userInitiated:Boolean(userInitiated),
+      resumeAfterDiscard:true,
       reason:String(reason || 'manual').slice(0, 80),
     };
     memoryLastHostRequestAt = now;
@@ -1816,7 +1825,8 @@ async function bootstrapAttempt() {
         settleHostMemoryRequest(requestId, { ok:false, discarded:false, reason:'post-message-failed', safety });
       }
     });
-    if (response?.discarded) memoryLastAction = '宿主已请求 Chrome 卸载此非活动标签页；再次打开时会自动恢复任务。';
+    if (response?.reloaded) memoryLastAction = '宿主已释放并重载原标签页，将沿用保存的任务状态继续监督。';
+    else if (response?.discarded) memoryLastAction = '宿主已释放原标签页；重载未完成，重新打开时恢复任务。';
     else if (response?.reason === 'active-tab') memoryLastAction = '当前标签页正在使用中；请先切换到其他标签页，宿主才能安全回收它。';
     else if (response?.reason === 'unsafe-state') memoryLastAction = '当前有发送、上传、审批、导航或未保存输入，暂不回收标签页。';
     else if (response?.reason === 'host-unavailable' || response?.reason === 'host-timeout') {
@@ -1837,10 +1847,13 @@ async function bootstrapAttempt() {
       const snapshot = readMemorySnapshot();
       memorySnapshot = snapshot;
       memoryPressure = memoryPressureLevel(snapshot);
-      // Diagnostic-only monitoring: high heap estimates may trigger bounded
-      // cleanup of script-owned stale state, but never navigation, reload,
-      // workspace release, runner suspension, tab discard, or task handoff.
-      if (memoryPressure === 'elevated' || memoryPressure === 'high') cleanupLocalMemory({ reason:'memory-pressure' });
+      const elevated = (memoryPressure === 'elevated' || memoryPressure === 'high')
+        && snapshot.usedBytes >= 1024 * 1024 * 1024;
+      memoryPressureSamples = elevated ? memoryPressureSamples + 1 : 0;
+      if (elevated) cleanupLocalMemory({ reason:'memory-pressure' });
+      if (memoryPressureSamples >= 2 && memoryDiscardSafety().hidden && memoryDiscardSafety().safe) {
+        await requestHostMemoryCleanup({ reason:'memory-pressure' });
+      }
       paint?.();
       return snapshot;
     } finally {
@@ -1848,14 +1861,14 @@ async function bootstrapAttempt() {
     }
   }
   function scheduleMemoryMonitor(delayMs = MEMORY_MONITOR_INTERVAL_MS) {
-    clearTimeout(memoryMonitorTimer);
-    memoryMonitorTimer = window.setTimeout(() => {
+    clearBackgroundTimeout(memoryMonitorTimer);
+    memoryMonitorTimer = backgroundTimeout(() => {
       memoryMonitorTimer = null;
       void inspectMemoryPressure().finally(() => scheduleMemoryMonitor());
     }, Math.max(1000, Number(delayMs) || MEMORY_MONITOR_INTERVAL_MS));
   }
   function stopMemoryMonitor() {
-    clearTimeout(memoryMonitorTimer);
+    clearBackgroundTimeout(memoryMonitorTimer);
     memoryMonitorTimer = null;
   }
   function cancelHostMemoryRequests(reason = 'shutdown') {
@@ -1866,7 +1879,16 @@ async function bootstrapAttempt() {
   listen(window, 'message', event => {
     if (event.source !== window) return;
     const message = event.data;
-    if (!message || message.source !== 'fabushi-extension' || !message.requestId) return;
+    if (!message || message.source !== 'fabushi-extension') return;
+    if (message.type === 'background-wake') {
+      void wakeBackgroundWork().catch(error => console.warn('[Fabushi] 后台检查暂未完成', error));
+      return;
+    }
+    if (message.type === 'background-clock.response' && message.ok === true) {
+      settleBackgroundWait(String(message.requestId || ''));
+      return;
+    }
+    if (!message.requestId) return;
     const requestId = String(message.requestId);
     if (message.type === HOST_MEMORY_RESPONSE_TYPE && hostMemoryPending.has(requestId)) {
       const result = message.ok === true && message.result && typeof message.result === 'object'
@@ -2141,15 +2163,15 @@ async function bootstrapAttempt() {
   let workspaceHeartbeatStopped = false;
   function scheduleWorkspaceHeartbeat(delayMs = WORKSPACE_HEARTBEAT_INTERVAL_MS, { resume = true } = {}) {
     if (resume) workspaceHeartbeatStopped = false;
-    clearTimeout(workspaceHeartbeatTimer);
-    workspaceHeartbeatTimer = setTimeout(() => {
+    clearBackgroundTimeout(workspaceHeartbeatTimer);
+    workspaceHeartbeatTimer = backgroundTimeout(() => {
       workspaceHeartbeatTimer = null;
       try { writeWorkspaceHeartbeat(); }
       finally { if (!workspaceHeartbeatStopped) scheduleWorkspaceHeartbeat(WORKSPACE_HEARTBEAT_INTERVAL_MS, { resume:false }); }
     }, Math.max(1000, Number(delayMs) || WORKSPACE_HEARTBEAT_INTERVAL_MS));
   }
   function stopWorkspaceHeartbeat(lifecycle = 'shutdown') {
-    workspaceHeartbeatStopped = true; clearTimeout(workspaceHeartbeatTimer); workspaceHeartbeatTimer = null; writeWorkspaceHeartbeat(lifecycle);
+    workspaceHeartbeatStopped = true; clearBackgroundTimeout(workspaceHeartbeatTimer); workspaceHeartbeatTimer = null; writeWorkspaceHeartbeat(lifecycle);
   }
   const normalize = value => String(value || '').replace(/\s+/g, ' ').trim();
   function textTail(node, maxChars = STREAM_TEXT_TAIL_LIMIT) {
@@ -2890,9 +2912,9 @@ async function bootstrapAttempt() {
   function haltRunnerForPause() {
     running = false;
     controller?.abort();
-    clearTimeout(timer); timer = null;
+    clearBackgroundTimeout(timer); timer = null;
     clearTimeout(navigationTimer); navigationTimer = null;
-    clearTimeout(autoStartTimer); autoStartTimer = null; autoStartTaskId = '';
+    clearBackgroundTimeout(autoStartTimer); autoStartTimer = null; autoStartTaskId = '';
     navigating = false;
     sameRouteWaitUntil = 0;
     sameRouteWaitSince = 0;
@@ -3356,13 +3378,76 @@ async function bootstrapAttempt() {
     const activeTask = data.tasks.find(task => task.id === current && taskBelongsToTab(task));
     if (!running || data.autoResume === false || signal?.aborted || activeTask?.state === 'paused' || activeTask?.state === 'cancelled') throw new Error('已暂停');
   }
+  function clearBackgroundTimeout(handle) {
+    clearTimeout(handle);
+    const requestId = backgroundTimers.get(handle);
+    const pending = backgroundWaits.get(requestId);
+    pending?.cancel();
+  }
+  function backgroundTimeout(callback, ms) {
+    const requestId = `fabushi-schedule-${id()}`;
+    let settled = false;
+    const cleanup = () => {
+      clearTimeout(handle);
+      backgroundTimers.delete(handle);
+      backgroundWaits.delete(requestId);
+    };
+    const finish = () => {
+      if (settled) return;
+      settled = true; cleanup(); callback();
+    };
+    const cancel = () => { if (settled) return; settled = true; cleanup(); };
+    const handle = setTimeout(finish, ms);
+    if (document.hidden && ms <= 20000) {
+      backgroundTimers.set(handle, requestId);
+      backgroundWaits.set(requestId, { finish, cancel });
+      window.postMessage({ source:'fabushi-userscript', type:'background-clock.request',
+        requestId, payload:{ delayMs:ms } }, '*');
+    }
+    return handle;
+  }
+  function settleBackgroundWait(requestId) {
+    const pending = backgroundWaits.get(requestId);
+    if (pending) pending.finish();
+  }
+  function cancelBackgroundWaits() {
+    for (const pending of [...backgroundWaits.values()]) pending.cancel();
+  }
   function delay(ms, signal = controller?.signal) {
     return new Promise((resolve, reject) => {
       if (signal?.aborted) return reject(new Error('已暂停'));
-      const abort = () => { clearTimeout(handle); reject(new Error('已暂停')); };
-      const handle = setTimeout(() => { signal?.removeEventListener('abort', abort); resolve(); }, ms);
-      signal?.addEventListener('abort', abort, { once: true });
+      const requestId = `fabushi-clock-${id()}`;
+      let settled = false;
+      const cleanup = () => {
+        clearTimeout(handle);
+        backgroundWaits.delete(requestId);
+        signal?.removeEventListener('abort', abort);
+      };
+      const finish = () => { if (settled) return; settled = true; cleanup(); resolve(); };
+      const abort = () => { if (settled) return; settled = true; cleanup(); reject(new Error('已暂停')); };
+      const handle = setTimeout(finish, ms);
+      signal?.addEventListener('abort', abort, { once:true });
+      if (document.hidden && ms <= 1000) {
+        backgroundWaits.set(requestId, { finish, cancel:abort });
+        // Host clock responses arrive as message tasks, independent of the
+        // hidden document's chained-timer budget. Old hosts use the fallback.
+        window.postMessage({ source:'fabushi-userscript', type:'background-clock.request',
+          requestId, payload:{ delayMs:ms } }, '*');
+      }
     });
+  }
+  async function wakeBackgroundWork() {
+    if (!window[INSTANCE]?.active) return;
+    if (!workspaceHeartbeatStopped) writeWorkspaceHeartbeat();
+    if (running && !busy && !navigating) {
+      clearBackgroundTimeout(timer);
+      await tick();
+    } else if (!running && data.globalAutoApprove) {
+      await processGlobalApprovalCards();
+    }
+    if (!memoryMonitorBusy && Date.now() - Number(memorySnapshot.at || 0) >= MEMORY_MONITOR_INTERVAL_MS) {
+      await inspectMemoryPressure();
+    }
   }
   function composer() { return nodes('#prompt-textarea,textarea,[contenteditable=true]').find(enabled); }
   const CHAT_MODE_LABEL_RE = /^(?:聊天(?:模式)?|chat(?: mode)?)$/iu;
@@ -6168,8 +6253,8 @@ async function bootstrapAttempt() {
     return dismissed;
   }
   function schedulePopupDismissScan(ms = POPUP_DISMISS_SCAN_MS) {
-    clearTimeout(popupDismissTimer);
-    popupDismissTimer = setTimeout(() => {
+    clearBackgroundTimeout(popupDismissTimer);
+    popupDismissTimer = backgroundTimeout(() => {
       popupDismissTimer = null;
       try {
         // Active task supervision already checks these overlays. Let it own
@@ -6258,10 +6343,10 @@ async function bootstrapAttempt() {
     }
   }
   function scheduleGlobalApprovalScan(ms = GLOBAL_APPROVAL_SCAN_MS) {
-    clearTimeout(globalApprovalTimer);
+    clearBackgroundTimeout(globalApprovalTimer);
     globalApprovalTimer = null;
     if (!data.globalAutoApprove) return;
-    globalApprovalTimer = setTimeout(async () => {
+    globalApprovalTimer = backgroundTimeout(async () => {
       globalApprovalTimer = null;
       try { await processGlobalApprovalCards(); } catch (error) {
         if (error.message !== '已暂停') console.warn('[Fabushi] 全页面授权检查暂未完成', error);
@@ -7172,7 +7257,8 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     writeSessionStorageRecord(NAV, JSON.stringify({ path:'*', at:Date.now(), task:task.id, resume:true }));
     navigating = true;
     check(signal); button.click(); measurements.sends++;
-    for (let n = 0; n < 40; n++) {
+    const confirmationDeadline = Date.now() + 10000;
+    for (let n = 0; n < 40 && Date.now() < confirmationDeadline; n++) {
       await delay(250, signal); check(signal);
       // ChatGPT can briefly expose an old /c/<id> route while its SPA is
       // switching after the click. A URL alone is not proof that this task
@@ -8347,8 +8433,8 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     }
   }
   function schedule(ms = 2000) {
-    clearTimeout(timer);
-    if (running && !navigating) timer = setTimeout(tick, ms);
+    clearBackgroundTimeout(timer);
+    if (running && !navigating) timer = backgroundTimeout(tick, ms);
   }
   async function tick() {
     if (!running || busy) return;
@@ -8521,7 +8607,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
   function autoStart(taskId) {
     if (!taskId) return;
     autoStartTaskId = taskId;
-    clearTimeout(autoStartTimer); autoStartTimer = null;
+    clearBackgroundTimeout(autoStartTimer); autoStartTimer = null;
     start(false).then(() => {
       if (autoStartTaskId === taskId) autoStartTaskId = '';
     }).catch(error => {
@@ -8529,7 +8615,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       const task = data.tasks.find(item => item.id === taskId && taskBelongsToTab(item));
       if (!task || terminal.has(task.state)) { autoStartTaskId = ''; return; }
       log(task, `插件自动启动未完成：${error.message}；将自动重试，不需要手动点击继续。`);
-      autoStartTimer = setTimeout(() => {
+      autoStartTimer = backgroundTimeout(() => {
         autoStartTimer = null;
         if (autoStartTaskId === taskId && !running) autoStart(taskId);
       }, AUTO_START_RETRY_MS);
@@ -8897,9 +8983,9 @@ NaN
     }
   }
   function scheduleAutomaticWorkspaceRecovery(delayMs = WORKSPACE_RECOVERY_SCAN_MS) {
-    clearTimeout(automaticRecoveryTimer);
+    clearBackgroundTimeout(automaticRecoveryTimer);
     if (!AUTOMATIC_WORKSPACE_RECOVERY_ENABLED) { automaticRecoveryTimer = null; return; }
-    automaticRecoveryTimer = setTimeout(() => {
+    automaticRecoveryTimer = backgroundTimeout(() => {
       automaticRecoveryTimer = null;
       void recoverStaleWorkspaceAutomatically().finally(() => scheduleAutomaticWorkspaceRecovery());
     }, Math.max(1000, Number(delayMs) || WORKSPACE_RECOVERY_SCAN_MS));
@@ -8965,7 +9051,7 @@ NaN
     const memoryCleanupButton = element('button','清理当前标签页内存','memory-cleanup'); memoryCleanupButton.type='button';
     const memoryStatusNode = element('small',[memoryStatusText(), storageStatusText()].filter(Boolean).join(' · '),'memory-status');
     chat.append(head);
-    settings.append(globalApprovalLabel,globalPauseButton,memoryCleanupButton,memoryStatusNode,element('small','此数值只估算网页 JavaScript 堆，不等于 Chrome 标签页完整内存。宿主只能卸载非活动且无未保存内容/进行中任务的标签页；重新打开时会重新加载。活动标签页无法通过 tabs.discard 清理到初始占用。'),element('small','仅展开“允许”旁的菜单并选择“允许本次会话”；不会选择永久授权。'));
+    settings.append(globalApprovalLabel,globalPauseButton,memoryCleanupButton,memoryStatusNode,element('small','此数值只估算网页 JavaScript 堆，不等于 Chrome 标签页完整内存。连续高压时请求宿主释放并重载原非活动标签页；必须先保存任务，且无发送、上传、审批或未保存输入。活动标签页无法通过 tabs.discard 清理到初始占用。'),element('small','仅展开“允许”旁的菜单并选择“允许本次会话”；不会选择永久授权。'));
     const feed = element('div','','feed'); feed.setAttribute('role','log'); feed.setAttribute('aria-live','polite');
     const notice = element('div','单标签页 · 已暂停','notice');
     const compose = element('form','','compose'), input = element('textarea'); input.placeholder = '输入任务目标，可直接粘贴图片或视频…'; input.setAttribute('aria-label','任务目标');
@@ -9342,7 +9428,7 @@ NaN
     };
     paint();
   }
-  window[INSTANCE]={active:true,version:VERSION,async shutdown(){stopMemoryMonitor();cancelHostMemoryRequests();cancelHostNavigationRequests();stopWorkspaceHeartbeat('shutdown');suspendRunnerForPagehide();globalApprovalController?.abort();clearTimeout(globalApprovalTimer);globalApprovalTimer=null;clearTimeout(popupDismissTimer);popupDismissTimer=null;clearTimeout(automaticRecoveryTimer);automaticRecoveryTimer=null;releaseTransientUIResources({force:true});readTransientUIState=()=>({hasDraft:false,hasFiles:false});releaseTransientUIResources=()=>false;lifecycleController?.abort();this.active=false;document.querySelectorAll(`#${ROOT}`).forEach(node=>node.remove());document.querySelectorAll('#fabushi-auto-confirm-style').forEach(node=>node.remove());if(document.getElementById(BOOTSTRAP_MARKER)===bootstrap)bootstrap.remove();await releaseWorkspace();}};
+  window[INSTANCE]={active:true,version:VERSION,async shutdown(){cancelBackgroundWaits();stopMemoryMonitor();cancelHostMemoryRequests();cancelHostNavigationRequests();stopWorkspaceHeartbeat('shutdown');suspendRunnerForPagehide();globalApprovalController?.abort();clearBackgroundTimeout(globalApprovalTimer);globalApprovalTimer=null;clearBackgroundTimeout(popupDismissTimer);popupDismissTimer=null;clearBackgroundTimeout(automaticRecoveryTimer);automaticRecoveryTimer=null;releaseTransientUIResources({force:true});readTransientUIState=()=>({hasDraft:false,hasFiles:false});releaseTransientUIResources=()=>false;lifecycleController?.abort();this.active=false;document.querySelectorAll(`#${ROOT}`).forEach(node=>node.remove());document.querySelectorAll('#fabushi-auto-confirm-style').forEach(node=>node.remove());if(document.getElementById(BOOTSTRAP_MARKER)===bootstrap)bootstrap.remove();await releaseWorkspace();}};
   window.FabushiUserscript=Object.freeze({pluginId:'chatgpt-auto-confirm',getServer:()=> 'browser-local',call:async(tool,args={})=>{
     if(['status','diagnose','queue_status','chat_status'].includes(tool))return{version:VERSION,running,tasks:tabTasks(),measurements,tabWorkspace:true,tabId,memory:{...memorySnapshot,pressure:memoryPressure,lastAction:memoryLastAction}};
     if(tool==='memory_status')return{...memorySnapshot,pressure:memoryPressure,lastAction:memoryLastAction,hostCapability:HOST_MEMORY_CAPABILITY};
@@ -9357,6 +9443,9 @@ NaN
     }
     throw new Error('请通过新版任务输入框使用此功能。');
   }});
+  listen(document, 'visibilitychange', () => {
+    void wakeBackgroundWork().catch(() => {});
+  });
   mount();
   void inspectMemoryPressure();
   scheduleMemoryMonitor(2000);
