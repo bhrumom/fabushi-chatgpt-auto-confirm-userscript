@@ -65,5 +65,7 @@ Existing final-reply-structure-recognition-v2.10.3.md, current-response-length-h
 ## 17. Compliance
 | AC | Status | Evidence |
 | --- | --- | --- |
-| AC1–AC3 | blocked | Pending GitHub Actions exact-head verification |
-| AC4 | blocked | Pending workflow and merge |
+| AC1 | passed | Simulated stale page-chrome length notice + committed latest Work Copy action stays on current task until the four-second final stability gate, then queues Review with the exact response; PR #159 Test run 37925433012 succeeded, head 4592d43640d68032cad707a2b0564504e0b0ac6d. |
+| AC2 | passed | Existing current-response length-limit + toolbar regression remains passing; genuine current-response notice continues same Work phase rather than falsely completing. |
+| AC3 | passed | Explicit two-reopen regression exercises at least three trigger clicks and verifies >=600ms separation (implementation minimum 650ms); nested menu model, slider and fail-closed tests remain passing. |
+| AC4 | blocked | PR exact-HEAD Test 37925433012: 385 total, 378 pass, 0 fail, 7 skipped; canonical-main Test, automatic Release and published asset validation still pending. Browser live acceptance not asserted. |
