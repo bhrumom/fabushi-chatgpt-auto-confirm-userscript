@@ -1,8 +1,15 @@
-# Fabushi 独立自动确认工作台 2.10.38
+# Fabushi 独立自动确认工作台 2.10.39
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.38`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.39`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+
+## 2.10.39 完成回复后进入验收、模型选择单次间隔
+
+- 已提交的当前 Work 最终回复优先于旧的页面级会话长度上限提示；仍按原有稳定窗口进入新的规划/验收会话。
+- 当前回复正文内真实的会话长度上限提示仍按原有跨会话接力处理；授权、发送去重及任务归属保护保留。
+- 模型/思考强度选择器改用单次点击并保留至少 650 毫秒的操作间隔，移除约 90–120 毫秒的快速重复按钮开关。
+- 详细规范见 [v2.10.39](docs/specs/completed-reply-review-paced-picker-v2.10.39.md)。
 
 ## 2.10.38 授权卡识别不再依赖具体文案
 

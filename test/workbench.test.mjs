@@ -2080,6 +2080,57 @@ test('a length-limit notice wins over a final-looking toolbar and queues a fresh
   dom.window.close();
 });
 
+test('a stale page-chrome length notice cannot suppress completed Work to Review handoff',async()=>{
+  const {h,w,dom}=await fixture(`<main>
+    <article data-testid="conversation-turn-user"><div data-message-author-role="user">finish [Fabushi:stale-chrome-final]</div></article>
+    <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">全部工作已经完成，提交和测试结果可以交由独立验收。</div></div><button aria-label="复制回复"></button></article>
+    <form><textarea id="prompt-textarea"></textarea></form>
+    <div role="status">你已达到此对话的长度上限，你可以开始新聊天以继续对话。</div>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/stale-chrome-final');
+    const task={id:'stale-chrome-final',ownerTabId:h.getTabId(),goal:'complete everything',mode:'goal',phase:'work',round:3,state:'waiting',url:'https://chatgpt.com/c/stale-chrome-final',token:'stale-chrome-final',goalRevision:0,dispatchGoalRevision:0,attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    await h.start(false);
+    assert.equal(h.latestTurn(task).final,true,'the current answer owns a committed Copy control');
+    await h.inspect(task,null);
+    assert.equal(task.phase,'work','first final observation waits for stability');
+    const observation=h.observations.get(task.id);
+    assert.equal(observation?.final,true);
+    observation.finalSince=Date.now()-5000;
+    observation.since=Date.now()-5000;
+    await h.inspect(task,null);
+    assert.equal(task.phase,'review');
+    assert.equal(task.state,'queued');
+    assert.equal(task.url,'');
+    assert.match(task.result,/全部工作已经完成/);
+    assert.equal(task.lengthLimitCarry||'','');
+    assert.ok(task.messages.some(item=>/正在新开规划\/验收会话/.test(item.text||'')));
+  } finally {h.pause();dom.window.close();}
+});
+
+test('model picker trigger clicks retain the single-click quiet interval',async()=>{
+  const {h,w,dom}=await fixture('<main><h1>聊天</h1><button type="button" aria-label="选择 ChatGPT 模型" aria-haspopup="menu" aria-expanded="false" data-codex-intelligence-trigger="true" data-composer-navigation-target="reasoning" data-selected-reasoning-effort="medium">中</button><form><textarea id="prompt-textarea"></textarea></form></main>',window=>{
+    const button=window.document.querySelector('[data-codex-intelligence-trigger]');
+    window.__modelClickTimes=[];
+    button.addEventListener('click',()=>{
+      window.__modelClickTimes.push(Date.now());
+      button.setAttribute('aria-expanded',button.getAttribute('aria-expanded')==='true'?'false':'true');
+    });
+  });
+  try {
+    const trigger=w.document.querySelector('[data-codex-intelligence-trigger]');
+    // Two controlled retries used to be 90-120ms apart. The second gesture
+    // must wait for the previous picker interaction to settle.
+    h.setRunningForTest(true);
+    assert.equal(await h.reopenModelPicker(trigger,null),true);
+    assert.equal(await h.reopenModelPicker(trigger,null),true,'second open must close old menu then reopen with spacing');
+    const times=w.__modelClickTimes;
+    assert.ok(times.length>=3,'fixture must actually exercise multiple clicks');
+    for(let i=1;i<times.length;i++) assert.ok(times[i]-times[i-1]>=600,'model trigger was rapidly toggled');
+  } finally {h.pause();dom.window.close();}
+});
+
 test('a true final reply clears temporary length-limit carry state',async()=>{
   const {h,dom}=await fixture();
   const task={id:'length-done',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/final',token:'final-token',lengthLimitCarry:'old partial reply',lengthLimitCarrySourceURL:'https://chatgpt.com/c/old',lengthLimitHopCount:3,lengthLimitLastAt:123,abnormalFreshCarry:'old abnormal partial',abnormalFreshCarrySourceURL:'https://chatgpt.com/c/abnormal',abnormalFreshCarryReason:'connection interrupted',abnormalFreshCarryPhase:'work',abnormalFreshCarryRound:1,abnormalFreshCarryAt:456,messages:[]};
@@ -7012,8 +7063,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2.10.38$/m);
-  assert.match(source,/const VERSION = '2.10.38'/);
+  assert.match(source,/^\/\/ @version\s+2.10.39$/m);
+  assert.match(source,/const VERSION = '2.10.39'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);

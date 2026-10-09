@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.38
+// @version      2.10.39
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -58,7 +58,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.38';
+  const VERSION = '2.10.39';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -187,6 +187,9 @@ async function bootstrapAttempt() {
   // a recoverable renderer state, not a terminal wait. Recheck for one minute,
   // then refresh the same page and repeat until the selector appears.
   const REASONING_PICKER_REFRESH_MS = 60 * 1000;
+  // One model-picker toggle per settled interaction. Rapid repeats can close the
+  // strength surface just after it hydrates; keep the former deliberate gap.
+  const MODEL_PICKER_MIN_CLICK_INTERVAL_MS = 650;
   // A single browser tab can only render one ChatGPT route at a time, but
   // independent conversations continue server-side. Rotate inspection of
   // their durable /c/<id> URLs instead of holding the tab on one task.
@@ -3583,11 +3586,30 @@ async function bootstrapAttempt() {
       .split(/\n+/).map(value => normalize(value)).filter(Boolean);
     return short.some(expected => lines.some(value => value.toLowerCase() === expected.toLowerCase()));
   }
-  function closeModelPickerMenu() {
+  let lastModelPickerTriggerClickAt = 0;
+  async function pacedModelPickerClick(trigger, signal) {
+    if (!trigger?.isConnected || !enabled(trigger)) return false;
+    const remaining = MODEL_PICKER_MIN_CLICK_INTERVAL_MS - (Date.now() - lastModelPickerTriggerClickAt);
+    if (remaining > 0) await delay(remaining, signal);
+    check(signal);
+    if (!trigger.isConnected || !enabled(trigger)) return false;
+    lastModelPickerTriggerClickAt = Date.now();
+    trigger.click();
+    // Let ChatGPT commit the opened/closed surface before considering another
+    // interaction. A subsequent retry is paced independently as well.
+    await delay(220, signal);
+    check(signal);
+    return true;
+  }
+  async function closeModelPickerMenu(signal) {
     const trigger = modelPickerTrigger();
     if (!trigger) return;
     trigger.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',code:'Escape',bubbles:true}));
-    if (trigger.getAttribute('aria-expanded') === 'true') trigger.click();
+    await delay(220, signal);
+    check(signal);
+    if (modelRadioOptions().length || trigger.getAttribute('aria-expanded') === 'true') {
+      await pacedModelPickerClick(trigger, signal);
+    }
   }
   function safeModelPickerDismissTarget(trigger) {
     // The real ChatGPT model submenu can ignore Escape and clicks on its
@@ -3622,12 +3644,12 @@ async function bootstrapAttempt() {
         // Legacy first-level menus may still close through the trigger;
         // never trust that toggle while radio options remain visible.
         if (modelRadioOptions().length) return false;
-        if (trigger.getAttribute('aria-expanded') === 'true') trigger.click();
+        if (trigger.getAttribute('aria-expanded') === 'true') await pacedModelPickerClick(trigger, signal);
         await delay(90,signal); check(signal);
       }
     }
     if (modelRadioOptions().length || !enabled(trigger) || !trigger.isConnected) return false;
-    if (trigger.getAttribute('aria-expanded') !== 'true') trigger.click();
+    if (trigger.getAttribute('aria-expanded') !== 'true') await pacedModelPickerClick(trigger, signal);
     await delay(120,signal); check(signal);
     return trigger.isConnected && trigger.getAttribute('aria-expanded') === 'true';
   }
@@ -3692,7 +3714,7 @@ async function bootstrapAttempt() {
     // trigger. Keep that safe fast path, but the current ChatGPT renderer uses
     // a two-level menu and is verified below through aria-checked radio state.
     if (modelTriggerMatches(trigger, target)) {
-      closeModelPickerMenu();
+      await closeModelPickerMenu(signal);
       task.modelPresetConfirmedAt = Date.now();
       task.modelPresetConfirmedKey = target;
       return true;
@@ -3702,17 +3724,17 @@ async function bootstrapAttempt() {
     if (radios.length) {
       let option = modelRadioOption(target);
       if (!option) {
-        closeModelPickerMenu();
+        await closeModelPickerMenu(signal);
         waitForReasoningPicker(task, `ChatGPT 模型列表未提供所选模型：${modelPresetLabel(target)}`);
         return false;
       }
       if (!enabled(option)) {
-        closeModelPickerMenu();
+        await closeModelPickerMenu(signal);
         waitForSendUI(task, `ChatGPT 当前账号暂不可用所选模型：${modelPresetLabel(target)}`);
         return false;
       }
       if (modelRadioSelected(option)) {
-        closeModelPickerMenu();
+        await closeModelPickerMenu(signal);
         task.modelPresetConfirmedAt = Date.now();
         task.modelPresetConfirmedKey = target;
         return true;
@@ -3725,13 +3747,13 @@ async function bootstrapAttempt() {
       // model click. Re-enter the visible "选择模型" row (whose text becomes
       // e.g. "5.6\n中") and require the target radio's aria-checked=true.
       if (await confirmModelRadioSelection(target, signal)) {
-        closeModelPickerMenu();
+        await closeModelPickerMenu(signal);
         task.modelPresetConfirmedAt = Date.now();
         task.modelPresetConfirmedKey = target;
         log(task, `发送前已切换并确认 ChatGPT 模型：${modelPresetLabel(target)}。`);
         return true;
       }
-      closeModelPickerMenu();
+      await closeModelPickerMenu(signal);
       waitForSendUI(task, `ChatGPT 模型切换后无法确认目标模型：${modelPresetLabel(target)}`);
       return false;
     }
@@ -3743,7 +3765,7 @@ async function bootstrapAttempt() {
       return false;
     }
     if (trigger.getAttribute('aria-expanded') !== 'true') {
-      trigger.click();
+      await pacedModelPickerClick(trigger, signal);
       await delay(120, signal); check(signal);
     }
     const entry = modelSubmenuEntry();
@@ -3751,18 +3773,18 @@ async function bootstrapAttempt() {
       // The current renderer exposes a useful visible hint such as 5.6 on the
       // first-level row, but this hint is never enough to Send without the
       // authoritative radio-list confirmation above.
-      closeModelPickerMenu();
+      await closeModelPickerMenu(signal);
       waitForReasoningPicker(task, `已看到 ${modelPresetLabel(target)} 的模型提示，但无法打开模型列表完成发送前确认`);
       return false;
     }
     const directOption = modelMenuOption(target);
     if (!directOption) {
-      closeModelPickerMenu();
+      await closeModelPickerMenu(signal);
       waitForReasoningPicker(task, `ChatGPT 模型菜单未提供所选模型：${modelPresetLabel(target)}`);
       return false;
     }
     if (!enabled(directOption)) {
-      closeModelPickerMenu();
+      await closeModelPickerMenu(signal);
       waitForSendUI(task, `ChatGPT 当前账号暂不可用所选模型：${modelPresetLabel(target)}`);
       return false;
     }
@@ -3771,14 +3793,14 @@ async function bootstrapAttempt() {
       await delay(120, signal); check(signal);
       trigger = modelPickerTrigger();
       if (trigger && modelTriggerMatches(trigger, target)) {
-        closeModelPickerMenu();
+        await closeModelPickerMenu(signal);
         task.modelPresetConfirmedAt = Date.now();
         task.modelPresetConfirmedKey = target;
         log(task, `发送前已确认 ChatGPT 模型：${modelPresetLabel(target)}。`);
         return true;
       }
     }
-    closeModelPickerMenu();
+    await closeModelPickerMenu(signal);
     waitForSendUI(task, `ChatGPT 模型切换后无法确认目标模型：${modelPresetLabel(target)}`);
     return false;
   }
@@ -3880,7 +3902,7 @@ async function bootstrapAttempt() {
     }
 
     if (trigger.getAttribute('aria-expanded') !== 'true') {
-      trigger.click();
+      await pacedModelPickerClick(trigger, signal);
       await delay(120, signal); check(signal);
     }
     let slider = reasoningSliderState();
@@ -3895,13 +3917,13 @@ async function bootstrapAttempt() {
       slider=reasoningSliderState();
     }
     if (!slider) {
-      closeModelPickerMenu();
+      await closeModelPickerMenu(signal);
       waitForReasoningPicker(task, 'ChatGPT 模型菜单已打开，但强度滑块暂时消失，重新打开后仍未恢复');
       return false;
     }
     if (target < slider.min || target > slider.max) {
       trigger = reasoningPickerTrigger();
-      if (trigger?.getAttribute('aria-expanded') === 'true') trigger.click();
+      if (trigger?.getAttribute('aria-expanded') === 'true') await pacedModelPickerClick(trigger, signal);
       waitForSendUI(task, `ChatGPT 当前模型菜单不支持所选档位：${reasoningPresetLabel(target)}`);
       return false;
     }
@@ -3930,7 +3952,7 @@ async function bootstrapAttempt() {
       }
       if (next.current === slider.current) {
         trigger = reasoningPickerTrigger();
-        if (trigger?.getAttribute('aria-expanded') === 'true') trigger.click();
+        if (trigger?.getAttribute('aria-expanded') === 'true') await pacedModelPickerClick(trigger, signal);
         waitForReasoningPicker(task, `ChatGPT 思考强度未能切换到：${reasoningPresetLabel(target)}`);
         return false;
       }
@@ -3939,7 +3961,7 @@ async function bootstrapAttempt() {
 
     if (slider.current !== target) {
       trigger = reasoningPickerTrigger();
-      if (trigger?.getAttribute('aria-expanded') === 'true') trigger.click();
+      if (trigger?.getAttribute('aria-expanded') === 'true') await pacedModelPickerClick(trigger, signal);
       waitForReasoningPicker(task, `ChatGPT 思考强度校验失败；目标 ${reasoningPresetLabel(target)}，当前第 ${slider.current + 1} 档`);
       return false;
     }
@@ -3947,7 +3969,7 @@ async function bootstrapAttempt() {
     task.reasoningPresetConfirmedIndex = target;
     trigger = reasoningPickerTrigger();
     if (trigger?.getAttribute('aria-expanded') === 'true') {
-      trigger.click();
+      await pacedModelPickerClick(trigger, signal);
       await delay(80, signal); check(signal);
     }
     return true;
@@ -7730,7 +7752,19 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     // final answer. Handle it before final-toolbar classification so a visible
     // copy/share toolbar on the notice cannot prematurely finish Work/Review.
     const lengthLimitNotice = pageBelongsToTask && !approvalBlocking ? conversationLengthLimitNotice(turn, getPageUiRecords) : '';
-    if (lengthLimitNotice) {
+    // ChatGPT may leave a stale conversation-length notice in page chrome
+    // after the latest owned assistant answer has already committed its Copy
+    // toolbar. Do not let that old chrome text preempt the ordinary two-scan
+    // Work -> Review final gate. A notice inside the current response remains
+    // authoritative and continues the same Work phase in a fresh chat.
+    const currentResponseLengthLimit = strongOwnedFinal && lengthLimitNotice
+      ? conversationLengthLimitNotice(turn, () => [])
+      : '';
+    const staleChromeLengthLimit = Boolean(
+      lengthLimitNotice && strongOwnedFinal && !currentResponseLengthLimit
+      && !approvalBlocking && !observedActivityStreaming
+    );
+    if (lengthLimitNotice && !staleChromeLengthLimit) {
       if (observedActivityStreaming || stopPresent) {
         const waitKey = `${taskURL}:${normalize(lengthLimitNotice).slice(0, 200)}:generating`;
         task.state = 'waiting';
