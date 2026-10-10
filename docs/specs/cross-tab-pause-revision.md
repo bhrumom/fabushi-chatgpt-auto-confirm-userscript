@@ -17,4 +17,11 @@ A live Android task recognized its final Work reply and navigated to the queued 
 Keep workspace controlRevision for workspace-wide barriers. Use pauseRevision for every task pause/resume transition. Restrict equal-revision local pause protection to the owning workspace.
 
 ## Acceptance and compliance
-Pending implementation, exact-head CI and installed version readback. Native investigation proves the inconsistent persisted state but does not by itself prove its original writer.
+| Requirement | Status | Evidence |
+| --- | --- | --- |
+| R1 | passed | Actions 38020006318 on 927df6af92581315c2576ef5172423898b34a274 passed the foreign stale pause / Work-to-review regression. |
+| R2 | passed | Individual pause and resume increment task pauseRevision; merge rejects older transitions even with later timestamps. Both directions tested in the same successful job. |
+| R3 | passed | Existing manual-pause and recovery regressions remain green. Native Chrome: only current Android task continued; unrelated paused workspaces remained paused. |
+| R4 | passed | Full Actions: 396 tests, 389 passed, 0 failed, 7 existing skips. Native Fabushi management read back 2.10.42 enabled; original Android tab retained its task and automatically restarted supervision on reinjection. |
+
+The live task subsequently showed actual assistant tool activity in the restored chat, and the workbench showed supervision. Its original corrupting writer is not directly attributed; source plus regression proves the identified overwrite path. ChatGPT credit-exhausted banner and conversation-list HTTP 429 were observed separately; uninterrupted long-duration runtime acceptance remains open.
