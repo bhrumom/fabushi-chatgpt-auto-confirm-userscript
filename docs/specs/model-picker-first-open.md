@@ -25,4 +25,4 @@ Full Node regression, syntax/diff, exact-head GitHub Test; native Chrome single-
 | --- | --- | --- |
 | R1-R4 | passed | Initial raw trigger click removed; radio/menu hydration and reasoning acquisition poll up to two seconds; Strength activated once; existing model/radio/index/Send guards retained. Syntax and diff check passed. |
 | R5 native reproduction | passed | New ChatGPT page on installed Mac: single trigger click showed Medium, 2 of 5 and Strength; rapid double click left the menu absent; another single click restored it. Selecting GPT-5.6 Sol returned to the Strength surface. No prompt sent. |
-| R5 regression and installed update | blocked | New real ensureTaskModelPreset -> ensureTaskReasoningPreset test includes delayed slider and click timestamps; exact-head CI and installed version update pending. |
+| R5 regression and installed update | passed | Runtime commit effe3994d476f136d280703f36d1486822f592ed: Actions 38018524852 passed (382 passed, 0 failed, 7 existing skips), including actual model then delayed strength acquisition. Native Fabushi management read back 2.10.41 enabled after import. |

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.41
+// @version      2.10.42
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -67,7 +67,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.41';
+  const VERSION = '2.10.42';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -2980,7 +2980,8 @@ async function bootstrapAttempt() {
       // runner has a later updatedAt from a scan that raced the button click.
       if (remoteRevision > localRevision
         || (taskBelongsToTab(local) && remotePaused && data.autoResume === false && remoteRevision >= localRevision)
-        || (!(local.state === 'paused' && localRevision >= remoteRevision)
+        || (remoteRevision >= localRevision
+          && !(taskBelongsToTab(local) && local.state === 'paused' && localRevision >= remoteRevision)
           && (remote.updatedAt || 0) > (local.updatedAt || 0))) {
         Object.assign(local, remote);
       }
@@ -3180,7 +3181,7 @@ async function bootstrapAttempt() {
       task.recoveryConfirmationStartedAt = Date.now();
     }
     delete task.pausedState;
-    if (global) task.pauseRevision = revision;
+    task.pauseRevision = Math.max(Number(task.pauseRevision || 0) + 1, revision);
     task.state = resumeState;
     // Resume is a safety boundary: if the exact already-bound conversation is
     // currently showing an authorization surface, classify it immediately
@@ -3221,6 +3222,7 @@ async function bootstrapAttempt() {
   function pauseTask(task, message = '已暂停当前任务；其他任务继续运行。') {
     if (!taskBelongsToTab(task) || terminal.has(task.state) || task.state === 'paused') return false;
     task.pausedState = task.state;
+    task.pauseRevision = Math.max(Number(task.pauseRevision || 0), Number(data.controlRevision || 0)) + 1;
     task.state = 'paused';
     task.updatedAt = Date.now();
     log(task, message);
