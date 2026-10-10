@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.39
+// @version      2.10.40
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -18,7 +18,7 @@ let bootstrapRetryCount = 0;
 let bootstrapAttemptToken = '';
 let bootstrapCleanup = async () => {};
 
-function showBootstrapFailure() {
+function showBootstrapFailure(waitingForRecovery = false) {
   let root = document.getElementById('fabushi-auto-confirm-startup-error');
   if (root) return;
   root = document.createElement('div');
@@ -26,7 +26,9 @@ function showBootstrapFailure() {
   root.setAttribute('role', 'alert');
   root.style.cssText = 'position:fixed;right:18px;bottom:18px;z-index:2147483647;padding:12px 14px;border:1px solid #705d32;border-radius:12px;background:#24211a;color:#f2e5c6;font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;box-shadow:0 8px 30px #0008';
   const label = document.createElement('span');
-  label.textContent = 'Fabushi 自动确认脚本启动失败。任务未启动；可以重试。 ';
+  label.textContent = waitingForRecovery
+    ? 'Fabushi 正在等待原任务工作区释放，随后自动恢复。任务记录已保留。 '
+    : 'Fabushi 自动确认脚本启动失败。任务未启动；可以重试。 ';
   const retry = document.createElement('button');
   retry.type = 'button';
   retry.textContent = '重试';
@@ -41,11 +43,18 @@ function showBootstrapFailure() {
 }
 
 function runBootstrap() {
-  return bootstrapAttempt().catch(async () => {
+  return bootstrapAttempt().catch(async error => {
     if (window.__FABUSHI_AUTO_CONFIRM_INSTANCE__?.active) return;
     await bootstrapCleanup().catch(() => {});
     const marker = document.getElementById(BOOTSTRAP_MARKER);
     if (marker && marker.dataset.token === bootstrapAttemptToken) marker.remove();
+    if (error?.code === 'FABUSHI_RECOVERY_LOCK_PENDING') {
+      showBootstrapFailure(true);
+      return new Promise(resolve => window.setTimeout(() => {
+        document.getElementById('fabushi-auto-confirm-startup-error')?.remove();
+        resolve(runBootstrap());
+      }, 1000));
+    }
     if (bootstrapRetryCount < 2) {
       const delay = 300 * (2 ** bootstrapRetryCount++);
       return new Promise(resolve => window.setTimeout(() => resolve(runBootstrap()), delay));
@@ -58,7 +67,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.39';
+  const VERSION = '2.10.40';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -1033,6 +1042,25 @@ async function bootstrapAttempt() {
     // recovery instead of risking cross-tab task ownership.
     return candidates.length === 1 ? candidates[0].ownerTabId : '';
   }
+  function findExactRouteRecoveryOwner(sessionOwner) {
+    const liveURL = currentConversationURL();
+    if (!liveURL) return '';
+    const stored = read(KEY, { tasks:[] });
+    if (!Array.isArray(stored.tasks)) return '';
+    if (sessionOwner && stored.tasks.some(task => task.ownerTabId === sessionOwner)) return '';
+    const boundTasks = stored.tasks.filter(task => canonicalConversationURL(task.url) === liveURL
+      && !['done', 'cancelled'].includes(task.state));
+    if (boundTasks.length !== 1) return '';
+    const candidates = boundTasks.filter(task => {
+      if (!task.ownerTabId || !taskCanBeRecoveredByHost(task)) return false;
+      const heartbeat = readWorkspaceHeartbeat(task.ownerTabId);
+      const control = stored.tabControls?.[task.ownerTabId];
+      if (!heartbeat) return control?.autoResume === true;
+      return heartbeat.autoResume !== false && control?.autoResume !== false
+        && Date.now() - heartbeat.at >= WORKSPACE_HEARTBEAT_STALE_MS;
+    });
+    return candidates.length === 1 ? candidates[0].ownerTabId : '';
+  }
   let workspaceRelease = null;
   let workspaceReleased = Promise.resolve();
   const recoveryToken = new URLSearchParams(location.hash.slice(1)).get('fabushi-resume');
@@ -1062,7 +1090,8 @@ async function bootstrapAttempt() {
       recoveredWorkspace = recovery.ownerTabId;
     }
   }
-  const automaticRecoveryOwner = '';
+  const automaticRecoveryOwner = recoveredWorkspace ? '' : findExactRouteRecoveryOwner(sessionTabId);
+  if (automaticRecoveryOwner) recoveredWorkspace = automaticRecoveryOwner;
   let tabId = recoveredWorkspace || sessionTabId || crypto.randomUUID();
   activeWorkspaceStorageId = tabId;
   // A lifetime lock distinguishes duplicate tabs even when the browser copies
@@ -1124,6 +1153,11 @@ async function bootstrapAttempt() {
     // for the crashed/replaced document's Web Lock to unwind before falling
     // back to an independent tab identity.
     workspaceClaimed = await reclaimWorkspaceAfterDocumentHandoff(tabId, WORKSPACE_RECLAIM_TIMEOUT_MS);
+  }
+  if (!workspaceClaimed && recoveredWorkspace) {
+    const error = new Error('Original recovery workspace is still locked');
+    error.code = 'FABUSHI_RECOVERY_LOCK_PENDING';
+    throw error;
   }
   if (!workspaceClaimed) {
     tabId = crypto.randomUUID();
@@ -5643,6 +5677,13 @@ async function bootstrapAttempt() {
           ? currentReviewReport(candidate.text, task)
           : null;
       const structuredReviewFinal = Boolean(currentReview);
+      const mountedUser = conversationRoleNodes('user').at(-1);
+      const sameObservedUser = Boolean(
+        mountedUser
+        && task.stopObservedUserBoundaryKey
+        && recoveryUserBoundaryKey(mountedUser) === task.stopObservedUserBoundaryKey
+      );
+      if (mountedUser && task.stopObservedUserBoundaryKey && !sameObservedUser) return scoped;
       const sameObservedResponse = Boolean(
         observedBoundaryKey
         && candidateBoundaryKey === observedBoundaryKey
@@ -5662,7 +5703,7 @@ async function bootstrapAttempt() {
       );
       if (candidate.text
         && !candidate.streaming
-        && ((sameObservedResponse && candidate.final) || reviewResultFinal)) {
+        && (((sameObservedResponse || sameObservedUser) && candidate.final) || reviewResultFinal)) {
         return {
           ...candidate,
           final:Boolean(candidate.final || reviewResultFinal),
@@ -6668,6 +6709,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.stopObservedGenerationAt = 0;
     task.stopObservedDocumentId = '';
     task.stopObservedAssistantBoundaryKey = '';
+    task.stopObservedUserBoundaryKey = '';
     clearStopNoApprovalConfirmation(task);
     clearReloadStopAbsenceState(task);
   }
@@ -7634,12 +7676,16 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     if (stopPresent && stopGenerationIdentity) {
       const generationChanged = task.stopObservedGenerationIdentity !== stopGenerationIdentity;
       const assistantBoundaryKey = assistantResponseBoundaryKey(activityTurn);
+      const observedUserBoundaryKey = turn.owned
+        ? recoveryUserBoundaryKey(conversationRoleNodes('user').at(-1))
+        : (generationChanged ? '' : String(task.stopObservedUserBoundaryKey || ''));
       const nextAssistantBoundaryKey = generationChanged
         ? assistantBoundaryKey
         : (assistantBoundaryKey || String(task.stopObservedAssistantBoundaryKey || ''));
       const changed = generationChanged
         || String(task.stopObservedDocumentId || '') !== DOCUMENT_INSTANCE_ID
         || String(task.stopObservedAssistantBoundaryKey || '') !== nextAssistantBoundaryKey
+        || String(task.stopObservedUserBoundaryKey || '') !== observedUserBoundaryKey
         || task.reloadStopAbsentDocumentId
         || task.reloadStopAbsentSince
         || task.reloadStopAbsentSignature;
@@ -7647,6 +7693,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       task.stopObservedGenerationAt = now;
       task.stopObservedDocumentId = DOCUMENT_INSTANCE_ID;
       task.stopObservedAssistantBoundaryKey = nextAssistantBoundaryKey;
+      task.stopObservedUserBoundaryKey = observedUserBoundaryKey;
       clearReloadStopAbsenceState(task);
       if (changed) {
         task.updatedAt = now;

@@ -1,8 +1,14 @@
-# Fabushi 独立自动确认工作台 2.10.39
+# Fabushi 独立自动确认工作台 2.10.40
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.39`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.40`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+
+## 2.10.40 恢复工作区与最终回复边界
+
+- 恢复票据遇到原工作区锁占用时保留票据并自动重试，不再创建空工作区。
+- 在已确认任务的生成过程中记录用户边界，允许思考消息切换成最终回复后继续识别。
+- 规范见 [恢复边界](docs/specs/recovery-lock-and-final-boundary.md)。
 
 ## 2.10.39 完成回复后进入验收、模型选择单次间隔
 
