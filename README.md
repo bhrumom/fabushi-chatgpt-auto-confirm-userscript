@@ -864,3 +864,9 @@ When ChatGPT keeps the model radio list open despite Escape, mouseleave, or a re
 - 新逻辑仍优先使用正常 marker-owned assistant turn；若 marker 暂时不在 DOM，则先使用同一 URL、同一 phase/round 下此前已确认归属的实时 preview；仍没有时，只在 inspect 已确认“当前精确 conversation URL 属于该任务且页面没有任何 foreign task marker/其他 URL owner”时，回退读取当前页面最新 assistant turn。
 - exact-route 回退只服务于已经决定要丢弃该异常会话的安全边界，不会放宽正常任务完成/验收的 ownership 判定；出现其他任务标识时继续 fail closed。
 - fresh-chat 前会清理 preview 的 URL/phase/round 元数据，防止下一异常会话误用上一跳的预览；真正 final 和人工改目标也继续清理异常 carry。
+
+## Development source layout
+
+Edit `src/`, then run `npm run build`. `chatgpt-auto-confirm.user.js` is the generated installation artifact; CI rejects stale output with `npm run build:check`. `src/background-clock.js` owns optional host scheduling through an explicit window/onWake/dispose interface. `src/runtime/` groups the legacy bootstrap into storage/activity, workspace ownership, host navigation/memory, attachments/identity, DOM adapter, task transitions, composer/model, reply/approval, send/navigation, settlement, supervision and workbench/lifecycle units. `src/manifest.json` preserves lexical initialization order. These legacy units deliberately share the bootstrap scope during this first extraction; they are not independently executable ES modules. Do not edit the bundle or introduce runtime eval/remote module loading. Existing full-bundle regressions remain the behavioral acceptance boundary.
+
+Hidden scheduling races extension clock responses with native fallback timers. Alarm wake drains overdue waits, and the existing runner mutex, pause and cooldown checks remain authoritative. Browser sleep or a fully frozen renderer still requires host recovery and cannot be guaranteed by a page script. The workbench reports the latest host wake and clock response count.

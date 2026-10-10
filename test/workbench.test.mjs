@@ -7067,8 +7067,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2.10.42$/m);
-  assert.match(source,/const VERSION = '2.10.42'/);
+  assert.match(source,/^\/\/ @version\s+2.10.43$/m);
+  assert.match(source,/const VERSION = '2.10.43'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.42
+// @version      2.10.43
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -67,7 +67,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.42';
+  const VERSION = '2.10.43';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -84,6 +84,17 @@ async function bootstrapAttempt() {
     existingBootstrap.remove();
   }
   if (existingBootstrap) existingBootstrap.remove();
+  let schedulingReady = false;
+  const backgroundClock = createBackgroundClock(window, { onWake:() => {
+    if (!schedulingReady || data.autoResume === false || navigating) return;
+    if (running) { if (!busy) void tick(); }
+    else {
+      const resumable = tabTasks().find(task => resumableStates.has(task.state));
+      if (resumable) autoStart(resumable.id);
+    }
+  } });
+  const { setTimeout, clearTimeout } = backgroundClock;
+  bootstrapCleanup = async () => backgroundClock.dispose();
   const bootstrap = document.createElement('meta');
   bootstrap.id = BOOTSTRAP_MARKER;
   bootstrap.dataset.version = VERSION;
@@ -346,6 +357,72 @@ async function bootstrapAttempt() {
   const STORAGE_CLEANUP_SCAN_LIMIT = 96;
   let storageCleanupLastAt = 0;
   let activeWorkspaceStorageId = '';
+
+// Optional extension scheduling. Page timers are always retained as fallback.
+// Host messages are advisory: ownership, pause and cooldown stay in the runner.
+function createBackgroundClock(page, { onWake = () => {} } = {}) {
+  const nativeSet = page.setTimeout.bind(page);
+  const nativeClear = page.clearTimeout.bind(page);
+  const pending = new Map();
+  let sequence = 0, disposed = false, lastWakeAt = 0, hostReplies = 0;
+  function fire(handle) {
+    const record = pending.get(handle);
+    if (!record) return;
+    pending.delete(handle);
+    nativeClear(record.fallback);
+    record.callback(...record.args);
+  }
+  function set(callback, delay = 0, ...args) {
+    if (disposed) return 0;
+    const ms = Math.max(0, Number(delay) || 0);
+    const handle = --sequence;
+    const requestId = `clock:${page.crypto.randomUUID()}`;
+    const record = { callback, args, requestId, due:Date.now() + ms, fallback:null };
+    pending.set(handle, record);
+    record.fallback = nativeSet(() => fire(handle), ms);
+    if (page.document.hidden && ms <= 20000) {
+      try { page.postMessage({ source:'fabushi-userscript', type:'background-clock.request', requestId, payload:{delayMs:ms} }, '*'); } catch { /* Native fallback remains armed. */ }
+    }
+    return handle;
+  }
+  function clear(handle) {
+    const record = pending.get(handle);
+    if (!record) return;
+    pending.delete(handle);
+    nativeClear(record.fallback);
+  }
+  function receive(event) {
+    if (disposed || event.source !== page || event.data?.source !== 'fabushi-extension') return;
+    const message = event.data;
+    if (message.type === 'background-clock.response' && message.ok === true) {
+      for (const [handle, record] of pending) {
+        if (record.requestId !== message.requestId) continue;
+        // A host response may arrive before its requested deadline (or be
+        // replayed). It must never shorten a cooldown or an approval grace.
+        if (Date.now() >= record.due) { hostReplies++; fire(handle); }
+        break;
+      }
+    } else if (message.type === 'background-wake') {
+      lastWakeAt = Date.now();
+      for (const [handle, record] of [...pending]) {
+        if (record.due <= lastWakeAt) fire(handle);
+      }
+      onWake();
+    }
+  }
+  page.addEventListener('message', receive);
+  return {
+    setTimeout:set, clearTimeout:clear,
+    status:() => ({ pending:pending.size, lastWakeAt, hostReplies }),
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      page.removeEventListener('message', receive);
+      for (const handle of [...pending.keys()]) clear(handle);
+    },
+  };
+}
+
   function fabushiOwnedStorageKey(key) {
     const value = String(key || '');
     if (!value) return false;
@@ -999,6 +1076,7 @@ async function bootstrapAttempt() {
     };
     return false;
   }
+
   function normalizeAttachmentMeta(value) {
     if (!value || typeof value !== 'object') return null;
     const name = String(value.name || '').trim().slice(0, 240);
@@ -1115,7 +1193,7 @@ async function bootstrapAttempt() {
     workspaceRelease = null;
     await released.catch(() => {});
   }
-  bootstrapCleanup = releaseWorkspace;
+  bootstrapCleanup = async () => { backgroundClock.dispose(); await releaseWorkspace(); };
   async function reclaimReplacedWorkspace(owner) {
     // Web Locks release runs on its own task queue after the old callback's
     // promise settles. Only a proven same-window replacement may wait for that
@@ -1315,6 +1393,7 @@ async function bootstrapAttempt() {
   function modelPresetLabel(value) {
     return modelPresetDefinition(value).label;
   }
+
   function taskModelPreset(task) {
     return normalizeModelPreset(task?.modelPreset);
   }
@@ -1416,7 +1495,7 @@ async function bootstrapAttempt() {
     };
     try { window.postMessage(message, '*'); }
     catch { hostRecoveryPending.delete(requestId); return false; }
-    window.setTimeout(() => {
+    setTimeout(() => {
       if (hostRecoveryPending.get(requestId) === now) hostRecoveryPending.delete(requestId);
     }, HOST_RECOVERY_RESPONSE_TTL_MS);
     return true;
@@ -1534,7 +1613,7 @@ async function bootstrapAttempt() {
         settleHostNavigationRequest(requestId, { granted:true, fallback:true, reason:'post-message-failed' });
         return;
       }
-      window.setTimeout(() => {
+      setTimeout(() => {
         // A plain standalone userscript has no content bridge. Keep it
         // functional, but retain the local cooldown/burst budget above.
         if (hostNavigationPending.has(requestId)) {
@@ -1600,7 +1679,7 @@ async function bootstrapAttempt() {
 
   function armNavigationCommitWatchdog(task, reason = 'navigation', delayMs = NAVIGATION_COMMIT_WATCHDOG_MS) {
     clearTimeout(navigationTimer);
-    navigationTimer = window.setTimeout(() => {
+    navigationTimer = setTimeout(() => {
       navigationTimer = null;
       if (!running || !navigating) return;
       navigating = false;
@@ -1836,7 +1915,7 @@ async function bootstrapAttempt() {
     };
     memoryLastHostRequestAt = now;
     const response = await new Promise(resolve => {
-      const timeoutId = window.setTimeout(() => {
+      const timeoutId = setTimeout(() => {
         settleHostMemoryRequest(requestId, { ok:false, discarded:false, reason:'host-timeout', safety });
       }, MEMORY_HOST_RESPONSE_TTL_MS);
       hostMemoryPending.set(requestId, { resolve, timeoutId });
@@ -1886,7 +1965,7 @@ async function bootstrapAttempt() {
   }
   function scheduleMemoryMonitor(delayMs = MEMORY_MONITOR_INTERVAL_MS) {
     clearTimeout(memoryMonitorTimer);
-    memoryMonitorTimer = window.setTimeout(() => {
+    memoryMonitorTimer = setTimeout(() => {
       memoryMonitorTimer = null;
       void inspectMemoryPressure().finally(() => scheduleMemoryMonitor());
     }, Math.max(1000, Number(delayMs) || MEMORY_MONITOR_INTERVAL_MS));
@@ -2008,6 +2087,7 @@ async function bootstrapAttempt() {
       return true;
     });
   }
+
   function attachmentKind(file) {
     const type = String(file?.type || '').trim().toLocaleLowerCase();
     const name = String(file?.name || '').trim().toLocaleLowerCase();
@@ -2469,6 +2549,7 @@ async function bootstrapAttempt() {
     }
     return runnable[0];
   }
+
   function visibilityAwareDelay(ordinaryDelay, visibleMs, hiddenMs, hidden = document.hidden) {
     const delayMs = Math.max(0, Number(ordinaryDelay) || 0);
     // Preserve explicit short recovery deadlines while reducing ordinary work
@@ -2924,6 +3005,7 @@ async function bootstrapAttempt() {
     task.conversationLoadFailureAt = 0;
     return changed;
   }
+
   function haltRunnerForPause() {
     running = false;
     controller?.abort();
@@ -3403,6 +3485,7 @@ async function bootstrapAttempt() {
       signal?.addEventListener('abort', abort, { once: true });
     });
   }
+
   function composer() { return nodes('#prompt-textarea,textarea,[contenteditable=true]').find(enabled); }
   const CHAT_MODE_LABEL_RE = /^(?:聊天(?:模式)?|chat(?: mode)?)$/iu;
   const WORK_MODE_LABEL_RE = /^(?:工作(?:模式)?|work(?: mode)?)$/iu;
@@ -4827,6 +4910,7 @@ async function bootstrapAttempt() {
     }
     return deduped.join('\n\n').trim();
   }
+
   function assistantTurnContent(roleNode, { tailLimit = 0 } = {}) {
     const messageUnit = conversationMessageUnit(roleNode, 'assistant');
     const fallbackUnit = contentSearchUnitRole(messageUnit) === 'assistant' ? messageUnit : null;
@@ -6402,6 +6486,7 @@ async function bootstrapAttempt() {
     const turn = taskTurnForInspection(task);
     return Boolean(turn.owned && turn.final && turn.text && !stopButton() && !cards().length);
   }
+
   function safeURL(url) {
     const target = new URL(url, location.origin);
     if (target.origin !== location.origin || !/^\/(?:c\/[^/?#]+)?$/.test(target.pathname)) throw new Error('会话地址无效');
@@ -7296,6 +7381,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     }
     return;
   }
+
   function reviewParseError(message, cause = null) {
     const error = new Error(message);
     error.code = 'invalid-review-json';
@@ -8440,6 +8526,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
         && refreshUnavailableApproval(task, true, approvalRefreshNow)) return;
     }
   }
+
   function schedule(ms = 2000) {
     clearTimeout(timer);
     if (running && !navigating) timer = setTimeout(tick, ms);
@@ -8816,6 +8903,7 @@ NaN
     }
     return true;
   }
+
   function prepareRecordedConversationOpen(taskId, expectedURL) {
     const task = data.tasks.find(item => item.id === taskId);
     const target = canonicalConversationURL(expectedURL);
@@ -9057,7 +9145,7 @@ NaN
     globalApprovalLabel.append(globalApproval,document.createTextNode('在当前标签页的会话中自动处理授权卡'));
     const globalPauseButton = element('button','暂停全部任务','pause-all'); globalPauseButton.type='button';
     const memoryCleanupButton = element('button','清理当前标签页内存','memory-cleanup'); memoryCleanupButton.type='button';
-    const memoryStatusNode = element('small',[memoryStatusText(), storageStatusText()].filter(Boolean).join(' · '),'memory-status');
+    const memoryStatusNode = element('small',[memoryStatusText(), storageStatusText(), `宿主唤醒 ${backgroundClock.status().lastWakeAt ? new Date(backgroundClock.status().lastWakeAt).toLocaleTimeString() : '等待'}，时钟响应 ${backgroundClock.status().hostReplies}`].filter(Boolean).join(' · '),'memory-status');
     chat.append(head);
     settings.append(globalApprovalLabel,globalPauseButton,memoryCleanupButton,memoryStatusNode,element('small','此数值只估算网页 JavaScript 堆，不等于 Chrome 标签页完整内存。宿主只能卸载非活动且无未保存内容/进行中任务的标签页；重新打开时会重新加载。活动标签页无法通过 tabs.discard 清理到初始占用。'),element('small','仅展开“允许”旁的菜单并选择“允许本次会话”；不会选择永久授权。'));
     const feed = element('div','','feed'); feed.setAttribute('role','log'); feed.setAttribute('aria-live','polite');
@@ -9222,11 +9310,11 @@ NaN
       if (modelScopeHint.textContent !== modelHint) modelScopeHint.textContent = modelHint;
       heading.textContent=task ? (task.mode==='goal'?'持续目标':'单次任务')+' · '+statusNames[task.state] : '任务工作台';
       editGoalButton.disabled=!task || task.state==='done';
-      memoryStatusNode.textContent=[memoryStatusText(), storageStatusText()].filter(Boolean).join(' · ');
+      memoryStatusNode.textContent=[memoryStatusText(), storageStatusText(), `宿主唤醒 ${backgroundClock.status().lastWakeAt ? new Date(backgroundClock.status().lastWakeAt).toLocaleTimeString() : '等待'}，时钟响应 ${backgroundClock.status().hostReplies}`].filter(Boolean).join(' · ');
       memoryCleanupButton.disabled=memoryMonitorBusy || hostMemoryPending.size > 0;
       const runnableCount=tabTasks().filter(item=>!terminal.has(item.state)&&item.state!=='paused').length;
       const recoveryStatus = taskRecoveryStatusText(task);
-      notice.textContent=[`当前标签页工作区 · ${running?`监督中，${runnableCount>1?`多个本页任务每 ${Math.round(SUPERVISION_INTERVAL_MS / 1000)} 秒轮换`:'按当前任务推进'}；任务可单独暂停/继续`:'已暂停，自动操作已停止'}`, recoveryStatus, `扫描 ${measurements.scans} 次，平均 ${(measurements.totalScanMs / Math.max(1, measurements.scans)).toFixed(1)} ms · 界面最近 ${measurements.lastPaintMs.toFixed(1)} ms、侧栏重建 ${measurements.sidebarRebuilds} 次`, memoryStatusText(), storageStatusText()].filter(Boolean).join(' · ');
+      notice.textContent=[`当前标签页工作区 · ${running?`监督中，${runnableCount>1?`多个本页任务每 ${Math.round(SUPERVISION_INTERVAL_MS / 1000)} 秒轮换`:'按当前任务推进'}；任务可单独暂停/继续`:'已暂停，自动操作已停止'}`, recoveryStatus, `扫描 ${measurements.scans} 次，平均 ${(measurements.totalScanMs / Math.max(1, measurements.scans)).toFixed(1)} ms · 界面最近 ${measurements.lastPaintMs.toFixed(1)} ms、侧栏重建 ${measurements.sidebarRebuilds} 次`, memoryStatusText(), storageStatusText(), `宿主唤醒 ${backgroundClock.status().lastWakeAt ? new Date(backgroundClock.status().lastWakeAt).toLocaleTimeString() : '等待'}，时钟响应 ${backgroundClock.status().hostReplies}`].filter(Boolean).join(' · ');
       pauseButton.textContent=task?.state==='paused'?'继续当前任务':(task?.state==='cancelled'||task?.state==='blocked')?'恢复任务':task&&!terminal.has(task.state)?(running?'暂停当前任务':'继续当前任务'):running?'暂停全部':'继续全部';
       globalPauseButton.textContent=running?'暂停全部任务':'继续全部任务';
       globalPauseButton.disabled=tabTasks().length===0;
@@ -9436,7 +9524,7 @@ NaN
     };
     paint();
   }
-  window[INSTANCE]={active:true,version:VERSION,async shutdown(){stopMemoryMonitor();cancelHostMemoryRequests();cancelHostNavigationRequests();stopWorkspaceHeartbeat('shutdown');suspendRunnerForPagehide();globalApprovalController?.abort();clearTimeout(globalApprovalTimer);globalApprovalTimer=null;clearTimeout(popupDismissTimer);popupDismissTimer=null;clearTimeout(automaticRecoveryTimer);automaticRecoveryTimer=null;releaseTransientUIResources({force:true});readTransientUIState=()=>({hasDraft:false,hasFiles:false});releaseTransientUIResources=()=>false;lifecycleController?.abort();this.active=false;document.querySelectorAll(`#${ROOT}`).forEach(node=>node.remove());document.querySelectorAll('#fabushi-auto-confirm-style').forEach(node=>node.remove());if(document.getElementById(BOOTSTRAP_MARKER)===bootstrap)bootstrap.remove();await releaseWorkspace();}};
+  window[INSTANCE]={active:true,version:VERSION,async shutdown(){stopMemoryMonitor();cancelHostMemoryRequests();cancelHostNavigationRequests();stopWorkspaceHeartbeat('shutdown');suspendRunnerForPagehide();globalApprovalController?.abort();clearTimeout(globalApprovalTimer);globalApprovalTimer=null;clearTimeout(popupDismissTimer);popupDismissTimer=null;clearTimeout(automaticRecoveryTimer);automaticRecoveryTimer=null;releaseTransientUIResources({force:true});readTransientUIState=()=>({hasDraft:false,hasFiles:false});releaseTransientUIResources=()=>false;lifecycleController?.abort();this.active=false;document.querySelectorAll(`#${ROOT}`).forEach(node=>node.remove());document.querySelectorAll('#fabushi-auto-confirm-style').forEach(node=>node.remove());if(document.getElementById(BOOTSTRAP_MARKER)===bootstrap)bootstrap.remove();backgroundClock.dispose();await releaseWorkspace();}};
   window.FabushiUserscript=Object.freeze({pluginId:'chatgpt-auto-confirm',getServer:()=> 'browser-local',call:async(tool,args={})=>{
     if(['status','diagnose','queue_status','chat_status'].includes(tool))return{version:VERSION,running,tasks:tabTasks(),measurements,tabWorkspace:true,tabId,memory:{...memorySnapshot,pressure:memoryPressure,lastAction:memoryLastAction}};
     if(tool==='memory_status')return{...memorySnapshot,pressure:memoryPressure,lastAction:memoryLastAction,hostCapability:HOST_MEMORY_CAPABILITY};
@@ -9451,6 +9539,7 @@ NaN
     }
     throw new Error('请通过新版任务输入框使用此功能。');
   }});
+  schedulingReady = true;
   mount();
   void inspectMemoryPressure();
   scheduleMemoryMonitor(2000);

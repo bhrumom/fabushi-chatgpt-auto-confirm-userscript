@@ -1,0 +1,16 @@
+[
+  "src/runtime/bootstrap-and-config.inc.js",
+  "src/background-clock.js",
+  "src/runtime/storage-and-activity.inc.js",
+  "src/runtime/workspace-ownership.inc.js",
+  "src/runtime/host-navigation-and-memory.inc.js",
+  "src/runtime/attachments-and-task-identity.inc.js",
+  "src/runtime/dom-and-turn-adapter.inc.js",
+  "src/runtime/task-state.inc.js",
+  "src/runtime/composer-and-model.inc.js",
+  "src/runtime/reply-and-approval.inc.js",
+  "src/runtime/send-and-navigation.inc.js",
+  "src/runtime/review-and-settlement.inc.js",
+  "src/runtime/supervision.inc.js",
+  "src/runtime/workbench-and-lifecycle.inc.js"
+]
