@@ -542,7 +542,7 @@ test('older renderer may still confirm a model directly from the closed trigger'
 });
 
 async function liveNestedModelFixture(initialLabel='GPT-6', options={}) {
-  const state={selected:initialLabel,triggerClicks:0,submenuClicks:0,targetClicks:0,lastParentText:''};
+  const state={selected:initialLabel,triggerClicks:0,triggerTimes:[],strengthClicks:0,submenuClicks:0,targetClicks:0,lastParentText:''};
   const result=await fixture('<main><button type="button" aria-label="选择 ChatGPT 模型" aria-haspopup="menu" aria-expanded="false" data-state="closed" data-codex-intelligence-trigger="true" data-composer-navigation-target="reasoning" data-selected-reasoning-effort="medium">思考强度</button><article><button id="transcript-model">GPT-5.6 Sol</button></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">Send</button></form></main>',window=>{
     const trigger=window.document.querySelector('[data-codex-intelligence-trigger]');
     const menu=()=>window.document.querySelector('[role="menu"]');
@@ -555,6 +555,10 @@ async function liveNestedModelFixture(initialLabel='GPT-6', options={}) {
     const renderParent=()=>{
       const node=mountShell();node.innerHTML='';
       const strength=window.document.createElement('div');strength.setAttribute('role','menuitem');strength.setAttribute('aria-label','强度');strength.textContent='强度';node.append(strength);
+      if(options.delayedStrength){
+        strength.addEventListener('click',()=>state.strengthClicks++);
+        window.setTimeout(()=>{if(node.isConnected && node.contains(strength)){strength.dataset.reasoningSlider='true';strength.innerHTML='<span role="slider" aria-valuemin="0" aria-valuemax="4" aria-valuenow="3"></span>'; }},850);
+      }
       if(options.missingEntry)return;
       const entry=window.document.createElement('div');entry.setAttribute('role','menuitem');entry.setAttribute('aria-label','选择模型');
       entry.textContent=shortLabel(state.selected)+'\n中';state.lastParentText=entry.textContent;
@@ -577,7 +581,7 @@ async function liveNestedModelFixture(initialLabel='GPT-6', options={}) {
       }
     };
     trigger.addEventListener('click',()=>{
-      state.triggerClicks++;
+      state.triggerClicks++;state.triggerTimes.push(Date.now());
       const open=trigger.getAttribute('aria-expanded')==='true';
       trigger.setAttribute('aria-expanded',open?'false':'true');trigger.dataset.state=open?'closed':'open';
       if(open){menu()?.remove();return;}
@@ -7063,8 +7067,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2.10.40$/m);
-  assert.match(source,/const VERSION = '2.10.40'/);
+  assert.match(source,/^\/\/ @version\s+2.10.41$/m);
+  assert.match(source,/const VERSION = '2.10.41'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
@@ -7393,3 +7397,20 @@ for (const variant of ['owned','virtualized','inside','sibling','stop','quote','
     } finally {h.pause();dom.window.close();}
   });
 }
+
+
+test('initial model selection waits for delayed strength without repeatedly toggling the trigger',async()=>{
+ const {h,dom,state}=await liveNestedModelFixture('GPT-6',{delayedStrength:true});
+ try{
+  const task={id:'first-open-model-strength',ownerTabId:h.getTabId(),goal:'test selection',state:'sending',phase:'work',round:1,modelPreset:'gpt-5.6-sol',reasoningPreset:3,messages:[]};
+  h.data.tasks.push(task);h.setRunningForTest(true);
+  assert.equal(await h.ensureTaskModelPreset(task,null),true);
+  assert.equal(state.selected,'GPT-5.6 Sol');
+  const before=state.triggerClicks;
+  assert.equal(await h.ensureTaskReasoningPreset(task,null),true);
+  assert.equal(task.reasoningPresetConfirmedIndex,3);
+  assert.equal(state.triggerClicks-before,2,'one open and one final close; no hydration reopen');
+  assert.ok(state.strengthClicks<=1,'Strength is never repeatedly activated');
+  for(let i=1;i<state.triggerTimes.length;i++)assert.ok(state.triggerTimes[i]-state.triggerTimes[i-1]>=600,'initial model and reasoning clicks share pacing');
+ }finally{h.pause();dom.window.close();}
+});

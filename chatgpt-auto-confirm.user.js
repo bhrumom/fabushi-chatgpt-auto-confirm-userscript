@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.40
+// @version      2.10.41
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -67,7 +67,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.40';
+  const VERSION = '2.10.41';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -3691,16 +3691,16 @@ async function bootstrapAttempt() {
     let radios = modelRadioOptions();
     if (radios.length) return radios;
     if (!trigger || trigger.getAttribute('aria-expanded') !== 'true') {
-      trigger?.click();
+      if (!await pacedModelPickerClick(trigger, signal)) return [];
       await delay(120, signal); check(signal);
     }
     let entry = null;
-    for (let attempt = 0; attempt < 8; attempt++) {
+    for (let attempt = 0; attempt < 20; attempt++) {
       radios = modelRadioOptions();
       if (radios.length) return radios;
       entry = modelSubmenuEntry();
       if (entry) break;
-      await delay(80, signal); check(signal);
+      await delay(100, signal); check(signal);
     }
     if (!entry || !enabled(entry)) {
       // The menu may be showing radios or have lost its first-level item
@@ -3710,7 +3710,7 @@ async function bootstrapAttempt() {
       if (!entry || !enabled(entry)) return [];
     }
     activateControl(entry);
-    for (let attempt = 0; attempt < 8; attempt++) {
+    for (let attempt = 0; attempt < 20; attempt++) {
       await delay(100, signal); check(signal);
       radios = modelRadioOptions();
       if (radios.length) return radios;
@@ -3719,7 +3719,7 @@ async function bootstrapAttempt() {
       const retryEntry = modelSubmenuEntry();
       if (retryEntry && enabled(retryEntry)) {
         activateControl(retryEntry);
-        for (let attempt=0;attempt<8;attempt++) {
+        for (let attempt=0;attempt<20;attempt++) {
           await delay(100,signal);check(signal);
           radios=modelRadioOptions();
           if (radios.length) return radios;
@@ -3910,6 +3910,23 @@ async function bootstrapAttempt() {
     if (!Number.isInteger(current) || !Number.isInteger(min) || !Number.isInteger(max)) return null;
     return { control, thumb, current, min, max };
   }
+  async function waitForReasoningSlider(signal) {
+    const deadline = Date.now() + 2000;
+    let strengthActivated = false;
+    while (true) {
+      const slider = reasoningSliderState();
+      if (slider) return slider;
+      // Keep one opening intact while React hydrates its contents. The
+      // Strength item may itself be a toggle, so activate it at most once.
+      if (!strengthActivated && !modelRadioOptions().length) {
+        const strength = nodes('[role="menuitem"]').find(node => enabled(node)
+          && /^(?:强度|Strength)$/i.test(normalize(node.getAttribute('aria-label') || label(node))));
+        if (strength) { activateControl(strength); strengthActivated = true; }
+      }
+      if (Date.now() >= deadline) return null;
+      await delay(Math.min(100, deadline - Date.now()), signal); check(signal);
+    }
+  }
   async function ensureTaskReasoningPreset(task, signal) {
     const target = taskReasoningPreset(task);
     let trigger = reasoningPickerTrigger();
@@ -3939,16 +3956,10 @@ async function bootstrapAttempt() {
       await pacedModelPickerClick(trigger, signal);
       await delay(120, signal); check(signal);
     }
-    let slider = reasoningSliderState();
-    for (let attempt=0; !slider && attempt<4; attempt++) {
-      const strength = nodes('[role="menuitem"]').find(node=>enabled(node) && /^(?:强度|Strength)$/i.test(normalize(node.getAttribute('aria-label') || label(node))));
-      if (strength && !modelRadioOptions().length) activateControl(strength);
-      await delay(120,signal); check(signal);
-      slider=reasoningSliderState();
-      if (slider) break;
-      trigger=reasoningPickerTrigger();
-      if (!await reopenModelPicker(trigger,signal)) break;
-      slider=reasoningSliderState();
+    let slider = await waitForReasoningSlider(signal);
+    if (!slider) {
+      trigger = reasoningPickerTrigger();
+      if (await reopenModelPicker(trigger, signal)) slider = await waitForReasoningSlider(signal);
     }
     if (!slider) {
       await closeModelPickerMenu(signal);
@@ -3974,10 +3985,10 @@ async function bootstrapAttempt() {
       await delay(120, signal); check(signal);
       let next = reasoningSliderState();
       if (!next) {
-        for(let retry=0;retry<3 && !next;retry++) {
-          trigger=reasoningPickerTrigger();
-          if (!await reopenModelPicker(trigger,signal)) break;
-          next=reasoningSliderState();
+        next = await waitForReasoningSlider(signal);
+        if (!next) {
+          trigger = reasoningPickerTrigger();
+          if (await reopenModelPicker(trigger, signal)) next = await waitForReasoningSlider(signal);
         }
         if (!next) {
           waitForReasoningPicker(task, '调整 ChatGPT 思考强度时滑块消失，重新打开后仍未恢复');

@@ -1,8 +1,14 @@
-# Fabushi 独立自动确认工作台 2.10.40
+# Fabushi 独立自动确认工作台 2.10.41
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.40`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.41`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+
+## 2.10.41 首次模型选择等待菜单加载
+
+- 首次打开模型列表也使用单次点击和间隔控制。
+- 思考强度菜单先等待最多两秒加载，强度入口只操作一次；仍未出现再做一次恢复。
+- 规范见 [首次模型选择](docs/specs/model-picker-first-open.md)。
 
 ## 2.10.40 恢复工作区与最终回复边界
 
