@@ -4,6 +4,48 @@ import { readFileSync } from 'node:fs';
 import { JSDOM } from 'jsdom';
 
 const source = readFileSync(new URL('../chatgpt-auto-confirm.user.js', import.meta.url), 'utf8');
+test('persistent loading refresh waits initially and persists a five-minute same-tab interval',async()=>{
+  const {h,w,dom}=await fixture('<main><div class="animate-spin"></div></main>');
+  try {
+    w.history.replaceState({},'', '/c/slow-loading');
+    let now=Date.now(); w.Date.now=()=>now;
+    const task={id:'slow-loading',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:2,token:'same-send',attempted:true,state:'loading',url:w.location.href,messages:[],rendererRecoveryExhausted:true};
+    h.data.tasks.push(task); h.setRunningForTest(true);
+    const requests=[]; w.postMessage=message=>{if(message.payload?.reason==='persistent-loading-refresh')requests.push(message);};
+    h.holdForChatGPTLoading(task);
+    now+=119999; h.holdForChatGPTLoading(task);
+    assert.equal(requests.length,0);
+    now++; h.holdForChatGPTLoading(task);
+    assert.equal(requests.length,1);
+    const ticket=JSON.parse(w.sessionStorage.getItem('fabushi-workbench-navigation-v2'));
+    assert.equal(ticket.purpose,'recovery'); assert.equal(ticket.href,task.url);
+    assert.equal(task.token,'same-send'); assert.equal(task.attempted,true); assert.equal(task.round,2);
+    h.settleHostNavigationRequest(requests[0].requestId,{granted:false,reason:'test-denial'});
+    await new Promise(resolve=>w.setTimeout(resolve,0));
+    const restored=JSON.parse(JSON.stringify(task)); h.data.tasks[0]=restored;
+    now+=299999; h.holdForChatGPTLoading(restored);
+    assert.equal(requests.length,1,'durable task reconstruction cannot restart the initial timeout');
+    now++; h.holdForChatGPTLoading(restored);
+    assert.equal(requests.length,2);
+    assert.equal(restored.loadingRefreshAt,now+300000);
+  } finally { h.pause(); dom.window.close(); }
+});
+test('persistent loading refresh respects pause, drafts and foreign route ownership',async()=>{
+  const {h,w,dom}=await fixture('<main><div class="animate-spin"></div></main><textarea>unsent draft</textarea>');
+  try {
+    w.history.replaceState({},'', '/c/protected-loading');
+    let now=Date.now(); w.Date.now=()=>now;
+    const task={id:'protected-loading',ownerTabId:h.getTabId(),goal:'goal',phase:'work',round:1,token:'keep',state:'loading',url:w.location.href,messages:[]};
+    h.data.tasks.push(task); h.setRunningForTest(true);
+    const requests=[]; w.postMessage=message=>requests.push(message);
+    h.holdForChatGPTLoading(task); now+=600000; h.holdForChatGPTLoading(task);
+    assert.equal(requests.length,0);
+    w.document.querySelector('textarea').value='';
+    task.state='paused'; h.holdForChatGPTLoading(task); assert.equal(requests.length,0);
+    task.state='loading'; task.url='https://chatgpt.com/c/another'; h.holdForChatGPTLoading(task);
+    assert.equal(requests.length,0);
+  } finally {h.pause(); dom.window.close();}
+});
 async function fixture(body='', setup=()=>{}, url='https://chatgpt.com/') {
   const dom = new JSDOM(`<body>${body}</body>`, { url, runScripts:'outside-only' });
   const w = dom.window;
@@ -34,7 +76,7 @@ async function fixture(body='', setup=()=>{}, url='https://chatgpt.com/') {
     const form = w.document.querySelector('form') || w.document.body;
     form.append(trigger);
   }
-  await w.eval(source.replace('  mount();','  window.testHooks = { blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, interruptedFreshHandoffApprovalGate, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, assistantResponseBoundaryKey, taskTurnForInspection, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, conversationLoadFailure, clearConversationLoadFailureState, recoverConversationLoadFailure, cards, authorizationCardShell, structuralAuthorizationSurface, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, normalizeModelPreset, modelPresetLabel, taskModelPreset, normalizeReasoningPreset, reasoningPresetLabel, taskReasoningPreset, localizedChatWorkModeKind, chatWorkModeSelection, chatWorkModeControls, workModeEvidence, chatWorkModeState, ensureChatMode, chatWorkContinueOffer, chatWorkStayIdentity, clearChatWorkStayState, handleChatWorkContinueOffer, modelPickerTrigger, modelTriggerMatches, closedComposerModelHint, reopenModelPicker, modelMenuOption, modelSubmenuEntry, modelRadioOptions, modelRadioOption, modelRadioSelected, modelSubmenuHintMatches, openModelRadioList, confirmModelRadioSelection, ensureTaskModelPreset, currentTaskModelStillConfirmed, reasoningPickerTrigger, reasoningSliderState, clearReasoningPickerRecovery, waitForReasoningPicker, ensureTaskReasoningPreset, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, markApprovalUnavailable, clearApprovalUnavailableRefresh, refreshUnavailableApproval, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, refreshStalledConversation, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, storageStatusText, readRecentActivitySession, writeRecentActivitySession, recordRecentActivity, restoreRecentActivityMessages, taskRecoveryStatusText, persistWorkbenchState, durableTaskSnapshot, durableWorkbenchSnapshot, fitWorkbenchSnapshotToLocalBudget, writeLocalStorageRecord, readStorageString, readWorkbenchOverflow, cleanupStaleFabushiStorage, fabushiLocalStorageFootprint, storageBudgets:()=>({workbench:WORKBENCH_LOCAL_STORAGE_TARGET_CHARS,total:FABUSHI_LOCAL_STORAGE_MAX_CHARS}), scheduleWorkspaceHeartbeat, workspaceHeartbeatScheduled:()=>Boolean(workspaceHeartbeatTimer), storagePersistenceStatus:()=>storagePersistenceStatus, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), setRunningForTest:value=>{running=Boolean(value);}, getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { restorePausedTask, pauseTask, mergeStoredTasks, blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, interruptedFreshHandoffApprovalGate, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, assistantResponseBoundaryKey, taskTurnForInspection, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, conversationLoadFailure, clearConversationLoadFailureState, recoverConversationLoadFailure, cards, authorizationCardShell, structuralAuthorizationSurface, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, normalizeModelPreset, modelPresetLabel, taskModelPreset, normalizeReasoningPreset, reasoningPresetLabel, taskReasoningPreset, localizedChatWorkModeKind, chatWorkModeSelection, chatWorkModeControls, workModeEvidence, chatWorkModeState, ensureChatMode, chatWorkContinueOffer, chatWorkStayIdentity, clearChatWorkStayState, handleChatWorkContinueOffer, modelPickerTrigger, modelTriggerMatches, closedComposerModelHint, reopenModelPicker, modelMenuOption, modelSubmenuEntry, modelRadioOptions, modelRadioOption, modelRadioSelected, modelSubmenuHintMatches, openModelRadioList, confirmModelRadioSelection, ensureTaskModelPreset, currentTaskModelStillConfirmed, reasoningPickerTrigger, reasoningSliderState, clearReasoningPickerRecovery, waitForReasoningPicker, ensureTaskReasoningPreset, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, markApprovalUnavailable, clearApprovalUnavailableRefresh, refreshUnavailableApproval, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, resetRendererRecoveryState, recoverStalledRoute, holdForChatGPTLoading, refreshStalledConversation, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, storageStatusText, readRecentActivitySession, writeRecentActivitySession, recordRecentActivity, restoreRecentActivityMessages, taskRecoveryStatusText, persistWorkbenchState, durableTaskSnapshot, durableWorkbenchSnapshot, fitWorkbenchSnapshotToLocalBudget, writeLocalStorageRecord, readStorageString, readWorkbenchOverflow, cleanupStaleFabushiStorage, fabushiLocalStorageFootprint, storageBudgets:()=>({workbench:WORKBENCH_LOCAL_STORAGE_TARGET_CHARS,total:FABUSHI_LOCAL_STORAGE_MAX_CHARS}), scheduleWorkspaceHeartbeat, workspaceHeartbeatScheduled:()=>Boolean(workspaceHeartbeatTimer), storagePersistenceStatus:()=>storagePersistenceStatus, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), setRunningForTest:value=>{running=Boolean(value);}, getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('recent activity restores the last two hours after reload without putting history back into localStorage',async()=>{
@@ -542,7 +584,7 @@ test('older renderer may still confirm a model directly from the closed trigger'
 });
 
 async function liveNestedModelFixture(initialLabel='GPT-6', options={}) {
-  const state={selected:initialLabel,triggerClicks:0,submenuClicks:0,targetClicks:0,lastParentText:''};
+  const state={selected:initialLabel,triggerClicks:0,triggerTimes:[],strengthClicks:0,submenuClicks:0,targetClicks:0,lastParentText:''};
   const result=await fixture('<main><button type="button" aria-label="选择 ChatGPT 模型" aria-haspopup="menu" aria-expanded="false" data-state="closed" data-codex-intelligence-trigger="true" data-composer-navigation-target="reasoning" data-selected-reasoning-effort="medium">思考强度</button><article><button id="transcript-model">GPT-5.6 Sol</button></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">Send</button></form></main>',window=>{
     const trigger=window.document.querySelector('[data-codex-intelligence-trigger]');
     const menu=()=>window.document.querySelector('[role="menu"]');
@@ -555,6 +597,10 @@ async function liveNestedModelFixture(initialLabel='GPT-6', options={}) {
     const renderParent=()=>{
       const node=mountShell();node.innerHTML='';
       const strength=window.document.createElement('div');strength.setAttribute('role','menuitem');strength.setAttribute('aria-label','强度');strength.textContent='强度';node.append(strength);
+      if(options.delayedStrength){
+        strength.addEventListener('click',()=>state.strengthClicks++);
+        window.setTimeout(()=>{if(node.isConnected && node.contains(strength)){strength.dataset.reasoningSlider='true';strength.innerHTML='<span role="slider" aria-valuemin="0" aria-valuemax="4" aria-valuenow="3"></span>'; }},850);
+      }
       if(options.missingEntry)return;
       const entry=window.document.createElement('div');entry.setAttribute('role','menuitem');entry.setAttribute('aria-label','选择模型');
       entry.textContent=shortLabel(state.selected)+'\n中';state.lastParentText=entry.textContent;
@@ -577,7 +623,7 @@ async function liveNestedModelFixture(initialLabel='GPT-6', options={}) {
       }
     };
     trigger.addEventListener('click',()=>{
-      state.triggerClicks++;
+      state.triggerClicks++;state.triggerTimes.push(Date.now());
       const open=trigger.getAttribute('aria-expanded')==='true';
       trigger.setAttribute('aria-expanded',open?'false':'true');trigger.dataset.state=open?'closed':'open';
       if(open){menu()?.remove();return;}
@@ -7063,8 +7109,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2.10.39$/m);
-  assert.match(source,/const VERSION = '2.10.39'/);
+  assert.match(source,/^\/\/ @version\s+2.10.45$/m);
+  assert.match(source,/const VERSION = '2.10.45'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
@@ -7393,3 +7439,43 @@ for (const variant of ['owned','virtualized','inside','sibling','stop','quote','
     } finally {h.pause();dom.window.close();}
   });
 }
+
+
+test('initial model selection waits for delayed strength without repeatedly toggling the trigger',async()=>{
+ const {h,dom,state}=await liveNestedModelFixture('GPT-6',{delayedStrength:true});
+ try{
+  const task={id:'first-open-model-strength',ownerTabId:h.getTabId(),goal:'test selection',state:'sending',phase:'work',round:1,modelPreset:'gpt-5.6-sol',reasoningPreset:3,messages:[]};
+  h.data.tasks.push(task);h.setRunningForTest(true);
+  assert.equal(await h.ensureTaskModelPreset(task,null),true);
+  assert.equal(state.selected,'GPT-5.6 Sol');
+  const before=state.triggerClicks;
+  assert.equal(await h.ensureTaskReasoningPreset(task,null),true);
+  assert.equal(task.reasoningPresetConfirmedIndex,3);
+  assert.equal(state.triggerClicks-before,2,'one open and one final close; no hydration reopen');
+  assert.ok(state.strengthClicks<=1,'Strength is never repeatedly activated');
+  for(let i=1;i<state.triggerTimes.length;i++)assert.ok(state.triggerTimes[i]-state.triggerTimes[i-1]>=600,'initial model and reasoning clicks share pacing');
+ }finally{h.pause();dom.window.close();}
+});
+
+ test('a foreign stale pause cannot overwrite a newer Work to review handoff',async()=>{
+  const {h,w,dom}=await fixture();
+  try {
+    const task={id:'foreign-handoff',ownerTabId:'other-live-owner',goal:'continue migration',state:'paused',pausedState:'sending',phase:'work',round:11,pauseRevision:0,updatedAt:10,messages:[]};
+    h.data.tasks.push(task);
+    h.mergeStoredTasks({tasks:[{...task,state:'queued',phase:'review',result:'final Work reply',updatedAt:20}],tabControls:{}});
+    assert.equal(task.state,'queued');assert.equal(task.phase,'review');assert.equal(task.result,'final Work reply');
+    h.log(task,'foreign workspace refresh');
+    const saved=JSON.parse(w.localStorage.getItem('fabushi-workbench-v2')).tasks.find(t=>t.id===task.id);
+    assert.equal(saved.state,'queued');assert.equal(saved.phase,'review');
+  } finally {dom.window.close();}
+});
+ test('individual pause and resume advance task revisions and reject older pauses',async()=>{
+  const {h,dom}=await fixture();
+  try {
+    const task={id:'revision-resume',goal:'continue',state:'waiting',phase:'work',round:1,pauseRevision:3,messages:[]};h.data.tasks.push(task);
+    h.pauseTask(task);assert.ok(task.pauseRevision>3);const paused={...task,updatedAt:Date.now()+10000};
+    h.restorePausedTask(task);assert.ok(task.pauseRevision>paused.pauseRevision);
+    h.mergeStoredTasks({tasks:[paused]});assert.equal(task.state,'waiting');
+    h.mergeStoredTasks({tasks:[{...paused,pauseRevision:task.pauseRevision+1}]});assert.equal(task.state,'paused');
+  } finally {dom.window.close();}
+});
