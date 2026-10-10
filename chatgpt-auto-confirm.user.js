@@ -4377,7 +4377,8 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
   }
   function holdForChatGPTLoading(task, reason = pageLoadingState()) {
     if (!reason) return true;
-    if (!task || !running || !taskBelongsToTab(task) || ['paused','done','cancelled'].includes(task.state)) return false;
+    if (!task || ['paused','done','cancelled'].includes(task.state)
+      || (task.ownerTabId && !taskBelongsToTab(task))) return false;
     const now = Date.now();
     let target;
     try { target = safeURL(location.href); } catch { return false; }
@@ -4393,7 +4394,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
       || cards().length || approvalSettlementActive(task)
       || Boolean(normalize(draft?.value || draft?.textContent)) || task.attachmentUploadPending;
     if (protectedPage) return false;
-    if (now >= Number(task.loadingRefreshAt)) {
+    if (running && taskBelongsToTab(task) && now >= Number(task.loadingRefreshAt)) {
       // Reserve the next deadline before the guarded reload. Bootstrap and
       // denied navigation both retain this interval and the same send identity.
       task.loadingRefreshAt = now + 5 * 60_000;

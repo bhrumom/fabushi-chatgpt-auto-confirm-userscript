@@ -21,7 +21,7 @@ test('persistent loading refresh waits initially and persists a five-minute same
     assert.equal(ticket.purpose,'recovery'); assert.equal(ticket.href,task.url);
     assert.equal(task.token,'same-send'); assert.equal(task.attempted,true); assert.equal(task.round,2);
     h.settleHostNavigationRequest(requests[0].requestId,{granted:false,reason:'test-denial'});
-    await Promise.resolve(); await Promise.resolve();
+    await new Promise(resolve=>w.setTimeout(resolve,0));
     const restored=JSON.parse(JSON.stringify(task)); h.data.tasks[0]=restored;
     now+=299999; h.holdForChatGPTLoading(restored);
     assert.equal(requests.length,1,'durable task reconstruction cannot restart the initial timeout');
