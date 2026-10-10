@@ -32,5 +32,7 @@ Rollback source to 2.10.39. Show recovery-waiting startup status rather than an 
 | R5 | passed | Bootstrap contention test preserves paused state, round and send token; no task prompt is clicked in this acceptance. |
 | R6 | passed | Six bootstrap scenarios cover unique route, ambiguous task, paused task, live owner, populated session and historical-only route. |
 | Full regression | passed | 393 total, 386 passed, 0 failed, 7 existing skips; syntax and diff checks passed. |
-| Exact-head CI and release | blocked | Repository publication and CI pending; main has not been merged. |
-| Installed live acceptance | blocked | Exact affected task identity and installed source acceptance pending. |
+| Exact-head CI | passed | Runtime commit 11f7accdb5ebfbf32e6f0a2ef5a4bc4286041916, Test run 38016353518, job 114107367355: syntax and regression steps succeeded. |
+| Release | blocked | Draft PR #160 is not merged; no main release claimed. |
+| Installed automatic recovery | passed | Imported the same 2.10.40 source into installed extension dhkifbfnclknmafelblbhikfecdieoea. Original iOS tab changed from current tasks 0 to 1 with no Restore/Start click. Preserved Work round 3 and interrupted reply/reference transcript; automatically dispatched once at 10:20:45 and observed generating at 10:20:49 on https://chatgpt.com/c/6ac9a0f8-0294-83e8-94b3-919d05ad59d8, supervisor scanning. |
+| Installed final-response incident | blocked | Regression covers reproducible ownership gap; original Android screenshot is historical after subsequent handoffs. Live final settlement on the new runtime and prolonged memory/hang endurance have not yet been observed. |
