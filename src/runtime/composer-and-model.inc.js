@@ -887,6 +887,36 @@
   }
   function holdForChatGPTLoading(task, reason = pageLoadingState()) {
     if (!reason) return true;
+    if (!task || !running || !taskBelongsToTab(task) || ['paused','done','cancelled'].includes(task.state)) return false;
+    const now = Date.now();
+    let target;
+    try { target = safeURL(location.href); } catch { return false; }
+    const bound = canonicalConversationURL(task.url);
+    if (bound && new URL(bound).pathname !== target.pathname) return false;
+    const identity = JSON.stringify([task.phase,task.round,task.goalRevision,task.token,target.pathname]);
+    if (task.loadingRefreshIdentity !== identity) {
+      task.loadingRefreshIdentity = identity;
+      task.loadingRefreshAt = now + 120_000;
+    }
+    const draft = composer();
+    const protectedPage = ownedFinalReplyReady(task) || (activeAssistantGeneration() && visibleConversationHasMessages())
+      || cards().length || approvalSettlementActive(task)
+      || Boolean(normalize(draft?.value || draft?.textContent)) || task.attachmentUploadPending;
+    if (protectedPage) return false;
+    if (now >= Number(task.loadingRefreshAt)) {
+      // Reserve the next deadline before the guarded reload. Bootstrap and
+      // denied navigation both retain this interval and the same send identity.
+      task.loadingRefreshAt = now + 5 * 60_000;
+      save();
+      writeSessionStorageRecord(NAV, JSON.stringify({ path:target.pathname, href:target.href,
+        at:now, task:task.id, assigned:true, direct:true, purpose:'recovery',
+        phase:String(task.phase || 'work'), round:Number(task.round || 0),
+        goalRevision:Number(task.goalRevision || 0), recovery:true, resume:true }));
+      log(task, 'ChatGPT 页面持续加载；正在刷新原标签页，若仍未加载完成将在至少 5 分钟后再检查刷新，不会重复发送。');
+      beginGuardedNavigation(target.href, task, { replace:true, recovery:true,
+        ticketPath:target.pathname, ticketHref:target.href, reason:'persistent-loading-refresh' });
+      return false;
+    }
     // A page reload/route hydration can discard a synthetic file selection.
     // Clear only the transient upload attempt; the IndexedDB-backed task
     // attachment remains available for a fresh injection once the page is

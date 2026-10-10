@@ -525,8 +525,8 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       // Once the bounded quick attempts are exhausted, keep the original
       // document as the sole owner. Wake at the persisted backoff deadline
       // and reload this exact route instead of yielding to a host-created tab.
-      if (task?.rendererRecoveryExhausted) return recoverStalledRoute(target, task);
       if (requireComposer && loadingReason) return holdForChatGPTLoading(task, loadingReason);
+      if (task?.rendererRecoveryExhausted) return recoverStalledRoute(target, task);
       const now = Date.now();
       if (!sameRouteWaitSince) sameRouteWaitSince = now;
       // The route is already correct, but ChatGPT has not hydrated the input

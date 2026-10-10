@@ -301,13 +301,15 @@
       || task.routeRecoveryAttempts
       || task.workspaceDocumentRecoveryAttempts
       || task.routeRecoveryRetryAt
-      || task.sendUiWaitSince);
+      || task.sendUiWaitSince || task.loadingRefreshIdentity || task.loadingRefreshAt);
     if (!changed) return false;
     task.rendererRecoveryExhausted = false;
     task.routeRecoveryAttempts = 0;
     task.workspaceDocumentRecoveryAttempts = 0;
     task.routeRecoveryRetryAt = 0;
     task.sendUiWaitSince = 0;
+    task.loadingRefreshIdentity = '';
+    task.loadingRefreshAt = 0;
     task.updatedAt = Date.now();
     return true;
   }

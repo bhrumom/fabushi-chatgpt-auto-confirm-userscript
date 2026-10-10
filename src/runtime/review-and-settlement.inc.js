@@ -745,6 +745,10 @@
     const loadingStartedAt = performance.now();
     const rawLoading = Boolean(pageLoadingState());
     const loadingScanMs = performance.now() - loadingStartedAt;
+    if (rawLoading && !visibleConversationHasMessages()) {
+      holdForChatGPTLoading(task);
+      return;
+    }
     const composerNode = composer();
     const composerReady = Boolean(composerNode);
     let composerDraft = normalize(composerNode?.value || composerNode?.textContent);
