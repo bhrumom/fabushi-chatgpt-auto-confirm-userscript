@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.43
+// @version      2.10.44
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -67,7 +67,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.43';
+  const VERSION = '2.10.44';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -1729,7 +1729,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
           const retryAfterMs = Math.max(1000, Number(result.retryAfterMs) || LOCAL_NAVIGATION_COOLDOWN_MS);
           if (now - Number(task.navigationGuardNoticeAt || 0) >= LOCAL_NAVIGATION_COOLDOWN_MS) {
             task.navigationGuardNoticeAt = now;
-            log(task, `导航保护暂缓本次切页，约 ${Math.ceil(retryAfterMs / 1000)} 秒后可重试；调度器会先检查其他可运行任务。`);
+            log(task, `导航保护暂缓本次切页（${String(result.reason || 'unknown').slice(0, 120)}），约 ${Math.ceil(retryAfterMs / 1000)} 秒后可重试；调度器会先检查其他可运行任务。`);
           }
           task.navigationGuardRetryAt = now + retryAfterMs;
           task.updatedAt = now;

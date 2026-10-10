@@ -18,3 +18,5 @@ An independent background-clock module has an explicit window/onWake interface a
 
 ## Verification/compliance
 Pending exact-head Actions, installed upgrade and inactive-tab evidence. No local regression suite; local build/syntax checks are allowed.
+
+R6: Navigation deferral diagnostics include the host rejection reason, so invalid source validation cannot appear as an unexplained repeated cooldown. Preserve all guard decisions.

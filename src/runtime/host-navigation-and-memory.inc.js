@@ -333,7 +333,7 @@
           const retryAfterMs = Math.max(1000, Number(result.retryAfterMs) || LOCAL_NAVIGATION_COOLDOWN_MS);
           if (now - Number(task.navigationGuardNoticeAt || 0) >= LOCAL_NAVIGATION_COOLDOWN_MS) {
             task.navigationGuardNoticeAt = now;
-            log(task, `导航保护暂缓本次切页，约 ${Math.ceil(retryAfterMs / 1000)} 秒后可重试；调度器会先检查其他可运行任务。`);
+            log(task, `导航保护暂缓本次切页（${String(result.reason || 'unknown').slice(0, 120)}），约 ${Math.ceil(retryAfterMs / 1000)} 秒后可重试；调度器会先检查其他可运行任务。`);
           }
           task.navigationGuardRetryAt = now + retryAfterMs;
           task.updatedAt = now;
