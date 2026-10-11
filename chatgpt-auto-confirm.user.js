@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.45
+// @version      2.10.46
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -67,7 +67,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.45';
+  const VERSION = '2.10.46';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -6890,7 +6890,24 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     resetAttachmentUploadState(task);
     observations.delete(task.id);
   }
-  function queueConversationLengthHandoff(task, turn = null, noticeText = '', now = Date.now()) {
+  function terminalLengthNoReplyOwned(task) {
+    const liveURL = currentConversationURL();
+    if (!task || !task.url || liveURL !== canonicalConversationURL(task.url) || task.attempted
+      || terminal.has(task.state) || task.state === 'paused' || stopButton()
+      || conversationURLOwner(liveURL, task.id)
+      || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))) return false;
+    const users = conversationRoleNodes('user');
+    const boundary = taskMarkerUser(task);
+    // A mounted marker followed by a different user message is not our turn.
+    if (boundary && users.at(-1) !== boundary) return false;
+    if (!boundary && users.some(node => /\[Fabushi:[^\]]+\]/.test(text(node)))) return false;
+    const main = document.querySelector('main,[role="main"]');
+    return Boolean(main && Array.from(main.querySelectorAll('button,[role="button"]')).some(node =>
+      visible(node) && !own(node)
+      && !node.closest('[data-message-author-role="user"],[data-testid="conversation-turn-user"],blockquote,pre,code')
+      && /^(?:开始新聊天|开启新聊天|Start (?:a )?new chat)$/i.test(normalize(text(node)))));
+  }
+  function queueConversationLengthHandoff(task, turn = null, noticeText = '', now = Date.now(), { allowNoReply = false } = {}) {
     if (!task || terminal.has(task.state) || task.state === 'paused') return false;
     const sessionURL = currentConversationURL() || canonicalConversationURL(task.url);
     if (!sessionURL) return false;
@@ -6900,8 +6917,10 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const transcript = visibleAssistantWorkTranscript(task, {
       allowExactRouteFallback:Boolean(!turn?.owned),
     });
-    const carry = cleanConversationLengthReply(transcript.text);
-    if (!carry) return false;
+    const latestCarry = cleanConversationLengthReply(transcript.text);
+    const noReply = !latestCarry && allowNoReply && terminalLengthNoReplyOwned(task);
+    if (!latestCarry && !noReply) return false;
+    const carry = latestCarry || String(task.lengthLimitCarry || '');
     recordConversationURL(task, sessionURL);
     task.history ||= [];
     task.history.push({
@@ -6915,6 +6934,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.preview = '';
     clearDispatchIntent(task);
     task.lengthLimitCarry = carry;
+    task.lengthLimitNoReply = noReply;
     task.lengthLimitCarrySourceURL = sessionURL;
     task.lengthLimitHopCount = nextHop;
     task.lengthLimitLastAt = now;
@@ -6924,7 +6944,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.state = 'queued';
     task.updatedAt = now;
     delete task.pausedState;
-    log(task, `检测到 ChatGPT 对话长度上限；已复制当前页面最新回复作为接力上下文，关闭旧会话派发并准备新开 ChatGPT 会话继续同一 ${task.phase === 'review' ? '规划/验收' : 'Work'} 阶段（第 ${task.lengthLimitHopCount} 次接力）。phase、round、目标和附件保持不变；若下一会话再次达到长度上限会继续接力，直到真正最终回复。`);
+    log(task, `检测到 ChatGPT 对话长度上限；${noReply ? '当前会话没有生成新的正文，保留已有任务上下文' : '已复制当前页面最新回复作为接力上下文'}，关闭旧会话派发并准备新开 ChatGPT 会话继续同一 ${task.phase === 'review' ? '规划/验收' : 'Work'} 阶段（第 ${task.lengthLimitHopCount} 次接力）。phase、round、目标和附件保持不变；若下一会话再次达到长度上限会继续接力，直到真正最终回复。`);
     save();
     return true;
   }
@@ -7192,6 +7212,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
   }
   function conversationLengthContinuationContext(task) {
     const carry = String(task?.lengthLimitCarry || '').trim();
+    if (task?.lengthLimitNoReply) return `\n上一会话已达到 ChatGPT 对话长度上限并显示开始新聊天，未生成可提取的新回复。继续同一阶段的当前任务；没有新的完成结果，不要把上限提示或停止思考当作工作成果。${carry ? `\n更早会话保留的接力上下文（并非上一会话的新回复）：\n${carry}\n` : ''}\n`;
     if (!carry) return '';
     const phase = task.phase === 'review' ? '规划/验收' : 'Work';
     const hop = Math.max(1, Number(task.lengthLimitHopCount || 1));
@@ -7206,7 +7227,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const abnormalCarry = freshHandoffCarryForCurrentPhase(task);
     if (abnormalCarry) {
       const previousResult = previousWorkResultContext(task);
-      return `${attachmentPrompt(task)}这是一次异常会话后的接力恢复。新会话必须按下面上下文理解：\n一、验收会话最终给出的本轮提示词（首轮没有验收提示时即当前任务提示）：\n${task.next || task.goal}\n${previousResult ? `\n二、上一轮已经完成的 Work 最终回复（进度参考）：\n${previousResult}\n` : ''}\n${previousResult ? '三' : '二'}、异常会话里 ChatGPT 已经工作的实时记录（可见回复 + 实际工作步骤）：\n${abnormalCarry}\n\n${previousResult ? '四' : '三'}、原始目标：\n${task.goal}\n\n请优先承接异常会话里已经完成的工作，从中断处继续执行本轮提示词，并参考上一轮进度避免重复；当前轮提示词和原始目标始终优先。最终用自然语言返回实际完成结果、验证依据、阻塞和下一步建议；不要输出任何固定回执模板。\n[Fabushi:${task.token}]`;
+      return `${attachmentPrompt(task)}这是一次异常会话后的接力恢复。新会话必须按下面上下文理解：\n一、验收会话最终给出的本轮提示词（首轮没有验收提示时即当前任务提示）：\n${task.next || task.goal}\n${previousResult ? `\n二、上一轮已经完成的 Work 最终回复（进度参考）：\n${previousResult}\n` : ''}\n${previousResult ? '三' : '二'}、异常会话里 ChatGPT 已经工作的实时记录（可见回复 + 实际工作步骤）：\n${abnormalCarry}\n\n${previousResult ? '四' : '三'}、原始目标：\n${task.goal}\n${conversationLengthContinuationContext(task)}\n请优先承接异常会话里已经完成的工作，从中断处继续执行本轮提示词，并参考上一轮进度避免重复；当前轮提示词和原始目标始终优先。最终用自然语言返回实际完成结果、验证依据、阻塞和下一步建议；不要输出任何固定回执模板。\n[Fabushi:${task.token}]`;
     }
     return `${attachmentPrompt(task)}${task.next || task.goal}\n${task.round > 1 ? `原始目标：${task.goal}\n` : ''}${previousWorkResultContext(task)}${conversationLengthContinuationContext(task)}请直接执行上述任务，最终用自然语言返回实际完成结果、验证依据、阻塞和下一步建议；不要输出任何固定回执模板。\n[Fabushi:${task.token}]`;
   }
@@ -7220,6 +7241,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     // Continuation context belongs to the old goal. A manual goal edit starts
     // a new semantic target and must never carry an old length-limit transcript.
     task.lengthLimitCarry = '';
+    task.lengthLimitNoReply = false;
     task.lengthLimitCarrySourceURL = '';
     task.lengthLimitHopCount = 0;
     task.lengthLimitLastAt = 0;
@@ -7545,6 +7567,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     // A real final reply ends the temporary cross-conversation continuation
     // chain. The next phase/round must not inherit the previous session text.
     task.lengthLimitCarry = '';
+    task.lengthLimitNoReply = false;
     task.lengthLimitCarrySourceURL = '';
     task.lengthLimitHopCount = 0;
     task.lengthLimitLastAt = 0;
@@ -7803,6 +7826,17 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       task.updatedAt = now;
       save();
       return;
+    }
+    // A terminal product CTA is stronger than inherited hydration evidence.
+    // With no current assistant body there is no final reply to settle; replay
+    // the task context in a fresh chat without inventing a completed result.
+    if (routeOwned && !foreignTask && !otherRouteOwner && !approvalBlocking
+      && !currentBlocker && !currentRateLimit && !task.attempted
+      && !stopButton() && !observedActivityStreaming
+      && conversationLengthLimitNotice(turn, getPageUiRecords)
+      && terminalLengthNoReplyOwned(task)
+      && !cleanConversationLengthReply(visibleAssistantWorkTranscript(task, { allowExactRouteFallback:!turn.owned }).text)) {
+      if (queueConversationLengthHandoff(task, turn, '', now, { allowNoReply:true })) return;
     }
     const stopGenerationIdentity = stopObservedGenerationIdentity(task, liveURL);
     if (stopPresent && stopGenerationIdentity) {
