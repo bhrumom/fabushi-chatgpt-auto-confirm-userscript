@@ -128,6 +128,7 @@
     // A real final reply ends the temporary cross-conversation continuation
     // chain. The next phase/round must not inherit the previous session text.
     task.lengthLimitCarry = '';
+    task.lengthLimitNoReply = false;
     task.lengthLimitCarrySourceURL = '';
     task.lengthLimitHopCount = 0;
     task.lengthLimitLastAt = 0;
@@ -386,6 +387,17 @@
       task.updatedAt = now;
       save();
       return;
+    }
+    // A terminal product CTA is stronger than inherited hydration evidence.
+    // With no current assistant body there is no final reply to settle; replay
+    // the task context in a fresh chat without inventing a completed result.
+    if (routeOwned && !foreignTask && !otherRouteOwner && !approvalBlocking
+      && !currentBlocker && !currentRateLimit && !task.attempted
+      && !stopButton() && !observedActivityStreaming
+      && conversationLengthLimitNotice(turn, getPageUiRecords)
+      && terminalLengthNoReplyOwned(task)
+      && !cleanConversationLengthReply(visibleAssistantWorkTranscript(task, { allowExactRouteFallback:!turn.owned }).text)) {
+      if (queueConversationLengthHandoff(task, turn, '', now, { allowNoReply:true })) return;
     }
     const stopGenerationIdentity = stopObservedGenerationIdentity(task, liveURL);
     if (stopPresent && stopGenerationIdentity) {

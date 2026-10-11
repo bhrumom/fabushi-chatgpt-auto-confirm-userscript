@@ -2061,6 +2061,49 @@ test('a length-limit notice without safe current assistant work does not queue a
   } finally {h.pause();dom.window.close();}
 });
 
+test('terminal length CTA with stopped thinking and no reply continues Work and Review once',async()=>{
+  for (const phase of ['work','review']) {
+    const {h,w,dom}=await fixture(`<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish [Fabushi:terminal-empty]</div></article><button>已停止思考</button><div role="status">你已达到此对话的长度上限，你可以开始新聊天以继续对话。</div><button>开始新聊天</button></main>`);
+    try {
+      w.history.pushState({},'', '/c/terminal-empty');
+      const task={id:'terminal-empty',ownerTabId:h.getTabId(),goal:'original goal',next:'current instruction',mode:'once',phase,round:3,state:'waiting',url:w.location.href,token:'terminal-empty',attempted:false,lengthLimitCarry:'earlier verified progress',attachments:[{id:'proof',name:'proof.txt'}],messages:[]};
+      h.data.tasks.push(task); await h.start(); await h.inspect(task,null);
+      assert.equal(task.state,'queued'); assert.equal(task.phase,phase); assert.equal(task.round,3);
+      assert.equal(task.lengthLimitHopCount,1); assert.equal(task.lengthLimitNoReply,true);
+      assert.equal(task.lengthLimitCarry,'earlier verified progress');
+      assert.equal(task.next,'current instruction'); assert.equal(task.attachments[0].id,'proof');
+      assert.equal(task.result||'',''); assert.equal(task.url||'','');
+      const prompt=h.workPrompt(task);
+      assert.match(prompt,/未生成可提取的新回复/); assert.match(prompt,/earlier verified progress/);
+      assert.doesNotMatch(prompt,/下面是上一会话页面最后显示的 assistant 回复/);
+      await h.inspect(task,null); assert.equal(task.lengthLimitHopCount,1);
+    } finally {h.pause();dom.window.close();}
+  }
+});
+
+test('shared renderer stopped-thinking activity is not fabricated reply progress',async()=>{
+  const {h,w,dom}=await fixture(`<main><div data-content-search-turn-key="terminal-shared"><div data-content-search-unit-key="terminal:user"><div data-markdown-text-tone="user-message">finish [Fabushi:shared-empty]</div></div><div data-markdown-text-style="assistant-message" data-markdown-text-tone="tertiary">已停止思考</div><div role="alert">你已达到此对话的长度上限，你可以开始新聊天以继续对话。</div><button>开始新聊天</button></div></main>`);
+  try {
+    w.history.pushState({},'', '/c/shared-empty');
+    const task={id:'shared-empty',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:w.location.href,token:'shared-empty',attempted:false,messages:[]};
+    h.data.tasks.push(task); await h.start(); await h.inspect(task,null);
+    assert.equal(task.state,'queued'); assert.equal(task.lengthLimitNoReply,true);
+    assert.equal(task.lengthLimitCarry||'',''); assert.match(h.workPrompt(task),/未生成可提取的新回复/);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('terminal no-reply CTA does not override Stop, foreign user, foreign route or pending send',async()=>{
+  for (const guard of ['stop','new-user','route','attempted','paused','streaming']) {
+    const {h,w,dom}=await fixture(`<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish ${guard==='attempted'?'':'[Fabushi:terminal-guard]'}</div></article><div role="status">你已达到此对话的长度上限，你可以开始新聊天以继续对话。</div><button>开始新聊天</button>${guard==='stop'?'<form><textarea id="prompt-textarea"></textarea><button aria-label="停止回答">停止</button></form>':''}${guard==='new-user'?'<article><div data-message-author-role="user">unrelated new request</div></article>':''}${guard==='streaming'?'<article data-testid="conversation-turn-assistant" data-is-streaming="true"><div data-message-author-role="assistant" aria-busy="true"></div></article>':''}</main>`);
+    try {
+      w.history.pushState({},'', '/c/terminal-guard');
+      const task={id:'terminal-guard',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:guard==='paused'?'paused':'waiting',url:guard==='route'?'https://chatgpt.com/c/other':w.location.href,token:'terminal-guard',attempted:guard==='attempted',messages:[]};
+      h.data.tasks.push(task); await h.start(false); await h.inspect(task,null);
+      assert.equal(task.lengthLimitHopCount||0,0,guard);
+    } finally {h.pause();dom.window.close();}
+  }
+});
+
 test('a length-limit handoff waits for the active response and then carries its latest complete work',async()=>{
   const {h,w,dom}=await fixture(`<main>
     <article data-testid="conversation-turn-user"><div data-message-author-role="user">finish [Fabushi:length-streaming]</div></article>
@@ -7109,8 +7152,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2.10.45$/m);
-  assert.match(source,/const VERSION = '2.10.45'/);
+  assert.match(source,/^\/\/ @version\s+2.10.46$/m);
+  assert.match(source,/const VERSION = '2.10.46'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
