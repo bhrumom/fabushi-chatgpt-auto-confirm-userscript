@@ -44,4 +44,12 @@ PR Actions and Chrome visible module/task status.
 ## 16. References
 Supersedes current-response-length-handoff-v2.9.71 R4/AC3 only for explicit terminal CTA with no new reply. completed-reply-review-paced-picker-v2.10.39 final precedence and guards remain.
 ## 17. Compliance
-Pending verification; record final evidence after Actions.
+| Requirement / AC | Status | Evidence / reason |
+| --- | --- | --- |
+| R1 / AC1 | passed | PR161 Actions 38121998993: Work/Review terminal no-body and shared-renderer stopped-thinking regressions |
+| R2 / AC2 | passed | Full Actions regression suite, including existing stale-final/notice-only cases and Stop/streaming/newer-user/foreign-route/pending-send/paused guards |
+| R3 / AC3 | passed | Preserved input/carry and honest no-reply prompt assertions; existing attachment and phase prompt regressions |
+| R4 | passed | Reinspection asserts one hop after clearing dispatch identity |
+| AC4 | blocked | Release and live installed-module verification occur after integration; final delivery evidence must close this integration item |
+
+Generated bundle and syntax checks passed on ce5aa28e in Actions 38121998993. No local regression tests were run.
