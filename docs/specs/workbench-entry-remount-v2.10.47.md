@@ -45,4 +45,11 @@ Actions logs and Chrome accessibility evidence. Source mechanism explains sympto
 ## 16. References
 bootstrap-failure-retry-v2.9.84.md; workbench-localstorage-quota-recovery-v2.10.16.md; supplied screenshot and live Chrome AX confirming absent launcher with active Stop.
 ## 17. Spec compliance record
-Pending verification.
+| Requirement / AC | Status | Evidence / reason |
+| --- | --- | --- |
+| R1 / AC1 | passed | Actions 38125760991: root/style/launcher removal and repeated body/document-element replacement regressions |
+| R2 / AC2 | passed | Same UI/instance/task identity, unchanged dispatch state, open state, draft/file and click-handler retention assertions |
+| R3-R4 / AC3 | passed | Shallow observation and settled repair assertions; shutdown no-resurrection and existing same-document hot-replacement regressions |
+| R5 / AC4 | blocked | Release and visible Chrome installation follow integration; final delivery verification must close this item |
+
+Generated bundle and syntax validation passed in Actions on d7b26a97e69049e25be5bfc880e61c5defd0c499; full suite succeeded with zero failures. No local tests/build verification performed.
