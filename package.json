@@ -2,7 +2,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test --test-force-exit test/*.test.mjs"
+    "test": "node --test --test-force-exit test/*.test.mjs",
+    "build": "node scripts/build-userscript.mjs",
+    "build:check": "node scripts/build-userscript.mjs --check"
   },
   "devDependencies": {
     "jsdom": "26.1.0"

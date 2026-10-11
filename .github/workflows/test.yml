@@ -26,6 +26,9 @@ jobs:
       - name: Install test dependencies
         run: npm ci
 
+      - name: Verify generated userscript
+        run: npm run build:check
+
       - name: Check userscript syntax
         run: node --check chatgpt-auto-confirm.user.js
 

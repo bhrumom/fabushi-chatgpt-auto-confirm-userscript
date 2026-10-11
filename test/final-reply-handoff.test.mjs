@@ -6,7 +6,7 @@ import { JSDOM } from 'jsdom';
 const source = await fs.readFile(new URL('../chatgpt-auto-confirm.user.js', import.meta.url), 'utf8');
 const instrumentedSource = source.replace(
   '  mount();',
-  `  window.__fabushiFinalReplyTestHooks = Object.freeze({ latestTurn, taskTurnForInspection, armRecoveredFinalIdentity, ownedFinalReplyReady, recoverStalledRoute, prepareTaskForRecovery, restoreWorkspace, resumeTask, classify, stalledProgressSignature, refreshStalledConversation, queueReviewRepair, parseReview, finish, workPrompt, plannerPrompt, pageLoadingState, inspect, data, observations, tabId, start, pause });
+  `  window.__fabushiFinalReplyTestHooks = Object.freeze({ latestTurn, taskTurnForInspection, armRecoveredFinalIdentity, ownedFinalReplyReady, recoverStalledRoute, prepareTaskForRecovery, restoreWorkspace, resumeTask, classify, stalledProgressSignature, refreshStalledConversation, queueReviewRepair, parseReview, finish, workPrompt, plannerPrompt, pageLoadingState, inspect, data, observations, tabId, start, pause, setRunningForTest:()=>{running=true;data.autoResume=true;} });
   mount();`,
 );
 
@@ -1414,4 +1414,34 @@ test('marker-virtualized review does not promote a visible report for another ta
     hooks.pause();
     dom.window.close();
   }
+});
+
+test('observed owned user boundary survives thinking-to-final message replacement and marker virtualization', async () => {
+  const { dom, window, hooks } = await createHarness(`
+    <main><article><div data-message-author-role="user" data-message-id="original-user">目标 [Fabushi:boundary-token]</div></article>
+    <article><div data-message-author-role="assistant" data-message-id="thinking-message"><div class="markdown">正在处理</div></div></article></main>
+    <textarea id="prompt-textarea"></textarea><button aria-label="停止生成">Stop</button>`);
+  try {
+    window.history.pushState({}, '', '/c/boundary-replacement');
+    const task = {id:'boundary-replacement',ownerTabId:hooks.tabId,goal:'目标',mode:'once',phase:'work',round:2,state:'generating',url:window.location.href,token:'boundary-token',attempted:false,messages:[]};
+    hooks.data.tasks.push(task);
+    hooks.setRunningForTest();
+    await hooks.inspect(task, 0);
+    assert.ok(task.stopObservedGenerationIdentity);
+    assert.equal(task.stopObservedUserBoundaryKey, 'id:original-user|original-user');
+    window.document.querySelector('[data-message-author-role="user"]').textContent='目标';
+    window.document.querySelector('[aria-label="停止生成"]').remove();
+    window.document.querySelector('[data-message-author-role="assistant"]').outerHTML='<div data-message-author-role="assistant" data-message-id="final-message"><div class="markdown">已经完成实际实现，验证通过。剩余工作见下一轮。</div><button aria-label="复制回复"></button><button aria-label="赞"></button></div>';
+    assert.equal(hooks.latestTurn(task).owned, false);
+    const final = hooks.taskTurnForInspection(task);
+    assert.equal(final.owned, true);
+    assert.equal(final.final, true);
+    assert.equal(hooks.ownedFinalReplyReady(task), true);
+    const storedIdentity = task.stopObservedGenerationIdentity;
+    task.stopObservedGenerationIdentity='';
+    assert.equal(hooks.taskTurnForInspection(task).owned,false,'route alone cannot adopt final');
+    task.stopObservedGenerationIdentity=storedIdentity;
+    window.document.querySelector('[data-message-author-role="user"]').setAttribute('data-message-id','new-manual-user');
+    assert.equal(hooks.taskTurnForInspection(task).owned,false,'new user message cannot complete the old task');
+  } finally { dom.window.close(); }
 });

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.39
+// @version      2.10.45
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -18,7 +18,7 @@ let bootstrapRetryCount = 0;
 let bootstrapAttemptToken = '';
 let bootstrapCleanup = async () => {};
 
-function showBootstrapFailure() {
+function showBootstrapFailure(waitingForRecovery = false) {
   let root = document.getElementById('fabushi-auto-confirm-startup-error');
   if (root) return;
   root = document.createElement('div');
@@ -26,7 +26,9 @@ function showBootstrapFailure() {
   root.setAttribute('role', 'alert');
   root.style.cssText = 'position:fixed;right:18px;bottom:18px;z-index:2147483647;padding:12px 14px;border:1px solid #705d32;border-radius:12px;background:#24211a;color:#f2e5c6;font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;box-shadow:0 8px 30px #0008';
   const label = document.createElement('span');
-  label.textContent = 'Fabushi 自动确认脚本启动失败。任务未启动；可以重试。 ';
+  label.textContent = waitingForRecovery
+    ? 'Fabushi 正在等待原任务工作区释放，随后自动恢复。任务记录已保留。 '
+    : 'Fabushi 自动确认脚本启动失败。任务未启动；可以重试。 ';
   const retry = document.createElement('button');
   retry.type = 'button';
   retry.textContent = '重试';
@@ -41,11 +43,18 @@ function showBootstrapFailure() {
 }
 
 function runBootstrap() {
-  return bootstrapAttempt().catch(async () => {
+  return bootstrapAttempt().catch(async error => {
     if (window.__FABUSHI_AUTO_CONFIRM_INSTANCE__?.active) return;
     await bootstrapCleanup().catch(() => {});
     const marker = document.getElementById(BOOTSTRAP_MARKER);
     if (marker && marker.dataset.token === bootstrapAttemptToken) marker.remove();
+    if (error?.code === 'FABUSHI_RECOVERY_LOCK_PENDING') {
+      showBootstrapFailure(true);
+      return new Promise(resolve => window.setTimeout(() => {
+        document.getElementById('fabushi-auto-confirm-startup-error')?.remove();
+        resolve(runBootstrap());
+      }, 1000));
+    }
     if (bootstrapRetryCount < 2) {
       const delay = 300 * (2 ** bootstrapRetryCount++);
       return new Promise(resolve => window.setTimeout(() => resolve(runBootstrap()), delay));
@@ -58,7 +67,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.39';
+  const VERSION = '2.10.45';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -75,6 +84,17 @@ async function bootstrapAttempt() {
     existingBootstrap.remove();
   }
   if (existingBootstrap) existingBootstrap.remove();
+  let schedulingReady = false;
+  const backgroundClock = createBackgroundClock(window, { onWake:() => {
+    if (!schedulingReady || data.autoResume === false || navigating) return;
+    if (running) { if (!busy) void tick(); }
+    else {
+      const resumable = tabTasks().find(task => resumableStates.has(task.state));
+      if (resumable) autoStart(resumable.id);
+    }
+  } });
+  const { setTimeout, clearTimeout } = backgroundClock;
+  bootstrapCleanup = async () => backgroundClock.dispose();
   const bootstrap = document.createElement('meta');
   bootstrap.id = BOOTSTRAP_MARKER;
   bootstrap.dataset.version = VERSION;
@@ -337,6 +357,72 @@ async function bootstrapAttempt() {
   const STORAGE_CLEANUP_SCAN_LIMIT = 96;
   let storageCleanupLastAt = 0;
   let activeWorkspaceStorageId = '';
+
+// Optional extension scheduling. Page timers are always retained as fallback.
+// Host messages are advisory: ownership, pause and cooldown stay in the runner.
+function createBackgroundClock(page, { onWake = () => {} } = {}) {
+  const nativeSet = page.setTimeout.bind(page);
+  const nativeClear = page.clearTimeout.bind(page);
+  const pending = new Map();
+  let sequence = 0, disposed = false, lastWakeAt = 0, hostReplies = 0;
+  function fire(handle) {
+    const record = pending.get(handle);
+    if (!record) return;
+    pending.delete(handle);
+    nativeClear(record.fallback);
+    record.callback(...record.args);
+  }
+  function set(callback, delay = 0, ...args) {
+    if (disposed) return 0;
+    const ms = Math.max(0, Number(delay) || 0);
+    const handle = --sequence;
+    const requestId = `clock:${page.crypto.randomUUID()}`;
+    const record = { callback, args, requestId, due:Date.now() + ms, fallback:null };
+    pending.set(handle, record);
+    record.fallback = nativeSet(() => fire(handle), ms);
+    if (page.document.hidden && ms <= 20000) {
+      try { page.postMessage({ source:'fabushi-userscript', type:'background-clock.request', requestId, payload:{delayMs:ms} }, '*'); } catch { /* Native fallback remains armed. */ }
+    }
+    return handle;
+  }
+  function clear(handle) {
+    const record = pending.get(handle);
+    if (!record) return;
+    pending.delete(handle);
+    nativeClear(record.fallback);
+  }
+  function receive(event) {
+    if (disposed || event.source !== page || event.data?.source !== 'fabushi-extension') return;
+    const message = event.data;
+    if (message.type === 'background-clock.response' && message.ok === true) {
+      for (const [handle, record] of pending) {
+        if (record.requestId !== message.requestId) continue;
+        // A host response may arrive before its requested deadline (or be
+        // replayed). It must never shorten a cooldown or an approval grace.
+        if (Date.now() >= record.due) { hostReplies++; fire(handle); }
+        break;
+      }
+    } else if (message.type === 'background-wake') {
+      lastWakeAt = Date.now();
+      for (const [handle, record] of [...pending]) {
+        if (record.due <= lastWakeAt) fire(handle);
+      }
+      onWake();
+    }
+  }
+  page.addEventListener('message', receive);
+  return {
+    setTimeout:set, clearTimeout:clear,
+    status:() => ({ pending:pending.size, lastWakeAt, hostReplies }),
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      page.removeEventListener('message', receive);
+      for (const handle of [...pending.keys()]) clear(handle);
+    },
+  };
+}
+
   function fabushiOwnedStorageKey(key) {
     const value = String(key || '');
     if (!value) return false;
@@ -990,6 +1076,7 @@ async function bootstrapAttempt() {
     };
     return false;
   }
+
   function normalizeAttachmentMeta(value) {
     if (!value || typeof value !== 'object') return null;
     const name = String(value.name || '').trim().slice(0, 240);
@@ -1033,6 +1120,25 @@ async function bootstrapAttempt() {
     // recovery instead of risking cross-tab task ownership.
     return candidates.length === 1 ? candidates[0].ownerTabId : '';
   }
+  function findExactRouteRecoveryOwner(sessionOwner) {
+    const liveURL = currentConversationURL();
+    if (!liveURL) return '';
+    const stored = read(KEY, { tasks:[] });
+    if (!Array.isArray(stored.tasks)) return '';
+    if (sessionOwner && stored.tasks.some(task => task.ownerTabId === sessionOwner)) return '';
+    const boundTasks = stored.tasks.filter(task => canonicalConversationURL(task.url) === liveURL
+      && !['done', 'cancelled'].includes(task.state));
+    if (boundTasks.length !== 1) return '';
+    const candidates = boundTasks.filter(task => {
+      if (!task.ownerTabId || !taskCanBeRecoveredByHost(task)) return false;
+      const heartbeat = readWorkspaceHeartbeat(task.ownerTabId);
+      const control = stored.tabControls?.[task.ownerTabId];
+      if (!heartbeat) return control?.autoResume === true;
+      return heartbeat.autoResume !== false && control?.autoResume !== false
+        && Date.now() - heartbeat.at >= WORKSPACE_HEARTBEAT_STALE_MS;
+    });
+    return candidates.length === 1 ? candidates[0].ownerTabId : '';
+  }
   let workspaceRelease = null;
   let workspaceReleased = Promise.resolve();
   const recoveryToken = new URLSearchParams(location.hash.slice(1)).get('fabushi-resume');
@@ -1062,7 +1168,8 @@ async function bootstrapAttempt() {
       recoveredWorkspace = recovery.ownerTabId;
     }
   }
-  const automaticRecoveryOwner = '';
+  const automaticRecoveryOwner = recoveredWorkspace ? '' : findExactRouteRecoveryOwner(sessionTabId);
+  if (automaticRecoveryOwner) recoveredWorkspace = automaticRecoveryOwner;
   let tabId = recoveredWorkspace || sessionTabId || crypto.randomUUID();
   activeWorkspaceStorageId = tabId;
   // A lifetime lock distinguishes duplicate tabs even when the browser copies
@@ -1086,7 +1193,7 @@ async function bootstrapAttempt() {
     workspaceRelease = null;
     await released.catch(() => {});
   }
-  bootstrapCleanup = releaseWorkspace;
+  bootstrapCleanup = async () => { backgroundClock.dispose(); await releaseWorkspace(); };
   async function reclaimReplacedWorkspace(owner) {
     // Web Locks release runs on its own task queue after the old callback's
     // promise settles. Only a proven same-window replacement may wait for that
@@ -1124,6 +1231,11 @@ async function bootstrapAttempt() {
     // for the crashed/replaced document's Web Lock to unwind before falling
     // back to an independent tab identity.
     workspaceClaimed = await reclaimWorkspaceAfterDocumentHandoff(tabId, WORKSPACE_RECLAIM_TIMEOUT_MS);
+  }
+  if (!workspaceClaimed && recoveredWorkspace) {
+    const error = new Error('Original recovery workspace is still locked');
+    error.code = 'FABUSHI_RECOVERY_LOCK_PENDING';
+    throw error;
   }
   if (!workspaceClaimed) {
     tabId = crypto.randomUUID();
@@ -1281,6 +1393,7 @@ async function bootstrapAttempt() {
   function modelPresetLabel(value) {
     return modelPresetDefinition(value).label;
   }
+
   function taskModelPreset(task) {
     return normalizeModelPreset(task?.modelPreset);
   }
@@ -1382,7 +1495,7 @@ async function bootstrapAttempt() {
     };
     try { window.postMessage(message, '*'); }
     catch { hostRecoveryPending.delete(requestId); return false; }
-    window.setTimeout(() => {
+    setTimeout(() => {
       if (hostRecoveryPending.get(requestId) === now) hostRecoveryPending.delete(requestId);
     }, HOST_RECOVERY_RESPONSE_TTL_MS);
     return true;
@@ -1500,7 +1613,7 @@ async function bootstrapAttempt() {
         settleHostNavigationRequest(requestId, { granted:true, fallback:true, reason:'post-message-failed' });
         return;
       }
-      window.setTimeout(() => {
+      setTimeout(() => {
         // A plain standalone userscript has no content bridge. Keep it
         // functional, but retain the local cooldown/burst budget above.
         if (hostNavigationPending.has(requestId)) {
@@ -1566,7 +1679,7 @@ async function bootstrapAttempt() {
 
   function armNavigationCommitWatchdog(task, reason = 'navigation', delayMs = NAVIGATION_COMMIT_WATCHDOG_MS) {
     clearTimeout(navigationTimer);
-    navigationTimer = window.setTimeout(() => {
+    navigationTimer = setTimeout(() => {
       navigationTimer = null;
       if (!running || !navigating) return;
       navigating = false;
@@ -1584,13 +1697,15 @@ async function bootstrapAttempt() {
       || task.routeRecoveryAttempts
       || task.workspaceDocumentRecoveryAttempts
       || task.routeRecoveryRetryAt
-      || task.sendUiWaitSince);
+      || task.sendUiWaitSince || task.loadingRefreshIdentity || task.loadingRefreshAt);
     if (!changed) return false;
     task.rendererRecoveryExhausted = false;
     task.routeRecoveryAttempts = 0;
     task.workspaceDocumentRecoveryAttempts = 0;
     task.routeRecoveryRetryAt = 0;
     task.sendUiWaitSince = 0;
+    task.loadingRefreshIdentity = '';
+    task.loadingRefreshAt = 0;
     task.updatedAt = Date.now();
     return true;
   }
@@ -1616,7 +1731,7 @@ async function bootstrapAttempt() {
           const retryAfterMs = Math.max(1000, Number(result.retryAfterMs) || LOCAL_NAVIGATION_COOLDOWN_MS);
           if (now - Number(task.navigationGuardNoticeAt || 0) >= LOCAL_NAVIGATION_COOLDOWN_MS) {
             task.navigationGuardNoticeAt = now;
-            log(task, `导航保护暂缓本次切页，约 ${Math.ceil(retryAfterMs / 1000)} 秒后可重试；调度器会先检查其他可运行任务。`);
+            log(task, `导航保护暂缓本次切页（${String(result.reason || 'unknown').slice(0, 120)}），约 ${Math.ceil(retryAfterMs / 1000)} 秒后可重试；调度器会先检查其他可运行任务。`);
           }
           task.navigationGuardRetryAt = now + retryAfterMs;
           task.updatedAt = now;
@@ -1802,7 +1917,7 @@ async function bootstrapAttempt() {
     };
     memoryLastHostRequestAt = now;
     const response = await new Promise(resolve => {
-      const timeoutId = window.setTimeout(() => {
+      const timeoutId = setTimeout(() => {
         settleHostMemoryRequest(requestId, { ok:false, discarded:false, reason:'host-timeout', safety });
       }, MEMORY_HOST_RESPONSE_TTL_MS);
       hostMemoryPending.set(requestId, { resolve, timeoutId });
@@ -1852,7 +1967,7 @@ async function bootstrapAttempt() {
   }
   function scheduleMemoryMonitor(delayMs = MEMORY_MONITOR_INTERVAL_MS) {
     clearTimeout(memoryMonitorTimer);
-    memoryMonitorTimer = window.setTimeout(() => {
+    memoryMonitorTimer = setTimeout(() => {
       memoryMonitorTimer = null;
       void inspectMemoryPressure().finally(() => scheduleMemoryMonitor());
     }, Math.max(1000, Number(delayMs) || MEMORY_MONITOR_INTERVAL_MS));
@@ -1974,6 +2089,7 @@ async function bootstrapAttempt() {
       return true;
     });
   }
+
   function attachmentKind(file) {
     const type = String(file?.type || '').trim().toLocaleLowerCase();
     const name = String(file?.name || '').trim().toLocaleLowerCase();
@@ -2435,6 +2551,7 @@ async function bootstrapAttempt() {
     }
     return runnable[0];
   }
+
   function visibilityAwareDelay(ordinaryDelay, visibleMs, hiddenMs, hidden = document.hidden) {
     const delayMs = Math.max(0, Number(ordinaryDelay) || 0);
     // Preserve explicit short recovery deadlines while reducing ordinary work
@@ -2890,6 +3007,7 @@ async function bootstrapAttempt() {
     task.conversationLoadFailureAt = 0;
     return changed;
   }
+
   function haltRunnerForPause() {
     running = false;
     controller?.abort();
@@ -2946,7 +3064,8 @@ async function bootstrapAttempt() {
       // runner has a later updatedAt from a scan that raced the button click.
       if (remoteRevision > localRevision
         || (taskBelongsToTab(local) && remotePaused && data.autoResume === false && remoteRevision >= localRevision)
-        || (!(local.state === 'paused' && localRevision >= remoteRevision)
+        || (remoteRevision >= localRevision
+          && !(taskBelongsToTab(local) && local.state === 'paused' && localRevision >= remoteRevision)
           && (remote.updatedAt || 0) > (local.updatedAt || 0))) {
         Object.assign(local, remote);
       }
@@ -3146,7 +3265,7 @@ async function bootstrapAttempt() {
       task.recoveryConfirmationStartedAt = Date.now();
     }
     delete task.pausedState;
-    if (global) task.pauseRevision = revision;
+    task.pauseRevision = Math.max(Number(task.pauseRevision || 0) + 1, revision);
     task.state = resumeState;
     // Resume is a safety boundary: if the exact already-bound conversation is
     // currently showing an authorization surface, classify it immediately
@@ -3187,6 +3306,7 @@ async function bootstrapAttempt() {
   function pauseTask(task, message = '已暂停当前任务；其他任务继续运行。') {
     if (!taskBelongsToTab(task) || terminal.has(task.state) || task.state === 'paused') return false;
     task.pausedState = task.state;
+    task.pauseRevision = Math.max(Number(task.pauseRevision || 0), Number(data.controlRevision || 0)) + 1;
     task.state = 'paused';
     task.updatedAt = Date.now();
     log(task, message);
@@ -3367,6 +3487,7 @@ async function bootstrapAttempt() {
       signal?.addEventListener('abort', abort, { once: true });
     });
   }
+
   function composer() { return nodes('#prompt-textarea,textarea,[contenteditable=true]').find(enabled); }
   const CHAT_MODE_LABEL_RE = /^(?:聊天(?:模式)?|chat(?: mode)?)$/iu;
   const WORK_MODE_LABEL_RE = /^(?:工作(?:模式)?|work(?: mode)?)$/iu;
@@ -3657,16 +3778,16 @@ async function bootstrapAttempt() {
     let radios = modelRadioOptions();
     if (radios.length) return radios;
     if (!trigger || trigger.getAttribute('aria-expanded') !== 'true') {
-      trigger?.click();
+      if (!await pacedModelPickerClick(trigger, signal)) return [];
       await delay(120, signal); check(signal);
     }
     let entry = null;
-    for (let attempt = 0; attempt < 8; attempt++) {
+    for (let attempt = 0; attempt < 20; attempt++) {
       radios = modelRadioOptions();
       if (radios.length) return radios;
       entry = modelSubmenuEntry();
       if (entry) break;
-      await delay(80, signal); check(signal);
+      await delay(100, signal); check(signal);
     }
     if (!entry || !enabled(entry)) {
       // The menu may be showing radios or have lost its first-level item
@@ -3676,7 +3797,7 @@ async function bootstrapAttempt() {
       if (!entry || !enabled(entry)) return [];
     }
     activateControl(entry);
-    for (let attempt = 0; attempt < 8; attempt++) {
+    for (let attempt = 0; attempt < 20; attempt++) {
       await delay(100, signal); check(signal);
       radios = modelRadioOptions();
       if (radios.length) return radios;
@@ -3685,7 +3806,7 @@ async function bootstrapAttempt() {
       const retryEntry = modelSubmenuEntry();
       if (retryEntry && enabled(retryEntry)) {
         activateControl(retryEntry);
-        for (let attempt=0;attempt<8;attempt++) {
+        for (let attempt=0;attempt<20;attempt++) {
           await delay(100,signal);check(signal);
           radios=modelRadioOptions();
           if (radios.length) return radios;
@@ -3876,6 +3997,23 @@ async function bootstrapAttempt() {
     if (!Number.isInteger(current) || !Number.isInteger(min) || !Number.isInteger(max)) return null;
     return { control, thumb, current, min, max };
   }
+  async function waitForReasoningSlider(signal) {
+    const deadline = Date.now() + 2000;
+    let strengthActivated = false;
+    while (true) {
+      const slider = reasoningSliderState();
+      if (slider) return slider;
+      // Keep one opening intact while React hydrates its contents. The
+      // Strength item may itself be a toggle, so activate it at most once.
+      if (!strengthActivated && !modelRadioOptions().length) {
+        const strength = nodes('[role="menuitem"]').find(node => enabled(node)
+          && /^(?:强度|Strength)$/i.test(normalize(node.getAttribute('aria-label') || label(node))));
+        if (strength) { activateControl(strength); strengthActivated = true; }
+      }
+      if (Date.now() >= deadline) return null;
+      await delay(Math.min(100, deadline - Date.now()), signal); check(signal);
+    }
+  }
   async function ensureTaskReasoningPreset(task, signal) {
     const target = taskReasoningPreset(task);
     let trigger = reasoningPickerTrigger();
@@ -3905,16 +4043,10 @@ async function bootstrapAttempt() {
       await pacedModelPickerClick(trigger, signal);
       await delay(120, signal); check(signal);
     }
-    let slider = reasoningSliderState();
-    for (let attempt=0; !slider && attempt<4; attempt++) {
-      const strength = nodes('[role="menuitem"]').find(node=>enabled(node) && /^(?:强度|Strength)$/i.test(normalize(node.getAttribute('aria-label') || label(node))));
-      if (strength && !modelRadioOptions().length) activateControl(strength);
-      await delay(120,signal); check(signal);
-      slider=reasoningSliderState();
-      if (slider) break;
-      trigger=reasoningPickerTrigger();
-      if (!await reopenModelPicker(trigger,signal)) break;
-      slider=reasoningSliderState();
+    let slider = await waitForReasoningSlider(signal);
+    if (!slider) {
+      trigger = reasoningPickerTrigger();
+      if (await reopenModelPicker(trigger, signal)) slider = await waitForReasoningSlider(signal);
     }
     if (!slider) {
       await closeModelPickerMenu(signal);
@@ -3940,10 +4072,10 @@ async function bootstrapAttempt() {
       await delay(120, signal); check(signal);
       let next = reasoningSliderState();
       if (!next) {
-        for(let retry=0;retry<3 && !next;retry++) {
-          trigger=reasoningPickerTrigger();
-          if (!await reopenModelPicker(trigger,signal)) break;
-          next=reasoningSliderState();
+        next = await waitForReasoningSlider(signal);
+        if (!next) {
+          trigger = reasoningPickerTrigger();
+          if (await reopenModelPicker(trigger, signal)) next = await waitForReasoningSlider(signal);
         }
         if (!next) {
           waitForReasoningPicker(task, '调整 ChatGPT 思考强度时滑块消失，重新打开后仍未恢复');
@@ -4245,6 +4377,37 @@ async function bootstrapAttempt() {
   }
   function holdForChatGPTLoading(task, reason = pageLoadingState()) {
     if (!reason) return true;
+    if (!task || ['paused','done','cancelled'].includes(task.state)
+      || (task.ownerTabId && !taskBelongsToTab(task))) return false;
+    const now = Date.now();
+    let target;
+    try { target = safeURL(location.href); } catch { return false; }
+    const bound = canonicalConversationURL(task.url);
+    if (bound && new URL(bound).pathname !== target.pathname) return false;
+    const identity = JSON.stringify([task.phase,task.round,task.goalRevision,task.token,target.pathname]);
+    if (task.loadingRefreshIdentity !== identity) {
+      task.loadingRefreshIdentity = identity;
+      task.loadingRefreshAt = now + 120_000;
+    }
+    const draft = composer();
+    const protectedPage = ownedFinalReplyReady(task) || (activeAssistantGeneration() && visibleConversationHasMessages())
+      || cards().length || approvalSettlementActive(task)
+      || Boolean(normalize(draft?.value || draft?.textContent)) || task.attachmentUploadPending;
+    if (protectedPage) return false;
+    if (running && taskBelongsToTab(task) && now >= Number(task.loadingRefreshAt)) {
+      // Reserve the next deadline before the guarded reload. Bootstrap and
+      // denied navigation both retain this interval and the same send identity.
+      task.loadingRefreshAt = now + 5 * 60_000;
+      save();
+      writeSessionStorageRecord(NAV, JSON.stringify({ path:target.pathname, href:target.href,
+        at:now, task:task.id, assigned:true, direct:true, purpose:'recovery',
+        phase:String(task.phase || 'work'), round:Number(task.round || 0),
+        goalRevision:Number(task.goalRevision || 0), recovery:true, resume:true }));
+      log(task, 'ChatGPT 页面持续加载；正在刷新原标签页，若仍未加载完成将在至少 5 分钟后再检查刷新，不会重复发送。');
+      beginGuardedNavigation(target.href, task, { replace:true, recovery:true,
+        ticketPath:target.pathname, ticketHref:target.href, reason:'persistent-loading-refresh' });
+      return false;
+    }
     // A page reload/route hydration can discard a synthetic file selection.
     // Clear only the transient upload attempt; the IndexedDB-backed task
     // attachment remains available for a fresh injection once the page is
@@ -4780,6 +4943,7 @@ async function bootstrapAttempt() {
     }
     return deduped.join('\n\n').trim();
   }
+
   function assistantTurnContent(roleNode, { tailLimit = 0 } = {}) {
     const messageUnit = conversationMessageUnit(roleNode, 'assistant');
     const fallbackUnit = contentSearchUnitRole(messageUnit) === 'assistant' ? messageUnit : null;
@@ -5643,6 +5807,13 @@ async function bootstrapAttempt() {
           ? currentReviewReport(candidate.text, task)
           : null;
       const structuredReviewFinal = Boolean(currentReview);
+      const mountedUser = conversationRoleNodes('user').at(-1);
+      const sameObservedUser = Boolean(
+        mountedUser
+        && task.stopObservedUserBoundaryKey
+        && recoveryUserBoundaryKey(mountedUser) === task.stopObservedUserBoundaryKey
+      );
+      if (mountedUser && task.stopObservedUserBoundaryKey && !sameObservedUser) return scoped;
       const sameObservedResponse = Boolean(
         observedBoundaryKey
         && candidateBoundaryKey === observedBoundaryKey
@@ -5662,7 +5833,7 @@ async function bootstrapAttempt() {
       );
       if (candidate.text
         && !candidate.streaming
-        && ((sameObservedResponse && candidate.final) || reviewResultFinal)) {
+        && (((sameObservedResponse || sameObservedUser) && candidate.final) || reviewResultFinal)) {
         return {
           ...candidate,
           final:Boolean(candidate.final || reviewResultFinal),
@@ -6348,6 +6519,7 @@ async function bootstrapAttempt() {
     const turn = taskTurnForInspection(task);
     return Boolean(turn.owned && turn.final && turn.text && !stopButton() && !cards().length);
   }
+
   function safeURL(url) {
     const target = new URL(url, location.origin);
     if (target.origin !== location.origin || !/^\/(?:c\/[^/?#]+)?$/.test(target.pathname)) throw new Error('会话地址无效');
@@ -6668,6 +6840,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.stopObservedGenerationAt = 0;
     task.stopObservedDocumentId = '';
     task.stopObservedAssistantBoundaryKey = '';
+    task.stopObservedUserBoundaryKey = '';
     clearStopNoApprovalConfirmation(task);
     clearReloadStopAbsenceState(task);
   }
@@ -6874,8 +7047,8 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       // Once the bounded quick attempts are exhausted, keep the original
       // document as the sole owner. Wake at the persisted backoff deadline
       // and reload this exact route instead of yielding to a host-created tab.
-      if (task?.rendererRecoveryExhausted) return recoverStalledRoute(target, task);
       if (requireComposer && loadingReason) return holdForChatGPTLoading(task, loadingReason);
+      if (task?.rendererRecoveryExhausted) return recoverStalledRoute(target, task);
       const now = Date.now();
       if (!sameRouteWaitSince) sameRouteWaitSince = now;
       // The route is already correct, but ChatGPT has not hydrated the input
@@ -7241,6 +7414,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     }
     return;
   }
+
   function reviewParseError(message, cause = null) {
     const error = new Error(message);
     error.code = 'invalid-review-json';
@@ -7634,12 +7808,16 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     if (stopPresent && stopGenerationIdentity) {
       const generationChanged = task.stopObservedGenerationIdentity !== stopGenerationIdentity;
       const assistantBoundaryKey = assistantResponseBoundaryKey(activityTurn);
+      const observedUserBoundaryKey = turn.owned
+        ? recoveryUserBoundaryKey(conversationRoleNodes('user').at(-1))
+        : (generationChanged ? '' : String(task.stopObservedUserBoundaryKey || ''));
       const nextAssistantBoundaryKey = generationChanged
         ? assistantBoundaryKey
         : (assistantBoundaryKey || String(task.stopObservedAssistantBoundaryKey || ''));
       const changed = generationChanged
         || String(task.stopObservedDocumentId || '') !== DOCUMENT_INSTANCE_ID
         || String(task.stopObservedAssistantBoundaryKey || '') !== nextAssistantBoundaryKey
+        || String(task.stopObservedUserBoundaryKey || '') !== observedUserBoundaryKey
         || task.reloadStopAbsentDocumentId
         || task.reloadStopAbsentSince
         || task.reloadStopAbsentSignature;
@@ -7647,6 +7825,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       task.stopObservedGenerationAt = now;
       task.stopObservedDocumentId = DOCUMENT_INSTANCE_ID;
       task.stopObservedAssistantBoundaryKey = nextAssistantBoundaryKey;
+      task.stopObservedUserBoundaryKey = observedUserBoundaryKey;
       clearReloadStopAbsenceState(task);
       if (changed) {
         task.updatedAt = now;
@@ -7983,6 +8162,10 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const loadingStartedAt = performance.now();
     const rawLoading = Boolean(pageLoadingState());
     const loadingScanMs = performance.now() - loadingStartedAt;
+    if (rawLoading && !visibleConversationHasMessages()) {
+      holdForChatGPTLoading(task);
+      return;
+    }
     const composerNode = composer();
     const composerReady = Boolean(composerNode);
     let composerDraft = normalize(composerNode?.value || composerNode?.textContent);
@@ -8380,6 +8563,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
         && refreshUnavailableApproval(task, true, approvalRefreshNow)) return;
     }
   }
+
   function schedule(ms = 2000) {
     clearTimeout(timer);
     if (running && !navigating) timer = setTimeout(tick, ms);
@@ -8756,6 +8940,7 @@ NaN
     }
     return true;
   }
+
   function prepareRecordedConversationOpen(taskId, expectedURL) {
     const task = data.tasks.find(item => item.id === taskId);
     const target = canonicalConversationURL(expectedURL);
@@ -8997,7 +9182,7 @@ NaN
     globalApprovalLabel.append(globalApproval,document.createTextNode('在当前标签页的会话中自动处理授权卡'));
     const globalPauseButton = element('button','暂停全部任务','pause-all'); globalPauseButton.type='button';
     const memoryCleanupButton = element('button','清理当前标签页内存','memory-cleanup'); memoryCleanupButton.type='button';
-    const memoryStatusNode = element('small',[memoryStatusText(), storageStatusText()].filter(Boolean).join(' · '),'memory-status');
+    const memoryStatusNode = element('small',[memoryStatusText(), storageStatusText(), `宿主唤醒 ${backgroundClock.status().lastWakeAt ? new Date(backgroundClock.status().lastWakeAt).toLocaleTimeString() : '等待'}，时钟响应 ${backgroundClock.status().hostReplies}`].filter(Boolean).join(' · '),'memory-status');
     chat.append(head);
     settings.append(globalApprovalLabel,globalPauseButton,memoryCleanupButton,memoryStatusNode,element('small','此数值只估算网页 JavaScript 堆，不等于 Chrome 标签页完整内存。宿主只能卸载非活动且无未保存内容/进行中任务的标签页；重新打开时会重新加载。活动标签页无法通过 tabs.discard 清理到初始占用。'),element('small','仅展开“允许”旁的菜单并选择“允许本次会话”；不会选择永久授权。'));
     const feed = element('div','','feed'); feed.setAttribute('role','log'); feed.setAttribute('aria-live','polite');
@@ -9162,11 +9347,11 @@ NaN
       if (modelScopeHint.textContent !== modelHint) modelScopeHint.textContent = modelHint;
       heading.textContent=task ? (task.mode==='goal'?'持续目标':'单次任务')+' · '+statusNames[task.state] : '任务工作台';
       editGoalButton.disabled=!task || task.state==='done';
-      memoryStatusNode.textContent=[memoryStatusText(), storageStatusText()].filter(Boolean).join(' · ');
+      memoryStatusNode.textContent=[memoryStatusText(), storageStatusText(), `宿主唤醒 ${backgroundClock.status().lastWakeAt ? new Date(backgroundClock.status().lastWakeAt).toLocaleTimeString() : '等待'}，时钟响应 ${backgroundClock.status().hostReplies}`].filter(Boolean).join(' · ');
       memoryCleanupButton.disabled=memoryMonitorBusy || hostMemoryPending.size > 0;
       const runnableCount=tabTasks().filter(item=>!terminal.has(item.state)&&item.state!=='paused').length;
       const recoveryStatus = taskRecoveryStatusText(task);
-      notice.textContent=[`当前标签页工作区 · ${running?`监督中，${runnableCount>1?`多个本页任务每 ${Math.round(SUPERVISION_INTERVAL_MS / 1000)} 秒轮换`:'按当前任务推进'}；任务可单独暂停/继续`:'已暂停，自动操作已停止'}`, recoveryStatus, `扫描 ${measurements.scans} 次，平均 ${(measurements.totalScanMs / Math.max(1, measurements.scans)).toFixed(1)} ms · 界面最近 ${measurements.lastPaintMs.toFixed(1)} ms、侧栏重建 ${measurements.sidebarRebuilds} 次`, memoryStatusText(), storageStatusText()].filter(Boolean).join(' · ');
+      notice.textContent=[`当前标签页工作区 · ${running?`监督中，${runnableCount>1?`多个本页任务每 ${Math.round(SUPERVISION_INTERVAL_MS / 1000)} 秒轮换`:'按当前任务推进'}；任务可单独暂停/继续`:'已暂停，自动操作已停止'}`, recoveryStatus, `扫描 ${measurements.scans} 次，平均 ${(measurements.totalScanMs / Math.max(1, measurements.scans)).toFixed(1)} ms · 界面最近 ${measurements.lastPaintMs.toFixed(1)} ms、侧栏重建 ${measurements.sidebarRebuilds} 次`, memoryStatusText(), storageStatusText(), `宿主唤醒 ${backgroundClock.status().lastWakeAt ? new Date(backgroundClock.status().lastWakeAt).toLocaleTimeString() : '等待'}，时钟响应 ${backgroundClock.status().hostReplies}`].filter(Boolean).join(' · ');
       pauseButton.textContent=task?.state==='paused'?'继续当前任务':(task?.state==='cancelled'||task?.state==='blocked')?'恢复任务':task&&!terminal.has(task.state)?(running?'暂停当前任务':'继续当前任务'):running?'暂停全部':'继续全部';
       globalPauseButton.textContent=running?'暂停全部任务':'继续全部任务';
       globalPauseButton.disabled=tabTasks().length===0;
@@ -9376,7 +9561,7 @@ NaN
     };
     paint();
   }
-  window[INSTANCE]={active:true,version:VERSION,async shutdown(){stopMemoryMonitor();cancelHostMemoryRequests();cancelHostNavigationRequests();stopWorkspaceHeartbeat('shutdown');suspendRunnerForPagehide();globalApprovalController?.abort();clearTimeout(globalApprovalTimer);globalApprovalTimer=null;clearTimeout(popupDismissTimer);popupDismissTimer=null;clearTimeout(automaticRecoveryTimer);automaticRecoveryTimer=null;releaseTransientUIResources({force:true});readTransientUIState=()=>({hasDraft:false,hasFiles:false});releaseTransientUIResources=()=>false;lifecycleController?.abort();this.active=false;document.querySelectorAll(`#${ROOT}`).forEach(node=>node.remove());document.querySelectorAll('#fabushi-auto-confirm-style').forEach(node=>node.remove());if(document.getElementById(BOOTSTRAP_MARKER)===bootstrap)bootstrap.remove();await releaseWorkspace();}};
+  window[INSTANCE]={active:true,version:VERSION,async shutdown(){stopMemoryMonitor();cancelHostMemoryRequests();cancelHostNavigationRequests();stopWorkspaceHeartbeat('shutdown');suspendRunnerForPagehide();globalApprovalController?.abort();clearTimeout(globalApprovalTimer);globalApprovalTimer=null;clearTimeout(popupDismissTimer);popupDismissTimer=null;clearTimeout(automaticRecoveryTimer);automaticRecoveryTimer=null;releaseTransientUIResources({force:true});readTransientUIState=()=>({hasDraft:false,hasFiles:false});releaseTransientUIResources=()=>false;lifecycleController?.abort();this.active=false;document.querySelectorAll(`#${ROOT}`).forEach(node=>node.remove());document.querySelectorAll('#fabushi-auto-confirm-style').forEach(node=>node.remove());if(document.getElementById(BOOTSTRAP_MARKER)===bootstrap)bootstrap.remove();backgroundClock.dispose();await releaseWorkspace();}};
   window.FabushiUserscript=Object.freeze({pluginId:'chatgpt-auto-confirm',getServer:()=> 'browser-local',call:async(tool,args={})=>{
     if(['status','diagnose','queue_status','chat_status'].includes(tool))return{version:VERSION,running,tasks:tabTasks(),measurements,tabWorkspace:true,tabId,memory:{...memorySnapshot,pressure:memoryPressure,lastAction:memoryLastAction}};
     if(tool==='memory_status')return{...memorySnapshot,pressure:memoryPressure,lastAction:memoryLastAction,hostCapability:HOST_MEMORY_CAPABILITY};
@@ -9391,6 +9576,7 @@ NaN
     }
     throw new Error('请通过新版任务输入框使用此功能。');
   }});
+  schedulingReady = true;
   mount();
   void inspectMemoryPressure();
   scheduleMemoryMonitor(2000);
