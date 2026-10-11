@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.46
+// @version      2.10.47
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -67,7 +67,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.46';
+  const VERSION = '2.10.47';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -9174,6 +9174,8 @@ NaN
     if (task?.pendingContinuationReason) return '异常中断接力：旧等待状态已升级，正在准备新开会话';
     return '';
   }
+  let repairWorkbenchMount = () => {};
+  let stopWorkbenchMountGuard = () => {};
   function mount() {
     const root = element('div'); root.id = ROOT; root.dataset.version = VERSION;
     const style = element('style'); style.id = 'fabushi-auto-confirm-style';
@@ -9597,8 +9599,40 @@ NaN
       finally { submitting=false; submit.disabled=false; }
     };
     paint();
+    // ChatGPT hydration can remove page-external body children while the
+    // task runner remains alive. Retain the original UI (including drafts,
+    // files and handlers) instead of bootstrapping another instance.
+    let mountGuardActive = true;
+    const mountObserver = new MutationObserver(() => {
+      if (!document?.documentElement) return;
+      const host = document.body || document.documentElement;
+      if (root.parentNode !== host || !root.isConnected || !style.isConnected
+        || !root.contains(launch) || !root.contains(desk)) repairWorkbenchMount();
+    });
+    repairWorkbenchMount = () => {
+      if (!mountGuardActive || !document?.documentElement) return;
+      // Observe direct-child mount anchors only. Streaming transcript changes
+      // never require a full-page scan or a workbench rebuild.
+      mountObserver.disconnect();
+      const html = document.documentElement;
+      const host = document.body || html;
+      if (html && !style.isConnected) html.append(style);
+      if (host && root.parentNode !== host) host.append(root);
+      if (!root.contains(desk)) root.prepend(desk);
+      if (!root.contains(launch)) root.append(launch);
+      for (const anchor of new Set([document, html, document.body, root].filter(Boolean))) {
+        mountObserver.observe(anchor, { childList:true });
+      }
+    };
+    stopWorkbenchMountGuard = () => {
+      mountGuardActive = false;
+      mountObserver.disconnect();
+      repairWorkbenchMount = () => {};
+      stopWorkbenchMountGuard = () => {};
+    };
+    repairWorkbenchMount();
   }
-  window[INSTANCE]={active:true,version:VERSION,async shutdown(){stopMemoryMonitor();cancelHostMemoryRequests();cancelHostNavigationRequests();stopWorkspaceHeartbeat('shutdown');suspendRunnerForPagehide();globalApprovalController?.abort();clearTimeout(globalApprovalTimer);globalApprovalTimer=null;clearTimeout(popupDismissTimer);popupDismissTimer=null;clearTimeout(automaticRecoveryTimer);automaticRecoveryTimer=null;releaseTransientUIResources({force:true});readTransientUIState=()=>({hasDraft:false,hasFiles:false});releaseTransientUIResources=()=>false;lifecycleController?.abort();this.active=false;document.querySelectorAll(`#${ROOT}`).forEach(node=>node.remove());document.querySelectorAll('#fabushi-auto-confirm-style').forEach(node=>node.remove());if(document.getElementById(BOOTSTRAP_MARKER)===bootstrap)bootstrap.remove();backgroundClock.dispose();await releaseWorkspace();}};
+  window[INSTANCE]={active:true,version:VERSION,async shutdown(){stopWorkbenchMountGuard();stopMemoryMonitor();cancelHostMemoryRequests();cancelHostNavigationRequests();stopWorkspaceHeartbeat('shutdown');suspendRunnerForPagehide();globalApprovalController?.abort();clearTimeout(globalApprovalTimer);globalApprovalTimer=null;clearTimeout(popupDismissTimer);popupDismissTimer=null;clearTimeout(automaticRecoveryTimer);automaticRecoveryTimer=null;releaseTransientUIResources({force:true});readTransientUIState=()=>({hasDraft:false,hasFiles:false});releaseTransientUIResources=()=>false;lifecycleController?.abort();this.active=false;document.querySelectorAll(`#${ROOT}`).forEach(node=>node.remove());document.querySelectorAll('#fabushi-auto-confirm-style').forEach(node=>node.remove());if(document.getElementById(BOOTSTRAP_MARKER)===bootstrap)bootstrap.remove();backgroundClock.dispose();await releaseWorkspace();}};
   window.FabushiUserscript=Object.freeze({pluginId:'chatgpt-auto-confirm',getServer:()=> 'browser-local',call:async(tool,args={})=>{
     if(['status','diagnose','queue_status','chat_status'].includes(tool))return{version:VERSION,running,tasks:tabTasks(),measurements,tabWorkspace:true,tabId,memory:{...memorySnapshot,pressure:memoryPressure,lastAction:memoryLastAction}};
     if(tool==='memory_status')return{...memorySnapshot,pressure:memoryPressure,lastAction:memoryLastAction,hostCapability:HOST_MEMORY_CAPABILITY};
@@ -9667,6 +9701,7 @@ NaN
   });
   listen(window, 'pagehide',()=>{stopMemoryMonitor();writeWorkspaceHeartbeat('pagehide');if(!navigating)suspendRunnerForPagehide();releaseWorkspace();});
   listen(window, 'pageshow',event=>{
+    repairWorkbenchMount();
     if(event.persisted){
       // A BFCache restore is already a live document. Avoid turning every
       // tab switch into another full reload; let the bounded scheduler recheck

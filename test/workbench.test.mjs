@@ -3963,6 +3963,71 @@ test('runner pagehide suspends locally without converting the queue to manual pa
   assert.equal((await w.FabushiUserscript.call('status')).running,false);
   dom.window.close();
 });
+test('workbench entry repairs detached UI with the same instance, task, draft and files',async()=>{
+  const observed=[];
+  const {h,w,dom}=await fixture('<main><p>live response</p></main>',w=>{
+    const Native=w.MutationObserver;
+    w.MutationObserver=class extends Native { observe(node,options){observed.push(options);return super.observe(node,options);} };
+  });
+  try {
+    const root=w.document.getElementById('fabushi-auto-confirm-root');
+    const style=w.document.getElementById('fabushi-auto-confirm-style');
+    const launch=root.querySelector('.launch'), desk=root.querySelector('.desk');
+    launch.click(); assert.equal(desk.classList.contains('open'),true);
+    const input=root.querySelector('textarea'); input.value='unsent workbench draft';
+    const picker=root.querySelector('input[type="file"]');
+    const file=new w.File(['proof'],'proof.txt',{type:'text/plain'});
+    Object.defineProperty(picker,'files',{configurable:true,value:[file]});
+    picker.dispatchEvent(new w.Event('change'));
+    const preview=root.querySelector('.attachment-list');
+    const previewText=preview.textContent;
+    const task={id:'mount-owner',ownerTabId:h.getTabId(),goal:'keep working',mode:'goal',phase:'work',round:5,state:'waiting',url:'https://chatgpt.com/c/mount-owner',token:'mount-token',attempted:false,messages:[]};
+    h.data.tasks.push(task); h.setRunningForTest(true);
+    const before=JSON.stringify(task), instance=w.__FABUSHI_AUTO_CONFIRM_INSTANCE__;
+    root.remove(); style.remove();
+    await new Promise(resolve=>w.setTimeout(resolve,0));
+    assert.equal(w.document.getElementById(root.id),root); assert.equal(style.isConnected,true);
+    assert.equal(root.querySelector('textarea'),input); assert.equal(input.value,'unsent workbench draft');
+    assert.equal(preview.textContent,previewText); assert.equal(picker.files[0],file);
+    assert.equal(desk.classList.contains('open'),true);
+    assert.equal(w.__FABUSHI_AUTO_CONFIRM_INSTANCE__,instance);
+    assert.equal((await w.FabushiUserscript.call('status')).running,true);
+    assert.equal(JSON.stringify(task),before,'UI repair cannot change dispatch or task state');
+    launch.remove(); desk.remove();
+    await new Promise(resolve=>w.setTimeout(resolve,0));
+    assert.equal(root.querySelector('.launch'),launch); assert.equal(root.querySelector('.desk'),desk);
+    launch.click(); assert.equal(desk.classList.contains('open'),false,'original click handler survives repair');
+    assert.equal(w.document.querySelectorAll('#fabushi-auto-confirm-root').length,1);
+    const count=observed.length; await new Promise(resolve=>w.setTimeout(resolve,0));
+    assert.equal(observed.length,count,'repair must settle rather than observing its own mutations forever');
+    assert.ok(observed.every(options=>options.childList && !options.subtree),'no streamed transcript subtree observers');
+  } finally {h.pause();dom.window.close();}
+});
+
+test('body and document element replacement retain the workbench and shutdown does not resurrect it',async()=>{
+  const {w,h,dom}=await fixture('<main>before hydration</main>');
+  try {
+    const root=w.document.getElementById('fabushi-auto-confirm-root'), style=w.document.getElementById('fabushi-auto-confirm-style');
+    for (let index=0;index<3;index++) {
+      const body=w.document.createElement('body'); body.innerHTML='<main>hydrated ChatGPT</main>';
+      w.document.body.replaceWith(body);
+      await new Promise(resolve=>w.setTimeout(resolve,0));
+      assert.equal(root.parentNode,body); assert.equal(style.isConnected,true);
+      assert.equal(w.document.querySelectorAll('#fabushi-auto-confirm-root').length,1);
+    }
+    const html=w.document.createElement('html'); html.innerHTML='<head></head><body><main>new renderer shell</main></body>';
+    w.document.documentElement.replaceWith(html);
+    await new Promise(resolve=>w.setTimeout(resolve,0));
+    assert.equal(root.parentNode,w.document.body); assert.equal(style.parentNode,html);
+    await w.__FABUSHI_AUTO_CONFIRM_INSTANCE__.shutdown();
+    w.document.body.append(w.document.createElement('div'));
+    w.dispatchEvent(new w.Event('pageshow'));
+    await new Promise(resolve=>w.setTimeout(resolve,0));
+    assert.equal(w.document.querySelector('#fabushi-auto-confirm-root'),null);
+    assert.equal(w.document.querySelector('#fabushi-auto-confirm-style'),null);
+  } finally {h.pause();dom.window.close();}
+});
+
 test('replacing an idle script instance does not pause persisted tasks',async()=>{
   const {w,h,dom}=await fixture();
   const waiting={id:'idle-replace',goal:'keep running',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/live',token:'owner',messages:[]};
@@ -7152,8 +7217,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2.10.46$/m);
-  assert.match(source,/const VERSION = '2.10.46'/);
+  assert.match(source,/^\/\/ @version\s+2.10.47$/m);
+  assert.match(source,/const VERSION = '2.10.47'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
