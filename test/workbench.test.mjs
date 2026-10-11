@@ -2094,11 +2094,11 @@ test('shared renderer stopped-thinking activity is not fabricated reply progress
 
 test('terminal no-reply CTA does not override Stop, foreign user, foreign route or pending send',async()=>{
   for (const guard of ['stop','new-user','route','attempted','paused','streaming']) {
-    const {h,w,dom}=await fixture(`<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish [Fabushi:terminal-guard]</div></article><div role="status">你已达到此对话的长度上限，你可以开始新聊天以继续对话。</div><button>开始新聊天</button>${guard==='stop'?'<form><textarea id="prompt-textarea"></textarea><button aria-label="停止回答">停止</button></form>':''}${guard==='new-user'?'<article><div data-message-author-role="user">unrelated new request</div></article>':''}${guard==='streaming'?'<article data-testid="conversation-turn-assistant" data-is-streaming="true"><div data-message-author-role="assistant" aria-busy="true"></div></article>':''}</main>`);
+    const {h,w,dom}=await fixture(`<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish ${guard==='attempted'?'':'[Fabushi:terminal-guard]'}</div></article><div role="status">你已达到此对话的长度上限，你可以开始新聊天以继续对话。</div><button>开始新聊天</button>${guard==='stop'?'<form><textarea id="prompt-textarea"></textarea><button aria-label="停止回答">停止</button></form>':''}${guard==='new-user'?'<article><div data-message-author-role="user">unrelated new request</div></article>':''}${guard==='streaming'?'<article data-testid="conversation-turn-assistant" data-is-streaming="true"><div data-message-author-role="assistant" aria-busy="true"></div></article>':''}</main>`);
     try {
       w.history.pushState({},'', '/c/terminal-guard');
       const task={id:'terminal-guard',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:guard==='paused'?'paused':'waiting',url:guard==='route'?'https://chatgpt.com/c/other':w.location.href,token:'terminal-guard',attempted:guard==='attempted',messages:[]};
-      h.data.tasks.push(task); await h.start(); await h.inspect(task,null);
+      h.data.tasks.push(task); await h.start(false); await h.inspect(task,null);
       assert.equal(task.lengthLimitHopCount||0,0,guard);
     } finally {h.pause();dom.window.close();}
   }
