@@ -4787,6 +4787,9 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     // the work. It explains why the handoff is needed, but is not work context.
     const source = String(value || '')
       .replace(conversationLengthLimitPattern, ' ')
+      // Lifecycle controls are not assistant work when a terminal response
+      // contains only stopped-thinking and new-chat UI.
+      .replace(/^(?:已停止思考|停止思考|Stopped thinking|开始新聊天|Start (?:a )?new chat)\s*$/gim, ' ')
       .replace(/[ \t]+/g, ' ')
       .replace(/\n[ \t]*\n(?:[ \t]*\n)+/g, '\n\n')
       .trim();

@@ -2081,6 +2081,17 @@ test('terminal length CTA with stopped thinking and no reply continues Work and 
   }
 });
 
+test('shared renderer stopped-thinking activity is not fabricated reply progress',async()=>{
+  const {h,w,dom}=await fixture(`<main><div data-content-search-turn-key="terminal-shared"><div data-content-search-unit-key="terminal:user"><div data-markdown-text-tone="user-message">finish [Fabushi:shared-empty]</div></div><div data-markdown-text-style="assistant-message" data-markdown-text-tone="tertiary">已停止思考</div><div role="alert">你已达到此对话的长度上限，你可以开始新聊天以继续对话。</div><button>开始新聊天</button></div></main>`);
+  try {
+    w.history.pushState({},'', '/c/shared-empty');
+    const task={id:'shared-empty',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:w.location.href,token:'shared-empty',attempted:false,messages:[]};
+    h.data.tasks.push(task); await h.start(); await h.inspect(task,null);
+    assert.equal(task.state,'queued'); assert.equal(task.lengthLimitNoReply,true);
+    assert.equal(task.lengthLimitCarry||'',''); assert.match(h.workPrompt(task),/未生成可提取的新回复/);
+  } finally {h.pause();dom.window.close();}
+});
+
 test('terminal no-reply CTA does not override Stop, foreign user, foreign route or pending send',async()=>{
   for (const guard of ['stop','new-user','route','attempted','paused','streaming']) {
     const {h,w,dom}=await fixture(`<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish [Fabushi:terminal-guard]</div></article><div role="status">你已达到此对话的长度上限，你可以开始新聊天以继续对话。</div><button>开始新聊天</button>${guard==='stop'?'<form><textarea id="prompt-textarea"></textarea><button aria-label="停止回答">停止</button></form>':''}${guard==='new-user'?'<article><div data-message-author-role="user">unrelated new request</div></article>':''}${guard==='streaming'?'<article data-testid="conversation-turn-assistant" data-is-streaming="true"><div data-message-author-role="assistant" aria-busy="true"></div></article>':''}</main>`);
