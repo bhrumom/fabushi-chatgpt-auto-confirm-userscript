@@ -102,6 +102,31 @@
     if (report.status === 'next' && (typeof report.next !== 'string' || !report.next.trim())) throw reviewParseError('验收回复缺少下一轮安排；插件将有限重开验收会话，不会重复执行 Work。');
     return report;
   }
+  function completeReviewReport(value, task) {
+    if (!task || task.phase !== 'review') return null;
+    const source = String(value || '');
+    let start = -1, depth = 0, quoted = false, escaped = false;
+    for (let index = 0; index < source.length; index++) {
+      const char = source[index];
+      if (start < 0) { if (char === '{') { start = index; depth = 1; } continue; }
+      if (quoted) {
+        if (escaped) escaped = false;
+        else if (char === '\\') escaped = true;
+        else if (char === '"') quoted = false;
+        continue;
+      }
+      if (char === '"') quoted = true;
+      else if (char === '{') depth++;
+      else if (char === '}' && --depth === 0) {
+        const candidate = source.slice(start, index + 1);
+        try {
+          const strict = JSON.parse(candidate);
+          return parseReview(JSON.stringify(strict), task);
+        } catch { start = -1; }
+      }
+    }
+    return null;
+  }
   function currentReviewReport(value, task) {
     if (!task || task.phase !== 'review' || !String(value || '').trim()) return null;
     try { return parseReview(value, task); }
@@ -354,6 +379,32 @@
       && !currentRateLimit
       && connectionInterruptedNotice(routeEndedOwned ? activityTurn : turn, getPageUiRecords)
     );
+    if (explicitConnectionInterrupted && task.phase === 'review' && !task.attempted
+      && task.state !== 'paused' && !terminal.has(task.state) && !foreignTask && !otherRouteOwner) {
+      const transcript = visibleAssistantWorkTranscript(task, { allowExactRouteFallback:routeEndedOwned });
+      const report = completeReviewReport(transcript.text, task);
+      if (report) {
+        const identity = JSON.stringify([task.id, task.round, task.goalRevision || 0, liveURL, transcript.text]);
+        if (task.interruptedReviewIdentity !== identity) {
+          task.interruptedReviewIdentity = identity;
+          task.interruptedReviewSince = now;
+          log(task, '连接中断提示下已读到本轮完整验收模板；正在复核内容稳定性，随后按验收结果推进。');
+          save();
+        } else if (now - Number(task.interruptedReviewSince || now) >= 1500) {
+          task.interruptedReviewIdentity = '';
+          task.interruptedReviewSince = 0;
+          clearStopNoApprovalConfirmation(task);
+          log(task, '本轮完整验收模板已稳定确认；按模板结果推进。');
+          finish(task, JSON.stringify(report));
+        }
+        return;
+      }
+    }
+    if (task.interruptedReviewIdentity) {
+      task.interruptedReviewIdentity = '';
+      task.interruptedReviewSince = 0;
+      save();
+    }
     if (explicitConnectionInterrupted) {
       const interruptionTurn = routeEndedOwned ? activityTurn : turn;
       const handoffGate = interruptedFreshHandoffApprovalGate(task, liveURL, now);

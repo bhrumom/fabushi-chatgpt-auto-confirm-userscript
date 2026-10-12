@@ -113,6 +113,7 @@
     }
     const now = Date.now();
     if (task?.rendererRecoveryExhausted) {
+      void requestSameDocumentHostReload(task);
       // Exhaustion is durable for this exact dispatch generation. The old
       // implementation cleared the counter after a timer, creating a real
       // 1/2 -> 2/2 -> wait -> 1/2 infinite refresh cycle.
@@ -131,6 +132,7 @@
         task.state = 'waiting';
         log(task, `ChatGPT 消息区在 ${ROUTE_RECOVERY_LIMIT} 次同会话恢复后仍未挂载；已停止对此会话自动刷新。插件会继续监督当前页面，只有真实消息进展、新会话/新轮次或明确的新派发才会解除这个恢复上限，不会再进入循环刷新。`);
         save();
+        void requestSameDocumentHostReload(task);
       }
       sameRouteWaitUntil = 0;
       sameRouteWaitSince = now;
