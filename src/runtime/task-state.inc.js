@@ -281,7 +281,9 @@
       ? '已从旧记录恢复本轮会话链接；继续按链接监控，不等待侧栏。'
       : global
         ? '已恢复全部暂停任务，继续监控并按当前目标推进。'
-        : '已恢复当前任务，其他暂停任务保持暂停；正在立即检查当前会话是否已有最终回复。');
+        : resumeState === 'sending' && task.attempted && task.token && !knownURL
+          ? `已恢复当前任务；原消息尚未确认本轮会话，重新等待 ${Math.ceil(SEND_CONFIRM_TIMEOUT_MS / 1000)} 秒发送确认（暂停时间不计入），随后执行恢复检查；保留原发送标识，期间不重复发送。`
+          : '已恢复当前任务，其他暂停任务保持暂停；正在立即检查当前会话是否已有最终回复。');
     return true;
   }
   function restorePausedTasks(revision = Number(data.controlRevision || 0)) {
