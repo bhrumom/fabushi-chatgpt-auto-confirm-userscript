@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.47
+// @version      2.10.49
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -67,7 +67,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.47';
+  const VERSION = '2.10.49';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -1578,10 +1578,10 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
       return true;
     } catch { return false; }
   }
-  function requestHostNavigationPermit(targetHref, task, { force = false, recovery = false, reason = 'route-switch' } = {}) {
+  function requestHostNavigationPermit(targetHref, task, { force = false, recovery = false, hostReload = false, reason = 'route-switch' } = {}) {
     const local = localNavigationDecision({ force });
     if (!local.granted) return Promise.resolve(local);
-    if (force || typeof window.postMessage !== 'function') {
+    if ((force && !hostReload) || typeof window.postMessage !== 'function') {
       return Promise.resolve({ granted:true, fallback:true, reason:force ? 'forced' : 'standalone' });
     }
     const requestId = 'fabushi-navigation-' + id();
@@ -1597,6 +1597,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
       reason:String(reason || 'route-switch').slice(0, 80),
       force:force === true,
       recovery:recovery === true,
+      hostReload:hostReload === true,
     };
     return new Promise(resolve => {
       hostNavigationPending.set(requestId, { resolve });
@@ -1677,7 +1678,59 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     return false;
   }
 
+  function hostReloadIdentity(task) {
+    return JSON.stringify([task?.id, task?.ownerTabId, canonicalConversationURL(task?.url),
+      String(task?.phase || 'work'), Number(task?.round || 0), Number(task?.goalRevision || 0)]);
+  }
+  function hostReloadSafe(task, identity) {
+    return Boolean(running && task && data.tasks.includes(task) && taskBelongsToTab(task)
+      && !terminal.has(task.state) && task.state !== 'paused'
+      && hostReloadIdentity(task) === identity && canonicalConversationURL(task.url)
+      && currentConversationURL() === canonicalConversationURL(task.url)
+      && !ownedFinalReplyReady(task) && !visibleConversationHasMessages()
+      && !cards().length && !approvalSettlementActive(task, currentConversationURL())
+      && !blocker() && !rateLimitNotice()
+      && !hasUnsavedComposerInput() && !readTransientUIState().hasDraft && !readTransientUIState().hasFiles
+      && !task.attachmentUploadPending);
+  }
+  async function requestSameDocumentHostReload(task, identity = hostReloadIdentity(task)) {
+    if (!hostReloadSafe(task, identity) || task.hostReloadAttemptIdentity === identity) return false;
+    task.hostReloadAttemptIdentity = identity;
+    task.updatedAt = Date.now();
+    log(task, '页面内刷新没有恢复消息区；正在请求宿主重载原标签页一次，保留任务、会话和发送标识，不会重复发送。');
+    save();
+    const href = canonicalConversationURL(task.url);
+    const lease = await requestHostNavigationPermit(href, task, {
+      force:true, recovery:true, hostReload:true, reason:'document-commit-timeout',
+    });
+    if (!lease.granted || !lease.leaseId || !hostReloadSafe(task, identity)) {
+      cancelHostNavigationLease(lease.leaseId, 'host-reload-no-longer-safe');
+      if (hostReloadIdentity(task) === identity) {
+        log(task, '宿主重载未执行：' + (lease.reason || 'stale-task') + '；保留原任务继续监督。');
+        save();
+      }
+      return false;
+    }
+    const requestId = 'fabushi-navigation-commit-' + id();
+    const result = await new Promise(resolve => {
+      hostNavigationPending.set(requestId, { resolve });
+      try {
+        window.postMessage({ source:'fabushi-userscript', type:'navigation-guard.commit',
+          requestId, scriptId:HOST_MEMORY_PLUGIN_ID, pluginId:HOST_MEMORY_PLUGIN_ID,
+          payload:{ capability:HOST_NAVIGATION_CAPABILITY, leaseId:lease.leaseId,
+            targetURL:href, ownerTabId:tabId, taskId:task.id, phase:String(task.phase || 'work'),
+            round:Number(task.round || 0), goalRevision:Number(task.goalRevision || 0) } }, '*');
+      } catch { settleHostNavigationRequest(requestId, { granted:false, reason:'post-message-failed' }); }
+      setTimeout(() => settleHostNavigationRequest(requestId, { granted:false, reason:'host-timeout' }), HOST_NAVIGATION_RESPONSE_TTL_MS);
+    });
+    if (!result.granted && hostReloadIdentity(task) === identity) {
+      log(task, '宿主重载未执行：' + result.reason + '；保留原任务继续监督。');
+      save();
+    }
+    return result.granted;
+  }
   function armNavigationCommitWatchdog(task, reason = 'navigation', delayMs = NAVIGATION_COMMIT_WATCHDOG_MS) {
+    const recoveryIdentity = hostReloadIdentity(task);
     clearTimeout(navigationTimer);
     navigationTimer = setTimeout(() => {
       navigationTimer = null;
@@ -1688,17 +1741,22 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
         log(task, `页面恢复导航已提交但当前文档在 ${Math.ceil(delayMs / 1000)} 秒内没有卸载；已自动解除导航等待并继续监督，不会静默停止。`);
         save();
       }
+      if (reason.includes('recovery') || reason === 'persistent-loading-refresh') {
+        void requestSameDocumentHostReload(task, recoveryIdentity);
+      }
       schedule(100);
     }, Math.max(100, Number(delayMs) || NAVIGATION_COMMIT_WATCHDOG_MS));
   }
   function resetRendererRecoveryState(task) {
     if (!task) return false;
     const changed = Boolean(task.rendererRecoveryExhausted
+      || task.hostReloadAttemptIdentity
       || task.routeRecoveryAttempts
       || task.workspaceDocumentRecoveryAttempts
       || task.routeRecoveryRetryAt
       || task.sendUiWaitSince || task.loadingRefreshIdentity || task.loadingRefreshAt);
     if (!changed) return false;
+    task.hostReloadAttemptIdentity = '';
     task.rendererRecoveryExhausted = false;
     task.routeRecoveryAttempts = 0;
     task.workspaceDocumentRecoveryAttempts = 0;
@@ -2505,7 +2563,9 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     const agedEnough = confirmationStartedAt > 0
       && Date.now() - confirmationStartedAt >= SEND_CONFIRM_TIMEOUT_MS;
     if (!marked && (otherAmbiguous.length || (!explicit && !agedEnough))) return '';
-    return captureConversationURL(task, liveURL, { explicit });
+    const adopted = captureConversationURL(task, liveURL, { explicit });
+    if (adopted) armRecoveredFinalIdentity(task);
+    return adopted;
   }
   function taskMatchesCurrentConversation(task) {
     const currentURL = currentConversationURL();
@@ -3308,6 +3368,14 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     task.pausedState = task.state;
     task.pauseRevision = Math.max(Number(task.pauseRevision || 0), Number(data.controlRevision || 0)) + 1;
     task.state = 'paused';
+    if (task.id === current) {
+      // send() also uses this latch while waiting for its original click. A
+      // pause exception can bypass send's normal cleanup; retaining the latch
+      // makes Continue call schedule() without actually arming a timer.
+      clearTimeout(navigationTimer); navigationTimer = null;
+      navigating = false;
+      cancelHostNavigationRequests('task-paused');
+    }
     task.updatedAt = Date.now();
     log(task, message);
     // Keep the current task id until its in-flight operation reaches the next
@@ -6520,6 +6588,12 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     const taskURL = canonicalConversationURL(task.url);
     if (!liveURL || !taskURL || liveURL !== taskURL) return false;
     const turn = taskTurnForInspection(task);
+    if (task.phase === 'review' && !task.attempted && !cards().length
+      && !conversationURLOwner(liveURL, task.id)
+      && connectionInterruptedNotice(turn)) {
+      const transcript = visibleAssistantWorkTranscript(task, { allowExactRouteFallback:true });
+      if (completeReviewReport(transcript.text, task)) return true;
+    }
     return Boolean(turn.owned && turn.final && turn.text && !stopButton() && !cards().length);
   }
 
@@ -6638,6 +6712,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     }
     const now = Date.now();
     if (task?.rendererRecoveryExhausted) {
+      void requestSameDocumentHostReload(task);
       // Exhaustion is durable for this exact dispatch generation. The old
       // implementation cleared the counter after a timer, creating a real
       // 1/2 -> 2/2 -> wait -> 1/2 infinite refresh cycle.
@@ -6656,6 +6731,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
         task.state = 'waiting';
         log(task, `ChatGPT 消息区在 ${ROUTE_RECOVERY_LIMIT} 次同会话恢复后仍未挂载；已停止对此会话自动刷新。插件会继续监督当前页面，只有真实消息进展、新会话/新轮次或明确的新派发才会解除这个恢复上限，不会再进入循环刷新。`);
         save();
+        void requestSameDocumentHostReload(task);
       }
       sameRouteWaitUntil = 0;
       sameRouteWaitSince = now;
@@ -7417,6 +7493,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
         retireConsumedAbnormalHandoff(task);
         navigating = false;
         removeSessionStorageRecord(NAV);
+        armRecoveredFinalIdentity(task);
         state(task, 'waiting', `${task.phase === 'review' ? '规划/验收' : '工作'}会话已确认发送 · 第 ${task.round} 轮`);
         return;
       }
@@ -7543,6 +7620,31 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     }
     if (report.status === 'next' && (typeof report.next !== 'string' || !report.next.trim())) throw reviewParseError('验收回复缺少下一轮安排；插件将有限重开验收会话，不会重复执行 Work。');
     return report;
+  }
+  function completeReviewReport(value, task) {
+    if (!task || task.phase !== 'review') return null;
+    const source = String(value || '');
+    let start = -1, depth = 0, quoted = false, escaped = false;
+    for (let index = 0; index < source.length; index++) {
+      const char = source[index];
+      if (start < 0) { if (char === '{') { start = index; depth = 1; } continue; }
+      if (quoted) {
+        if (escaped) escaped = false;
+        else if (char === '\\') escaped = true;
+        else if (char === '"') quoted = false;
+        continue;
+      }
+      if (char === '"') quoted = true;
+      else if (char === '{') depth++;
+      else if (char === '}' && --depth === 0) {
+        const candidate = source.slice(start, index + 1);
+        try {
+          const strict = JSON.parse(candidate);
+          return parseReview(JSON.stringify(strict), task);
+        } catch { start = -1; }
+      }
+    }
+    return null;
   }
   function currentReviewReport(value, task) {
     if (!task || task.phase !== 'review' || !String(value || '').trim()) return null;
@@ -7796,6 +7898,32 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && !currentRateLimit
       && connectionInterruptedNotice(routeEndedOwned ? activityTurn : turn, getPageUiRecords)
     );
+    if (explicitConnectionInterrupted && task.phase === 'review' && !task.attempted
+      && task.state !== 'paused' && !terminal.has(task.state) && !foreignTask && !otherRouteOwner) {
+      const transcript = visibleAssistantWorkTranscript(task, { allowExactRouteFallback:routeEndedOwned });
+      const report = completeReviewReport(transcript.text, task);
+      if (report) {
+        const identity = JSON.stringify([task.id, task.round, task.goalRevision || 0, liveURL, transcript.text]);
+        if (task.interruptedReviewIdentity !== identity) {
+          task.interruptedReviewIdentity = identity;
+          task.interruptedReviewSince = now;
+          log(task, '连接中断提示下已读到本轮完整验收模板；正在复核内容稳定性，随后按验收结果推进。');
+          save();
+        } else if (now - Number(task.interruptedReviewSince || now) >= 1500) {
+          task.interruptedReviewIdentity = '';
+          task.interruptedReviewSince = 0;
+          clearStopNoApprovalConfirmation(task);
+          log(task, '本轮完整验收模板已稳定确认；按模板结果推进。');
+          finish(task, JSON.stringify(report));
+        }
+        return;
+      }
+    }
+    if (task.interruptedReviewIdentity) {
+      task.interruptedReviewIdentity = '';
+      task.interruptedReviewSince = 0;
+      save();
+    }
     if (explicitConnectionInterrupted) {
       const interruptionTurn = routeEndedOwned ? activityTurn : turn;
       const handoffGate = interruptedFreshHandoffApprovalGate(task, liveURL, now);
@@ -8669,13 +8797,16 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
         // fresh send: it may simply be the previous task's conversation left
         // on screen during an SPA transition. Confirm ownership first, then
         // persist the URL.
-        if (liveURL && task.token && hasTaskMarker(task)) {
+        const boundOwnedFinal = Boolean(liveURL && canonicalConversationURL(task.url) === liveURL
+          && ownedFinalReplyReady({ ...task, attempted:false }));
+        if (liveURL && task.token && (hasTaskMarker(task) || boundOwnedFinal)) {
           const captured = task.url === liveURL ? liveURL : captureConversationURL(task, liveURL);
           if (!captured) return;
           task.attempted = false;
           task.dispatchOriginURL = '';
           task.dispatchStartedAt = 0;
           task.state = 'waiting';
+          armRecoveredFinalIdentity(task);
           task.updatedAt = Date.now();
           save();
         } else if (adoptUnboundAttemptedConversation(task)) {

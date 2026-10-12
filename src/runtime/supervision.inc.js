@@ -66,13 +66,16 @@
         // fresh send: it may simply be the previous task's conversation left
         // on screen during an SPA transition. Confirm ownership first, then
         // persist the URL.
-        if (liveURL && task.token && hasTaskMarker(task)) {
+        const boundOwnedFinal = Boolean(liveURL && canonicalConversationURL(task.url) === liveURL
+          && ownedFinalReplyReady({ ...task, attempted:false }));
+        if (liveURL && task.token && (hasTaskMarker(task) || boundOwnedFinal)) {
           const captured = task.url === liveURL ? liveURL : captureConversationURL(task, liveURL);
           if (!captured) return;
           task.attempted = false;
           task.dispatchOriginURL = '';
           task.dispatchStartedAt = 0;
           task.state = 'waiting';
+          armRecoveredFinalIdentity(task);
           task.updatedAt = Date.now();
           save();
         } else if (adoptUnboundAttemptedConversation(task)) {

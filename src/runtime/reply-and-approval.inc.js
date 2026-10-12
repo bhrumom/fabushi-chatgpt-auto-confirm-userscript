@@ -1571,5 +1571,11 @@
     const taskURL = canonicalConversationURL(task.url);
     if (!liveURL || !taskURL || liveURL !== taskURL) return false;
     const turn = taskTurnForInspection(task);
+    if (task.phase === 'review' && !task.attempted && !cards().length
+      && !conversationURLOwner(liveURL, task.id)
+      && connectionInterruptedNotice(turn)) {
+      const transcript = visibleAssistantWorkTranscript(task, { allowExactRouteFallback:true });
+      if (completeReviewReport(transcript.text, task)) return true;
+    }
     return Boolean(turn.owned && turn.final && turn.text && !stopButton() && !cards().length);
   }

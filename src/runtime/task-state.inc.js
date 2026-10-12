@@ -298,6 +298,14 @@
     task.pausedState = task.state;
     task.pauseRevision = Math.max(Number(task.pauseRevision || 0), Number(data.controlRevision || 0)) + 1;
     task.state = 'paused';
+    if (task.id === current) {
+      // send() also uses this latch while waiting for its original click. A
+      // pause exception can bypass send's normal cleanup; retaining the latch
+      // makes Continue call schedule() without actually arming a timer.
+      clearTimeout(navigationTimer); navigationTimer = null;
+      navigating = false;
+      cancelHostNavigationRequests('task-paused');
+    }
     task.updatedAt = Date.now();
     log(task, message);
     // Keep the current task id until its in-flight operation reaches the next
