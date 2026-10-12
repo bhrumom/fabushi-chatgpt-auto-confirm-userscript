@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.49
+// @version      2.10.50
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -67,7 +67,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.49';
+  const VERSION = '2.10.50';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -3351,7 +3351,9 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
       ? '已从旧记录恢复本轮会话链接；继续按链接监控，不等待侧栏。'
       : global
         ? '已恢复全部暂停任务，继续监控并按当前目标推进。'
-        : '已恢复当前任务，其他暂停任务保持暂停；正在立即检查当前会话是否已有最终回复。');
+        : resumeState === 'sending' && task.attempted && task.token && !knownURL
+          ? `已恢复当前任务；原消息尚未确认本轮会话，重新等待 ${Math.ceil(SEND_CONFIRM_TIMEOUT_MS / 1000)} 秒发送确认（暂停时间不计入），随后执行恢复检查；保留原发送标识，期间不重复发送。`
+          : '已恢复当前任务，其他暂停任务保持暂停；正在立即检查当前会话是否已有最终回复。');
     return true;
   }
   function restorePausedTasks(revision = Number(data.controlRevision || 0)) {
@@ -8835,6 +8837,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
           // Do not abandon an ambiguous click while the SPA is still loading.
           // The persisted token lets a later scan confirm the original turn.
             if (task.state !== 'sending') state(task, 'sending', '正在确认原消息，暂不重发，等待当前会话完成加载。');
+            paint(); // Derived countdown; no additional timer, log, or storage write.
             return;
           }
           // The send had a full 90-second confirmation window and one final
@@ -9294,7 +9297,24 @@ NaN
   function element(tag, content, className) {
     const node = document.createElement(tag); if (content) node.textContent = content; if (className) node.className = className; return node;
   }
+  function sendConfirmationRemaining(task, now = Date.now()) {
+    if (task?.state !== 'sending' || !task.attempted) return null;
+    const startedAt = Number(task.recoveryConfirmationStartedAt || task.sentAt || 0);
+    if (!startedAt) return null;
+    return Math.max(0, startedAt + SEND_CONFIRM_TIMEOUT_MS - now);
+  }
+  function taskStatusText(task, now = Date.now()) {
+    const remaining = sendConfirmationRemaining(task, now);
+    if (remaining === null) return statusNames[task?.state] || task?.state || '';
+    return remaining > 0
+      ? `等待发送确认（约 ${Math.ceil(remaining / 1000)} 秒）`
+      : '发送确认超时，正在检查恢复';
+  }
   function taskRecoveryStatusText(task, now = Date.now()) {
+    const confirmationRemaining = sendConfirmationRemaining(task, now);
+    if (confirmationRemaining !== null) return confirmationRemaining > 0
+      ? `原消息已尝试发送，尚未确认本轮会话；约 ${Math.ceil(confirmationRemaining / 1000)} 秒后执行恢复检查，期间保留原发送标识，不重复发送`
+      : '发送确认窗口已结束，正在检查原消息是否已被接收，再按现有规则恢复';
     const signature = String(task?.stopNoApprovalConfirmSignature || '');
     if (signature.includes('"connection-interrupted"') && Number(task?.stopNoApprovalConfirmSince || 0)) {
       const remainingMs = Math.max(0, Number(task.stopNoApprovalConfirmSince || 0) + STOP_NO_APPROVAL_CONFIRM_MS - now);
@@ -9515,7 +9535,7 @@ NaN
         ? '当前任务模型 · 修改后下一次发送生效；已发送的当前会话不变'
         : task ? '已完成任务不可修改模型 · 此处设置新任务默认模型' : '新任务默认模型 · 不影响已经创建的任务';
       if (modelScopeHint.textContent !== modelHint) modelScopeHint.textContent = modelHint;
-      heading.textContent=task ? (task.mode==='goal'?'持续目标':'单次任务')+' · '+statusNames[task.state] : '任务工作台';
+      heading.textContent=task ? (task.mode==='goal'?'持续目标':'单次任务')+' · '+taskStatusText(task) : '任务工作台';
       editGoalButton.disabled=!task || task.state==='done';
       memoryStatusNode.textContent=[memoryStatusText(), storageStatusText(), `宿主唤醒 ${backgroundClock.status().lastWakeAt ? new Date(backgroundClock.status().lastWakeAt).toLocaleTimeString() : '等待'}，时钟响应 ${backgroundClock.status().hostReplies}`].filter(Boolean).join(' · ');
       memoryCleanupButton.disabled=memoryMonitorBusy || hostMemoryPending.size > 0;
@@ -9528,7 +9548,7 @@ NaN
       const currentTasks=tabTasks();
       const workspaceSnapshots=recoverableWorkspaces(data);
       const rowSignature=item=>[
-        item.id,item.ownerTabId,item.state,Number(item.round||0),Number(item.goalRevision||0),
+        item.id,item.ownerTabId,item.state,Boolean(item.attempted),Number(item.round||0),Number(item.goalRevision||0),
         String(item.goal||'').slice(0,80),taskAttachments(item).length,
         Math.max(0,Math.ceil((Number(item.noFinalReplyRecoveryUntil||0)-Date.now())/60000)),
       ];
@@ -9573,7 +9593,7 @@ NaN
         selectControl.append(element('span',item.goal.slice(0,34),'task-name'));
         const meta=element('span','','task-meta');
         if(item.id===current&&running)meta.append(element('span','●','run-indicator'));
-        const badge=element('span',statusNames[item.state]||item.state,'state-badge');badge.dataset.state=item.state;
+        const badge=element('span',item.state==='sending'&&item.attempted?'等待发送确认':statusNames[item.state]||item.state,'state-badge');badge.dataset.state=item.state;
         meta.append(badge,document.createTextNode(`第 ${item.round} 轮`));
         if (taskAttachments(item).length) meta.append(document.createTextNode(` · 📎 ${taskAttachments(item).length}`));
         const recoveryRemaining = Number(item.noFinalReplyRecoveryUntil || 0) - Date.now();

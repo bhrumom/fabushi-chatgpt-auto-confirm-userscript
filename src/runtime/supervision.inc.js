@@ -104,6 +104,7 @@
           // Do not abandon an ambiguous click while the SPA is still loading.
           // The persisted token lets a later scan confirm the original turn.
             if (task.state !== 'sending') state(task, 'sending', '正在确认原消息，暂不重发，等待当前会话完成加载。');
+            paint(); // Derived countdown; no additional timer, log, or storage write.
             return;
           }
           // The send had a full 90-second confirmation window and one final
