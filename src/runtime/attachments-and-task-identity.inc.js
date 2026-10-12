@@ -413,7 +413,9 @@
     const agedEnough = confirmationStartedAt > 0
       && Date.now() - confirmationStartedAt >= SEND_CONFIRM_TIMEOUT_MS;
     if (!marked && (otherAmbiguous.length || (!explicit && !agedEnough))) return '';
-    return captureConversationURL(task, liveURL, { explicit });
+    const adopted = captureConversationURL(task, liveURL, { explicit });
+    if (adopted) armRecoveredFinalIdentity(task);
+    return adopted;
   }
   function taskMatchesCurrentConversation(task) {
     const currentURL = currentConversationURL();

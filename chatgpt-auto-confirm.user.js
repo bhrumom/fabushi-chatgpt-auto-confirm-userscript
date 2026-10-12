@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.48
+// @version      2.10.49
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -67,7 +67,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.48';
+  const VERSION = '2.10.49';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -2563,7 +2563,9 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     const agedEnough = confirmationStartedAt > 0
       && Date.now() - confirmationStartedAt >= SEND_CONFIRM_TIMEOUT_MS;
     if (!marked && (otherAmbiguous.length || (!explicit && !agedEnough))) return '';
-    return captureConversationURL(task, liveURL, { explicit });
+    const adopted = captureConversationURL(task, liveURL, { explicit });
+    if (adopted) armRecoveredFinalIdentity(task);
+    return adopted;
   }
   function taskMatchesCurrentConversation(task) {
     const currentURL = currentConversationURL();
@@ -3366,6 +3368,14 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     task.pausedState = task.state;
     task.pauseRevision = Math.max(Number(task.pauseRevision || 0), Number(data.controlRevision || 0)) + 1;
     task.state = 'paused';
+    if (task.id === current) {
+      // send() also uses this latch while waiting for its original click. A
+      // pause exception can bypass send's normal cleanup; retaining the latch
+      // makes Continue call schedule() without actually arming a timer.
+      clearTimeout(navigationTimer); navigationTimer = null;
+      navigating = false;
+      cancelHostNavigationRequests('task-paused');
+    }
     task.updatedAt = Date.now();
     log(task, message);
     // Keep the current task id until its in-flight operation reaches the next
@@ -7483,6 +7493,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
         retireConsumedAbnormalHandoff(task);
         navigating = false;
         removeSessionStorageRecord(NAV);
+        armRecoveredFinalIdentity(task);
         state(task, 'waiting', `${task.phase === 'review' ? '规划/验收' : '工作'}会话已确认发送 · 第 ${task.round} 轮`);
         return;
       }
@@ -8786,13 +8797,16 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
         // fresh send: it may simply be the previous task's conversation left
         // on screen during an SPA transition. Confirm ownership first, then
         // persist the URL.
-        if (liveURL && task.token && hasTaskMarker(task)) {
+        const boundOwnedFinal = Boolean(liveURL && canonicalConversationURL(task.url) === liveURL
+          && ownedFinalReplyReady({ ...task, attempted:false }));
+        if (liveURL && task.token && (hasTaskMarker(task) || boundOwnedFinal)) {
           const captured = task.url === liveURL ? liveURL : captureConversationURL(task, liveURL);
           if (!captured) return;
           task.attempted = false;
           task.dispatchOriginURL = '';
           task.dispatchStartedAt = 0;
           task.state = 'waiting';
+          armRecoveredFinalIdentity(task);
           task.updatedAt = Date.now();
           save();
         } else if (adoptUnboundAttemptedConversation(task)) {

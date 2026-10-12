@@ -894,6 +894,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
         retireConsumedAbnormalHandoff(task);
         navigating = false;
         removeSessionStorageRecord(NAV);
+        armRecoveredFinalIdentity(task);
         state(task, 'waiting', `${task.phase === 'review' ? '规划/验收' : '工作'}会话已确认发送 · 第 ${task.round} 轮`);
         return;
       }
