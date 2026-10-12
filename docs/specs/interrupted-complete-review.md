@@ -30,3 +30,15 @@ Pending verification.
 ## Verification record
 Passed: deterministic source generation and syntax checks; userscript full suite 419 total, 412 pass, 7 skipped, 0 failures. Host listener suite 15 pass, 0 failures. Review complete/next and rejection cases; same-document one-shot and post-grant pause/round/draft checks passed.
 Blocked: installed original conversation acceptance pending live installation/site availability; tests do not prove service/network recovery.
+
+| Requirement / AC | Final status | Evidence |
+| --- | --- | --- |
+| R1 | passed | Existing transcript extractor and newer-user fixture. |
+| R2 | passed | Strict closed JSON scanner; truncated/foreign report fixtures remain Review. |
+| R3 | passed | Two stable scans complete; changed report resets window despite Stop. |
+| R4 | passed | Existing finish() transition; complete, next and approval fixtures. |
+| R5 | passed | Complete report holds without fresh dispatch; original interruption regressions pass. |
+| AC1 | passed | complete fixture ends task with Stop and interruption banner. |
+| AC2 | passed | next fixture increments round once and schedules Work. |
+| AC3 | passed | Truncated/foreign/newer-user/approval negative fixtures. |
+| AC4 | blocked | Native UI confirms 2.10.48 installed/enabled; current exact incident progress could not be reliably observed during concurrent user navigation. |
