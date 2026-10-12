@@ -182,10 +182,10 @@
       return true;
     } catch { return false; }
   }
-  function requestHostNavigationPermit(targetHref, task, { force = false, recovery = false, reason = 'route-switch' } = {}) {
+  function requestHostNavigationPermit(targetHref, task, { force = false, recovery = false, hostReload = false, reason = 'route-switch' } = {}) {
     const local = localNavigationDecision({ force });
     if (!local.granted) return Promise.resolve(local);
-    if (force || typeof window.postMessage !== 'function') {
+    if ((force && !hostReload) || typeof window.postMessage !== 'function') {
       return Promise.resolve({ granted:true, fallback:true, reason:force ? 'forced' : 'standalone' });
     }
     const requestId = 'fabushi-navigation-' + id();
@@ -201,6 +201,7 @@
       reason:String(reason || 'route-switch').slice(0, 80),
       force:force === true,
       recovery:recovery === true,
+      hostReload:hostReload === true,
     };
     return new Promise(resolve => {
       hostNavigationPending.set(requestId, { resolve });
@@ -281,7 +282,59 @@
     return false;
   }
 
+  function hostReloadIdentity(task) {
+    return JSON.stringify([task?.id, task?.ownerTabId, canonicalConversationURL(task?.url),
+      String(task?.phase || 'work'), Number(task?.round || 0), Number(task?.goalRevision || 0)]);
+  }
+  function hostReloadSafe(task, identity) {
+    return Boolean(running && task && data.tasks.includes(task) && taskBelongsToTab(task)
+      && !terminal.has(task.state) && task.state !== 'paused'
+      && hostReloadIdentity(task) === identity && canonicalConversationURL(task.url)
+      && currentConversationURL() === canonicalConversationURL(task.url)
+      && !ownedFinalReplyReady(task) && !visibleConversationHasMessages()
+      && !cards().length && !approvalSettlementActive(task, currentConversationURL())
+      && !blocker() && !rateLimitNotice()
+      && !hasUnsavedComposerInput() && !readTransientUIState().hasDraft && !readTransientUIState().hasFiles
+      && !task.attachmentUploadPending);
+  }
+  async function requestSameDocumentHostReload(task, identity = hostReloadIdentity(task)) {
+    if (!hostReloadSafe(task, identity) || task.hostReloadAttemptIdentity === identity) return false;
+    task.hostReloadAttemptIdentity = identity;
+    task.updatedAt = Date.now();
+    log(task, '页面内刷新没有恢复消息区；正在请求宿主重载原标签页一次，保留任务、会话和发送标识，不会重复发送。');
+    save();
+    const href = canonicalConversationURL(task.url);
+    const lease = await requestHostNavigationPermit(href, task, {
+      force:true, recovery:true, hostReload:true, reason:'document-commit-timeout',
+    });
+    if (!lease.granted || !lease.leaseId || !hostReloadSafe(task, identity)) {
+      cancelHostNavigationLease(lease.leaseId, 'host-reload-no-longer-safe');
+      if (hostReloadIdentity(task) === identity) {
+        log(task, '宿主重载未执行：' + (lease.reason || 'stale-task') + '；保留原任务继续监督。');
+        save();
+      }
+      return false;
+    }
+    const requestId = 'fabushi-navigation-commit-' + id();
+    const result = await new Promise(resolve => {
+      hostNavigationPending.set(requestId, { resolve });
+      try {
+        window.postMessage({ source:'fabushi-userscript', type:'navigation-guard.commit',
+          requestId, scriptId:HOST_MEMORY_PLUGIN_ID, pluginId:HOST_MEMORY_PLUGIN_ID,
+          payload:{ capability:HOST_NAVIGATION_CAPABILITY, leaseId:lease.leaseId,
+            targetURL:href, ownerTabId:tabId, taskId:task.id, phase:String(task.phase || 'work'),
+            round:Number(task.round || 0), goalRevision:Number(task.goalRevision || 0) } }, '*');
+      } catch { settleHostNavigationRequest(requestId, { granted:false, reason:'post-message-failed' }); }
+      setTimeout(() => settleHostNavigationRequest(requestId, { granted:false, reason:'host-timeout' }), HOST_NAVIGATION_RESPONSE_TTL_MS);
+    });
+    if (!result.granted && hostReloadIdentity(task) === identity) {
+      log(task, '宿主重载未执行：' + result.reason + '；保留原任务继续监督。');
+      save();
+    }
+    return result.granted;
+  }
   function armNavigationCommitWatchdog(task, reason = 'navigation', delayMs = NAVIGATION_COMMIT_WATCHDOG_MS) {
+    const recoveryIdentity = hostReloadIdentity(task);
     clearTimeout(navigationTimer);
     navigationTimer = setTimeout(() => {
       navigationTimer = null;
@@ -292,17 +345,22 @@
         log(task, `页面恢复导航已提交但当前文档在 ${Math.ceil(delayMs / 1000)} 秒内没有卸载；已自动解除导航等待并继续监督，不会静默停止。`);
         save();
       }
+      if (reason.includes('recovery') || reason === 'persistent-loading-refresh') {
+        void requestSameDocumentHostReload(task, recoveryIdentity);
+      }
       schedule(100);
     }, Math.max(100, Number(delayMs) || NAVIGATION_COMMIT_WATCHDOG_MS));
   }
   function resetRendererRecoveryState(task) {
     if (!task) return false;
     const changed = Boolean(task.rendererRecoveryExhausted
+      || task.hostReloadAttemptIdentity
       || task.routeRecoveryAttempts
       || task.workspaceDocumentRecoveryAttempts
       || task.routeRecoveryRetryAt
       || task.sendUiWaitSince || task.loadingRefreshIdentity || task.loadingRefreshAt);
     if (!changed) return false;
+    task.hostReloadAttemptIdentity = '';
     task.rendererRecoveryExhausted = false;
     task.routeRecoveryAttempts = 0;
     task.workspaceDocumentRecoveryAttempts = 0;
