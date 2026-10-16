@@ -103,7 +103,7 @@
     if (report.status === 'next' && (typeof report.next !== 'string' || !report.next.trim())) throw workFinalReportParseError('工作最终报告缺少可执行的下一步动作。');
     return report;
   }
-  function completeWorkFinalReport(value, task) {
+  // Legacy test/API name only; this is the same strict Work report parser.\n  function parseReview(value, task) { return parseWorkFinalReport(value, task); }\n  function completeWorkFinalReport(value, task) {
     if (!task || task.phase !== 'work') return null;
     const source = String(value || '');
     let start = -1, depth = 0, quoted = false, escaped = false;
