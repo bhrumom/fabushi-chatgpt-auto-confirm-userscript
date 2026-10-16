@@ -7371,7 +7371,7 @@ ${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carry
 请直接执行当前任务，不要只写计划。完成实现后，必须自己核对真实代码、测试、GitHub Actions 和其他任务要求中的实际证据，再给出最终结果。
 最终回复必须严格只输出以下 MAHAYANA_TASK_REPORT_V1 JSON，不要输出 Markdown 代码围栏或其他文字：
 {"taskId":"${task.id}","round":${task.round},"status":"complete 或 next","summary":"只写已核实的真实证据、完成项和剩余缺口","next":"status 为 complete 时必须为空字符串；status 为 next 时直接写当前执行环境可以立即实施的具体动作，保留仓库、文件、PR、SHA、测试和门槛"}
-输出前自行检查：taskId 和 round 必须与当前任务完全一致；complete 必须有充分真实证据且 next=""；next 必须是直接执行动作而不是会话分工、角色说明或泛泛计划。不要输出会话分工、角色说明、未来会话安排或只读身份的旁白。
+输出前自行检查：taskId 和 round 必须与当前任务完全一致；complete 必须有充分真实证据且 next=""；next 必须是直接执行动作而不是会话分工、角色说明或泛泛计划。不要输出验收会话、审查会话、角色分派、未来会话安排或只读身份的旁白。
 [Fabushi:${task.token}]`;
   }
   function currentTaskModelStillConfirmed(task, verifiedPreset) {
@@ -7940,13 +7940,13 @@ ${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carry
         if (task.interruptedWorkFinalIdentity !== identity) {
           task.interruptedWorkFinalIdentity = identity;
           task.interruptedWorkFinalSince = now;
-          log(task, '连接中断提示下已读到本轮完整 Work 最终报告；正在复核内容稳定性，随后按报告结果推进。');
+          log(task, '连接中断提示下已读到本轮完整验收模板；正在复核内容稳定性，随后按验收结果推进。');
           save();
         } else if (now - Number(task.interruptedWorkFinalSince || now) >= 1500) {
           task.interruptedWorkFinalIdentity = '';
           task.interruptedWorkFinalSince = 0;
           clearStopNoApprovalConfirmation(task);
-          log(task, '本轮完整 Work 最终报告已稳定确认；按报告结果推进。');
+          log(task, '本轮完整验收模板已稳定确认；按模板结果推进。');
           finish(task, JSON.stringify(report));
         }
         return;
