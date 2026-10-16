@@ -3358,6 +3358,28 @@ test('approval settlement suppresses unavailable-card refresh and successful gra
   } finally { h.pause(); dom.window.close(); }
 });
 
+test('a submitted authorization card is never clicked again while settlement is stuck',async()=>{
+  const {w,h,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:authorization-stuck-submit]</div></article><div id="approval"><button type="button">拒绝</button><div><button type="button" id="allow-once">允许一次</button><button type="button" aria-haspopup="menu" aria-label="审批选项">⌄</button></div></div><form><textarea id="prompt-textarea"></textarea></form></main>');
+  try {
+    w.history.pushState({},'', '/c/authorization-stuck-submit');
+    const task={id:'authorization-stuck-submit',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'approval',url:'https://chatgpt.com/c/authorization-stuck-submit',token:'authorization-stuck-submit',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    h.data.autoApprove=true;
+    let clicks=0;
+    w.document.querySelector('#allow-once').addEventListener('click',()=>clicks++);
+    assert.equal(await h.authorize(h.cards()[0],task,null,true),true);
+    assert.equal(clicks,1);
+    const submittedAt=Number(task.approvalSubmissionAt);
+    assert.ok(submittedAt>0);
+    w.Date.now=()=>submittedAt+APPROVAL_SETTLEMENT_MS+1;
+    assert.equal(await h.authorize(h.cards()[0],task,null,true),false,'a still-visible card after settlement is recovery evidence, not permission to click again');
+    assert.equal(clicks,1,'the primary grant is clicked exactly once per submission identity');
+    assert.ok(Number(task.approvalUnavailableSince)>0,'stuck settlement enters the bounded same-route recovery episode');
+    assert.equal(h.refreshUnavailableApproval(task,false,submittedAt+APPROVAL_SETTLEMENT_MS+APPROVAL_UNAVAILABLE_REFRESH_MS+1),true);
+    assert.equal(task.url,'https://chatgpt.com/c/authorization-stuck-submit');
+  } finally { h.pause(); dom.window.close(); }
+});
+
 test('primary Allow once completes an authorization card without a conversation-scoped menu',async()=>{
   const {w,h,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:approval-menu-hydration]</div></article><div id="approval"><button type="button">拒绝</button><div><button type="button" id="allow-once">允许一次</button><button type="button" aria-haspopup="menu" aria-label="审批选项">⌄</button></div></div><form><textarea id="prompt-textarea"></textarea></form></main>');
   try {
