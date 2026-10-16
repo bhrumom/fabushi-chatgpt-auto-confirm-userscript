@@ -3199,7 +3199,7 @@ test('nested split authorization card is detected without article/section wrappe
   assert.equal(detected[0].actionable,false);
   dom.window.close();
 });
-test('current allow-once split authorization card is detected and selects only the conversation grant',async()=>{
+test('current allow-once authorization card is clicked directly even when a scope menu exists',async()=>{
   const {w,h,dom}=await fixture('<main><div id="card"><div>GitHub</div><form><button type="button">拒绝<kbd aria-hidden="true">Esc</kbd></button><div><button type="button" id="allow-once"><span>允许一次</span><kbd aria-hidden="true">⏎</kbd></button><button type="button" aria-haspopup="menu" aria-label="审批选项" aria-expanded="false" data-state="closed"><svg></svg></button></div></form></div></main>');
   const primary=w.document.querySelector('#allow-once');
   const arrow=w.document.querySelector('[aria-label="审批选项"]');
@@ -3207,18 +3207,16 @@ test('current allow-once split authorization card is detected and selects only t
   primary.onclick=()=>primaryClicks++;
   arrow.addEventListener('pointerdown',()=>{
     arrowClicks++;
-    if(w.document.querySelector('[role=menu]'))return;
     const menu=w.document.createElement('div');menu.setAttribute('role','menu');
-    const once=w.document.createElement('div');once.setAttribute('role','menuitem');once.textContent='允许一次';
     const conversation=w.document.createElement('div');conversation.setAttribute('role','menuitem');conversation.textContent='Allow GitHub for this conversation';
     conversation.onclick=()=>conversationApprovals++;
-    menu.append(once,conversation);w.document.body.append(menu);
+    menu.append(conversation);w.document.body.append(menu);
   });
   assert.equal(h.cards().length,1);
   await h.authorize(h.cards()[0],null,null,false);
-  assert.equal(arrowClicks,1);
-  assert.equal(conversationApprovals,1);
-  assert.equal(primaryClicks,0);
+  assert.equal(arrowClicks,0);
+  assert.equal(conversationApprovals,0);
+  assert.equal(primaryClicks,1);
   dom.window.close();
 });
 
@@ -3346,18 +3344,18 @@ test('approval settlement suppresses unavailable-card refresh and successful gra
   } finally { h.pause(); dom.window.close(); }
 });
 
-test('missing conversation-scoped grant enters periodic approval recovery while manual mode does not refresh',async()=>{
-  const {w,h,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:approval-menu-hydration]</div></article><div id="approval"><button type="button">拒绝</button><div><button type="button">允许一次</button><button type="button" aria-haspopup="menu" aria-label="审批选项">⌄</button></div></div><form><textarea id="prompt-textarea"></textarea></form></main>');
+test('primary Allow once completes an authorization card without a conversation-scoped menu',async()=>{
+  const {w,h,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:approval-menu-hydration]</div></article><div id="approval"><button type="button">拒绝</button><div><button type="button" id="allow-once">允许一次</button><button type="button" aria-haspopup="menu" aria-label="审批选项">⌄</button></div></div><form><textarea id="prompt-textarea"></textarea></form></main>');
   try {
     w.history.pushState({},'', '/c/approval-menu-hydration');
     const task={id:'approval-menu-hydration',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:3,state:'approval',url:'https://chatgpt.com/c/approval-menu-hydration',token:'approval-menu-hydration',attempted:false,messages:[]};
     h.data.tasks.push(task);
     h.data.autoApprove=true;
-    assert.equal(await h.authorize(h.cards()[0],task,null,false),false,'menu without conversation grant stays pending');
-    assert.ok(Number(task.approvalUnavailableSince)>0);
-    task.approvalUnavailableSince=Date.now()-61_000;
-    h.data.autoApprove=false;
-    assert.equal(h.refreshUnavailableApproval(task,false,Date.now()),false,'manual approval mode never performs periodic page reloads');
+    let clicks=0;w.document.querySelector('#allow-once').onclick=()=>clicks++;
+    assert.equal(await h.authorize(h.cards()[0],task,null,false),true);
+    assert.equal(clicks,1);
+    assert.equal(task.approvalUnavailableSince||0,0);
+    assert.ok(Number(task.approvalSettlementUntil)>Date.now());
   } finally { h.pause(); dom.window.close(); }
 });
 
