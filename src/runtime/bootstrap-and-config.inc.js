@@ -238,6 +238,8 @@ async function bootstrapAttempt() {
   // card becomes usable. This is deliberately separate from generic stalled
   // recovery because unresolved authorization must never escalate to fresh chat.
   const APPROVAL_UNAVAILABLE_REFRESH_MS = 60 * 1000;
+  // Do not refresh an unresolved authorization forever; retain the task for manual recovery after this many same-route attempts.
+  const MAX_APPROVAL_UNAVAILABLE_REFRESH_ATTEMPTS = 3;
   // Never abandon a bound conversation from one instantaneous "no approval"
   // sample. ChatGPT can mount approval UI between renderer slices, and the
   // current approval card may sit outside the role-derived message scopes.
