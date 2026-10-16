@@ -7356,6 +7356,10 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
   function workPrompt(task) {
     const abnormalCarry = freshHandoffCarryForCurrentPhase(task);
     const previousResult = previousWorkResultContext(task);
+    const lengthLimitCarry = String(task.lengthLimitCarry || '').trim();
+    const lengthLimitContext = lengthLimitCarry || task.lengthLimitNoReply
+      ? `\n上一会话因 ChatGPT 对话长度上限结束；继续当前 Work 任务时不得丢失已经确认的上下文。\n${task.lengthLimitNoReply ? '上一会话未生成可提取的新回复；以下内容仅作为已有任务上下文，不得当作新的完成证据。\n' : '以下是上一会话结束前已经确认的最新可见工作内容，请直接从此处继续，不要重复已完成步骤。\n'}${lengthLimitCarry ? `--- 长度上限接力现场开始 ---\n${lengthLimitCarry}\n--- 长度上限接力现场结束 ---\n` : ''}`
+      : '';
     const execution = task.next || task.goal;
     const carryContext = abnormalCarry
       ? `\n这是当前任务会话的异常恢复。请承接下面已经发生的实际工作，从中断处继续，不要重复已经完成的步骤。\n--- 已有工作现场开始 ---\n${abnormalCarry}\n--- 已有工作现场结束 ---\n`
@@ -7364,7 +7368,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       ? `\n上一轮已完成的 Work 最终回复仅作为进度参考；当前执行指令和原始目标优先。\n--- 上一轮结果开始 ---\n${previousResult}\n--- 上一轮结果结束 ---\n`
       : '';
     return `${attachmentPrompt(task)}${execution}
-${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carryContext}
+${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carryContext}${lengthLimitContext}
 请直接执行当前任务，不要只写计划。完成实现后，必须自己核对真实代码、测试、GitHub Actions 和其他任务要求中的实际证据，再给出最终结果。
 最终回复必须严格只输出以下 MAHAYANA_TASK_REPORT_V1 JSON，不要输出 Markdown 代码围栏或其他文字：
 {"taskId":"${task.id}","round":${task.round},"status":"complete 或 next","summary":"只写已核实的真实证据、完成项和剩余缺口","next":"status 为 complete 时必须为空字符串；status 为 next 时直接写当前执行环境可以立即实施的具体动作，保留仓库、文件、PR、SHA、测试和门槛"}
