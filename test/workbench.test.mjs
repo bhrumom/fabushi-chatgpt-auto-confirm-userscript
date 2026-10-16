@@ -6827,7 +6827,7 @@ test('Work Stop disappearance requires the short authorization confirmation befo
     assert.equal(task.state,'waiting');
     assert.ok(Number(task.stopNoApprovalConfirmSince)>0,'Stop disappearance first requires the short live authorization confirmation');
     assert.equal(task.connectionInterruptedFreshDispatch||false,false);
-    task.stopNoApprovalConfirmSince=Date.now()-3_000;
+    task.stopNoApprovalConfirmSince=Date.now()-9_000;
     await h.inspect(task,null);
     assert.equal(task.state,'queued');
     assert.equal(task.url,'');
@@ -7109,7 +7109,7 @@ test('marker virtualization cannot consume a different final assistant response 
   </main>`);
   try {
     w.history.pushState({},'', '/c/review-boundary-mismatch');
-    const task={id:'review-boundary-mismatch',ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'work',round:3,state:'waiting',url:'https://chatgpt.com/c/work-boundary-mismatch',token:'review-boundary-mismatch',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'work',messages:[]};
+    const task={id:'review-boundary-mismatch',ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'work',round:3,state:'waiting',url:'https://chatgpt.com/c/review-boundary-mismatch',token:'review-boundary-mismatch',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'work',messages:[]};
     h.data.tasks.push(task);
     await h.start(false);
     await h.inspect(task,null);
@@ -7553,7 +7553,7 @@ for (const kind of ['complete','next','truncated','foreign','newer-user','approv
   const report={taskId:'interrupted-work-contract',round:4,status:kind==='complete'?'complete':'next',summary:'Evidence assessed for the current Work task.',next:kind==='complete'?'':'Continue implementing the remaining production gaps.'};
   if(kind==='foreign')report.taskId='other-task';
   let content=JSON.stringify(report);
-  if(kind==='truncated')content=content.slice(0,-1);
+  if(kind==='truncated')content=JSON.stringify({...report,summary:''});
   const {h,w,dom}=await fixture(`<main>
     <article data-testid="conversation-turn-user"><div data-message-author-role="user">continue Work [Fabushi:work-contract]</div></article>
     <article data-testid="conversation-turn-assistant"><div class="markdown" id="complete-report">${content}</div><div data-message-author-role="assistant">连接已中断，正在等待完整答复</div></article>
