@@ -6187,6 +6187,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
             button,
             arrow:completeArrow,
             deny:completeDeny,
+            directActionable:Boolean(isDirectPrimaryAuthorizationAllow(button) && enabled(button)),
             actionable:Boolean(enabled(button) && enabled(completeArrow) && enabled(completeDeny)),
           });
         }
