@@ -7141,7 +7141,7 @@ test('marker virtualization cannot consume a different final assistant response 
     <article id="turn-a" data-testid="conversation-turn-stop-response-a" data-content-search-turn-key="stop-response-a">
       <div id="review-user" data-message-author-role="user" data-content-search-unit-key="stop-response-a:user"><div data-user-message-bubble="true">继续 Work [Fabushi:review-boundary-mismatch]</div></div>
       <div data-message-author-role="assistant" data-content-search-unit-key="stop-response-a:assistant"><div data-message-content>当前 generation 的中途 Work 内容。</div></div>
-    </div>
+    </article>
     <button id="stop" data-testid="stop-button" aria-label="停止生成">停止</button>
     <form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form>
   </main>`);
