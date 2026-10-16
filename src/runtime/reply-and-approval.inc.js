@@ -298,7 +298,7 @@
     const recoveryLabel = options.recoveryLabel
       ? `${options.recoveryLabel}第 ${recoveryCount} 次`
       : `连接中断自动恢复第 ${recoveryCount} 次`;
-    log(task, `${reason}；已结束当前故障会话派发并切换到新的 ChatGPT 会话恢复当前${task.phase === 'review' ? '规划/验收' : 'Work'}阶段（${recoveryLabel}）。${carrySourceNote}${carry ? '新会话提示词会把可见回复和实际工作步骤作为已完成工作现场一起继续承接；' : ''}保留任务、phase、round、目标/next 和附件；新会话会生成新的发送标识与会话链接，不会在故障旧会话重复发送“${CONTINUATION_PROMPT}”。`);
+    log(task, `${reason}；已结束当前故障会话派发并切换到新的 ChatGPT 会话恢复当前${'Work'}阶段（${recoveryLabel}）。${carrySourceNote}${carry ? '新会话提示词会把可见回复和实际工作步骤作为已完成工作现场一起继续承接；' : ''}保留任务、phase、round、目标/next 和附件；新会话会生成新的发送标识与会话链接，不会在故障旧会话重复发送“${CONTINUATION_PROMPT}”。`);
     save();
     return true;
   }
@@ -1566,11 +1566,11 @@
     const taskURL = canonicalConversationURL(task.url);
     if (!liveURL || !taskURL || liveURL !== taskURL) return false;
     const turn = taskTurnForInspection(task);
-    if (task.phase === 'review' && !task.attempted && !cards().length
+    if (task.phase === 'work' && !task.attempted && !cards().length
       && !conversationURLOwner(liveURL, task.id)
       && connectionInterruptedNotice(turn)) {
       const transcript = visibleAssistantWorkTranscript(task, { allowExactRouteFallback:true });
-      if (completeReviewReport(transcript.text, task)) return true;
+      if (completeWorkFinalReport(transcript.text, task)) return true;
     }
     return Boolean(turn.owned && turn.final && turn.text && !stopButton() && !cards().length);
   }
