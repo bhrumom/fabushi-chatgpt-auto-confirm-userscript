@@ -943,7 +943,7 @@
       && !effectiveLoading
       && !currentBlocker
       && !currentRateLimit
-      && !task.attempted,
+      && (!task.attempted || Boolean(cacheRetry)),
     );
     if (canClearComposerForEndedCheck && composerReady && composerDraft) {
       setInput(composerNode, '');
