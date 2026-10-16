@@ -454,6 +454,83 @@ test('malformed Work final reports requeue only the Work final-report repair and
   }
 });
 
+test('malformed Work final reply is durably carried into a report-only repair prompt', async () => {
+  const { dom, hooks } = await createHarness('<main></main>');
+  try {
+    const task = {
+      id:'report-repair-carry',
+      goal:'完成当前 Feature X 的生产实现和验证',
+      next:'补齐 Feature X 的生产接线并运行 exact-head CI',
+      mode:'continuous',
+      phase:'work',
+      round:2,
+      state:'waiting',
+      url:'https://chatgpt.com/c/report-repair-carry',
+      token:'report-repair-carry-token',
+      attempted:false,
+      goalRevision:4,
+      dispatchGoalRevision:4,
+      result:'上一轮已完成的 Work 进度和证据。',
+      attachments:[{ id:'evidence', name:'evidence.txt' }],
+      messages:[],
+    };
+    hooks.data.tasks.push(task);
+    const malformedReply = [
+      'Feature X 的生产实现和验证已经完成；请保留这些进度，不要重复修改。',
+      JSON.stringify({
+        taskId:task.id,
+        round:task.round,
+        status:'complete',
+        summary:'实现已完成，CI 已验证。',
+        next:'this must be empty for complete',
+      }),
+    ].join('\n');
+
+    assert.throws(
+      () => hooks.finish(task, malformedReply),
+      error => error?.code === 'invalid-work-final-report',
+    );
+    assert.equal(task.workFinalReportRepairCarry, malformedReply);
+    assert.equal(task.workFinalReportRepairCarryTaskId, task.id);
+    assert.equal(task.workFinalReportRepairCarryRound, task.round);
+    assert.equal(task.workFinalReportRepairCarryGoalRevision, task.goalRevision);
+    assert.equal(task.result, '上一轮已完成的 Work 进度和证据。');
+    assert.deepEqual(task.attachments, [{ id:'evidence', name:'evidence.txt' }]);
+
+    assert.equal(hooks.queueWorkFinalReportRepair(task, '最终报告格式校验失败'), 'queued');
+    assert.equal(task.state, 'queued');
+    assert.equal(task.url, '');
+    assert.equal(task.token, '');
+
+    const prompt = hooks.workPrompt(task);
+    assert.match(prompt, /当前 Work 已完成实际执行/);
+    assert.match(prompt, /不要重复执行已完成的工作/);
+    assert.match(prompt, /原始目标：完成当前 Feature X 的生产实现和验证/);
+    assert.match(prompt, /本轮执行指令：补齐 Feature X 的生产接线并运行 exact-head CI/);
+    assert.ok(prompt.includes(malformedReply), 'the exact malformed final reply is retained as progress context');
+    assert.match(prompt, /不得重复已完成的生产修改/);
+
+    const changedGoalPrompt = hooks.workPrompt({ ...task, goal:'新的独立目标', goalRevision:5 });
+    assert.doesNotMatch(changedGoalPrompt, /Feature X 的生产实现和验证已经完成/);
+    assert.match(changedGoalPrompt, /新的独立目标/);
+
+    hooks.finish(task, JSON.stringify({
+      taskId:task.id,
+      round:task.round,
+      status:'complete',
+      summary:'基于已保存的进度修复了最终报告。',
+      next:'',
+    }));
+    assert.equal(task.state, 'done');
+    assert.equal(task.workFinalReportRepairCarry, '');
+    assert.equal(task.workFinalReportRepairCarryTaskId, '');
+    assert.equal(task.workFinalReportRepairCarryRound, 0);
+    assert.equal(task.workFinalReportRepairCarryGoalRevision, 0);
+  } finally {
+    dom.window.close();
+  }
+});
+
 test('an active or incomplete response is not promoted to a final reply by partial controls', async () => {
   const { dom, window, hooks } = await createHarness(`
     <main>
