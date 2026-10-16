@@ -277,18 +277,29 @@
     return now - Math.max(since, lastRefresh) >= APPROVAL_UNAVAILABLE_REFRESH_MS;
   }
   function refreshUnavailableApproval(task, perform = true, now = Date.now()) {
-    if (!task || task.state === 'paused' || task.state === 'cancelled' || task.attempted || !data.autoApprove) return false;
+    if (!task || task.state === 'paused' || task.state === 'cancelled' || task.state === 'blocked'
+      || task.attempted || !data.autoApprove) return false;
     const conversationURL = currentConversationURL() || canonicalConversationURL(task.url);
     const taskURL = canonicalConversationURL(task.url);
     if (!conversationURL || !taskURL || conversationURL !== taskURL) return false;
     if (!approvalUnavailableRefreshDue(task, conversationURL, now)) return false;
-    const nextCount = Number(task.approvalUnavailableRefreshCount || 0) + 1;
+    const previousCount = Number(task.approvalUnavailableRefreshCount || 0);
+    if (previousCount >= MAX_APPROVAL_UNAVAILABLE_REFRESH_ATTEMPTS) {
+      clearApprovalUnavailableRefresh(task);
+      task.state = 'blocked';
+      task.updatedAt = now;
+      observations.delete(task.id);
+      log(task, `授权卡在同一会话恢复 ${MAX_APPROVAL_UNAVAILABLE_REFRESH_ATTEMPTS} 次后仍未解除；已停止自动点击和刷新。请先在当前 ChatGPT 会话完成必要的授权/登录，再在 Fabushi 工作台手动继续该任务。原会话、发送标识、阶段、轮次、目标和附件均已保留；不会新开会话或重复发送。`);
+      save();
+      return true;
+    }
+    const nextCount = previousCount + 1;
     task.approvalUnavailableRefreshCount = nextCount;
     task.approvalUnavailableRefreshAt = now;
     task.state = 'approval';
     task.updatedAt = now;
     observations.delete(task.id);
-    log(task, `授权卡持续 ${Math.ceil(APPROVAL_UNAVAILABLE_REFRESH_MS / 1000)} 秒仍未完全加载或暂不可用；正在刷新当前会话（第 ${nextCount} 次），保留会话、发送标识、附件和当前阶段，不会新开会话或重复发送。`);
+    log(task, `授权提交保护期结束后，授权卡仍未解除；正在刷新当前会话（第 ${nextCount}/${MAX_APPROVAL_UNAVAILABLE_REFRESH_ATTEMPTS} 次），保留会话、发送标识、附件和当前阶段，不会新开会话或重复发送。`);
     save();
     if (!perform) return true;
     navigating = true;
@@ -310,6 +321,21 @@
     task.approvalSettlementRound = Number(task.round || 0);
     task.updatedAt = now;
     save();
+  }
+  function approvalSettlementExpiredForTask(task, route = '', now = Date.now()) {
+    if (!task) return false;
+    const until = Number(task.approvalSettlementUntil || 0);
+    if (!until || until > now) return false;
+    const liveURL = canonicalConversationURL(route || currentConversationURL());
+    const settlementURL = canonicalConversationURL(task.approvalSettlementURL);
+    return Boolean(
+      liveURL
+      && settlementURL
+      && liveURL === settlementURL
+      && String(task.approvalSettlementToken || '') === String(task.token || '')
+      && String(task.approvalSettlementPhase || '') === String(task.phase || '')
+      && Number(task.approvalSettlementRound || 0) === Number(task.round || 0)
+    );
   }
   function approvalSettlementActive(task, route = '', now = Date.now()) {
     if (!task || Number(task.approvalSettlementUntil || 0) <= now) {
