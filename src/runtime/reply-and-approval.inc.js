@@ -854,13 +854,13 @@
       const candidate = latestTurn();
       const observedBoundaryKey = String(task.stopObservedAssistantBoundaryKey || '');
       const candidateBoundaryKey = assistantResponseBoundaryKey(candidate);
-      const currentReview = task.phase === 'review'
+      const currentReport = task.phase === 'work'
         && candidate.text
         && candidate.hasNaturalReply
         && !candidate.streaming
           ? currentWorkFinalReport(candidate.text, task)
           : null;
-      const structuredWorkFinal = Boolean(currentReview);
+      const structuredWorkFinal = Boolean(currentReport);
       const mountedUser = conversationRoleNodes('user').at(-1);
       const sameObservedUser = Boolean(
         mountedUser
