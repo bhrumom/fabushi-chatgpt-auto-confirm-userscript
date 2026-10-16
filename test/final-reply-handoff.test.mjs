@@ -40,11 +40,11 @@ test('Work prompt owns the final report contract and no planner prompt remains i
     const task = { id:'direct-work-contract', round:3, goal:'执行当前目标', mode:'goal', phase:'work', token:'direct-token', attachments:[], result:'', next:'' };
     const prompt = hooks.workPrompt(task);
     assert.match(prompt,/MAHAYANA_TASK_REPORT_V1/);
-    assert.match(prompt,/"taskId":"direct-work-contract"/);
+    assert.match(prompt,/"taskId":"direct-work-contract","round":3/);
     assert.match(prompt,/直接执行当前任务/);
     assert.match(prompt,/complete.*next/);
     assert.equal(typeof hooks.plannerPrompt,'undefined');
-    assert.doesNotMatch(prompt,/验收会话/);
+    assert.doesNotMatch(prompt,/独立的规划与验收会话/);
   } finally {
     dom.window.close();
   }
@@ -384,7 +384,12 @@ test('review recovery selects the exact current task and round when quoted evide
       summary:'当前轮仍缺少真实安装验收证据',
       next:'只补当前轮人工验收证据',
     });
-    assert.match(hooks.workPrompt({...task,result:'历史材料里包含 {"taskId":"old-task","round":1}',token:'review-token'}), /"taskId":"current-review-task","round":4/);
+    assert.match(hooks.workPrompt({
+      ...task,
+      goal:'完成当前目标',
+      result:'历史材料里包含 {"taskId":"old-task","round":1}',
+      token:'review-token',
+    }), /本次验收身份固定为 taskId="current-review-task"、round=4/);
   } finally {
     dom.window.close();
   }
@@ -396,7 +401,7 @@ test('a mismatched review identity is a repairable review error, not a terminal 
     const task = { id:'expected-task', round:3 };
     assert.throws(
       () => hooks.parseWorkFinalReport('{"taskId":"wrong-task","round":2,"status":"next","summary":"需要继续","next":"下一步"}', task),
-      error => error?.code === 'invalid-work-final-report' && /期望 taskId=expected-task、round=3/.test(error.message),
+      error => error?.code === 'invalid-review-json' && /期望 taskId=expected-task、round=3/.test(error.message),
     );
   } finally {
     dom.window.close();
@@ -435,7 +440,7 @@ test('malformed review reports requeue only the review phase and never discard W
     assert.equal(task.url, '');
     assert.equal(task.token, '');
     assert.equal(task.result, 'Work 已完成，不能重复执行。');
-    assert.match(task.messages.at(-1).text, /工作最终报告会话/);
+    assert.match(task.messages.at(-1).text, /新的 ChatGPT 会话/);
     assert.match(task.messages.at(-1).text, /自动重发/);
   } finally {
     dom.window.close();
@@ -1369,7 +1374,7 @@ test('marker-virtualized review consumes an exact visible next report without a 
     assert.equal(task.state, 'queued');
     assert.equal(task.next, '继续处理 strict 第一 blocker，并重新验收。');
     assert.ok(task.messages.some(item => item.role === 'assistant' && String(item.text || '').includes('"status":"next"')));
-    assert.ok(task.messages.some(item => /工作最终报告要求继续/.test(String(item.text || ''))));
+    assert.ok(task.messages.some(item => /规划\/验收要求继续/.test(String(item.text || ''))));
     assert.equal(task.connectionInterruptedFreshDispatch || false, false);
   } finally {
     hooks.pause();
@@ -1411,7 +1416,7 @@ test('marker-virtualized review does not promote a visible report for another ta
     await hooks.inspect(task, null);
     const observation = hooks.observations.get(task.id);
     assert.equal(observation?.final, false);
-    assert.equal(task.phase, 'work');
+    assert.equal(task.phase, 'review');
     assert.equal(task.round, 8);
     assert.equal(task.next || '', '');
   } finally {
