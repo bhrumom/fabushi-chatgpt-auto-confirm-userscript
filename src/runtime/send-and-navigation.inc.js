@@ -703,7 +703,47 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     if (task?.phase !== 'work' || Number(task?.round || 0) <= 1 || !result) return '';
     return `\n上一轮已完成的 Work 最终回复（仅作为已完成进度参考；当前轮指令和原始目标优先）：\n--- 上一轮 Work 最终回复开始 ---\n${result}\n--- 上一轮 Work 最终回复结束 ---\n`;
   }
-    function workPrompt(task) {
+    function editGoal(task, value) {
+    if (!task || task.state === 'done') return false;
+    const goal = String(value ?? '').trim().slice(0, 16000);
+    if (!goal || goal === String(task.goal || '').trim()) return false;
+    const queuedWork = task.phase === 'work' && !task.url && !task.attempted;
+    task.goal = goal;
+    task.next = '';
+    task.lengthLimitCarry = '';
+    task.lengthLimitNoReply = false;
+    task.lengthLimitCarrySourceURL = '';
+    task.lengthLimitHopCount = 0;
+    task.lengthLimitLastAt = 0;
+    clearAbnormalFreshCarry(task);
+    clearHandoffReplySnapshot(task);
+    task.goalRevision = Number(task.goalRevision || 0) + 1;
+    task.updatedAt = Date.now();
+    task.sendPrepared = false;
+    task.preparedPrompt = '';
+    task.sendUiWaitSince = 0;
+    task.workspaceDocumentRecoveryAttempts = 0;
+    task.dispatchOriginURL = '';
+    task.dispatchStartedAt = 0;
+    resetAttachmentUploadState(task);
+    if (queuedWork) {
+      task.result = '';
+      task.round++;
+      task.phase = 'work';
+      task.url = '';
+      task.token = '';
+      task.attempted = false;
+      task.dispatchOriginURL = '';
+      task.dispatchStartedAt = 0;
+      task.noFinalReplyAttempts = 0;
+      task.state = 'queued';
+      log(task, '任务目标已更新；尚未发送的旧工作结果已跳过，按新目标重新执行。');
+    } else {
+      log(task, '任务目标已更新；当前已发送的会话不修改，下一次派发将按新目标执行。');
+    }
+    return true;
+  }
+  function workPrompt(task) {
     const abnormalCarry = freshHandoffCarryForCurrentPhase(task);
     const previousResult = previousWorkResultContext(task);
     const execution = task.next || task.goal;
@@ -721,8 +761,6 @@ ${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carry
 输出前自行检查：taskId 和 round 必须与当前任务完全一致；complete 必须有充分真实证据且 next=""；next 必须是直接执行动作而不是会话分工、角色说明或泛泛计划。不要输出验收会话、审查会话、角色分派、未来会话安排或只读身份的旁白。
 [Fabushi:${task.token}]`;
   }
-  // Legacy test/API name only; production dispatch always calls workPrompt directly.
-  function plannerPrompt(task) { return workPrompt(task); }
   function currentTaskModelStillConfirmed(task, verifiedPreset) {
     // A user can change the Fabushi task's model during any awaited part of
     // preflight. Only the exact requested model confirmed in this dispatch
