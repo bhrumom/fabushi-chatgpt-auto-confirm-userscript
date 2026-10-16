@@ -7827,10 +7827,3 @@ test('isolated primary Allow remains excluded from direct authorization fallback
     assert.equal(h.cards({wide:true}).length,0);
   }finally{h.pause();dom.window.close();}
 });
-
-test('isolated primary Allow remains excluded from direct authorization fallback',async()=>{
-  const {h,dom}=await fixture('<main><form><button id="allow">Allow</button></form></main>');
-  try{
-    assert.equal(h.cards({wide:true}).length,0);
-  }finally{h.pause();dom.window.close();}
-});
