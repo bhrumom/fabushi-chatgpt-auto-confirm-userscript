@@ -7577,35 +7577,75 @@ test('initial model selection waits for delayed strength without repeatedly togg
   } finally {dom.window.close();}
 });
 
-for (const kind of ['complete','next','truncated','foreign','newer-user','approval','changed']) test(`interrupted Review complete template: ${kind}`,async()=>{
-  const report={taskId:'interrupted-review-contract',round:4,status:kind==='complete'?'complete':'next',summary:'Evidence assessed',next:'Continue implementing production gaps.'};
+for (const kind of ['complete','next','truncated','foreign','newer-user','approval','changed']) test('interrupted Work final report template: '+kind,async()=>{
+  const report={
+    taskId:'interrupted-work-contract',
+    round:4,
+    status:kind==='complete'?'complete':'next',
+    summary:'Evidence assessed for the current Work task.',
+    next:kind==='complete'?'':'Continue implementing the remaining production gaps.',
+  };
   if(kind==='foreign')report.taskId='other-task';
   let content=JSON.stringify(report);
   if(kind==='truncated')content=content.slice(0,-1);
   const {h,w,dom}=await fixture(`<main>
-    <section data-testid="conversation-turn-1"><div data-message-author-role="user">review [Fabushi:review-contract]</div></section>
+    <section data-testid="conversation-turn-1"><div data-message-author-role="user">continue Work [Fabushi:work-contract]</div></section>
     <section data-testid="conversation-turn-2"><div id="complete-report" class="markdown"></div><div data-message-author-role="assistant">连接已中断，正在等待完整答复</div></section>
     <button data-testid="stop-button">停止</button><form><textarea id="prompt-textarea"></textarea></form>
   </main>`);
   try {
-    w.history.replaceState({},'', '/c/interrupted-review-contract');
+    w.history.replaceState({},'', '/c/interrupted-work-contract');
     w.document.getElementById('complete-report').textContent=content;
-    const task={id:'interrupted-review-contract',ownerTabId:h.getTabId(),goal:'goal',mode:'goal',phase:'review',round:4,state:'waiting',url:w.location.href,token:'review-contract',attempted:false,result:'Preserve Work result',messages:[]};
+    const task={id:'interrupted-work-contract',ownerTabId:h.getTabId(),goal:'goal',mode:'goal',phase:'work',round:4,state:'waiting',url:w.location.href,token:'work-contract',attempted:false,result:'Preserve Work result',messages:[]};
     h.data.tasks.push(task);h.setRunningForTest(true);
     if(kind==='newer-user')w.document.querySelector('main').insertAdjacentHTML('beforeend','<section><div data-message-author-role="user">Unrelated new request</div></section>');
     if(kind==='approval')w.document.querySelector('main').insertAdjacentHTML('beforeend','<div data-testid="approval-card"><button>允许一次</button><button>拒绝</button></div>');
     await h.inspect(task,null);
+    assert.equal(task.state,'generating','Stop-visible first inspection must not settle the report');
+    w.document.querySelector('[data-testid="stop-button"]').remove();
+
     if(['complete','next','changed'].includes(kind)){
-      assert.ok(task.interruptedReviewIdentity,'complete contract enters semantic stability gate despite Stop');
-      task.interruptedReviewSince=Date.now()-2000;
-      if(kind==='changed'){w.document.getElementById('complete-report').textContent=JSON.stringify({...report,next:'Changed next'});}
       await h.inspect(task,null);
-      if(kind==='complete')assert.equal(task.state,'done');
-      else if(kind==='next'){assert.equal(task.phase,'work');assert.equal(task.round,5);assert.equal(task.next,report.next);assert.equal(task.state,'queued');}
-      else {assert.equal(task.phase,'review');assert.equal(task.round,4);assert.ok(Date.now()-task.interruptedReviewSince<1500);}
-    }else{assert.equal(task.phase,'review');assert.equal(task.round,4);assert.notEqual(task.state,'done');assert.ok(!task.interruptedReviewIdentity);}
-    assert.equal(task.result,'Preserve Work result');
-    assert.ok(!task.connectionInterruptedFreshDispatch,'complete template never fresh-handoffs Review');
+      const observation=h.observations.get(task.id);
+      assert.equal(observation?.final,true,'the exact current Work report is final after Stop disappears');
+      assert.equal(h.parseReview(observation.text,task).taskId,task.id);
+      if(kind==='changed'){
+        const changed=JSON.stringify({...report,next:'Continue with the changed production action.'});
+        w.document.getElementById('complete-report').textContent=changed;
+        await h.inspect(task,null);
+        assert.equal(task.state,'waiting','a changed same-identity report must re-enter final stability');
+        const changedObservation=h.observations.get(task.id);
+        assert.ok(changedObservation?.final,'the changed report remains final evidence but its stability window is new');
+        changedObservation.finalSince=Date.now()-5_000;
+        changedObservation.since=Date.now()-5_000;
+        changedObservation.idleSince=Date.now()-5_000;
+        await h.inspect(task,null);
+        assert.equal(task.phase,'work');
+        assert.equal(task.round,5);
+        assert.equal(task.state,'queued');
+        assert.equal(task.next,'Continue with the changed production action.');
+      } else {
+        observation.finalSince=Date.now()-5_000;
+        observation.since=Date.now()-5_000;
+        observation.idleSince=Date.now()-5_000;
+        await h.inspect(task,null);
+        if(kind==='complete')assert.equal(task.state,'done');
+        else {assert.equal(task.phase,'work');assert.equal(task.round,5);assert.equal(task.next,report.next);assert.equal(task.state,'queued');}
+      }
+      assert.equal(task.result,kind==='complete' || kind==='next' || kind==='changed' ? (kind==='changed' ? JSON.stringify({...report,next:'Continue with the changed production action.'}) : content) : 'Preserve Work result');
+      assert.equal(task.connectionInterruptedFreshDispatch||false,false,'valid Work final never fresh-handoffs');
+    } else {
+      const candidate=h.taskTurnForInspection(task);
+      assert.equal(candidate.workResultFinal||false,false,'invalid identity/shape never becomes Work final evidence');
+      assert.equal(task.phase,'work');
+      assert.equal(task.round,4);
+      assert.notEqual(task.state,'done');
+      assert.equal(task.result,'Preserve Work result');
+      assert.equal(task.connectionInterruptedFreshDispatch||false,false);
+      if(kind==='approval')assert.equal(task.state,'approval');
+      if(kind==='newer-user')assert.equal(candidate.owned,false);
+      if(kind==='foreign' || kind==='truncated')assert.equal(h.currentWorkFinalReport(content,task),null);
+    }
   }finally{h.pause();dom.window.close();}
 });
 
