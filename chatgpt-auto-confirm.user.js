@@ -7330,6 +7330,7 @@ ${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carry
 {"taskId":"${task.id}","round":${task.round},"status":"complete 或 next","summary":"只写已核实的真实证据、完成项和剩余缺口","next":"status 为 complete 时必须为空字符串；status 为 next 时直接写当前执行环境可以立即实施的具体动作，保留仓库、文件、PR、SHA、测试和门槛"}
 输出前自行检查：taskId 和 round 必须与当前任务完全一致；complete 必须有充分真实证据且 next=""；next 必须是直接执行动作而不是会话分工、角色说明或泛泛计划。不要输出验收会话、审查会话、角色分派、未来会话安排或只读身份的旁白。
 [Fabushi:${task.token}]
+  }
   function currentTaskModelStillConfirmed(task, verifiedPreset) {
     // A user can change the Fabushi task's model during any awaited part of
     // preflight. Only the exact requested model confirmed in this dispatch
