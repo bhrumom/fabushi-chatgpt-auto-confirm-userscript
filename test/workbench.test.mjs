@@ -1895,6 +1895,7 @@ test('manual recovered marker-virtualized tool-only conversation also continues 
 
     await h.inspect(task,null);
     assert.ok(Number(task.abnormalNoFinalSince)>0,'explicit recovery owns the exact tool-only edge for ended-state detection');
+    task.abnormalNoFinalSignature=h.observations.get(task.id)?.progressSignature || task.abnormalNoFinalSignature;
     task.abnormalNoFinalSince=Date.now()-9_000;
     await h.inspect(task,null);
 
@@ -2672,6 +2673,7 @@ test('inspect opens a fresh session after a stable virtualized-task network erro
     await h.inspect(task,null);
     assert.equal(task.state,'waiting','the actionable error still passes the stability gate');
     assert.ok(Number(task.abnormalNoFinalSince)>0);
+    task.abnormalNoFinalSignature=h.observations.get(task.id)?.progressSignature || task.abnormalNoFinalSignature;
     task.abnormalNoFinalSince=Date.now()-9_000;
     await h.inspect(task,null);
     assert.equal(task.state,'queued');
@@ -7480,6 +7482,7 @@ test('recovered static reply with stale page loader takes abnormal-end recovery 
     assert.ok(Number(task.abnormalNoFinalSince)>0,'stale loading must start the eight-second abnormal-end timer');
     assert.equal(task.stalledRefreshAttempts||0,0,'the fifteen-minute refresh path must not run first');
 
+    task.abnormalNoFinalSignature=h.observations.get(task.id)?.progressSignature || task.abnormalNoFinalSignature;
     task.abnormalNoFinalSince=Date.now()-9_000;
     await h.inspect(task,null);
 
@@ -7524,13 +7527,16 @@ for (const variant of ['owned','virtualized','inside','sibling','stop','quote','
       await h.start();if(variant==='ambiguous')task.attempted=true;
       if(variant==='approval')assert.equal(h.cards().length,1);
       await h.inspect(task,null);assert.equal(clicks,0);
+      task.abnormalNoFinalSignature=h.observations.get(task.id)?.progressSignature || task.abnormalNoFinalSignature;
       task.abnormalNoFinalSince=Date.now()-9000;await h.inspect(task,null);
       const positive=['owned','virtualized','inside','sibling'].includes(variant);
       assert.equal(clicks,positive?1:0);
       if(positive){
         assert.equal(task.url,'https://chatgpt.com/c/cache');assert.equal(task.state,'waiting');
         assert.equal(task.phase,'work');assert.equal(task.round,2);assert.equal(task.rendererRecoveryAttempts||0,0);
-        await h.inspect(task,null);task.abnormalNoFinalSince=Date.now()-9000;await h.inspect(task,null);
+        await h.inspect(task,null);
+        task.abnormalNoFinalSignature=h.observations.get(task.id)?.progressSignature || task.abnormalNoFinalSignature;
+        task.abnormalNoFinalSince=Date.now()-9000;await h.inspect(task,null);
         assert.equal(clicks,1,'same failed response only retries once');assert.equal(task.url,'https://chatgpt.com/c/cache');
       }
     } finally {h.pause();dom.window.close();}
