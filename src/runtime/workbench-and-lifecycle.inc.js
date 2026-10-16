@@ -561,7 +561,7 @@
       if(task?.preview && !terminal.has(task.state))feed.append(element('div',`实时回复\n${task.preview}`,'bubble assistant'));
       const sessionURL = canonicalConversationURL(task?.url);
       if(sessionURL){
-        const phaseName = task.phase === 'review' ? '验收' : '工作';
+        const phaseName = '工作';
         const link=element('div',`会话链接（第 ${task.round} 轮 · ${phaseName}）：${sessionURL}`,'session-link');
         link.title=sessionURL;
         feed.append(link);
