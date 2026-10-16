@@ -1090,9 +1090,10 @@
     const abnormalNoFinalFor = abnormalNoFinalEligible
       ? Math.max(0, now - Number(task.abnormalNoFinalSince || now))
       : 0;
-    const endedNoFinalStabilityMs = task.phase === 'work'
-      ? REVIEW_ENDED_NO_FINAL_STABILITY_MS
-      : ENDED_NO_FINAL_STABILITY_MS;
+    // Work is the only active execution phase. A missing final report after
+    // the normal eight-second ended-state window is a bounded fresh-session
+    // recovery; there is no independent Review settlement grace anymore.
+    const endedNoFinalStabilityMs = ENDED_NO_FINAL_STABILITY_MS;
     const stallEligible = Boolean(
       sample.routeOwned
       && pageBelongsToTask
