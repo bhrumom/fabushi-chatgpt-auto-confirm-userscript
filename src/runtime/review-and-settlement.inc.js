@@ -964,7 +964,26 @@
     // This fallback is intentionally stronger than generic "conversation
     // ended": it requires exact-route + marker-derived ownership and a fully
     // idle, safe composer state. Route-only recovery ownership is excluded.
-    const naturalFinalCandidate = false;
+    const naturalFinalCandidate = Boolean(
+      task.phase === 'work'
+      && routeOwned
+      && turn.owned
+      && String(turn.text || '').trim()
+      && turn.hasNaturalReply
+      && !turn.final
+      && !stopPresent
+      && !activityStreaming
+      && !approvalBlocking
+      && !rawLoading
+      && !effectiveLoading
+      && !turn.recoveredStaticCandidate
+      && !currentBlocker
+      && !currentRateLimit
+      && !retryableError
+      && composerReady
+      && composerEmpty
+      && !task.attempted
+    );
     const sample = {
       stop:stopPresent,
       cards:approvalRouteEligible ? (approvalBlocking ? Math.max(1, pending.length) : 0) : 0,
