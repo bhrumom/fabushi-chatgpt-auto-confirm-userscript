@@ -6500,7 +6500,7 @@ test('durable handoff snapshot is phase round and goal-revision bound and cannot
     assert.equal(h.persistHandoffReplySnapshot(task),true);
     assert.match(h.handoffReplySnapshotForCurrentPhase(task),/已检查证据/);
     task.connectionInterruptedFreshDispatch=true;
-    assert.match(h.plannerPrompt(task),/已检查证据/,'fresh Review prompt includes the same-phase durable reply snapshot');
+    assert.match(h.workPrompt(task),/已检查证据/,'fresh Work prompt includes the same-phase durable reply snapshot');
     task.round=5;
     assert.equal(h.handoffReplySnapshotForCurrentPhase(task),'','snapshot cannot cross rounds');
     task.round=4; task.goalRevision=3;
@@ -7195,8 +7195,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2.10.52$/m);
-  assert.match(source,/const VERSION = '2.10.52'/);
+  assert.match(source,/^\/\/ @version\s+2.10.53$/m);
+  assert.match(source,/const VERSION = '2.10.53'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
