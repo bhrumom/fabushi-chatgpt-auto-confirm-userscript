@@ -6813,7 +6813,7 @@ test('live Work fallback-turn shape recognizes the settled JSON response and out
 
 test('Work Stop disappearance requires the short authorization confirmation before fresh Work recovery',async()=>{
   const taskId='review-settlement-race';
-  const {h,w,dom}=await fixture('<main><div id="review-turn" data-content-search-turn-key="fallback-turn-review-race"><div data-content-search-unit-key="fallback-turn-review-race:0:user"><div data-user-message-bubble="true">继续 Work [Fabushi:review-settlement-race-token]</div></div><div id="review-assistant" data-content-search-unit-key="fallback-turn-review-race:2:assistant"><div data-testid="tool-call-result">已调用工具</div></div></div><button id="stop" data-testid="stop-button" aria-label="停止生成">停止</button><form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form></main>');
+  const {h,w,dom}=await fixture('<main><div id="review-turn" data-content-search-turn-key="fallback-turn-review-race"><div data-message-author-role="user" data-content-search-unit-key="fallback-turn-review-race:0:user"><div data-user-message-bubble="true">继续 Work [Fabushi:review-settlement-race-token]</div></div><div id="review-assistant" data-content-search-unit-key="fallback-turn-review-race:2:assistant"><div data-testid="tool-call-result">已调用工具</div></div></div><button id="stop" data-testid="stop-button" aria-label="停止生成">停止</button><form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form></main>');
   try {
     w.history.pushState({},'', '/c/review-settlement-race');
     const task={id:taskId,ownerTabId:h.getTabId(),goal:'继续完成架构迁移',mode:'goal',phase:'work',round:5,state:'waiting',url:'https://chatgpt.com/c/review-settlement-race',token:'review-settlement-race-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
@@ -7128,15 +7128,14 @@ test('marker virtualization cannot consume a different final assistant response 
     await h.inspect(task,null);
     assert.equal(task.state,'waiting','unproven Work response stays fail-closed during the settlement grace');
     assert.equal(task.connectionInterruptedFreshDispatch||false,false);
-    assert.ok(Number(task.abnormalNoFinalSince)>0);
-    task.abnormalNoFinalSignature=h.observations.get(task.id)?.progressSignature || task.abnormalNoFinalSignature;
-    task.abnormalNoFinalSince=Date.now()-9_000;
-    await h.inspect(task,null);
-    assert.equal(task.state,'queued','after the bounded Work no-final window the abnormal fresh-session recovery resumes');
+    assert.equal(Number(task.abnormalNoFinalSince)||0,0,'the Stop-disappearance path uses its dedicated live authorization confirmation before fresh recovery');
+    assert.equal(task.stopNoApprovalConfirmSince||0,0,'the confirmation is consumed before the fresh Work handoff');
+    assert.equal(task.state,'queued','after the bounded Stop-disappearance confirmation the abnormal fresh-session recovery resumes');
+    assert.equal(task.url,'');
     assert.equal(task.connectionInterruptedFreshDispatch,true);
     assert.equal(task.phase,'work');
-    assert.equal(task.round,3);
-    assert.match(task.messages.at(-1)?.text||'',/已经结束但没有最终回复/);
+    assert.equal(task.round,5);
+    assert.match(task.messages.at(-1)?.text||'',/停止按钮消失接力/);
   } finally {h.pause();dom.window.close();}
 });
 
