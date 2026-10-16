@@ -1745,12 +1745,13 @@ test('a stale assistant busy marker cannot block abnormal-end recovery after rep
     await h.inspect(task,null);
     const observation=h.observations.get(task.id);
     h.observations.set(task.id,{...observation,activityText:'older partial text',activityTextStableSince:Date.now()-10_000});
-    task.abnormalNoFinalSignature = observation?.progressSignature || task.abnormalNoFinalSignature;
     await h.inspect(task,null);
     assert.equal(task.state,'generating','a changed assistant reply restarts the stability window while the streaming marker remains fresh');
     assert.equal(task.abnormalNoFinalSince||0,0);
     const updatedObservation=h.observations.get(task.id);
     h.observations.set(task.id,{...updatedObservation,activityTextStableSince:Date.now()-10_000});
+    task.abnormalNoFinalSignature = updatedObservation?.progressSignature || task.abnormalNoFinalSignature;
+    task.abnormalNoFinalSince = Date.now()-9_000;
     await h.inspect(task,null);
     assert.equal(task.state,'queued','stale aria-busy is ignored after the assistant text has been stable for the bounded interval');
     assert.equal(task.continuationCount||0,0);
@@ -1778,6 +1779,7 @@ test('marker-virtualized exact-route waiting task queues a fresh session after s
     assert.equal(task.explicitRecoveryActive||false,false,'ordinary waiting detection does not require manual recovery capability');
     assert.ok(Number(task.abnormalNoFinalSince)>0,'exact route starts the ended timer even though the task marker is virtualized');
 
+    task.abnormalNoFinalSignature=h.observations.get(task.id)?.progressSignature || task.abnormalNoFinalSignature;
     task.abnormalNoFinalSince=Date.now()-9_000;
     await h.inspect(task,null);
 
@@ -1860,6 +1862,7 @@ test('waiting response queues a fresh session after eight stable seconds despite
     assert.equal(task.continuationCount||0,0);
     assert.ok(Number(task.abnormalNoFinalSince)>0,'waiting inspection starts the ended-conversation stability timer despite the stale page loader');
 
+    task.abnormalNoFinalSignature=h.observations.get(task.id)?.progressSignature || task.abnormalNoFinalSignature;
     task.abnormalNoFinalSince=Date.now()-9_000;
     await h.inspect(task,null);
 
@@ -2077,7 +2080,9 @@ test('terminal length CTA with stopped thinking and no reply continues Work and 
       assert.equal(task.next,'current instruction'); assert.equal(task.attachments[0].id,'proof');
       assert.equal(task.result||'',''); assert.equal(task.url||'','');
       const prompt=h.workPrompt(task);
-      assert.match(prompt,/未生成可提取的新回复/); assert.match(prompt,/earlier verified progress/);
+      assert.match(prompt,/MAHAYANA_TASK_REPORT_V1/);
+      assert.match(prompt,/上一会话未生成可提取的新回复/);
+      assert.match(prompt,/earlier verified progress/);
       assert.doesNotMatch(prompt,/下面是上一会话页面最后显示的 assistant 回复/);
       await h.inspect(task,null); assert.equal(task.lengthLimitHopCount,1);
     } finally {h.pause();dom.window.close();}
@@ -2223,11 +2228,11 @@ test('model picker trigger clicks retain the single-click quiet interval',async(
   } finally {h.pause();dom.window.close();}
 });
 
-test('a true final reply clears temporary length-limit carry state',async()=>{
+test('a true Work final report clears temporary length-limit carry state',async()=>{
   const {h,dom}=await fixture();
   const task={id:'length-done',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/final',token:'final-token',lengthLimitCarry:'old partial reply',lengthLimitCarrySourceURL:'https://chatgpt.com/c/old',lengthLimitHopCount:3,lengthLimitLastAt:123,abnormalFreshCarry:'old abnormal partial',abnormalFreshCarrySourceURL:'https://chatgpt.com/c/abnormal',abnormalFreshCarryReason:'connection interrupted',abnormalFreshCarryPhase:'work',abnormalFreshCarryRound:1,abnormalFreshCarryAt:456,messages:[]};
   h.data.tasks.push(task);
-  h.finish(task,'真正最终回复');
+  h.finish(task,JSON.stringify({taskId:task.id,round:1,status:'complete',summary:'真正最终回复',next:''}));
   assert.equal(task.state,'done');
   assert.equal(task.lengthLimitCarry,'');
   assert.equal(task.lengthLimitCarrySourceURL,'');
@@ -2582,11 +2587,11 @@ test.skip('legacy pending interruption state is migrated to fresh-chat recovery 
   dom.window.close();
 });
 
-test('dispatch reset and true final completion clear stale pending interruption continuation',async()=>{
+test('dispatch reset and true Work final completion clear stale pending interruption continuation',async()=>{
   const {h,dom}=await fixture();
   const task={id:'pending-final',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/pending-final',token:'pending-final',pendingContinuationReason:'interrupted',pendingContinuationURL:'https://chatgpt.com/c/pending-final',pendingContinuationSince:1,pendingContinuationStopClickedAt:2,messages:[]};
   h.data.tasks.push(task);
-  h.finish(task,'真正最终回复');
+  h.finish(task,JSON.stringify({taskId:task.id,round:1,status:'complete',summary:'真正最终回复',next:''}));
   assert.equal(task.state,'done');
   assert.equal(task.pendingContinuationReason,'');
   assert.equal(task.pendingContinuationURL,'');
@@ -2770,8 +2775,8 @@ test('stream recovery polling timeout carries visible work into a fresh chat',as
   assert.equal(task.connectionInterruptedFreshRetryCount,1);
   assert.ok(task.history?.some(entry=>entry.url==='https://chatgpt.com/c/stream-timeout'));
   const prompt=h.workPrompt(task);
-  assert.ok(prompt.indexOf('implement current slice')<prompt.indexOf('已检查 exact HEAD'));
-  assert.ok(prompt.indexOf('已检查 exact HEAD')<prompt.indexOf('原始目标：\ncontinue implementation'));
+  assert.ok(prompt.indexOf('implement current slice')<prompt.indexOf('原始目标：\ncontinue implementation'));
+  assert.ok(prompt.indexOf('原始目标：\ncontinue implementation')<prompt.indexOf('已检查 exact HEAD'));
   h.pause();
   dom.window.close();
 });
@@ -2961,7 +2966,7 @@ test('unbound exhausted abnormal retries still enter persisted backoff and reset
   assert.equal(task.noFinalReplyAttempts,0);
   assert.equal(task.noFinalReplyRecoveryCycles,1);
   assert.ok(task.noFinalReplyRecoveryUntil>Date.now());
-  h.finish(task,'final answer');
+  h.finish(task,JSON.stringify({taskId:task.id,round:2,status:'complete',summary:'恢复后的任务已成功完成。',next:''}));
   assert.equal(task.state,'done');
   assert.equal(task.noFinalReplyAttempts,0);
   assert.equal(task.noFinalReplyRecoveryCycles,0);
@@ -3111,20 +3116,19 @@ test('abnormal fresh-chat Work prompt has the required three parts and ignores s
   const {h,dom}=await fixture();
   const task={id:'carry-prompt',round:6,goal:'original target',next:'planner final next instruction',phase:'work',token:'carry-token',abnormalFreshCarry:'partial assistant progress from failed chat',abnormalFreshCarryPhase:'work',abnormalFreshCarryRound:6};
   const prompt=h.workPrompt(task);
-  assert.match(prompt,/一、验收会话最终给出的本轮提示词/);
+  assert.match(prompt,/MAHAYANA_TASK_REPORT_V1/);
   assert.match(prompt,/planner final next instruction/);
-  assert.ok(prompt.includes('二、异常会话里 ChatGPT 已经工作的实时记录（可见回复 + 实际工作步骤）：'));
   assert.match(prompt,/partial assistant progress from failed chat/);
-  assert.match(prompt,/三、原始目标/);
-  assert.match(prompt,/original target/);
-  assert.ok(prompt.indexOf('planner final next instruction') < prompt.indexOf('partial assistant progress from failed chat'));
-  assert.ok(prompt.indexOf('partial assistant progress from failed chat') < prompt.lastIndexOf('original target'));
+  assert.match(prompt,/原始目标：original target/);
+  assert.ok(prompt.indexOf('planner final next instruction') < prompt.indexOf('原始目标：original target'));
+  assert.ok(prompt.indexOf('原始目标：original target') < prompt.indexOf('partial assistant progress from failed chat'));
   assert.doesNotMatch(h.workPrompt({...task,round:7}),/partial assistant progress from failed chat/,'carry is generation-bound to the interrupted phase and round');
 
-  const review=h.workPrompt({...task,phase:'work',abnormalFreshCarryPhase:'work',result:'Work natural result'});
-  assert.match(review,/异常会话中 ChatGPT 已经产生的实时工作记录/);
+  const review=h.workPrompt({...task,phase:'work',round:7,abnormalFreshCarryPhase:'work',result:'Work natural result'});
   assert.match(review,/partial assistant progress from failed chat/);
   assert.match(review,/MAHAYANA_TASK_REPORT_V1/);
+  assert.doesNotMatch(review,/plannerPrompt/);
+  assert.doesNotMatch(review,/独立验收|审查会话/);
   dom.window.close();
 });
 
@@ -3153,23 +3157,19 @@ test('abnormal later-round recovery preserves both prior completed result and in
   dom.window.close();
 });
 
-test('review final JSON must itself contain only executable Work instructions',async()=>{
+test('Work final JSON must itself contain only executable Work instructions',async()=>{
   const {h,dom}=await fixture();
   try {
-    const task={id:'review-output-contract',round:7,goal:'完成所有生产代码职责',phase:'review',result:'当前 main 的完整性门仍未关闭',token:'review-contract-token'};
+    const task={id:'review-output-contract',round:7,goal:'完成所有生产代码职责',phase:'work',result:'当前 main 的完整性门仍未关闭',token:'work-contract-token'};
     const prompt=h.workPrompt(task);
-    assert.match(prompt,/本次验收身份固定为 taskId="review-output-contract"、round=7/);
+    assert.match(prompt,/"taskId":"review-output-contract","round":7/);
     assert.match(prompt,/MAHAYANA_TASK_REPORT_V1/);
     assert.match(prompt,/严格只输出以下 MAHAYANA_TASK_REPORT_V1 JSON/);
-    assert.match(prompt,/脚本不会替你删词或改写 next/,'the Review author, not userscript postprocessing, owns final language');
-    assert.match(prompt,/全部自然语言字段（特别是 summary、next）禁止出现角色分派/);
-    assert.match(prompt,/「下一轮」「下轮」/,'explicitly forbid the misleading handoff vocabulary in the authored final report');
-    assert.match(prompt,/如果它在安排谁来执行、或说明自己只读，就先自行重写为动作指令/);
-    assert.match(prompt,/next 必须以直接实施的动词或「第一步」开头/);
-    assert.match(prompt,/保留具体仓库、文件、PR、SHA、步骤顺序和验收门槛/);
-    assert.match(prompt,/status 为 complete 时.*next 必须为空字符串/);
-    assert.match(prompt,/"next":"status 为 next 时：直接写可立即实施的具体代码、验证和提交动作；status 为 complete 时为空字符串"/);
-    assert.doesNotMatch(prompt,/"next":"status 为 next 时下一轮的具体工作安排/,'JSON output example cannot teach the reviewer to write another-session narration');
+    assert.match(prompt,/next.*直接写当前执行环境可以立即实施的具体动作/s);
+    assert.match(prompt,/不要输出验收会话、审查会话、角色分派、未来会话安排或只读身份的旁白/);
+    assert.match(prompt,/status 为 complete 时必须为空字符串/);
+    assert.doesNotMatch(prompt,/plannerPrompt/);
+    assert.doesNotMatch(prompt,/本次验收身份固定/);
     const next='第一步重新读取 main 与 PR exact HEAD；第二步修复生产代码；第三步在 GitHub Actions 验证并提交。';
     const report=h.parseReview(JSON.stringify({taskId:task.id,round:task.round,status:'next',summary:'仍有未闭合的真实生产缺口',next}),task);
     assert.equal(report.next,next,'Review JSON content is passed through without scripted rewriting');
@@ -3180,13 +3180,14 @@ test('review final JSON must itself contain only executable Work instructions',a
   } finally {h.pause();dom.window.close();}
 });
 
-test('work prompt stays natural while the fresh planner alone receives the report contract',async()=>{
+test('Work prompt directly owns the final report contract',async()=>{
   const {h,dom}=await fixture();
-  const task={id:'a',round:1,goal:'do work',next:'',result:'natural result',token:'t'};
-  assert.match(h.workPrompt(task),/MAHAYANA_TASK_REPORT_V1/);
-  assert.match(h.workPrompt(task),/status.*complete/);
-  assert.match(h.workPrompt(task),/MAHAYANA_TASK_REPORT_V1/);
-  assert.match(h.workPrompt(task),/natural result/);
+  const task={id:'a',round:2,goal:'do work',next:'',result:'natural result',token:'t'};
+  const prompt=h.workPrompt(task);
+  assert.match(prompt,/MAHAYANA_TASK_REPORT_V1/);
+  assert.match(prompt,/status.*complete/);
+  assert.match(prompt,/natural result/);
+  assert.doesNotMatch(prompt,/plannerPrompt/);
   dom.window.close();
 });
 test('nested split authorization card is detected without article/section wrappers',async()=>{
@@ -3499,11 +3500,11 @@ test('historical final answer cannot complete a new user turn',async()=>{
   assert.equal(h.latestTurn().text,'Thinking');
   dom.window.close();
 });
-test('review reports are tied to exact task and round',async()=>{
-  const {h,dom}=await fixture();const task={id:'a',round:2};
-  assert.equal(h.parseReview('{"taskId":"a","round":2,"status":"complete","summary":"verified"}',task).status,'complete');
-  assert.throws(()=>h.parseReview('{"taskId":"b","round":2,"status":"complete","summary":"verified"}',task));
-  assert.throws(()=>h.parseReview('{"taskId":"a","round":2,"status":"next","summary":"incomplete"}',task));
+test('Work final reports are tied to exact task and round',async()=>{
+  const {h,dom}=await fixture();const task={id:'a',round:2,phase:'work'};
+  assert.equal(h.parseReview('{"taskId":"a","round":2,"status":"complete","summary":"verified","next":""}',task).status,'complete');
+  assert.throws(()=>h.parseReview('{"taskId":"b","round":2,"status":"complete","summary":"verified","next":""}',task));
+  assert.throws(()=>h.parseReview('{"taskId":"a","round":2,"status":"next","summary":"incomplete","next":"continue production work"}',task));
   dom.window.close();
 });
 test('startup is paused and UI submission remains local until one explicit scheduler send',async()=>{
@@ -4032,7 +4033,7 @@ test('replacing an idle script instance does not pause persisted tasks',async()=
   assert.equal(h.data.autoResume,true);
   dom.window.close();
 });
-test('same-document hot replacement keeps the workspace and continuous review transition',async()=>{
+test('same-document hot replacement keeps the workspace and continuous Work transition',async()=>{
   const {w,h,dom}=await fixture();
   const task=h.enqueue('continue through validation','goal');
   Object.assign(task,{state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/hot-reload',token:'owner-token'});
@@ -4050,11 +4051,12 @@ test('same-document hot replacement keeps the workspace and continuous review tr
   assert.equal(w.document.querySelectorAll('#fabushi-auto-confirm-style').length,1);
   const replacementTask=w.replacementHooks.data.tasks.find(item=>item.id===task.id);
   assert.ok(replacementTask,'the continuous task remains owned by the replacement instance');
-  w.replacementHooks.finish(replacementTask,'completed Work result');
-  assert.equal(replacementTask.phase,'review');
+  w.replacementHooks.finish(replacementTask,JSON.stringify({taskId:replacementTask.id,round:1,status:'next',summary:'当前 Work 仍有验证步骤。',next:'继续完成验证并重跑 exact-head gates。'}));
+  assert.equal(replacementTask.phase,'work');
   assert.equal(replacementTask.state,'queued');
+  assert.equal(replacementTask.round,2);
   assert.equal(replacementTask.url,'');
-  assert.match(replacementTask.messages.at(-1).text,/新开规划\/验收会话/);
+  assert.match(replacementTask.messages.at(-1).text,/工作最终报告要求继续/);
   await w.__FABUSHI_AUTO_CONFIRM_INSTANCE__.shutdown();
   dom.window.close();
 });
@@ -4876,22 +4878,22 @@ test('edited goal is persisted and replaces stale next-round instructions',async
   assert.match(task.messages.at(-1).text,/下一轮将按新目标执行/);
   dom.window.close();
 });
-test('goal edits during review discard stale acceptance next and start a new work round',async()=>{
+test('goal edits during Work discard stale final report next and start a new Work round',async()=>{
   const {h,dom}=await fixture();
-  const task={id:'review-edit',goal:'旧目标',next:'',mode:'goal',phase:'review',round:1,state:'waiting',url:'https://chatgpt.com/c/review',token:'review-token',messages:[],goalRevision:0,dispatchGoalRevision:0,result:'旧结果'};
+  const task={id:'review-edit',goal:'旧目标',next:'',mode:'goal',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/review',token:'review-token',messages:[],goalRevision:0,dispatchGoalRevision:0,result:'旧结果'};
   h.data.tasks.push(task);
   h.editGoal(task,'新目标');
-  h.finish(task,'{"taskId":"review-edit","round":1,"status":"next","summary":"旧验收","next":"继续旧目标"}');
+  h.finish(task,'{"taskId":"review-edit","round":1,"status":"next","summary":"旧 Work 结果","next":"继续旧目标"}');
   assert.equal(task.phase,'work');
   assert.equal(task.round,2);
   assert.equal(task.next,'');
   assert.equal(task.goal,'新目标');
-  assert.match(task.messages.at(-1).text,/忽略旧验收结论/);
+  assert.match(task.messages.at(-1).text,/工作执行期间任务目标已更新；已忽略旧结果/);
   dom.window.close();
 });
-test('editing a queued review skips the unsent stale planner immediately',async()=>{
+test('editing a queued Work skips the unsent stale final report immediately',async()=>{
   const {h,dom}=await fixture();
-  const task={id:'queued-review-edit',goal:'旧目标',next:'旧验收安排',mode:'goal',phase:'review',round:1,state:'queued',url:'',token:'old-token',messages:[],goalRevision:0,result:'旧结果'};
+  const task={id:'queued-review-edit',goal:'旧目标',next:'旧工作安排',mode:'goal',phase:'work',round:1,state:'queued',url:'',token:'old-token',messages:[],goalRevision:0,result:'旧结果'};
   h.data.tasks.push(task);
   assert.equal(h.editGoal(task,'新目标'),true);
   assert.equal(task.phase,'work');
@@ -4899,7 +4901,7 @@ test('editing a queued review skips the unsent stale planner immediately',async(
   assert.equal(task.next,'');
   assert.equal(task.token,'');
   assert.equal(task.state,'queued');
-  assert.match(task.messages.at(-1).text,/尚未发送的旧验收已跳过/);
+  assert.match(task.messages.at(-1).text,/任务目标已更新；尚未发送的旧工作结果已跳过/);
   dom.window.close();
 });
 test('message history keeps a hard-bounded rolling two-hour window',async()=>{
