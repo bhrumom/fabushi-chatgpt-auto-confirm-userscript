@@ -7217,8 +7217,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2.10.50$/m);
-  assert.match(source,/const VERSION = '2.10.50'/);
+  assert.match(source,/^\/\/ @version\s+2.10.51$/m);
+  assert.match(source,/const VERSION = '2.10.51'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
@@ -7714,4 +7714,76 @@ test('resume unbound attempted send displays confirmation deadline and keeps sch
   assert.match(w.document.querySelector('#fabushi-auto-confirm-root').textContent,/等待发送确认（约 55 秒）/);
   assert.equal(sends,0);assert.equal(h.getNavigationState().timer,true);
  }finally{h.pause();dom.window.close();}
+});
+
+
+test('authorization card without a conversation-scoped option directly clicks primary Allow',async()=>{
+  const {w,h,dom}=await fixture('<main><section data-testid="approval-card"><h3>任意授权请求</h3><button id="allow">允许</button></section><form><textarea id="prompt-textarea"></textarea></form></main>');
+  try{
+    let clicks=0;
+    w.document.querySelector('#allow').addEventListener('click',()=>clicks++);
+    const card=h.cards();
+    assert.equal(card.length,1);
+    assert.equal(card[0].actionable,false);
+    assert.equal(card[0].directActionable,true);
+    await h.authorize(card[0],null,null,false);
+    assert.equal(clicks,1);
+  }finally{h.pause();dom.window.close();}
+});
+
+test('authorization card without a conversation-scoped option directly clicks English primary Allow',async()=>{
+  const {w,h,dom}=await fixture('<main><section data-testid="authorization-card"><p>Arbitrary permission request</p><button id="allow">Allow</button></section><form><textarea id="prompt-textarea"></textarea></form></main>');
+  try{
+    let clicks=0;
+    w.document.querySelector('#allow').addEventListener('click',()=>clicks++);
+    const card=h.cards();
+    assert.equal(card.length,1);
+    assert.equal(card[0].directActionable,true);
+    await h.authorize(card[0],null,null,false);
+    assert.equal(clicks,1);
+  }finally{h.pause();dom.window.close();}
+});
+
+test('split authorization falls back to primary Allow when no conversation-scoped option exists',async()=>{
+  const {w,h,dom}=await fixture('<main><section class="approval-card"><h3>任意授权请求</h3><button id="deny">拒绝</button><button id="allow">允许</button><button id="arrow" aria-haspopup="menu">⌄</button></section></main>');
+  try{
+    let allowClicks=0, permanentClicks=0;
+    w.document.querySelector('#allow').addEventListener('click',()=>allowClicks++);
+    w.document.querySelector('#arrow').addEventListener('pointerdown',()=>{
+      const menu=w.document.createElement('div');menu.setAttribute('role','menu');
+      const option=w.document.createElement('div');option.setAttribute('role','menuitem');option.textContent='始终允许';
+      option.addEventListener('click',()=>permanentClicks++);
+      menu.append(option);w.document.body.append(menu);
+    });
+    const card=h.cards();
+    assert.equal(card.length,1);
+    assert.equal(card[0].actionable,true);
+    await h.authorize(card[0],null,null,false);
+    assert.equal(allowClicks,1);
+    assert.equal(permanentClicks,0);
+  }finally{h.pause();dom.window.close();}
+});
+
+test('conversation-scoped authorization remains preferred over primary Allow fallback',async()=>{
+  const {w,h,dom}=await fixture('<main><section class="approval-card"><h3>任意授权请求</h3><button id="deny">拒绝</button><button id="allow">允许</button><button id="arrow" aria-haspopup="menu">⌄</button></section></main>');
+  try{
+    let allowClicks=0, scopedClicks=0;
+    w.document.querySelector('#allow').addEventListener('click',()=>allowClicks++);
+    w.document.querySelector('#arrow').addEventListener('pointerdown',()=>{
+      const menu=w.document.createElement('div');menu.setAttribute('role','menu');
+      const option=w.document.createElement('div');option.setAttribute('role','menuitem');option.textContent='允许本次会话';
+      option.addEventListener('click',()=>scopedClicks++);
+      menu.append(option);w.document.body.append(menu);
+    });
+    await h.authorize(h.cards()[0],null,null,false);
+    assert.equal(scopedClicks,1);
+    assert.equal(allowClicks,0);
+  }finally{h.pause();dom.window.close();}
+});
+
+test('isolated primary Allow remains excluded from direct authorization fallback',async()=>{
+  const {h,dom}=await fixture('<main><form><button id="allow">Allow</button></form></main>');
+  try{
+    assert.equal(h.cards({wide:true}).length,0);
+  }finally{h.pause();dom.window.close();}
 });
