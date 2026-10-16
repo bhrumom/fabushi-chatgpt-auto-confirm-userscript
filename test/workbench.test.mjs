@@ -3371,11 +3371,12 @@ test('a submitted authorization card is never clicked again while settlement is 
     assert.equal(clicks,1);
     const submittedAt=Number(task.approvalSubmissionAt);
     assert.ok(submittedAt>0);
-    w.Date.now=()=>submittedAt+APPROVAL_SETTLEMENT_MS+1;
+    const settlementMs=12_000; const refreshMs=60_000;
+    w.Date.now=()=>submittedAt+settlementMs+1;
     assert.equal(await h.authorize(h.cards()[0],task,null,true),false,'a still-visible card after settlement is recovery evidence, not permission to click again');
     assert.equal(clicks,1,'the primary grant is clicked exactly once per submission identity');
     assert.ok(Number(task.approvalUnavailableSince)>0,'stuck settlement enters the bounded same-route recovery episode');
-    assert.equal(h.refreshUnavailableApproval(task,false,submittedAt+APPROVAL_SETTLEMENT_MS+APPROVAL_UNAVAILABLE_REFRESH_MS+1),true);
+    assert.equal(h.refreshUnavailableApproval(task,false,submittedAt+settlementMs+refreshMs+1),true);
     assert.equal(task.url,'https://chatgpt.com/c/authorization-stuck-submit');
   } finally { h.pause(); dom.window.close(); }
 });
