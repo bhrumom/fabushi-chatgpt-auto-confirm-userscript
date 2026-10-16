@@ -103,7 +103,7 @@
     return report;
   }
   function completeWorkFinalReport(value, task) {
-    if (!task || task.phase === 'work') return null;
+    if (!task || task.phase !== 'work') return null;
     const source = String(value || '');
     let start = -1, depth = 0, quoted = false, escaped = false;
     for (let index = 0; index < source.length; index++) {
@@ -128,20 +128,20 @@
     return null;
   }
   function currentWorkFinalReport(value, task) {
-    if (!task || task.phase === 'work' || !String(value || '').trim()) return null;
+    if (!task || task.phase !== 'work' || !String(value || '').trim()) return null;
     try { return parseWorkFinalReport(value, task); }
     catch { return null; }
   }
   function queueWorkFinalReportRepair(task, reason = '工作最终报告格式无法解析') {
-    if (!task || task.phase === 'work') return '';
-    const attempts = Number(task.reviewRepairAttempts || 0);
-    if (attempts >= MAX_REVIEW_REPAIR_ATTEMPTS) {
-      return queueBlockedFreshRetry(task, `${reason}；已达到 ${MAX_REVIEW_REPAIR_ATTEMPTS} 次当前会话修复上限`);
+    if (!task || task.phase !== 'work') return '';
+    const attempts = Number(task.workFinalReportRepairAttempts || 0);
+    if (attempts >= MAX_WORK_FINAL_REPORT_REPAIR_ATTEMPTS) {
+      return queueBlockedFreshRetry(task, `${reason}；已达到 ${MAX_WORK_FINAL_REPORT_REPAIR_ATTEMPTS} 次当前会话修复上限`);
     }
-    task.reviewRepairAttempts = attempts + 1;
+    task.workFinalReportRepairAttempts = attempts + 1;
     clearDispatchIntent(task);
     task.state = 'queued';
-    log(task, `${reason}；已保留 Work 结果并重新开启工作最终报告会话（第 ${task.reviewRepairAttempts}/${MAX_REVIEW_REPAIR_ATTEMPTS} 次），不会重复执行 Work。`);
+    log(task, `${reason}；已保留 Work 结果并重新开启工作最终报告会话（第 ${task.workFinalReportRepairAttempts}/${MAX_WORK_FINAL_REPORT_REPAIR_ATTEMPTS} 次），不会重复执行 Work。`);
     save();
     return 'queued';
   }
