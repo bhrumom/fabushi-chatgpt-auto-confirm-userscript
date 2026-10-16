@@ -1,10 +1,10 @@
-  function reviewParseError(message, cause = null) {
+  function workFinalReportParseError(message, cause = null) {
     const error = new Error(message);
-    error.code = 'invalid-review-json';
+    error.code = 'invalid-work-final-report';
     if (cause) error.cause = cause;
     return error;
   }
-  function reviewFieldValue(source, key) {
+  function workFinalReportFieldValue(source, key) {
     const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const field = new RegExp(`(?:["']\\s*)?${escapedKey}(?:\\s*["'])?\\s*:`, 'i').exec(source);
     if (!field) return null;
@@ -52,16 +52,16 @@
     }
     return null;
   }
-  function recoverReviewReport(source, task = null) {
+  function recoverWorkFinalReport(source, task = null) {
     const parseCandidate = candidate => {
-      const taskId = reviewFieldValue(candidate, 'taskId')?.value?.trim();
-      const roundRaw = reviewFieldValue(candidate, 'round')?.value?.trim();
-      const status = reviewFieldValue(candidate, 'status')?.value?.trim();
-      const summary = reviewFieldValue(candidate, 'summary')?.value?.trim();
+      const taskId = workFinalReportFieldValue(candidate, 'taskId')?.value?.trim();
+      const roundRaw = workFinalReportFieldValue(candidate, 'round')?.value?.trim();
+      const status = workFinalReportFieldValue(candidate, 'status')?.value?.trim();
+      const summary = workFinalReportFieldValue(candidate, 'summary')?.value?.trim();
       const round = roundRaw && /^\d+$/.test(roundRaw) ? Number(roundRaw) : NaN;
       if (!taskId || !Number.isInteger(round) || !status || !summary) return null;
       const report = { taskId, round, status, summary };
-      const next = reviewFieldValue(candidate, 'next')?.value?.trim();
+      const next = workFinalReportFieldValue(candidate, 'next')?.value?.trim();
       if (next) report.next = next;
       return report;
     };
@@ -81,29 +81,29 @@
     }
     return candidates.at(-1) || null;
   }
-  function parseReview(value, task) {
+  function parseWorkFinalReport(value, task) {
     const source = String(value).trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
     let report;
     try {
       report = JSON.parse(source);
     } catch (error) {
-      report = recoverReviewReport(source, task);
-      if (!report) throw reviewParseError('验收回复 JSON 无法解析；插件将有限重开验收会话，不会重复执行 Work。', error);
+      report = recoverWorkFinalReport(source, task);
+      if (!report) throw workFinalReportParseError('工作最终报告 JSON 无法解析；插件将有限重开工作最终报告会话，不会重复执行 Work。', error);
     }
     if (!report || typeof report !== 'object' || Array.isArray(report)
       || typeof report.taskId !== 'string' || !Number.isInteger(report.round)
       || typeof report.status !== 'string' || !['complete','next'].includes(report.status)
       || typeof report.summary !== 'string' || !report.summary.trim()) {
-      throw reviewParseError('验收回复缺少可验证的任务报告字段；插件将有限重开验收会话，不会重复执行 Work。');
+      throw workFinalReportParseError('工作最终报告缺少可验证的任务报告字段；插件将有限重开工作最终报告会话，不会重复执行 Work。');
     }
     if (report.taskId !== task.id || report.round !== task.round) {
-      throw reviewParseError(`验收回复身份不匹配：期望 taskId=${task.id}、round=${task.round}，实际 taskId=${report.taskId}、round=${report.round}；将仅重开规划/验收会话并保留 Work 结果，不会重复执行 Work。`);
+      throw workFinalReportParseError(`工作最终报告身份不匹配：期望 taskId=${task.id}、round=${task.round}，实际 taskId=${report.taskId}、round=${report.round}；将仅重开工作最终报告会话并保留 Work 结果，不会重复执行 Work。`);
     }
-    if (report.status === 'next' && (typeof report.next !== 'string' || !report.next.trim())) throw reviewParseError('验收回复缺少下一轮安排；插件将有限重开验收会话，不会重复执行 Work。');
+    if (report.status === 'next' && (typeof report.next !== 'string' || !report.next.trim())) throw workFinalReportParseError('工作最终报告缺少可执行的下一步动作；插件将有限重开工作最终报告会话，不会重复执行 Work。');
     return report;
   }
-  function completeReviewReport(value, task) {
-    if (!task || task.phase !== 'review') return null;
+  function completeWorkFinalReport(value, task) {
+    if (!task || task.phase === 'work') return null;
     const source = String(value || '');
     let start = -1, depth = 0, quoted = false, escaped = false;
     for (let index = 0; index < source.length; index++) {
@@ -121,19 +121,19 @@
         const candidate = source.slice(start, index + 1);
         try {
           const strict = JSON.parse(candidate);
-          return parseReview(JSON.stringify(strict), task);
+          return parseWorkFinalReport(JSON.stringify(strict), task);
         } catch { start = -1; }
       }
     }
     return null;
   }
-  function currentReviewReport(value, task) {
-    if (!task || task.phase !== 'review' || !String(value || '').trim()) return null;
-    try { return parseReview(value, task); }
+  function currentWorkFinalReport(value, task) {
+    if (!task || task.phase === 'work' || !String(value || '').trim()) return null;
+    try { return parseWorkFinalReport(value, task); }
     catch { return null; }
   }
-  function queueReviewRepair(task, reason = '验收回复格式无法解析') {
-    if (!task || task.phase !== 'review') return '';
+  function queueWorkFinalReportRepair(task, reason = '工作最终报告格式无法解析') {
+    if (!task || task.phase === 'work') return '';
     const attempts = Number(task.reviewRepairAttempts || 0);
     if (attempts >= MAX_REVIEW_REPAIR_ATTEMPTS) {
       return queueBlockedFreshRetry(task, `${reason}；已达到 ${MAX_REVIEW_REPAIR_ATTEMPTS} 次当前会话修复上限`);
@@ -141,7 +141,7 @@
     task.reviewRepairAttempts = attempts + 1;
     clearDispatchIntent(task);
     task.state = 'queued';
-    log(task, `${reason}；已保留 Work 结果并重新开启规划/验收会话（第 ${task.reviewRepairAttempts}/${MAX_REVIEW_REPAIR_ATTEMPTS} 次），不会重复执行 Work。`);
+    log(task, `${reason}；已保留 Work 结果并重新开启工作最终报告会话（第 ${task.reviewRepairAttempts}/${MAX_REVIEW_REPAIR_ATTEMPTS} 次），不会重复执行 Work。`);
     save();
     return 'queued';
   }
@@ -150,8 +150,6 @@
     task.previewSourceURL = '';
     task.previewPhase = '';
     task.previewRound = 0;
-    // A real final reply ends the temporary cross-conversation continuation
-    // chain. The next phase/round must not inherit the previous session text.
     task.lengthLimitCarry = '';
     task.lengthLimitNoReply = false;
     task.lengthLimitCarrySourceURL = '';
@@ -197,32 +195,44 @@
     log(task, reply, 'assistant');
     const sessionURL = canonicalConversationURL(task.url);
     if (sessionURL) recordConversationURL(task, sessionURL);
-    task.history ||= []; task.history.push({ url:sessionURL || task.url, phase:task.phase, round:task.round }); task.history = task.history.slice(-40);
-    if (task.mode === 'once') { state(task, 'done'); return; }
-    if (task.phase === 'work') {
-      if (Number(task.dispatchGoalRevision || 0) !== Number(task.goalRevision || 0)) {
-        task.result = ''; task.next = ''; task.round++; task.phase = 'work'; task.url = ''; task.token = ''; task.attempted = false; task.state = 'queued'; task.noFinalReplyAttempts = 0;
-        task.dispatchOriginURL = ''; task.dispatchStartedAt = 0;
-        log(task, '工作会话执行期间目标已更新；已忽略旧目标结果，下一轮 Work 将按新目标开始。');
-        save();
-        return;
-      }
-      task.result = reply.slice(0,24000); task.reviewRepairAttempts = 0; task.phase = 'review'; task.url = ''; task.token = ''; task.attempted = false; task.dispatchOriginURL = ''; task.dispatchStartedAt = 0; task.state = 'queued'; task.noFinalReplyAttempts = 0;
-      log(task, 'Work 自然回复已确认结束，插件正在新开规划/验收会话。');
+    task.history ||= [];
+    task.history.push({ url:sessionURL || task.url, phase:'work', round:task.round });
+    task.history = task.history.slice(-40);
+    if (task.mode === 'once') { state(task, 'done'); save(); return; }
+    const report = parseWorkFinalReport(reply, task);
+    task.workFinalReportRepairAttempts = 0;
+    if (Number(task.dispatchGoalRevision || 0) !== Number(task.goalRevision || 0)) {
+      task.result = '';
+      task.next = '';
+      task.round++;
+      task.phase = 'work';
+      task.url = '';
+      task.token = '';
+      task.attempted = false;
+      task.dispatchOriginURL = '';
+      task.dispatchStartedAt = 0;
+      task.state = 'queued';
+      task.noFinalReplyAttempts = 0;
+      log(task, '工作执行期间任务目标已更新；已忽略旧结果，按新目标重新执行。');
+      save();
+      return;
+    }
+    task.result = reply.slice(0,24000);
+    if (report.status === 'complete') {
+      task.next = '';
+      state(task, 'done', `工作最终报告确认完成：${report.summary}`);
     } else {
-      const report = parseReview(reply, task);
-      task.reviewRepairAttempts = 0;
-      if (Number(task.dispatchGoalRevision || 0) !== Number(task.goalRevision || 0)) {
-        task.result = ''; task.next = ''; task.round++; task.phase = 'work'; task.url = ''; task.token = ''; task.attempted = false; task.dispatchOriginURL = ''; task.dispatchStartedAt = 0; task.state = 'queued'; task.noFinalReplyAttempts = 0;
-        log(task, '验收期间任务目标已更新；已忽略旧验收结论，下一轮 Work 将按新目标开始。');
-        save();
-        return;
-      }
-      if (report.status === 'complete') state(task, 'done', `验收完成：${report.summary}`);
-      else {
-        task.next = report.next.slice(0,16000); task.round++; task.phase = 'work'; task.url = ''; task.token = ''; task.attempted = false; task.dispatchOriginURL = ''; task.dispatchStartedAt = 0; task.state = 'queued'; task.noFinalReplyAttempts = 0;
-        log(task, `规划/验收要求继续：${report.summary}`);
-      }
+      task.next = report.next.slice(0,16000);
+      task.round++;
+      task.phase = 'work';
+      task.url = '';
+      task.token = '';
+      task.attempted = false;
+      task.dispatchOriginURL = '';
+      task.dispatchStartedAt = 0;
+      task.state = 'queued';
+      task.noFinalReplyAttempts = 0;
+      log(task, `工作最终报告要求继续：${report.summary}`);
     }
     save();
   }
@@ -322,25 +332,25 @@
     const currentBlocker = blocker();
     const currentRateLimit = rateLimitNotice(getPageUiRecords);
     // Recovery already has a safe exact-route transcript extractor for the
-    // current visible assistant response. Review can additionally prove its
+    // current visible assistant response. WorkFinal can additionally prove its
     // own semantic identity through taskId + round, so keep that text available
     // even when ChatGPT has virtualized the marker-bearing user turn and this
     // document never persisted a Stop/generation identity.
-    const visibleReviewTranscript = task.phase === 'review'
+    const visibleWorkFinalTranscript = task.phase === 'work'
       && routeEndedOwned
       && !foreignTask
       && !otherRouteOwner
         ? visibleAssistantWorkTranscript(task, { allowExactRouteFallback:true })
         : { text:'', sourceKind:'' };
-    const visibleReviewText = String(visibleReviewTranscript.text || '').trim();
-    const visibleReviewReport = visibleReviewText
-      ? currentReviewReport(visibleReviewText, task)
+    const visibleWorkFinalText = String(visibleWorkFinalTranscript.text || '').trim();
+    const visibleWorkFinalReport = visibleWorkFinalText
+      ? currentWorkFinalReport(visibleWorkFinalText, task)
       : null;
     // Live review DOM can remove Stop before its response toolbar is mounted.
     // A complete current-task report is stronger than that transient toolbar
-    // gap because parseReview still enforces exact taskId/round and schema.
-    const structuredReviewFinal = Boolean(
-      task.phase === 'review'
+    // gap because parseWorkFinalReport still enforces exact taskId/round and schema.
+    const structuredWorkFinalFinal = Boolean(
+      task.phase === 'work'
       && routeOwned
       && turn.owned
       && turn.text
@@ -349,7 +359,7 @@
       && !approvalBlocking
       && !currentBlocker
       && !currentRateLimit
-      && currentReviewReport(turn.text, task)
+      && currentWorkFinalReport(turn.text, task)
     );
     const messagesMountedForLoadFailure = visibleConversationHasMessages();
     const explicitConversationLoadFailure = routeOwned && !messagesMountedForLoadFailure
@@ -379,20 +389,20 @@
       && !currentRateLimit
       && connectionInterruptedNotice(routeEndedOwned ? activityTurn : turn, getPageUiRecords)
     );
-    if (explicitConnectionInterrupted && task.phase === 'review' && !task.attempted
+    if (explicitConnectionInterrupted && task.phase === 'work' && !task.attempted
       && task.state !== 'paused' && !terminal.has(task.state) && !foreignTask && !otherRouteOwner) {
       const transcript = visibleAssistantWorkTranscript(task, { allowExactRouteFallback:routeEndedOwned });
-      const report = completeReviewReport(transcript.text, task);
+      const report = completeWorkFinalReport(transcript.text, task);
       if (report) {
         const identity = JSON.stringify([task.id, task.round, task.goalRevision || 0, liveURL, transcript.text]);
-        if (task.interruptedReviewIdentity !== identity) {
-          task.interruptedReviewIdentity = identity;
-          task.interruptedReviewSince = now;
+        if (task.interruptedWorkFinalIdentity !== identity) {
+          task.interruptedWorkFinalIdentity = identity;
+          task.interruptedWorkFinalSince = now;
           log(task, '连接中断提示下已读到本轮完整验收模板；正在复核内容稳定性，随后按验收结果推进。');
           save();
-        } else if (now - Number(task.interruptedReviewSince || now) >= 1500) {
-          task.interruptedReviewIdentity = '';
-          task.interruptedReviewSince = 0;
+        } else if (now - Number(task.interruptedWorkFinalSince || now) >= 1500) {
+          task.interruptedWorkFinalIdentity = '';
+          task.interruptedWorkFinalSince = 0;
           clearStopNoApprovalConfirmation(task);
           log(task, '本轮完整验收模板已稳定确认；按模板结果推进。');
           finish(task, JSON.stringify(report));
@@ -400,9 +410,9 @@
         return;
       }
     }
-    if (task.interruptedReviewIdentity) {
-      task.interruptedReviewIdentity = '';
-      task.interruptedReviewSince = 0;
+    if (task.interruptedWorkFinalIdentity) {
+      task.interruptedWorkFinalIdentity = '';
+      task.interruptedWorkFinalSince = 0;
       save();
     }
     if (explicitConnectionInterrupted) {
@@ -564,7 +574,7 @@
       !stopPresent
       && routeOwned
       && turn.owned
-      && (turn.final || structuredReviewFinal)
+      && (turn.final || structuredWorkFinalFinal)
       && turn.text
       && !foreignTask
       && !otherRouteOwner
@@ -575,12 +585,12 @@
     );
     // A conversation-length notice is a hard product boundary, not a normal
     // final answer. Handle it before final-toolbar classification so a visible
-    // copy/share toolbar on the notice cannot prematurely finish Work/Review.
+    // copy/share toolbar on the notice cannot prematurely finish Work/WorkFinal.
     const lengthLimitNotice = pageBelongsToTask && !approvalBlocking ? conversationLengthLimitNotice(turn, getPageUiRecords) : '';
     // ChatGPT may leave a stale conversation-length notice in page chrome
     // after the latest owned assistant answer has already committed its Copy
     // toolbar. Do not let that old chrome text preempt the ordinary two-scan
-    // Work -> Review final gate. A notice inside the current response remains
+    // Work -> WorkFinal final gate. A notice inside the current response remains
     // authoritative and continues the same Work phase in a fresh chat.
     const currentResponseLengthLimit = strongOwnedFinal && lengthLimitNotice
       ? conversationLengthLimitNotice(turn, () => [])
@@ -616,10 +626,10 @@
     }
     const stopDisappearedFreshCandidate = Boolean(
       !stopPresent
-      // Review uses the bounded settlement/no-final path below so long
+      // WorkFinal uses the bounded settlement/no-final path below so long
       // reasoning and delayed toolbar hydration cannot create duplicate
       // acceptance chats.
-      && task.phase !== 'review'
+      && task.phase === 'work'
       && stopIdentityMatches
       && (stopObservedInCurrentDocument || inheritedStopAbsenceStable)
       && approvalRouteEligible
@@ -828,9 +838,9 @@
     const cacheRetryAttempted = Boolean(cacheRetry && task.streamCacheRetryKey === cacheRetryKey);
     const retryableError = Boolean(cacheRetry || (pageBelongsToTask && !turn.final && !approvalBlocking
       && sendTimeoutNotice(routeEndedOwned ? activityTurn : turn, getPageUiRecords)));
-    const visibleReviewFinal = Boolean(
-      visibleReviewReport
-      && visibleReviewText
+    const visibleWorkFinalFinal = Boolean(
+      visibleWorkFinalReport
+      && visibleWorkFinalText
       && routeOwned
       && routeEndedOwned
       && !foreignTask
@@ -946,29 +956,7 @@
     // This fallback is intentionally stronger than generic "conversation
     // ended": it requires exact-route + marker-derived ownership and a fully
     // idle, safe composer state. Route-only recovery ownership is excluded.
-    const naturalFinalCandidate = Boolean(
-      // Review is a structured contract: never promote arbitrary natural
-      // language just because Stop disappeared and the composer is idle.
-      // Wait for parseReview()-valid JSON or the response-local final toolbar.
-      task.phase !== 'review'
-      && routeOwned
-      && turn.owned
-      && String(turn.text || '').trim()
-      && turn.hasNaturalReply
-      && !turn.final
-      && !stopPresent
-      && !activityStreaming
-      && !approvalBlocking
-      && !rawLoading
-      && !effectiveLoading
-      && !turn.recoveredStaticCandidate
-      && !currentBlocker
-      && !currentRateLimit
-      && !retryableError
-      && composerReady
-      && composerEmpty
-      && !task.attempted
-    );
+    const naturalFinalCandidate = false;
     const sample = {
       stop:stopPresent,
       cards:approvalRouteEligible ? (approvalBlocking ? Math.max(1, pending.length) : 0) : 0,
@@ -981,15 +969,15 @@
       // latest user turn is the message boundary; both are required before
       // reading Stop, approval cards, or an assistant reply.
       routeOwned,
-      owned:Boolean(routeOwned && (turn.owned || visibleReviewFinal)),
-      foreignTaskId:routeOwned && !turn.owned && !visibleReviewFinal ? (foreignTask?.id || '') : '',
-      text:visibleReviewFinal ? visibleReviewText : turn.text,
+      owned:Boolean(routeOwned && (turn.owned || visibleWorkFinalFinal)),
+      foreignTaskId:routeOwned && !turn.owned && !visibleWorkFinalFinal ? (foreignTask?.id || '') : '',
+      text:visibleWorkFinalFinal ? visibleWorkFinalText : turn.text,
       // Final UI/text is completion evidence only after taskTurnForInspection
       // has proved ownership. An unowned final-looking response must not block
-      // the bounded Review no-final settlement timer.
+      // the bounded WorkFinal no-final settlement timer.
       final:Boolean(
-        (turn.owned && (turn.final || structuredReviewFinal))
-        || visibleReviewFinal
+        (turn.owned && (turn.final || structuredWorkFinalFinal))
+        || visibleWorkFinalFinal
       ),
       responseActions:turn.responseActions,
       responseActionsComplete:turn.responseActionsComplete,
@@ -1075,7 +1063,7 @@
     const abnormalNoFinalFor = abnormalNoFinalEligible
       ? Math.max(0, now - Number(task.abnormalNoFinalSince || now))
       : 0;
-    const endedNoFinalStabilityMs = task.phase === 'review'
+    const endedNoFinalStabilityMs = task.phase === 'work'
       ? REVIEW_ENDED_NO_FINAL_STABILITY_MS
       : ENDED_NO_FINAL_STABILITY_MS;
     const stallEligible = Boolean(
