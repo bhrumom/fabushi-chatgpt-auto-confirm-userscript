@@ -4383,7 +4383,7 @@ test('cancelled queued Work task does not reopen the previous Work URL',async()=
   assert.equal(h.restoreCancelledTask(task),true);
   assert.equal(task.state,'queued');
   assert.equal(task.url,'');
-  assert.equal(task.phase,'review');
+  assert.equal(task.phase,'work');
   dom.window.close();
 });
 test('quota banner is ignored while real safety challenges remain blockers',async()=>{
@@ -5955,8 +5955,8 @@ test('reload inherited Stop observation waits for hydration but keeps a strong f
     observation.idleSince=Date.now()-5_000;
     task.reloadStopAbsentSince=Date.now()-9000;
     await h.inspect(task,null);
-    assert.equal(task.state,'queued','stable hydrated final reply completes normally and advances goal mode to review');
-    assert.equal(task.phase,'review');
+    assert.equal(task.state,'done','stable hydrated Work final report completes normally');
+    assert.equal(task.phase,'work');
     assert.equal(task.connectionInterruptedFreshDispatch||false,false,'normal completion must not be mislabeled as Stop-disappearance recovery');
     assert.ok(task.messages.some(item=>item.role==='assistant' && /恢复出新的进度/.test(item.text||'')));
     assert.equal(task.abnormalFreshCarry||'','');
