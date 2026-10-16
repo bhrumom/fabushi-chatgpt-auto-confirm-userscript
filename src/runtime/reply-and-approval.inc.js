@@ -1468,8 +1468,14 @@
           log(task, `授权卡仍存在但控件正在处理或暂不可用；保持当前会话等待。若连续 ${Math.ceil(APPROVAL_UNAVAILABLE_REFRESH_MS / 1000)} 秒仍未恢复，将刷新当前会话而不是一直等待，也不会把 Stop 消失当成结束。`);
         }
       }
+      return false;
+    }
+    if (!card.actionable) {
       if (card.directActionable && isDirectPrimaryAuthorizationAllow(card.button)) {
         checkAuthorizationRun(signal, queueOwned);
+        const last = approvalAttempts.get(card.button) || 0;
+        if (Date.now() - last < 15000) return false;
+        approvalAttempts.set(card.button, Date.now());
         activateControl(card.button);
         if (task) beginApprovalSettlement(task);
         log(task, '授权卡没有“允许本次会话”选项；已直接点击主“允许”，进入授权提交保护期。');
