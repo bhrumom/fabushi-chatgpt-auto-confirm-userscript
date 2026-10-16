@@ -7067,7 +7067,37 @@ test('marker-virtualized Work final on the same Stop-observed response parses ne
 
 test('marker-virtualized Work final complete on the same Stop-observed response finishes normally',async()=>{
   const taskId='review-virtualized-complete';
-  const review=JSON.stringify({taskId,round:4,status:'complete',summary:'所有要求已有 exact-head 证据，验收完成。'});
+  const review=JSON.stringify({taskId,round:4,status:'complete',summary:'所有要求已有 exact-head 证据，Work 完成。',next:''});
+  const {h,w,dom}=await fixture(`<main>
+    <article id="review-turn" data-testid="conversation-turn-review-complete" data-content-search-turn-key="review-turn-complete">
+      <div id="review-user" data-message-author-role="user" data-content-search-unit-key="review-turn-complete:user"><div data-user-message-bubble="true">继续 Work [Fabushi:review-vcomplete]</div></div>
+      <div data-message-author-role="assistant" data-content-search-unit-key="review-turn-complete:assistant"><div data-message-content>${review}</div></div>
+    </article>
+    <button id="stop" data-testid="stop-button" aria-label="停止生成">停止</button>
+    <form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form>
+  </main>`);
+  try {
+    w.history.pushState({},'', '/c/review-virtualized-complete');
+    const task={id:taskId,ownerTabId:h.getTabId(),goal:'完成所有要求',mode:'goal',phase:'work',round:4,state:'waiting',url:'https://chatgpt.com/c/review-virtualized-complete',token:'review-vcomplete',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work 已完成',messages:[]};
+    h.data.tasks.push(task);
+    await h.start(false);
+    await h.inspect(task,null);
+    w.document.querySelector('#stop').remove();
+    const turn=w.document.querySelector('#review-turn');
+    for(const name of ['复制','评价回复']){const button=w.document.createElement('button');button.setAttribute('aria-label',name);turn.append(button);}
+    await h.inspect(task,null);
+    if(task.state!=='done'){
+      const observation=h.observations.get(task.id);
+      assert.equal(observation?.final,true);
+      observation.finalSince=Date.now()-5_000;observation.since=Date.now()-5_000;observation.idleSince=Date.now()-5_000;
+      await h.inspect(task,null);
+    }
+    assert.equal(task.state,'done');
+    assert.equal(task.phase,'work');
+    assert.equal(task.connectionInterruptedFreshDispatch||false,false);
+    assert.ok(task.messages.some(item=>/Work 完成/.test(item.text||'')));
+  } finally {h.pause();dom.window.close();}
+});
   const {h,w,dom}=await fixture(`<main>
     <div id="review-turn" data-content-search-turn-key="review-turn-complete">
       <div id="review-user" data-content-search-unit-key="review-turn-complete:user"><div data-user-message-bubble="true">独立验收 [Fabushi:review-vcomplete]</div></div>
@@ -7109,8 +7139,8 @@ test('marker-virtualized Work final complete on the same Stop-observed response 
 test('marker virtualization cannot consume a different final assistant response boundary after Stop',async()=>{
   const {h,w,dom}=await fixture(`<main>
     <article id="turn-a" data-testid="conversation-turn-stop-response-a" data-content-search-turn-key="stop-response-a">
-      <div id="review-user" data-content-search-unit-key="stop-response-a:user"><div data-user-message-bubble="true">独立验收 [Fabushi:review-boundary-mismatch]</div></div>
-      <div data-content-search-unit-key="stop-response-a:assistant"><div data-message-content>当前 generation 的中途验收内容。</div></div>
+      <div id="review-user" data-message-author-role="user" data-content-search-unit-key="stop-response-a:user"><div data-user-message-bubble="true">继续 Work [Fabushi:review-boundary-mismatch]</div></div>
+      <div data-message-author-role="assistant" data-content-search-unit-key="stop-response-a:assistant"><div data-message-content>当前 generation 的中途 Work 内容。</div></div>
     </div>
     <button id="stop" data-testid="stop-button" aria-label="停止生成">停止</button>
     <form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form>
@@ -7586,7 +7616,7 @@ for (const kind of ['complete','next','truncated','foreign','newer-user','approv
       return;
     }
     if(kind==='foreign' || kind==='truncated') {
-      assert.equal(h.currentWorkFinalReport(content,task),null);
+      assert.throws(()=>h.parseReview(content,task),/工作最终报告|身份|无法解析/);
       assert.equal(task.state,'waiting');
       assert.equal(task.phase,'work');
       assert.equal(task.round,4);
