@@ -3171,7 +3171,7 @@ test('Work final JSON must itself contain only executable Work instructions',asy
     assert.match(prompt,/MAHAYANA_TASK_REPORT_V1/);
     assert.match(prompt,/严格只输出以下 MAHAYANA_TASK_REPORT_V1 JSON/);
     assert.match(prompt,/next.*直接写当前执行环境可以立即实施的具体动作/s);
-    assert.match(prompt,/不要输出验收会话、审查会话、角色分派、未来会话安排或只读身份的旁白/);
+    assert.match(prompt,/不要输出会话分工、角色说明、未来会话安排或只读身份的旁白/);
     assert.match(prompt,/status 为 complete 时必须为空字符串/);
     assert.doesNotMatch(prompt,/plannerPrompt/);
     assert.doesNotMatch(prompt,/本次验收身份固定/);
@@ -6811,10 +6811,9 @@ test('live Work fallback-turn shape recognizes the settled JSON response and out
   } finally {h.pause();dom.window.close();}
 });
 
-test('Work Stop disappearance uses bounded no-final recovery without opening a duplicate Work session',async()=>{
+test('Work Stop disappearance requires the short authorization confirmation before fresh Work recovery',async()=>{
   const taskId='review-settlement-race';
-  const review=JSON.stringify({taskId,round:5,status:'next',summary:'仍有真实 remaining。',next:'继续 shipping generated Agent ownership cutover。'});
-  const {h,w,dom}=await fixture('<main><div id="review-turn" data-content-search-turn-key="fallback-turn-review-race"><div data-content-search-unit-key="fallback-turn-review-race:0:user"><div data-user-message-bubble="true">独立验收 [Fabushi:review-settlement-race-token]</div></div><div id="review-assistant" data-content-search-unit-key="fallback-turn-review-race:2:assistant"><div data-testid="tool-call-result">已调用工具</div></div></div><button id="stop" data-testid="stop-button" aria-label="停止生成">停止</button><form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form></main>');
+  const {h,w,dom}=await fixture('<main><div id="review-turn" data-content-search-turn-key="fallback-turn-review-race"><div data-content-search-unit-key="fallback-turn-review-race:0:user"><div data-user-message-bubble="true">继续 Work [Fabushi:review-settlement-race-token]</div></div><div id="review-assistant" data-content-search-unit-key="fallback-turn-review-race:2:assistant"><div data-testid="tool-call-result">已调用工具</div></div></div><button id="stop" data-testid="stop-button" aria-label="停止生成">停止</button><form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form></main>');
   try {
     w.history.pushState({},'', '/c/review-settlement-race');
     const task={id:taskId,ownerTabId:h.getTabId(),goal:'继续完成架构迁移',mode:'goal',phase:'work',round:5,state:'waiting',url:'https://chatgpt.com/c/review-settlement-race',token:'review-settlement-race-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
@@ -6823,39 +6822,21 @@ test('Work Stop disappearance uses bounded no-final recovery without opening a d
     await h.inspect(task,null);
     assert.ok(task.stopObservedGenerationIdentity);
     assert.equal(task.stopObservedAssistantBoundaryKey,'turn:fallback-turn-review-race');
-
     w.document.querySelector('#stop').remove();
     await h.inspect(task,null);
-    assert.equal(task.url,'https://chatgpt.com/c/review-settlement-race','Work stays in the original conversation until the bounded no-final window expires');
+    assert.equal(task.state,'waiting');
+    assert.ok(Number(task.stopNoApprovalConfirmSince)>0,'Stop disappearance first requires the short live authorization confirmation');
     assert.equal(task.connectionInterruptedFreshDispatch||false,false);
-    assert.ok(Number(task.abnormalNoFinalSince)>0,'Work no-final recovery starts the bounded timer');
-
-    task.abnormalNoFinalSignature=h.observations.get(task.id)?.progressSignature || task.abnormalNoFinalSignature;
-    task.abnormalNoFinalSince=Date.now()-9_000;
+    task.stopNoApprovalConfirmSince=Date.now()-3_000;
     await h.inspect(task,null);
-    assert.equal(task.state,'queued','ordinary eight-second Work no-final window opens one fresh Work session');
+    assert.equal(task.state,'queued');
     assert.equal(task.url,'');
     assert.equal(task.connectionInterruptedFreshDispatch,true);
     assert.equal(task.phase,'work');
     assert.equal(task.round,5);
-    return;
-
-    w.document.querySelector('#review-assistant [data-message-content]').textContent=review;
-    await h.inspect(task,null);
-    const observation=h.observations.get(task.id);
-    assert.equal(observation?.final,true,'exact-identity review JSON is final even before toolbar hydration');
-    assert.equal(task.connectionInterruptedFreshDispatch||false,false);
-    observation.finalSince=Date.now()-5_000;
-    observation.since=Date.now()-5_000;
-    observation.idleSince=Date.now()-5_000;
-    await h.inspect(task,null);
-    assert.equal(task.phase,'work');
-    assert.equal(task.round,6);
-    assert.equal(task.next,'继续 shipping generated Agent ownership cutover。');
-    assert.equal(task.state,'queued');
-    assert.equal(task.connectionInterruptedFreshDispatch||false,false);
+    assert.match(task.messages.at(-1).text,/停止按钮消失接力/);
   } finally {h.pause();dom.window.close();}
-});
+}););
 
 test('marker-virtualized Work final JSON on the same Stop-observed response settles without waiting for toolbar',async()=>{
   const taskId='review-structured-virtualized';
@@ -6895,25 +6876,23 @@ test('marker-virtualized Work final JSON on the same Stop-observed response sett
 });
 
 test('Work no-final recovery remains bounded after the eight-second window',async()=>{
-  const {h,w,dom}=await fixture('<main><div data-content-search-turn-key="review-expiry-turn"><div data-content-search-unit-key="review-expiry-turn:0:user"><div data-user-message-bubble="true">继续 Work [Fabushi:review-expiry-token]</div></div><div data-content-search-unit-key="review-expiry-turn:2:assistant"><div data-testid="tool-call-result">已调用工具</div></div></div><button id="stop" data-testid="stop-button" aria-label="停止生成">停止</button><form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form></main>');
+  const {h,w,dom}=await fixture('<main><div data-content-search-turn-key="review-expiry-turn"><div data-content-search-unit-key="review-expiry-turn:0:user"><div data-user-message-bubble="true">继续 Work [Fabushi:review-expiry-token]</div></div><div data-content-search-unit-key="review-expiry-turn:2:assistant"><div data-testid="tool-call-result">已调用工具</div></div></div><form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form></main>');
   try {
     w.history.pushState({},'', '/c/review-expiry');
-    const task={id:'review-expiry',ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'work',round:3,state:'waiting',url:'https://chatgpt.com/c/work-expiry',token:'review-expiry-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
+    const task={id:'review-expiry',ownerTabId:h.getTabId(),goal:'继续完成',mode:'goal',phase:'work',round:3,state:'waiting',url:'https://chatgpt.com/c/review-expiry',token:'review-expiry-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
     h.data.tasks.push(task);
     await h.start(false);
-    await h.inspect(task,null);
-    w.document.querySelector('#stop').remove();
     await h.inspect(task,null);
     assert.ok(Number(task.abnormalNoFinalSince)>0);
     task.abnormalNoFinalSignature=h.observations.get(task.id)?.progressSignature || task.abnormalNoFinalSignature;
     task.abnormalNoFinalSince=Date.now()-9_000;
     await h.inspect(task,null);
-    assert.equal(task.state,'queued','a truly quiet Work task still gets bounded abnormal recovery');
+    assert.equal(task.state,'queued','a quiet owned Work task gets bounded abnormal recovery');
     assert.equal(task.url,'');
     assert.equal(task.connectionInterruptedFreshDispatch,true);
     assert.match(task.messages.at(-1).text,/已经结束但没有最终回复/);
   } finally {h.pause();dom.window.close();}
-});
+}););
 test('marker-virtualized Work final accepts the exact current report even when the renderer exposes no structural response key',async()=>{
   const taskId='review-result-no-boundary';
   const review=JSON.stringify({taskId,round:12,status:'next',summary:'还有一个 production blocker。',next:'继续关闭 production blocker 并重跑 exact-head gates。'});
@@ -7008,32 +6987,25 @@ test('marker-virtualized Work final accepts the exact current report after the r
 test('Work result fallback rejects a report for a different task or round even after Stop disappears',async()=>{
   const taskId='review-result-wrong-identity';
   const wrong=JSON.stringify({taskId:'another-task',round:99,status:'complete',summary:'错误身份。',next:''});
-  const {h,w,dom}=await fixture(`<main>
-    <section>
-      <div id="review-user" data-message-author-role="user">独立验收 [Fabushi:review-result-wrong-token]</div>
-      <div id="review-assistant" data-message-author-role="assistant"><div class="markdown">正在核验。</div></div>
-    </section>
-    <button id="stop" data-testid="stop-button" aria-label="停止生成">停止</button>
-    <form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form>
-  </main>`);
+  const {h,w,dom}=await fixture(`<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">继续 Work [Fabushi:review-result-wrong-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown" id="wrong-report">正在核验。</div></div></article><button id="stop" data-testid="stop-button" aria-label="停止生成">停止</button><form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form></main>`);
   try {
     w.history.pushState({},'', '/c/review-result-wrong-identity');
-    const task={id:taskId,ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'work',round:4,state:'waiting',url:'https://chatgpt.com/c/work-result-wrong-identity',token:'review-result-wrong-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
+    const task={id:taskId,ownerTabId:h.getTabId(),goal:'继续完成',mode:'goal',phase:'work',round:4,state:'waiting',url:'https://chatgpt.com/c/review-result-wrong-identity',token:'review-result-wrong-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
     h.data.tasks.push(task);
     await h.start(false);
     await h.inspect(task,null);
-    w.document.querySelector('#review-user').remove();
     w.document.querySelector('#stop').remove();
-    w.document.querySelector('#review-assistant .markdown').textContent=wrong;
-
+    w.document.querySelector('#wrong-report').textContent=wrong;
     const candidate=h.taskTurnForInspection(task);
-    assert.equal(candidate.owned,false,'a different taskId/round never gains result ownership');
+    assert.equal(candidate.owned,true,'the current task boundary remains owned even when its final report identity is wrong');
+    assert.equal(candidate.workResultFinal||false,false);
     await h.inspect(task,null);
     assert.equal(task.state,'waiting');
     assert.equal(task.connectionInterruptedFreshDispatch||false,false);
-    assert.ok(Number(task.abnormalNoFinalSince)>0);
+    assert.equal(Number(task.abnormalNoFinalSince)||0,0,'a mismatched final report is not converted into a fresh session from a Stop-bound route');
+    assert.equal(task.phase,'work');
   } finally {h.pause();dom.window.close();}
-});
+}););
 
 test('marker-virtualized Work final on the same Stop-observed response parses next and dispatches the next Work round',async()=>{
   const taskId='review-virtualized-next';
