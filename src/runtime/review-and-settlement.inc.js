@@ -99,7 +99,8 @@
     if (report.taskId !== task.id || report.round !== task.round) {
       throw workFinalReportParseError(`工作最终报告身份不匹配：期望 taskId=${task.id}、round=${task.round}，实际 taskId=${report.taskId}、round=${report.round}；将仅重开工作最终报告会话并保留 Work 结果，不会重复执行 Work。`);
     }
-    if (report.status === 'next' && (typeof report.next !== 'string' || !report.next.trim())) throw workFinalReportParseError('工作最终报告缺少可执行的下一步动作；插件将有限重开工作最终报告会话，不会重复执行 Work。');
+    if (report.status === 'complete' && report.next !== '') throw workFinalReportParseError('工作最终报告标记 complete 时 next 必须为空字符串。');
+    if (report.status === 'next' && (typeof report.next !== 'string' || !report.next.trim())) throw workFinalReportParseError('工作最终报告缺少可执行的下一步动作。');
     return report;
   }
   function completeWorkFinalReport(value, task) {
