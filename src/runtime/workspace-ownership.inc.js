@@ -309,9 +309,9 @@
   const attachmentDispatchContexts = new Map();
   const approvalAttempts = new WeakMap();
   const terminal = new Set(['done', 'blocked', 'cancelled']);
-  const resumableStates = new Set(['queued', 'sending', 'uploading', 'waiting', 'loading', 'generating', 'approval', 'reviewing']);
+  const resumableStates = new Set(['queued', 'sending', 'uploading', 'waiting', 'loading', 'generating', 'approval']);
   const pausableStates = new Set([...resumableStates, 'blocked']);
-  const statusNames = { queued:'等待派发', sending:'正在发送', uploading:'正在上传附件', waiting:'等待响应', loading:'正在加载', generating:'正在生成', approval:'等待授权', reviewing:'正在验收', done:'已完成', blocked:'需要处理', paused:'已暂停', cancelled:'已取消' };
+  const statusNames = { queued:'等待派发', sending:'正在发送', uploading:'正在上传附件', waiting:'等待响应', loading:'正在加载', generating:'正在生成', approval:'等待授权', done:'已完成', blocked:'需要处理', paused:'已暂停', cancelled:'已取消' };
   const REASONING_PRESETS = Object.freeze([
     Object.freeze({ index:0, key:'instant', label:'即时', effort:'none' }),
     Object.freeze({ index:1, key:'medium', label:'中', effort:'medium' }),
