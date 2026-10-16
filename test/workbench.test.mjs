@@ -7126,16 +7126,13 @@ test('marker virtualization cannot consume a different final assistant response 
     const candidate=h.taskTurnForInspection(task);
     assert.equal(candidate.owned,false,'a structurally different response cannot inherit Stop-bound ownership');
     await h.inspect(task,null);
-    assert.equal(task.state,'waiting','unproven Work response stays fail-closed during the settlement grace');
+    assert.equal(task.state,'waiting','an unrelated response boundary stays fail-closed');
     assert.equal(task.connectionInterruptedFreshDispatch||false,false);
-    assert.equal(Number(task.abnormalNoFinalSince)||0,0,'the Stop-disappearance path uses its dedicated live authorization confirmation before fresh recovery');
-    assert.equal(task.stopNoApprovalConfirmSince||0,0,'the confirmation is consumed before the fresh Work handoff');
-    assert.equal(task.state,'queued','after the bounded Stop-disappearance confirmation the abnormal fresh-session recovery resumes');
-    assert.equal(task.url,'');
-    assert.equal(task.connectionInterruptedFreshDispatch,true);
+    assert.equal(Number(task.abnormalNoFinalSince)||0,0,'without the observed response boundary no no-final timer may authorize recovery');
+    assert.equal(task.stopNoApprovalConfirmSince||0,0);
+    assert.equal(task.url,'https://chatgpt.com/c/review-boundary-mismatch');
     assert.equal(task.phase,'work');
-    assert.equal(task.round,5);
-    assert.match(task.messages.at(-1)?.text||'',/停止按钮消失接力/);
+    assert.equal(task.round,3);
   } finally {h.pause();dom.window.close();}
 });
 
