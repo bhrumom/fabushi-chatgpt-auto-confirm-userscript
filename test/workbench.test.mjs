@@ -3369,16 +3369,10 @@ test('approval submission latch survives a transient card DOM gap and expires sa
     await h.start();
     await h.inspect(task,null);
     const approval=w.document.querySelector('#approval');
-    const arrow=w.document.querySelector('#arrow');
-    arrow.addEventListener('pointerdown',()=>{
-      if(w.document.querySelector('[role=menu]'))return;
-      const menu=w.document.createElement('div');menu.setAttribute('role','menu');
-      const conversation=w.document.createElement('div');conversation.setAttribute('role','menuitem');conversation.textContent='Allow GitHub for this conversation';
-      conversation.addEventListener('click',()=>approval.remove());
-      menu.append(conversation);w.document.body.append(menu);
-    });
+    const primary=w.document.querySelector('#allow-once');
+    primary.addEventListener('click',()=>approval.remove());
     await h.authorize(h.cards()[0],task,null,true);
-    assert.ok(Number(task.approvalSettlementUntil)>Date.now(),'conversation-scoped approval starts a persisted settlement latch');
+    assert.ok(Number(task.approvalSettlementUntil)>Date.now(),'primary current-action approval starts a persisted settlement latch');
     assert.equal(h.cards().length,0,'the fixture reproduces the transient post-click DOM gap');
     w.document.querySelector('[data-testid="stop-button"]').remove();
     await h.inspect(task,null);
