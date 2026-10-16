@@ -3325,6 +3325,11 @@ test('disabled automatic approval refreshes the same conversation after one minu
     assert.equal(h.refreshUnavailableApproval(task,false,started+119_999),false,'the next approval refresh requires another full minute');
     assert.equal(h.refreshUnavailableApproval(task,false,started+120_000),true);
     assert.equal(task.approvalUnavailableRefreshCount,2);
+    assert.equal(h.refreshUnavailableApproval(task,false,started+180_000),true,'the third same-route refresh remains bounded and preserves task identity');
+    assert.equal(task.approvalUnavailableRefreshCount,3);
+    assert.equal(h.refreshUnavailableApproval(task,false,started+240_000),true,'exhaustion transitions to manual recovery instead of refreshing forever');
+    assert.equal(task.state,'blocked');
+    assert.equal(task.approvalUnavailableRefreshCount,0,'exhaustion clears the repeating recovery counter');
     assert.equal(task.url,'https://chatgpt.com/c/approval-refresh','repeated recovery never creates a fresh conversation');
   } finally { h.pause(); dom.window.close(); }
 });
