@@ -7712,7 +7712,10 @@ test('resumed bound pending send with a valid Work final report is inspected wit
  try{
   w.history.replaceState({},'', '/c/resumed-bound-final');
   const task={id:'resumed-bound-final',ownerTabId:h.getTabId(),goal:'goal',mode:'goal',phase:'work',round:3,state:'paused',pausedState:'sending',url:w.location.href,token:'click',attempted:true,sentAt:Date.now(),messages:[]};h.data.tasks.push(task);let sends=0;w.document.querySelector('[data-testid="send-button"]').onclick=()=>sends++;
-  await h.resumeTask(task);await h.tick();assert.equal(task.attempted,false);assert.equal(sends,0);assert.equal(task.url,w.location.href);assert.equal(task.state,'done');assert.equal(task.phase,'work');assert.match(task.result,/status.*complete/);
+  await h.resumeTask(task);await h.tick();assert.equal(task.attempted,false);assert.equal(sends,0);assert.equal(task.url,w.location.href);assert.equal(task.state,'waiting');
+  const observation=h.observations.get(task.id);assert.ok(observation?.final,'the valid Work final report is observed after resume');
+  observation.finalSince=Date.now()-5_000;observation.since=Date.now()-5_000;observation.idleSince=Date.now()-5_000;
+  await h.inspect(task,null);assert.equal(task.state,'done');assert.equal(task.phase,'work');assert.match(task.result,/status.*complete/);
  }finally{h.pause();dom.window.close();}
 });
 
