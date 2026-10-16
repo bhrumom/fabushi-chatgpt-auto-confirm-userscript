@@ -2067,7 +2067,7 @@ test('a length-limit notice without safe current assistant work does not queue a
   } finally {h.pause();dom.window.close();}
 });
 
-test('terminal length CTA with stopped thinking and no reply continues Work and Review once',async()=>{
+test('terminal length CTA with stopped thinking and no reply continues the current Work contract once',async()=>{
   for (const phase of ['work','review']) {
     const {h,w,dom}=await fixture(`<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish [Fabushi:terminal-empty]</div></article><button>已停止思考</button><div role="status">你已达到此对话的长度上限，你可以开始新聊天以继续对话。</div><button>开始新聊天</button></main>`);
     try {
@@ -2089,14 +2089,14 @@ test('terminal length CTA with stopped thinking and no reply continues Work and 
   }
 });
 
-test('shared renderer stopped-thinking activity is not fabricated reply progress',async()=>{
+test('shared renderer stopped-thinking activity is not fabricated Work reply progress',async()=>{
   const {h,w,dom}=await fixture(`<main><div data-content-search-turn-key="terminal-shared"><div data-content-search-unit-key="terminal:user"><div data-markdown-text-tone="user-message">finish [Fabushi:shared-empty]</div></div><div data-markdown-text-style="assistant-message" data-markdown-text-tone="tertiary">已停止思考</div><div role="alert">你已达到此对话的长度上限，你可以开始新聊天以继续对话。</div><button>开始新聊天</button></div></main>`);
   try {
     w.history.pushState({},'', '/c/shared-empty');
     const task={id:'shared-empty',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:w.location.href,token:'shared-empty',attempted:false,messages:[]};
     h.data.tasks.push(task); await h.start(); await h.inspect(task,null);
     assert.equal(task.state,'queued'); assert.equal(task.lengthLimitNoReply,true);
-    assert.equal(task.lengthLimitCarry||'',''); assert.match(h.workPrompt(task),/未生成可提取的新回复/);
+    assert.equal(task.lengthLimitCarry||'',''); const prompt=h.workPrompt(task); assert.match(prompt,/MAHAYANA_TASK_REPORT_V1/); assert.match(prompt,/上一会话未生成可提取的新回复/);
   } finally {h.pause();dom.window.close();}
 });
 
@@ -2752,7 +2752,7 @@ test('inspect opens a fresh session after a stable retryable message error',asyn
   h.pause();
   dom.window.close();
 });
-test('stream recovery polling timeout carries visible work into a fresh chat',async()=>{
+test('stream recovery polling timeout carries visible Work into a fresh chat',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue implementation [Fabushi:stream-timeout]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">已检查 exact HEAD，修复了 Arc 移动问题；接下来补自动化运行时依赖并验证 CI。</div><div role="alert">ChatGPT stream recovery polling timed out <button aria-label="Retry">Retry</button></div></div></article><form><textarea id="prompt-textarea"></textarea></form></main>');
   const task={id:'stream-timeout',ownerTabId:h.getTabId(),goal:'continue implementation',next:'implement current slice',mode:'once',phase:'work',round:3,state:'waiting',url:'https://chatgpt.com/c/stream-timeout',token:'stream-timeout',attempted:false,attachments:[{name:'design.png',type:'image/png',size:12}],messages:[]};
   h.data.tasks.push(task);
@@ -5834,7 +5834,7 @@ test('closing a workspace cannot trigger automatic stale-workspace resurrection'
 test('observed Stop disappearance keeps a strong final toolbar in the same conversation',async()=>{
   const {h,w,dom}=await fixture(`<main>
     <article data-testid="conversation-turn-user"><div data-message-author-role="user">finish architecture [Fabushi:stop-handoff]</div></article>
-    <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">已完成模块 A；模块 B 已实现一半，下一步继续 B 并跑 CI。</div></div><button aria-label="Copy response"></button><button aria-label="Share response"></button></article>
+    <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">{"taskId":"stop-handoff","round":6,"status":"complete","summary":"已完成模块 A；模块 B 已实现并完成 CI 验证。","next":""}</div></div><button aria-label="Copy response"></button><button aria-label="Share response"></button></article>
     <button data-testid="stop-button" aria-label="Stop generating">Stop</button>
     <form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form>
   </main>`);
@@ -5863,10 +5863,10 @@ test('observed Stop disappearance keeps a strong final toolbar in the same conve
     observation.since=Date.now()-5_000;
     observation.idleSince=Date.now()-5_000;
     await h.inspect(task,null);
-    assert.equal(task.state,'queued','normal goal-mode completion advances to the review phase');
-    assert.equal(task.phase,'review');
+    assert.equal(task.state,'done','normal goal-mode completion consumes the valid Work final report');
+    assert.equal(task.phase,'work');
     assert.equal(task.connectionInterruptedFreshDispatch||false,false,'this queue transition is normal completion, not abnormal fresh-chat recovery');
-    assert.ok(task.messages.some(item=>item.role==='assistant' && /模块 A/.test(item.text||'')));
+    assert.ok(task.messages.some(item=>item.role==='assistant' && /"status":"complete"/.test(item.text||'')));
     assert.equal(task.abnormalFreshCarry||'','');
   } finally {h.pause();dom.window.close();}
 });
@@ -5911,7 +5911,7 @@ test('reload inherited Stop observation waits for hydration but keeps a strong f
   let readyState='loading';
   const {h,w,dom}=await fixture(`<main>
     <article data-testid="conversation-turn-user"><div data-message-author-role="user">continue architecture [Fabushi:reload-hydration]</div></article>
-    <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">上一页面正在执行 CI 和剩余 wiring。</div></div><button aria-label="Copy response"></button><button aria-label="Share response"></button></article>
+    <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">{"taskId":"reload-hydration","round":8,"status":"complete","summary":"上一页面正在执行 CI 和剩余 wiring，当前 Work 已完成。","next":""}</div></div><button aria-label="Copy response"></button><button aria-label="Share response"></button></article>
     <form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form>
   </main>`,window=>{
     Object.defineProperty(window.document,'readyState',{configurable:true,get:()=>readyState});
@@ -5937,7 +5937,7 @@ test('reload inherited Stop observation waits for hydration but keeps a strong f
     assert.ok(Number(task.reloadStopAbsentSince)>0,'hydrated page starts the stable Stop-absence window');
     const firstSince=task.reloadStopAbsentSince;
 
-    w.document.querySelector('.markdown').textContent='上一页面正在执行 CI；现在又恢复出新的进度。';
+    w.document.querySelector('.markdown').textContent='{"taskId":"reload-hydration","round":8,"status":"complete","summary":"上一页面正在执行 CI；现在又恢复出新的进度。","next":""}';
     await h.inspect(task,null);
     assert.ok(task.reloadStopAbsentSince>=firstSince,'visible reply changes restart the stability window');
     assert.equal(task.url,'https://chatgpt.com/c/reload-hydration');
@@ -6376,7 +6376,7 @@ test('shell-only inherited Stop timer clears when conversation messages hydrate'
 test('resumed recovered final reply is inspected before an inherited Stop gate',async()=>{
   const {h,w,dom}=await fixture(`<main>
     <article data-testid="conversation-turn-user"><div data-message-author-role="user">continue the architecture work</div></article>
-    <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">The requested architecture work is complete and verified.</div></div><button aria-label="Copy response"></button><button aria-label="Share response"></button></article>
+    <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">{"taskId":"resumed-recovered-final","round":1,"status":"complete","summary":"The requested architecture work is complete and verified.","next":""}</div></div><button aria-label="Copy response"></button><button aria-label="Share response"></button></article>
     <form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form>
   </main>`);
   try {
@@ -6395,7 +6395,7 @@ test('resumed recovered final reply is inspected before an inherited Stop gate',
     h.observations.get(task.id).idleSince=Date.now()-5000;
     await h.inspect(task,null);
     assert.equal(task.state,'done','the recovered owned final reply completes without waiting for historical Stop absence');
-    assert.equal(task.messages.some(item=>item.role==='assistant' && item.text==='The requested architecture work is complete and verified.'),true);
+    assert.equal(task.messages.some(item=>item.role==='assistant' && /"status":"complete"/.test(item.text||'')),true);
   } finally {h.pause();dom.window.close();}
 });
 
@@ -6709,7 +6709,7 @@ test('current content-search final reply with plain Chinese Copy wins over prior
   const {h,w,dom}=await fixture(`<main>
     <article data-content-search-turn-key="live-final-turn">
       <div data-content-search-unit-key="live-final-turn:user"><div data-markdown-text-tone="user-message">finish current task [Fabushi:live-copy-final]</div></div>
-      <div id="assistant-unit" data-content-search-unit-key="live-final-turn:assistant"><div class="markdown" data-message-content>最终工作已经完成并验证。</div></div>
+      <div id="assistant-unit" data-content-search-unit-key="live-final-turn:assistant"><div class="markdown" data-message-content>{"taskId":"live-copy-final","round":1,"status":"complete","summary":"最终工作已经完成并验证。","next":""}</div></div>
     </article>
     <button id="stop" data-testid="stop-button" aria-label="停止生成">停止</button>
     <form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form>
@@ -6746,7 +6746,7 @@ test('current content-search final reply with plain Chinese Copy wins over prior
     observation.idleSince=Date.now()-5_000;
     await h.inspect(task,null);
     assert.equal(task.state,'done');
-    assert.ok(task.messages.some(item=>item.role==='assistant' && /最终工作已经完成并验证/.test(item.text||'')));
+    assert.ok(task.messages.some(item=>item.role==='assistant' && /"status":"complete"/.test(item.text||'')));
   } finally {h.pause();dom.window.close();}
 });
 
@@ -7488,7 +7488,7 @@ test('recovered static reply with stale page loader takes abnormal-end recovery 
 });
 
 test('recovered static reply without stale loading keeps the bounded static-final fallback',async()=>{
-  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user" data-message-id="stable-visible-user-2">继续完成架构重构</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown" data-message-content>这是恢复后的静态最终回复。</div></div></article><form><textarea id="prompt-textarea"></textarea></form></main>');
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user" data-message-id="stable-visible-user-2">继续完成架构重构</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown" data-message-content>{"taskId":"recovered-static-final-no-loader","round":1,"status":"complete","summary":"这是恢复后的静态最终回复。","next":""}</div></div></article><form><textarea id="prompt-textarea"></textarea></form></main>');
   try {
     w.history.pushState({},'', '/c/recovered-static-final-no-loader');
     const task={id:'recovered-static-final-no-loader',ownerTabId:h.getTabId(),goal:'完成所有架构重构',mode:'once',phase:'work',round:1,state:'blocked',url:'https://chatgpt.com/c/recovered-static-final-no-loader',token:'virtualized-static-token',attempted:false,messages:[]};
@@ -7498,7 +7498,7 @@ test('recovered static reply without stale loading keeps the bounded static-fina
     await h.inspect(task,null);
     const observation=h.observations.get(task.id);
     assert.ok(observation?.recoveredStaticCandidate,'manual recovery still recognizes the bounded static candidate');
-    h.observations.set(task.id,{...observation,recoveredStaticCandidate:true,recoveredStaticSince:Date.now()-9_000,text:'这是恢复后的静态最终回复。',clear:true});
+    h.observations.set(task.id,{...observation,recoveredStaticCandidate:true,recoveredStaticSince:Date.now()-9_000,text:'{"taskId":"recovered-static-final-no-loader","round":1,"status":"complete","summary":"这是恢复后的静态最终回复。","next":""}',clear:true});
     await h.inspect(task,null);
     assert.equal(task.state,'done','without stale loading the existing static-final completion remains unchanged');
     assert.equal(task.connectionInterruptedFreshDispatch||false,false);
