@@ -7694,9 +7694,14 @@ ${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carry
     task.history ||= [];
     task.history.push({ url:sessionURL || task.url, phase:'work', round:task.round });
     task.history = task.history.slice(-40);
-    if (task.mode === 'once') { state(task, 'done'); save(); return; }
     const report = parseWorkFinalReport(reply, task);
     task.workFinalReportRepairAttempts = 0;
+    if (task.mode === 'once') {
+      task.next = report.status === 'next' ? report.next.slice(0,16000) : '';
+      state(task, 'done', `工作最终报告：${report.summary}`);
+      save();
+      return;
+    }
     if (Number(task.dispatchGoalRevision || 0) !== Number(task.goalRevision || 0)) {
       task.result = '';
       task.next = '';
