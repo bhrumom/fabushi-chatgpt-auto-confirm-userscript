@@ -406,13 +406,13 @@
         if (task.interruptedWorkFinalIdentity !== identity) {
           task.interruptedWorkFinalIdentity = identity;
           task.interruptedWorkFinalSince = now;
-          log(task, '连接中断提示下已读到本轮完整验收模板；正在复核内容稳定性，随后按验收结果推进。');
+          log(task, '连接中断提示下已读到本轮完整 Work 最终报告；正在复核内容稳定性，随后按报告结果推进。');
           save();
         } else if (now - Number(task.interruptedWorkFinalSince || now) >= 1500) {
           task.interruptedWorkFinalIdentity = '';
           task.interruptedWorkFinalSince = 0;
           clearStopNoApprovalConfirmation(task);
-          log(task, '本轮完整验收模板已稳定确认；按模板结果推进。');
+          log(task, '本轮完整 Work 最终报告已稳定确认；按报告结果推进。');
           finish(task, JSON.stringify(report));
         }
         return;
