@@ -7651,7 +7651,7 @@ for (const kind of ['complete','next','truncated','foreign','newer-user','approv
     assert.ok(task.result);
     assert.equal(task.connectionInterruptedFreshDispatch||false,false);
   } finally {h.pause();dom.window.close();}
-}););
+});
 
 for(const kind of ['valid','pause-before-grant','changed-round','draft-before-grant','host-denied'])test(`same document native Work fallback: ${kind}`,async()=>{
  const {h,w,dom}=await fixture('<main><div class="animate-spin"></div><form><textarea id="prompt-textarea"></textarea></form></main>');
