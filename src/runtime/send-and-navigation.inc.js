@@ -424,7 +424,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.state = 'queued';
     task.updatedAt = now;
     delete task.pausedState;
-    log(task, `检测到 ChatGPT 对话长度上限；${noReply ? '当前会话没有生成新的正文，保留已有任务上下文' : '已复制当前页面最新回复作为接力上下文'}，关闭旧会话派发并准备新开 ChatGPT 会话继续同一 ${task.phase === 'review' ? '规划/验收' : 'Work'} 阶段（第 ${task.lengthLimitHopCount} 次接力）。phase、round、目标和附件保持不变；若下一会话再次达到长度上限会继续接力，直到真正最终回复。`);
+    log(task, `检测到 ChatGPT 对话长度上限；${noReply ? '当前会话没有生成新的正文，保留已有任务上下文' : '已复制当前页面最新回复作为接力上下文'}，关闭旧会话派发并准备新开 ChatGPT 会话继续同一 ${'Work'} 阶段（第 ${task.lengthLimitHopCount} 次接力）。phase、round、目标和附件保持不变；若下一会话再次达到长度上限会继续接力，直到真正最终回复。`);
     save();
     return true;
   }
@@ -855,7 +855,7 @@ ${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carry
         navigating = false;
         removeSessionStorageRecord(NAV);
         armRecoveredFinalIdentity(task);
-        state(task, 'waiting', `${task.phase === 'review' ? '规划/验收' : '工作'}会话已确认发送 · 第 ${task.round} 轮`);
+        state(task, 'waiting', `${'工作'}会话已确认发送 · 第 ${task.round} 轮`);
         return;
       }
     }
