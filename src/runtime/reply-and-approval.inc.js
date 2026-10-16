@@ -951,6 +951,14 @@
   }
   const allowLabel = /^(?:允许(?:一次)?|批准(?:一次)?|allow(?: once| one time)?|approve(?: once| one time)?)$/i;
   const denyLabel = /^(?:拒绝|不允许|deny|decline|reject)$/i;
+  // Some authorization cards intentionally expose only one primary approval
+  // action and no conversation-scoped menu. This exact matcher is deliberately
+  // narrower than allowLabel so arbitrary "Allow" controls cannot become
+  // direct-approval candidates.
+  function isDirectPrimaryAuthorizationAllow(node) {
+    const value = label(node);
+    return /^(?:允许|批准|allow|approve)$/iu.test(value);
+  }
   function approvalArrow(node, allowButton) {
     return node !== allowButton && (
       node.hasAttribute('aria-haspopup')
@@ -1175,11 +1183,21 @@
       if (trustedContainer && !seen.has(trustedContainer)) {
         seen.add(trustedContainer);
         const actions = nodes('button,[role=button]', trustedContainer);
+        const trustedArrow = actions.find(node => approvalArrow(node, button)) || null;
+        const trustedDeny = actions.find(node => actionMatches(node, denyLabel)) || null;
         result.push({
           container:trustedContainer,
           button,
-          arrow:actions.find(node => approvalArrow(node, button)) || null,
-          deny:actions.find(node => actionMatches(node, denyLabel)) || null,
+          arrow:trustedArrow,
+          deny:trustedDeny,
+          // A trusted explicit/structural authorization surface with only an
+          // exact primary Allow action is directly actionable. This does not
+          // apply to an isolated Allow control outside a trusted card surface.
+          directActionable:Boolean(
+            !trustedArrow
+            && isDirectPrimaryAuthorizationAllow(button)
+            && enabled(button)
+          ),
           actionable:false,
         });
       }
@@ -1443,12 +1461,23 @@
   }
   async function authorize(card, task, signal, queueOwned = true) {
     if (!card?.container?.isConnected || !visible(card.container)) return false;
-    if (!card.actionable || !enabled(card.button) || !enabled(card.arrow)) {
+    if (!enabled(card.button)) {
       if (task) {
         const started = markApprovalUnavailable(task, currentConversationURL(), Date.now());
         if (started) {
           log(task, `授权卡仍存在但控件正在处理或暂不可用；保持当前会话等待。若连续 ${Math.ceil(APPROVAL_UNAVAILABLE_REFRESH_MS / 1000)} 秒仍未恢复，将刷新当前会话而不是一直等待，也不会把 Stop 消失当成结束。`);
         }
+      }
+      if (card.directActionable && isDirectPrimaryAuthorizationAllow(card.button)) {
+        checkAuthorizationRun(signal, queueOwned);
+        activateControl(card.button);
+        if (task) beginApprovalSettlement(task);
+        log(task, '授权卡没有“允许本次会话”选项；已直接点击主“允许”，进入授权提交保护期。');
+        return true;
+      }
+      if (task) {
+        const started = markApprovalUnavailable(task, currentConversationURL(), Date.now());
+        if (started) log(task, '授权卡已识别，但当前没有可用的会话级选项或安全的主“允许”操作；保持当前会话等待。');
       }
       return false;
     }
@@ -1480,6 +1509,17 @@
       activateControl(option);
       if (task) beginApprovalSettlement(task);
       log(task, '已点击“允许本次会话”，进入授权提交保护期；即使卡片暂时 disabled、重挂载或瞬时消失，也不会切换会话。');
+      return true;
+    }
+    // The card may expose the split menu but not offer a conversation-scoped
+    // option in that menu. Per the current product behavior, use the exact
+    // primary Allow as the bounded fallback rather than choosing a persistent
+    // menu item or abandoning the current conversation.
+    if (isDirectPrimaryAuthorizationAllow(card.button) && enabled(card.button)) {
+      checkAuthorizationRun(signal, queueOwned);
+      activateControl(card.button);
+      if (task) beginApprovalSettlement(task);
+      log(task, '授权菜单没有“允许本次会话”选项；已直接点击主“允许”，进入授权提交保护期。');
       return true;
     }
     if (task) {
