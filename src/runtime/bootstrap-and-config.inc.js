@@ -346,7 +346,7 @@ async function bootstrapAttempt() {
   const STORAGE_EMERGENCY_GLOBAL_MESSAGE_CHARS = 200000;
   // Rendering is still bounded independently from the two-hour retained log
   // so a verbose task cannot monopolize the ChatGPT renderer.
-  const AUTO_RECOVERABLE_STATE_NAMES = new Set(['queued', 'sending', 'uploading', 'waiting', 'loading', 'generating', 'approval', 'reviewing']);
+  const AUTO_RECOVERABLE_STATE_NAMES = new Set(['queued', 'sending', 'uploading', 'waiting', 'loading', 'generating', 'approval']);
   const volatileStorageShadow = new Map();
   const fabushiStorageSizeCache = new Map();
   const WORKBENCH_OVERFLOW_KEY = 'fabushi-workbench-overflow-v1:';
