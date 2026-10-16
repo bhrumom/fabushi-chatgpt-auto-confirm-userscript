@@ -2142,21 +2142,22 @@ test('a length-limit handoff waits for the active response and then carries its 
   } finally {h.pause();dom.window.close();}
 });
 
-test('fresh Work and Review prompts include the previous length-limited reply without changing their contracts',async()=>{
+test('fresh Work prompts include the previous length-limited reply without changing the Work final-report contract',async()=>{
   const {h,dom}=await fixture();
   const base={id:'length-prompt',round:4,goal:'original goal',next:'continue implementation',token:'new-token',lengthLimitCarry:'上一会话已经修改 foo.rs，下一步需要完成 bar.rs。',lengthLimitHopCount:2,attachments:[{id:'a',name:'proof.png',type:'image/png',size:10}]};
   const work=h.workPrompt({...base,phase:'work'});
   assert.match(work,/continue implementation/);
   assert.match(work,/上一会话已经修改 foo\.rs/);
-  assert.match(work,/从停止处继续/);
-  assert.match(work,/不要重新从头执行/);
+  assert.match(work,/不得丢失已经确认的上下文/);
+  assert.match(work,/不要重复已完成步骤/);
   assert.match(work,/MAHAYANA_TASK_REPORT_V1/);
 
-  const review=h.workPrompt({...base,phase:'work',result:'Work 已完成主要实现'});
-  assert.match(review,/Work 已完成主要实现/);
-  assert.match(review,/上一会话已经修改 foo\.rs/);
-  assert.match(review,/MAHAYANA_TASK_REPORT_V1/);
-  assert.match(review,/"round":4/);
+  const laterWork=h.workPrompt({...base,phase:'work',result:'Work 已完成主要实现'});
+  assert.match(laterWork,/Work 已完成主要实现/);
+  assert.match(laterWork,/上一会话已经修改 foo\.rs/);
+  assert.match(laterWork,/MAHAYANA_TASK_REPORT_V1/);
+  assert.match(laterWork,/"round":4/);
+  assert.doesNotMatch(laterWork,/独立验收|审查会话/);
   dom.window.close();
 });
 
@@ -2178,10 +2179,10 @@ test('a length-limit notice wins over a final-looking toolbar and queues a fresh
   dom.window.close();
 });
 
-test('a stale page-chrome length notice cannot suppress completed Work to Review handoff',async()=>{
+test('a stale page-chrome length notice cannot suppress a valid completed Work final report',async()=>{
   const {h,w,dom}=await fixture(`<main>
     <article data-testid="conversation-turn-user"><div data-message-author-role="user">finish [Fabushi:stale-chrome-final]</div></article>
-    <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">全部工作已经完成，提交和测试结果可以交由独立验收。</div></div><button aria-label="复制回复"></button></article>
+    <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">{"taskId":"stale-chrome-final","round":3,"status":"complete","summary":"全部工作已经完成，提交和测试结果已经核实。","next":""}</div></div><button aria-label="复制回复"></button></article>
     <form><textarea id="prompt-textarea"></textarea></form>
     <div role="status">你已达到此对话的长度上限，你可以开始新聊天以继续对话。</div>
   </main>`);
@@ -2192,18 +2193,20 @@ test('a stale page-chrome length notice cannot suppress completed Work to Review
     await h.start(false);
     assert.equal(h.latestTurn(task).final,true,'the current answer owns a committed Copy control');
     await h.inspect(task,null);
-    assert.equal(task.phase,'work','first final observation waits for stability');
-    const observation=h.observations.get(task.id);
-    assert.equal(observation?.final,true);
-    observation.finalSince=Date.now()-5000;
-    observation.since=Date.now()-5000;
-    await h.inspect(task,null);
+    if(task.state!=='done'){
+      assert.equal(task.phase,'work','first final observation waits for stability');
+      const observation=h.observations.get(task.id);
+      assert.equal(observation?.final,true);
+      observation.finalSince=Date.now()-5000;
+      observation.since=Date.now()-5000;
+      await h.inspect(task,null);
+    }
+    assert.equal(task.state,'done','a valid Work final report completes even when a stale page-level length notice remains');
     assert.equal(task.phase,'work');
-    assert.equal(task.state,'queued');
-    assert.equal(task.url,'');
+    assert.equal(task.url,'https://chatgpt.com/c/stale-chrome-final');
     assert.match(task.result,/全部工作已经完成/);
     assert.equal(task.lengthLimitCarry||'','');
-    assert.ok(task.messages.some(item=>/正在新开规划\/验收会话/.test(item.text||'')));
+    assert.ok(task.messages.some(item=>/工作最终报告确认完成/.test(item.text||'')));
   } finally {h.pause();dom.window.close();}
 });
 
@@ -2968,7 +2971,7 @@ test('unbound exhausted abnormal retries still enter persisted backoff and reset
   assert.equal(task.noFinalReplyAttempts,0);
   assert.equal(task.noFinalReplyRecoveryCycles,1);
   assert.ok(task.noFinalReplyRecoveryUntil>Date.now());
-  h.finish(task,JSON.stringify({taskId:task.id,round:2,status:'complete',summary:'恢复后的任务已成功完成。',next:''}));
+  h.finish(task,JSON.stringify({taskId:task.id,round:1,status:'complete',summary:'恢复后的任务已成功完成。',next:''}));
   assert.equal(task.state,'done');
   assert.equal(task.noFinalReplyAttempts,0);
   assert.equal(task.noFinalReplyRecoveryCycles,0);
@@ -4858,7 +4861,7 @@ test('unbound ambiguous Work send older than 90 seconds immediately queues a fre
   assert.equal(task.ambiguousFreshRetryCount,1);
   assert.equal(task.ambiguousSendRefreshAttempts,0);
   assert.equal(task.ambiguousSendRefreshAt,0);
-  assert.equal(task.phase,'review');
+  assert.equal(task.phase,'work');
   assert.equal(task.round,3);
   assert.equal(task.goal,'continue once');
   assert.equal(task.next,'keep the same next step');
@@ -5191,7 +5194,7 @@ test('the fourth distinct rate-limit episode abandons the old Work conversation 
   assert.equal(task.url,'');
   assert.equal(task.token,'');
   assert.equal(task.rateLimitEpisodes,0);
-  assert.equal(task.phase,'review');
+  assert.equal(task.phase,'work');
   assert.equal(task.round,3);
   assert.equal(task.goal,'finish it');
   assert.deepEqual(task.attachments,attachments);
@@ -5808,7 +5811,7 @@ test('stale navigation leases are cancelled with the canonical plugin identity',
 
 test('root dispatch navigation tickets are bound to the current Work generation',async()=>{
   const {h,dom}=await fixture();
-  const task={id:'work-dispatch',ownerTabId:h.getTabId(),phase:'work',round:3,goalRevision:9,state:'queued',url:'',attempted:false,messages:[]};
+  const task={id:'work-dispatch',ownerTabId:h.getTabId(),phase:'work',round:3,goalRevision:9,state:'queued',url:'',attempted:false,result:'',next:'',attachments:[],messages:[]};
   h.data.tasks.push(task);
   const ticket={task:task.id,path:'/',href:'https://chatgpt.com/',resume:true,direct:true,purpose:'dispatch',phase:'work',round:3,goalRevision:9};
   assert.equal(h.validNavigationTicket(ticket),true);
@@ -6997,7 +7000,7 @@ test('marker-virtualized Work final accepts the exact current report after the r
     observation.idleSince=Date.now()-5_000;
     await h.inspect(task,null);
     assert.equal(task.state,'done');
-    assert.equal(task.phase,'review');
+    assert.equal(task.phase,'work');
     assert.equal(task.connectionInterruptedFreshDispatch||false,false);
   } finally {h.pause();dom.window.close();}
 });
@@ -7086,7 +7089,7 @@ test('marker-virtualized Work final on the same Stop-observed response parses ne
     assert.equal(task.connectionInterruptedFreshDispatch||false,false);
     assert.equal(task.abnormalFreshCarry||'','');
     assert.ok(task.messages.some(item=>item.role==='assistant' && item.text===review),'the real final review body is preserved and parsed');
-    assert.ok(task.messages.some(item=>/规划\/验收要求继续：仍有两个真实阻塞需要继续/.test(item.text||'')));
+    assert.ok(task.messages.some(item=>/工作最终报告要求继续：仍有两个真实阻塞需要继续/.test(item.text||'')));
   } finally {h.pause();dom.window.close();}
 });
 
@@ -7167,7 +7170,7 @@ test('marker virtualization cannot consume a different final assistant response 
     await h.inspect(task,null);
     assert.equal(task.state,'queued','after the bounded Work no-final window the abnormal fresh-session recovery resumes');
     assert.equal(task.connectionInterruptedFreshDispatch,true);
-    assert.equal(task.phase,'review');
+    assert.equal(task.phase,'work');
     assert.equal(task.round,3);
     assert.match(task.messages.at(-1)?.text||'',/已经结束但没有最终回复/);
   } finally {h.pause();dom.window.close();}
@@ -7217,7 +7220,7 @@ test('the packaged userscript declares its stable remote update and download URL
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_REFRESH_LIMIT = 7/);
   assert.match(source,/const ENDED_NO_FINAL_STABILITY_MS = 8000/);
-  assert.match(source,/const REVIEW_ENDED_NO_FINAL_STABILITY_MS = 2 \* 60 \* 1000/);
+  assert.doesNotMatch(source,/REVIEW_ENDED_NO_FINAL_STABILITY_MS/);
   assert.match(source,/const RELOAD_STOP_ABSENCE_STABILITY_MS = 8000/);
   assert.match(source,/const TASK_MESSAGE_RETENTION_MS = 2 \* 60 \* 60 \* 1000/);
   assert.match(source,/const RECENT_ACTIVITY_DB = 'fabushi-workbench-recent-activity-v1'/);
