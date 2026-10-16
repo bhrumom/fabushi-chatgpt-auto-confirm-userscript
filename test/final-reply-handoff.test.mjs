@@ -372,7 +372,7 @@ test('review parsing recovers a wrapped report with unescaped human quotes', asy
   }
 });
 
-test('review recovery selects the exact current task and round when quoted evidence contains an older report', async () => {
+test('Work final report recovery selects the exact current task and round when quoted evidence contains an older report', async () => {
   const { dom, hooks } = await createHarness('<main></main>');
   try {
     const task = { id:'current-review-task', round:4 };
@@ -384,31 +384,34 @@ test('review recovery selects the exact current task and round when quoted evide
       summary:'当前轮仍缺少真实安装验收证据',
       next:'只补当前轮人工验收证据',
     });
-    assert.match(hooks.workPrompt({
+    const prompt = hooks.workPrompt({
       ...task,
       goal:'完成当前目标',
       result:'历史材料里包含 {"taskId":"old-task","round":1}',
       token:'review-token',
-    }), /本次验收身份固定为 taskId="current-review-task"、round=4/);
+    });
+    assert.match(prompt, /MAHAYANA_TASK_REPORT_V1/);
+    assert.match(prompt, /"taskId":"current-review-task","round":4/);
+    assert.doesNotMatch(prompt, /独立的规划与验收会话/);
   } finally {
     dom.window.close();
   }
 });
 
-test('a mismatched review identity is a repairable review error, not a terminal task error', async () => {
+test('a mismatched Work final report identity is a repairable report error, not a terminal task error', async () => {
   const { dom, hooks } = await createHarness('<main></main>');
   try {
     const task = { id:'expected-task', round:3 };
     assert.throws(
       () => hooks.parseWorkFinalReport('{"taskId":"wrong-task","round":2,"status":"next","summary":"需要继续","next":"下一步"}', task),
-      error => error?.code === 'invalid-review-json' && /期望 taskId=expected-task、round=3/.test(error.message),
+      error => error?.code === 'invalid-work-final-report' && /期望 taskId=expected-task、round=3/.test(error.message),
     );
   } finally {
     dom.window.close();
   }
 });
 
-test('malformed review reports requeue only the review phase and never discard Work result', async () => {
+test('malformed Work final reports requeue only the Work final-report repair and never discard Work result', async () => {
   const { dom, hooks } = await createHarness('<main></main>');
   try {
     const task = {
@@ -440,7 +443,7 @@ test('malformed review reports requeue only the review phase and never discard W
     assert.equal(task.url, '');
     assert.equal(task.token, '');
     assert.equal(task.result, 'Work 已完成，不能重复执行。');
-    assert.match(task.messages.at(-1).text, /新的 ChatGPT 会话/);
+    assert.match(task.messages.at(-1).text, /重新开启工作最终报告会话/);
     assert.match(task.messages.at(-1).text, /自动重发/);
   } finally {
     dom.window.close();
@@ -1277,7 +1280,7 @@ test('a confirmed Work final report directly queues the next Work round', async 
     assert.equal(task.result,finalReply);
     assert.deepEqual(task.attachments,[{id:'evidence-image',name:'evidence.png',type:'image/png',size:4,lastModified:1}]);
     assert.match(hooks.workPrompt(task),/读取缺口对应源码/);
-    assert.match(hooks.workPrompt(task),/evidence\\.png/);
+    assert.match(hooks.workPrompt(task),/evidence\.png/);
   } finally { dom.window.close(); }
 });
 
@@ -1319,7 +1322,7 @@ test('a review result that requests more work keeps the same attachments for the
 });
 
 
-test('marker-virtualized review consumes an exact visible next report without a stored Stop identity', async () => {
+test('marker-virtualized Work final report consumes an exact visible next report without a stored Stop identity', async () => {
   const taskId = 'visible-review-next';
   const report = JSON.stringify({
     taskId,
@@ -1374,7 +1377,7 @@ test('marker-virtualized review consumes an exact visible next report without a 
     assert.equal(task.state, 'queued');
     assert.equal(task.next, '继续处理 strict 第一 blocker，并重新验收。');
     assert.ok(task.messages.some(item => item.role === 'assistant' && String(item.text || '').includes('"status":"next"')));
-    assert.ok(task.messages.some(item => /规划\/验收要求继续/.test(String(item.text || ''))));
+    assert.ok(task.messages.some(item => /工作最终报告要求继续/.test(String(item.text || ''))));
     assert.equal(task.connectionInterruptedFreshDispatch || false, false);
   } finally {
     hooks.pause();
@@ -1382,7 +1385,7 @@ test('marker-virtualized review consumes an exact visible next report without a 
   }
 });
 
-test('marker-virtualized review does not promote a visible report for another task', async () => {
+test('marker-virtualized Work final report does not promote a visible report for another task', async () => {
   const { dom, window, hooks } = await createHarness(`
     <main>
       <article data-testid="conversation-turn-assistant">
@@ -1416,9 +1419,10 @@ test('marker-virtualized review does not promote a visible report for another ta
     await hooks.inspect(task, null);
     const observation = hooks.observations.get(task.id);
     assert.equal(observation?.final, false);
-    assert.equal(task.phase, 'review');
+    assert.equal(task.phase, 'work');
     assert.equal(task.round, 8);
     assert.equal(task.next || '', '');
+    assert.notEqual(task.state, 'reviewing');
   } finally {
     hooks.pause();
     dom.window.close();
