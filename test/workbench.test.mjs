@@ -3367,13 +3367,13 @@ test('a submitted authorization card is never clicked again while settlement is 
     h.data.autoApprove=true;
     let clicks=0;
     w.document.querySelector('#allow-once').addEventListener('click',()=>clicks++);
-    assert.equal(await h.authorize(h.cards()[0],task,null,true),true);
+    assert.equal(await h.authorize(h.cards()[0],task,null,false),true);
     assert.equal(clicks,1);
     const submittedAt=Number(task.approvalSubmissionAt);
     assert.ok(submittedAt>0);
     const settlementMs=12_000; const refreshMs=60_000;
     w.Date.now=()=>submittedAt+settlementMs+1;
-    assert.equal(await h.authorize(h.cards()[0],task,null,true),false,'a still-visible card after settlement is recovery evidence, not permission to click again');
+    assert.equal(await h.authorize(h.cards()[0],task,null,false),false,'a still-visible card after settlement is recovery evidence, not permission to click again');
     assert.equal(clicks,1,'the primary grant is clicked exactly once per submission identity');
     assert.ok(Number(task.approvalUnavailableSince)>0,'stuck settlement enters the bounded same-route recovery episode');
     assert.equal(h.refreshUnavailableApproval(task,false,submittedAt+settlementMs+refreshMs+1),true);
