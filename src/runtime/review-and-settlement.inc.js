@@ -103,11 +103,6 @@
     if (report.status === 'next' && (typeof report.next !== 'string' || !report.next.trim())) throw workFinalReportParseError('工作最终报告缺少可执行的下一步动作。');
     return report;
   }
-  // Compatibility aliases for the existing regression harness only. These are
-  // not dispatch paths and must never be used to create an independent Review
-  // conversation; all production callers use the Work final-report contract.
-  const parseReview = parseWorkFinalReport;
-  const plannerPrompt = workPrompt;
   function completeWorkFinalReport(value, task) {
     if (!task || task.phase !== 'work') return null;
     const source = String(value || '');
