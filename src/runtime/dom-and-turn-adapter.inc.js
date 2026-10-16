@@ -347,21 +347,6 @@
     task.updatedAt = now;
     save();
   }
-  function approvalSettlementExpiredForTask(task, route = '', now = Date.now()) {
-    if (!task) return false;
-    const until = Number(task.approvalSettlementUntil || 0);
-    if (!until || until > now) return false;
-    const liveURL = canonicalConversationURL(route || currentConversationURL());
-    const settlementURL = canonicalConversationURL(task.approvalSettlementURL);
-    return Boolean(
-      liveURL
-      && settlementURL
-      && liveURL === settlementURL
-      && String(task.approvalSettlementToken || '') === String(task.token || '')
-      && String(task.approvalSettlementPhase || '') === String(task.phase || '')
-      && Number(task.approvalSettlementRound || 0) === Number(task.round || 0)
-    );
-  }
   function approvalSettlementActive(task, route = '', now = Date.now()) {
     if (!task || Number(task.approvalSettlementUntil || 0) <= now) {
       if (task?.approvalSettlementUntil || task?.approvalSettlementURL || task?.approvalSettlementToken
