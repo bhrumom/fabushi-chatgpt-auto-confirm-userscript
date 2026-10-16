@@ -192,9 +192,8 @@ async function bootstrapAttempt() {
   const ENDED_NO_FINAL_STABILITY_MS = 8000;
   // Review/acceptance turns can temporarily lose Stop while ChatGPT is still
   // reasoning or hydrating the committed JSON response. Do not duplicate the
-  // review after the ordinary eight-second ended-state window; keep the exact
-  // conversation for a bounded two-minute settlement grace instead.
-  const REVIEW_ENDED_NO_FINAL_STABILITY_MS = 2 * 60 * 1000;
+  // Work has a single bounded ended-state window; final-report settlement is
+  // handled by the Work final-report contract rather than a separate Review phase.
   const RELOAD_STOP_ABSENCE_STABILITY_MS = 8000;
   const RATE_LIMIT_FRESH_RETRY_AFTER = 3;
   // The carry is normally much smaller than this. Keep a generous bound so a
