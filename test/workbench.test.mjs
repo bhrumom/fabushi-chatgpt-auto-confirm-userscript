@@ -6892,10 +6892,10 @@ test('marker-virtualized Work final JSON on the same Stop-observed response sett
 });
 
 test('Work no-final recovery remains bounded after the eight-second window',async()=>{
-  const {h,w,dom}=await fixture('<main><div data-content-search-turn-key="review-expiry-turn"><div data-content-search-unit-key="review-expiry-turn:0:user"><div data-user-message-bubble="true">独立验收 [Fabushi:review-expiry-token]</div></div><div data-content-search-unit-key="review-expiry-turn:2:assistant"><div data-message-content>仍在等待最终验收报告。</div></div></div><button id="stop" data-testid="stop-button" aria-label="停止生成">停止</button><form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form></main>');
+  const {h,w,dom}=await fixture('<main><div data-content-search-turn-key="review-expiry-turn"><div data-content-search-unit-key="review-expiry-turn:0:user"><div data-user-message-bubble="true">继续 Work [Fabushi:review-expiry-token]</div></div><div data-content-search-unit-key="review-expiry-turn:2:assistant"><div data-message-content>仍在等待最终验收报告。</div></div></div><button id="stop" data-testid="stop-button" aria-label="停止生成">停止</button><form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form></main>');
   try {
     w.history.pushState({},'', '/c/review-expiry');
-    const task={id:'review-expiry',ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'review',round:3,state:'waiting',url:'https://chatgpt.com/c/review-expiry',token:'review-expiry-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
+    const task={id:'review-expiry',ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'work',round:3,state:'waiting',url:'https://chatgpt.com/c/work-expiry',token:'review-expiry-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
     h.data.tasks.push(task);
     await h.start(false);
     await h.inspect(task,null);
@@ -6938,7 +6938,7 @@ test('marker-virtualized Work final accepts the exact current report even when t
     const promoted=h.taskTurnForInspection(task);
     assert.equal(promoted.owned,true,'the exact current taskId+round report is semantic final evidence');
     assert.equal(promoted.workResultFinal,true);
-    assert.equal(promoted.structuredReviewFinal,true);
+    assert.equal(promoted.structuredWorkFinal,true);
     assert.equal(promoted.final,true);
     assert.equal(promoted.text,review);
 
@@ -6986,7 +6986,7 @@ test('marker-virtualized Work final accepts the exact current report after the r
 
     const promoted=h.taskTurnForInspection(task);
     assert.equal(promoted.owned,true,'valid current Review result survives renderer structural-key remount');
-    assert.equal(promoted.reviewResultFinal,true);
+    assert.equal(promoted.workResultFinal,true);
     assert.equal(promoted.final,true);
 
     await h.inspect(task,null);
@@ -7015,7 +7015,7 @@ test('Work result fallback rejects a report for a different task or round even a
   </main>`);
   try {
     w.history.pushState({},'', '/c/review-result-wrong-identity');
-    const task={id:taskId,ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'review',round:4,state:'waiting',url:'https://chatgpt.com/c/review-result-wrong-identity',token:'review-result-wrong-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
+    const task={id:taskId,ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'work',round:4,state:'waiting',url:'https://chatgpt.com/c/work-result-wrong-identity',token:'review-result-wrong-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
     h.data.tasks.push(task);
     await h.start(false);
     await h.inspect(task,null);
@@ -7103,7 +7103,7 @@ test('marker-virtualized Work final complete on the same Stop-observed response 
   </main>`);
   try {
     w.history.pushState({},'', '/c/review-virtualized-complete');
-    const task={id:taskId,ownerTabId:h.getTabId(),goal:'完成所有要求',mode:'goal',phase:'review',round:4,state:'waiting',url:'https://chatgpt.com/c/review-virtualized-complete',token:'review-vcomplete',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work 已完成',messages:[]};
+    const task={id:taskId,ownerTabId:h.getTabId(),goal:'完成所有要求',mode:'goal',phase:'work',round:4,state:'waiting',url:'https://chatgpt.com/c/work-virtualized-complete',token:'review-vcomplete',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work 已完成',messages:[]};
     h.data.tasks.push(task);
     await h.start(false);
     await h.inspect(task,null);
@@ -7142,7 +7142,7 @@ test('marker virtualization cannot consume a different final assistant response 
   </main>`);
   try {
     w.history.pushState({},'', '/c/review-boundary-mismatch');
-    const task={id:'review-boundary-mismatch',ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'review',round:3,state:'waiting',url:'https://chatgpt.com/c/review-boundary-mismatch',token:'review-boundary-mismatch',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'work',messages:[]};
+    const task={id:'review-boundary-mismatch',ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'work',round:3,state:'waiting',url:'https://chatgpt.com/c/work-boundary-mismatch',token:'review-boundary-mismatch',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'work',messages:[]};
     h.data.tasks.push(task);
     await h.start(false);
     await h.inspect(task,null);
@@ -7466,7 +7466,7 @@ test('automatic memory diagnostics never ask the host even when no task is activ
 });
 
 
-test('recovered static reply with stale page loader takes abnormal-end recovery before fifteen-minute refresh',async()=>{
+test('recovered static Work reply with stale page loader takes abnormal-end recovery before fifteen-minute refresh',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user" data-message-id="stable-visible-user">继续完成架构重构</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown" data-message-content>当前 HEAD 已自动推进，manifest 已同步；仍有剩余项目需要继续完成。</div></div></article><div role="status" class="loading"><svg></svg>Loading history</div><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   try {
     w.history.pushState({},'', '/c/recovered-static-stale-loader');
@@ -7655,7 +7655,7 @@ for (const kind of ['complete','next','truncated','foreign','newer-user','approv
   }finally{h.pause();dom.window.close();}
 });
 
-for(const kind of ['valid','pause-before-grant','changed-round','draft-before-grant','host-denied'])test(`same document native fallback: ${kind}`,async()=>{
+for(const kind of ['valid','pause-before-grant','changed-round','draft-before-grant','host-denied'])test(`same document native Work fallback: ${kind}`,async()=>{
  const {h,w,dom}=await fixture('<main><div class="animate-spin"></div><form><textarea id="prompt-textarea"></textarea></form></main>');
  try{
   w.history.replaceState({},'', '/c/host-fallback');
