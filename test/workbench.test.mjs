@@ -4164,49 +4164,40 @@ test('a newer manual pause from another tab wins over a stale runner write',asyn
   assert.equal(persisted.tasks[0].state,'paused');
   dom.window.close();
 });
-test('pause between opening approval menu and selecting scope prevents approval',async()=>{
-  const {w,h,dom}=await fixture('<main><div><p>任意内容</p><button>拒绝</button><button>允许</button><button aria-haspopup="menu">⌄</button></div><div role="menu"><button role="menuitem">允许本次会话</button></div></main>');
-  let approvals=0;w.document.querySelector('[role=menuitem]').onclick=()=>approvals++;
+test('pause before an authorization click prevents approval',async()=>{
+  const {w,h,dom}=await fixture('<main><div><p>任意内容</p><button>拒绝</button><button id="allow">允许</button><button aria-haspopup="menu">⌄</button></div></main>');
+  let approvals=0;w.document.querySelector('#allow').onclick=()=>approvals++;
   await h.start();
-  const task={messages:[]};
-  const work=h.authorize(h.cards()[0],task);
   h.pause();
-  await assert.rejects(work);
+  const task={messages:[]};
+  await assert.rejects(h.authorize(h.cards()[0],task));
   assert.equal(approvals,0);
   dom.window.close();
 });
-test('global approval setting handles a card in a non-queue Chat',async()=>{
-  const {w,h,dom}=await fixture('<main><div id="card"><p>任意内容</p><button>拒绝</button><button>允许</button><button aria-haspopup="menu">⌄</button><div role="menu"><button role="menuitem">允许本次会话</button></div></div></main>');
-  let arrowClicks=0, approvals=0;
-  w.document.querySelector('[aria-haspopup]').onclick=()=>arrowClicks++;
-  w.document.querySelector('[role=menuitem]').onclick=()=>approvals++;
+test('global approval setting clicks every current-action card in a non-queue Chat',async()=>{
+  const {w,h,dom}=await fixture('<main><div id="card-a" class="approval-card"><p>任意内容 A</p><button>Deny</button><button id="allow-a">Allow</button><button aria-haspopup="menu">⌄</button></div><div id="card-b" class="authorization-card"><p>任意内容 B</p><button>Deny</button><button id="allow-b">Allow once</button><button aria-haspopup="menu">⌄</button></div></main>');
+  let allowA=0, allowB=0, menuClicks=0;
+  w.document.querySelector('#allow-a').onclick=()=>allowA++;
+  w.document.querySelector('#allow-b').onclick=()=>allowB++;
+  w.document.querySelectorAll('[aria-haspopup]').forEach(node=>node.onclick=()=>menuClicks++);
   h.data.globalAutoApprove=true;
   assert.equal(await h.processGlobalApprovalCards(),true);
-  assert.equal(arrowClicks,1);
-  assert.equal(approvals,1);
+  assert.equal(allowA,1);
+  assert.equal(allowB,1);
+  assert.equal(menuClicks,0);
   dom.window.close();
 });
-test('connector-named conversation grant is accepted but permanent grants are rejected',async()=>{
-  const {w,h,dom}=await fixture();
-  const option=w.document.createElement('button');
-  option.setAttribute('aria-label','Allow GitHub for this conversation');
-  assert.equal(h.isConversationScopedAllow(option),true);
-  option.setAttribute('aria-label','Always allow GitHub');
-  assert.equal(h.isConversationScopedAllow(option),false);
-  option.setAttribute('aria-label','允许 GitHub 用于此对话');
-  assert.equal(h.isConversationScopedAllow(option),true);
-  option.setAttribute('aria-label','始终允许 GitHub');
-  assert.equal(h.isConversationScopedAllow(option),false);
-  dom.window.close();
-});
-test('GitHub card selects from the live UI selects its connector-named menu item',async()=>{
-  const {w,h,dom}=await fixture('<main><div id="card"><h2>允许 ChatGPT 使用 GitHub？</h2><button>拒绝</button><button>允许</button><button aria-haspopup="menu" aria-label="Allow GitHub for this conversation">⌄</button></div><div role="menu"><button role="menuitem" aria-label="Allow GitHub for this conversation">Allow GitHub for this conversation</button></div></main>');
-  let arrowClicks=0, approvals=0;
-  w.document.querySelector('#card [aria-haspopup]').onclick=()=>arrowClicks++;
+
+test('GitHub authorization card clicks its primary Allow instead of opening a scope menu',async()=>{
+  const {w,h,dom}=await fixture('<main><div id="card"><h2>允许 ChatGPT 使用 GitHub？</h2><button id="deny">拒绝</button><button id="allow">允许</button><button id="arrow" aria-haspopup="menu" aria-label="Allow GitHub for this conversation">⌄</button></div><div role="menu"><button role="menuitem" aria-label="Allow GitHub for this conversation">Allow GitHub for this conversation</button></div></main>');
+  let primaryClicks=0, arrowClicks=0, approvals=0;
+  w.document.querySelector('#allow').onclick=()=>primaryClicks++;
+  w.document.querySelector('#arrow').onclick=()=>arrowClicks++;
   w.document.querySelector('[role=menuitem]').onclick=()=>approvals++;
   await h.authorize(h.cards()[0],null,null,false);
-  assert.equal(arrowClicks,1);
-  assert.equal(approvals,1);
+  assert.equal(primaryClicks,1);
+  assert.equal(arrowClicks,0);
+  assert.equal(approvals,0);
   dom.window.close();
 });
 test('resumed exact-route task recognizes an approval card after its user marker is virtualized',async()=>{
@@ -4344,19 +4335,14 @@ test('resumed approval card stays unassigned when a foreign task marker owns the
   assert.notEqual(result.state,'approval','a visible marker for a different task must retain the fail-closed boundary');
   dom.window.close();
 });
-test('Radix authorization trigger opens on pointerdown before selecting its div menuitem',async()=>{
-  const {w,h,dom}=await fixture('<main><div id="card"><p>任意内容</p><button>拒绝</button><button>允许</button><button aria-haspopup="menu" aria-label="Allow GitHub for this conversation">⌄</button></div></main>');
-  let pointerdowns=0, approvals=0;
-  w.document.querySelector('[aria-haspopup]').addEventListener('pointerdown',async()=>{
-    pointerdowns++;
-    if(w.document.querySelector('[role=menu]'))return;
-    const menu=w.document.createElement('div');menu.setAttribute('role','menu');
-    const option=w.document.createElement('div');option.setAttribute('role','menuitem');option.textContent='Allow GitHub for this conversation';
-    option.addEventListener('click',()=>approvals++);menu.append(option);w.document.body.append(menu);
-  });
+test('authorization card does not open its Radix scope trigger when clicking primary Allow',async()=>{
+  const {w,h,dom}=await fixture('<main><div id="card"><p>任意内容</p><button>拒绝</button><button id="allow">允许</button><button id="arrow" aria-haspopup="menu" aria-label="Allow GitHub for this conversation">⌄</button></div></main>');
+  let pointerdowns=0, primaryClicks=0;
+  w.document.querySelector('#arrow').addEventListener('pointerdown',()=>pointerdowns++);
+  w.document.querySelector('#allow').onclick=()=>primaryClicks++;
   await h.authorize(h.cards()[0],null,null,false);
-  assert.equal(pointerdowns,1);
-  assert.equal(approvals,1);
+  assert.equal(pointerdowns,0);
+  assert.equal(primaryClicks,1);
   dom.window.close();
 });
 test('cancelled tasks resume the exact persisted conversation when possible',async()=>{
