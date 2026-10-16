@@ -1485,7 +1485,7 @@ test('new-tab assignment opens a short-lived task-only transfer ticket',async()=
 });
 test('new tab claims the transfer workspace and adopts only the ticketed task',async()=>{
   const owner='new-tab-owner', sourceOwner='source-tab', token='ticket-token';
-  const task={id:'assigned-only',ownerTabId:sourceOwner,goal:'task goal',state:'waiting',phase:'review',round:3,url:'https://chatgpt.com/c/existing-chat',token:'dispatch-token',attempted:true,attachments:[{id:'attachment-1',name:'doc.pdf'}],messages:[]};
+  const task={id:'assigned-only',ownerTabId:sourceOwner,goal:'task goal',state:'waiting',phase:'work',round:3,url:'https://chatgpt.com/c/existing-chat',token:'dispatch-token',attempted:true,attachments:[{id:'attachment-1',name:'doc.pdf'}],messages:[]};
   const ticket={version:1,token,taskId:task.id,sourceOwnerTabId:sourceOwner,targetOwnerTabId:owner,at:Date.now()};
   const {h,w,dom}=await fixture('',window=>{
     window.localStorage.setItem('fabushi-workbench-v2',JSON.stringify({tasks:[task],selectedByTab:{},tabControls:{[sourceOwner]:{autoResume:true,controlRevision:0}}}));
@@ -1494,7 +1494,7 @@ test('new tab claims the transfer workspace and adopts only the ticketed task',a
   assert.equal(h.getTabId(),owner);
   assert.equal(h.tabTasks().length,1);
   assert.equal(h.tabTasks()[0].id,task.id);
-  assert.equal(h.tabTasks()[0].phase,'review');
+  assert.equal(h.tabTasks()[0].phase,'work');
   assert.equal(h.tabTasks()[0].round,3);
   assert.equal(h.tabTasks()[0].url,task.url);
   assert.equal(h.tabTasks()[0].token,task.token);
@@ -1606,7 +1606,7 @@ test('an older Copy-only toolbar cannot complete a newer assistant reply',async(
   } finally {h.pause();dom.window.close();}
 });
 
-test('thinking-only response with final toolbar is ended without a final answer',async()=>{
+test('thinking-only response with final toolbar is ended without a final Work report',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish [Fabushi:thought-only]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="thinking">思考了 3m 2s</div></div><button aria-label="复制回复"></button><button aria-label="分享回复"></button></article><div role="status" class="loading">loading</div><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">发送</button></form></main>');
   try {
     w.history.pushState({},'', '/c/thought-only');
@@ -1622,6 +1622,8 @@ test('thinking-only response with final toolbar is ended without a final answer'
     assert.equal(task.state,'waiting');
     assert.ok(task.abnormalNoFinalSince>0,'stale broad loading must not suppress the bounded recovery');
     const first=task.abnormalNoFinalSince;
+    task.abnormalNoFinalSignature = h.observations.get(task.id)?.progressSignature || task.abnormalNoFinalSignature;
+    task.abnormalNoFinalSignature = h.observations.get(task.id)?.progressSignature || task.abnormalNoFinalSignature;
     task.abnormalNoFinalSince=Date.now()-9_000;
     await h.inspect(task,null);
     assert.equal(task.state,'queued');
@@ -1666,8 +1668,8 @@ test('old response toolbar cannot declare newer thinking-only turn terminated',a
   } finally {h.pause();dom.window.close();}
 });
 
-test('stable owned natural reply completes after eight seconds when renderer exposes no action row',async()=>{
-  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish [Fabushi:natural-final]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">这是已经完成的最终自然语言回复。</div></div></article><form><textarea id="prompt-textarea"></textarea></form></main>');
+test('stable owned Work final report completes after eight seconds when renderer exposes no action row',async()=>{
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish [Fabushi:natural-final]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">{"taskId":"natural-final","round":1,"status":"complete","summary":"这是已经完成的最终自然语言回复。","next":""}</div></div></article><form><textarea id="prompt-textarea"></textarea></form></main>');
   try {
     w.history.pushState({},'', '/c/natural-final');
     const task={id:'natural-final',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/natural-final',token:'natural-final',attempted:false,messages:[]};
@@ -1680,10 +1682,10 @@ test('stable owned natural reply completes after eight seconds when renderer exp
     assert.ok(Number(observation.naturalFinalSince)>0);
     assert.equal(task.abnormalNoFinalSince||0,0,'natural final candidate must not enter ended-without-final recovery');
 
-    h.observations.set(task.id,{...observation,naturalFinalCandidate:true,naturalFinalSince:Date.now()-9_000,text:'这是已经完成的最终自然语言回复。'});
+    h.observations.set(task.id,{...observation,naturalFinalCandidate:true,naturalFinalSince:Date.now()-9_000,text:'{"taskId":"natural-final","round":1,"status":"complete","summary":"这是已经完成的最终自然语言回复。","next":""}'});
     await h.inspect(task,null);
     assert.equal(task.state,'done');
-    assert.ok(task.messages.some(item=>item.role==='assistant' && /最终自然语言回复/.test(item.text||'')));
+    assert.ok(task.messages.some(item=>item.role==='assistant' && /"status":"complete"/.test(item.text||'')));
   } finally {h.pause();dom.window.close();}
 });
 
@@ -1743,6 +1745,7 @@ test('a stale assistant busy marker cannot block abnormal-end recovery after rep
     await h.inspect(task,null);
     const observation=h.observations.get(task.id);
     h.observations.set(task.id,{...observation,activityText:'older partial text',activityTextStableSince:Date.now()-10_000});
+    task.abnormalNoFinalSignature = observation?.progressSignature || task.abnormalNoFinalSignature;
     await h.inspect(task,null);
     assert.equal(task.state,'generating','a changed assistant reply restarts the stability window while the streaming marker remains fresh');
     assert.equal(task.abnormalNoFinalSince||0,0);
@@ -1905,7 +1908,7 @@ test('manual recovered marker-virtualized tool-only conversation also continues 
 });
 
 test('a late sibling final toolbar completes normally without injecting continuation',async()=>{
-  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish all [Fabushi:late-toolbar-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">当前结论与下一步。PR 仍保持 Draft，不能合并。</div></div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
+  const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish all [Fabushi:late-toolbar-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">{"taskId":"late-toolbar","round":1,"status":"complete","summary":"当前结论与下一步。PR 仍保持 Draft，不能合并。","next":""}</div></div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   try {
     w.history.pushState({},'', '/c/late-toolbar');
     const task={id:'late-toolbar',ownerTabId:h.getTabId(),goal:'finish all',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/late-toolbar',token:'late-toolbar-token',attempted:false,messages:[]};
