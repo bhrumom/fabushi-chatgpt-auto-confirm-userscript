@@ -8474,7 +8474,7 @@ ${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carry
       && !effectiveLoading
       && !currentBlocker
       && !currentRateLimit
-      && !task.attempted,
+      && (!task.attempted || Boolean(cacheRetry)),
     );
     if (canClearComposerForEndedCheck && composerReady && composerDraft) {
       setInput(composerNode, '');
