@@ -137,7 +137,7 @@
       } else await inspect(task, signal);
     } catch (error) {
       if (!signal.aborted && task && task.state !== 'paused' && task.state !== 'cancelled') {
-        const reviewRecovery = error.code === 'invalid-review-json' ? queueReviewRepair(task, error.message) : '';
+        const reviewRecovery = error.code === 'invalid-work-final-report' ? queueWorkFinalReportRepair(task, error.message) : '';
         if (reviewRecovery === 'queued') nextScheduleMs = 100;
         else if (reviewRecovery !== 'blocked') state(task, 'blocked', error.message);
       }
