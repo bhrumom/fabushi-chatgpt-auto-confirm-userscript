@@ -6836,7 +6836,7 @@ test('Work Stop disappearance requires the short authorization confirmation befo
     assert.equal(task.round,5);
     assert.match(task.messages.at(-1).text,/停止按钮消失接力/);
   } finally {h.pause();dom.window.close();}
-}););
+});
 
 test('marker-virtualized Work final JSON on the same Stop-observed response settles without waiting for toolbar',async()=>{
   const taskId='review-structured-virtualized';
@@ -6892,7 +6892,7 @@ test('Work no-final recovery remains bounded after the eight-second window',asyn
     assert.equal(task.connectionInterruptedFreshDispatch,true);
     assert.match(task.messages.at(-1).text,/已经结束但没有最终回复/);
   } finally {h.pause();dom.window.close();}
-}););
+});
 test('marker-virtualized Work final accepts the exact current report even when the renderer exposes no structural response key',async()=>{
   const taskId='review-result-no-boundary';
   const review=JSON.stringify({taskId,round:12,status:'next',summary:'还有一个 production blocker。',next:'继续关闭 production blocker 并重跑 exact-head gates。'});
@@ -7005,7 +7005,7 @@ test('Work result fallback rejects a report for a different task or round even a
     assert.equal(Number(task.abnormalNoFinalSince)||0,0,'a mismatched final report is not converted into a fresh session from a Stop-bound route');
     assert.equal(task.phase,'work');
   } finally {h.pause();dom.window.close();}
-}););
+});
 
 test('marker-virtualized Work final on the same Stop-observed response parses next and dispatches the next Work round',async()=>{
   const taskId='review-virtualized-next';
@@ -7130,9 +7130,9 @@ test('marker-virtualized Work final complete on the same Stop-observed response 
 
     await h.inspect(task,null);
     assert.equal(task.state,'done');
-    assert.equal(task.phase,'review');
+    assert.equal(task.phase,'work');
     assert.equal(task.connectionInterruptedFreshDispatch||false,false);
-    assert.ok(task.messages.some(item=>/验收完成：所有要求已有 exact-head 证据/.test(item.text||'')));
+    assert.ok(task.messages.some(item=>/工作最终报告确认完成：所有要求已有 exact-head 证据/.test(item.text||'')));
   } finally {h.pause();dom.window.close();}
 });
 
