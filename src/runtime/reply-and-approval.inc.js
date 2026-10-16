@@ -1453,11 +1453,6 @@
     node.dispatchEvent(new PointerCtor('pointerdown', { bubbles:true, cancelable:true, button:0, buttons:1, pointerType:'mouse', isPrimary:true }));
     node.click();
   }
-  function isConversationScopedAllow(node) {
-    const value = label(node);
-    if (/始终|总是|永久|所有(?:会话|对话)|always|all (?:chats|conversations|sessions)|future (?:chats|conversations|sessions)/i.test(value)) return false;
-    return /^(?:允许本次会话|在此对话中允许|允许此对话|允许\s+.{1,80}?\s+(?:用于|在)?(?:本次会话|此对话)|allow (?:for )?this (?:chat|conversation|session)|allow .{1,80}? for this (?:chat|conversation|session))$/iu.test(value);
-  }
   async function authorize(card, task, signal, queueOwned = true) {
     if (!card?.container?.isConnected || !visible(card.container) || !card.button) return false;
     if (!enabled(card.button)) {
