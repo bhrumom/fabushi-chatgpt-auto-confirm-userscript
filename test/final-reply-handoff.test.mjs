@@ -34,6 +34,22 @@ async function createHarness(body) {
   return { dom, window, hooks: window.__fabushiFinalReplyTestHooks };
 }
 
+test('Work prompt owns the final report contract and no planner prompt remains in runtime', async () => {
+  const { dom, hooks } = await createHarness('<main></main>');
+  try {
+    const task = { id:'direct-work-contract', round:3, goal:'执行当前目标', mode:'goal', phase:'work', token:'direct-token', attachments:[], result:'', next:'' };
+    const prompt = hooks.workPrompt(task);
+    assert.match(prompt,/MAHAYANA_TASK_REPORT_V1/);
+    assert.match(prompt,/taskId":"\$\{task\.id\}"/);
+    assert.match(prompt,/直接执行当前任务/);
+    assert.match(prompt,/complete.*next/);
+    assert.equal(typeof hooks.plannerPrompt,'undefined');
+    assert.doesNotMatch(prompt,/验收会话/);
+  } finally {
+    dom.window.close();
+  }
+});
+
 test('semantic response actions recognize a completed reply when ChatGPT changes data-testid values', async () => {
   const { dom, hooks } = await createHarness(`
     <main>
