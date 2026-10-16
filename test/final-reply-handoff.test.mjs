@@ -6,7 +6,7 @@ import { JSDOM } from 'jsdom';
 const source = await fs.readFile(new URL('../chatgpt-auto-confirm.user.js', import.meta.url), 'utf8');
 const instrumentedSource = source.replace(
   '  mount();',
-  `  window.__fabushiFinalReplyTestHooks = Object.freeze({ latestTurn, taskTurnForInspection, armRecoveredFinalIdentity, ownedFinalReplyReady, recoverStalledRoute, prepareTaskForRecovery, restoreWorkspace, resumeTask, classify, stalledProgressSignature, refreshStalledConversation, queueReviewRepair, parseReview, finish, workPrompt, plannerPrompt, pageLoadingState, inspect, data, observations, tabId, start, pause, setRunningForTest:()=>{running=true;data.autoResume=true;} });
+  `  window.__fabushiFinalReplyTestHooks = Object.freeze({ latestTurn, taskTurnForInspection, armRecoveredFinalIdentity, ownedFinalReplyReady, recoverStalledRoute, prepareTaskForRecovery, restoreWorkspace, resumeTask, classify, stalledProgressSignature, refreshStalledConversation, queueWorkFinalReportRepair, parseWorkFinalReport, finish, workPrompt, pageLoadingState, inspect, data, observations, tabId, start, pause, setRunningForTest:()=>{running=true;data.autoResume=true;} });
   mount();`,
 );
 
@@ -33,6 +33,22 @@ async function createHarness(body) {
   await window.eval(instrumentedSource);
   return { dom, window, hooks: window.__fabushiFinalReplyTestHooks };
 }
+
+test('Work prompt owns the final report contract and no planner prompt remains in runtime', async () => {
+  const { dom, hooks } = await createHarness('<main></main>');
+  try {
+    const task = { id:'direct-work-contract', round:3, goal:'执行当前目标', mode:'goal', phase:'work', token:'direct-token', attachments:[], result:'', next:'' };
+    const prompt = hooks.workPrompt(task);
+    assert.match(prompt,/MAHAYANA_TASK_REPORT_V1/);
+    assert.match(prompt,/"taskId":"direct-work-contract","round":3/);
+    assert.match(prompt,/直接执行当前任务/);
+    assert.match(prompt,/complete.*next/);
+    assert.equal(typeof hooks.plannerPrompt,'undefined');
+    assert.doesNotMatch(prompt,/独立的规划与验收会话/);
+  } finally {
+    dom.window.close();
+  }
+});
 
 test('semantic response actions recognize a completed reply when ChatGPT changes data-testid values', async () => {
   const { dom, hooks } = await createHarness(`
@@ -344,7 +360,7 @@ test('review parsing recovers a wrapped report with unescaped human quotes', asy
   try {
     const task = { id:'review-json-recovery', round:2 };
     const reply = '验收结果如下：\n```json\n{"taskId":"review-json-recovery","round":2,"status":"next","summary":"已检查“绘画”结果，发现 "尺寸" 需要继续处理","next":"重新绘画后复核"}\n```';
-    assert.deepEqual(JSON.parse(JSON.stringify(hooks.parseReview(reply, task))), {
+    assert.deepEqual(JSON.parse(JSON.stringify(hooks.parseWorkFinalReport(reply, task))), {
       taskId:'review-json-recovery',
       round:2,
       status:'next',
@@ -356,52 +372,55 @@ test('review parsing recovers a wrapped report with unescaped human quotes', asy
   }
 });
 
-test('review recovery selects the exact current task and round when quoted evidence contains an older report', async () => {
+test('Work final report recovery selects the exact current task and round when quoted evidence contains an older report', async () => {
   const { dom, hooks } = await createHarness('<main></main>');
   try {
     const task = { id:'current-review-task', round:4 };
     const reply = '验收说明：旧记录 {"taskId":"old-task","round":1,"status":"next","summary":"旧轮次","next":"旧下一步"}；当前报告如下： {"taskId":"current-review-task","round":4,"status":"next","summary":"当前轮仍缺少真实安装验收证据","next":"只补当前轮人工验收证据"}';
-    assert.deepEqual(JSON.parse(JSON.stringify(hooks.parseReview(reply, task))), {
+    assert.deepEqual(JSON.parse(JSON.stringify(hooks.parseWorkFinalReport(reply, task))), {
       taskId:'current-review-task',
       round:4,
       status:'next',
       summary:'当前轮仍缺少真实安装验收证据',
       next:'只补当前轮人工验收证据',
     });
-    assert.match(hooks.plannerPrompt({
+    const prompt = hooks.workPrompt({
       ...task,
       goal:'完成当前目标',
       result:'历史材料里包含 {"taskId":"old-task","round":1}',
       token:'review-token',
-    }), /本次验收身份固定为 taskId="current-review-task"、round=4/);
+    });
+    assert.match(prompt, /MAHAYANA_TASK_REPORT_V1/);
+    assert.match(prompt, /"taskId":"current-review-task","round":4/);
+    assert.doesNotMatch(prompt, /独立的规划与验收会话/);
   } finally {
     dom.window.close();
   }
 });
 
-test('a mismatched review identity is a repairable review error, not a terminal task error', async () => {
+test('a mismatched Work final report identity is a repairable report error, not a terminal task error', async () => {
   const { dom, hooks } = await createHarness('<main></main>');
   try {
     const task = { id:'expected-task', round:3 };
     assert.throws(
-      () => hooks.parseReview('{"taskId":"wrong-task","round":2,"status":"next","summary":"需要继续","next":"下一步"}', task),
-      error => error?.code === 'invalid-review-json' && /期望 taskId=expected-task、round=3/.test(error.message),
+      () => hooks.parseWorkFinalReport('{"taskId":"wrong-task","round":2,"status":"next","summary":"需要继续","next":"下一步"}', task),
+      error => error?.code === 'invalid-work-final-report' && /期望 taskId=expected-task、round=3/.test(error.message),
     );
   } finally {
     dom.window.close();
   }
 });
 
-test('malformed review reports requeue only the review phase and never discard Work result', async () => {
+test('malformed Work final reports requeue only the Work final-report repair and never discard Work result', async () => {
   const { dom, hooks } = await createHarness('<main></main>');
   try {
     const task = {
       id:'review-repair',
       goal:'修复验收回复',
       mode:'continuous',
-      phase:'review',
+      phase:'work',
       round:1,
-      state:'reviewing',
+      state:'waiting',
       url:'https://chatgpt.com/c/review-repair',
       token:'review-token',
       result:'Work 已完成，不能重复执行。',
@@ -409,22 +428,26 @@ test('malformed review reports requeue only the review phase and never discard W
       messages:[],
     };
     hooks.data.tasks.push(task);
-    assert.equal(hooks.queueReviewRepair(task, '验收回复 JSON 无法解析'), 'queued');
-    assert.equal(task.phase, 'review');
+    assert.equal(hooks.queueWorkFinalReportRepair(task, '验收回复 JSON 无法解析'), 'queued');
+    assert.equal(task.phase, 'work');
     assert.equal(task.state, 'queued');
     assert.equal(task.url, '');
     assert.equal(task.token, '');
     assert.equal(task.result, 'Work 已完成，不能重复执行。');
     assert.deepEqual(task.attachments, [{ id:'clip', name:'clip.mp4' }]);
-    assert.equal(task.reviewRepairAttempts, 1);
-    assert.equal(hooks.queueReviewRepair(task, '验收回复 JSON 无法解析'), 'queued');
-    assert.equal(task.reviewRepairAttempts, 2);
-    assert.equal(hooks.queueReviewRepair(task, '验收回复 JSON 无法解析'), 'queued');
+    assert.equal(task.workFinalReportRepairAttempts, 1);
+    assert.equal(hooks.queueWorkFinalReportRepair(task, '验收回复 JSON 无法解析'), 'queued');
+    assert.equal(task.workFinalReportRepairAttempts, 2);
+    assert.equal(hooks.queueWorkFinalReportRepair(task, '验收回复 JSON 无法解析'), 'queued');
     assert.equal(task.state, 'queued');
     assert.equal(task.url, '');
     assert.equal(task.token, '');
     assert.equal(task.result, 'Work 已完成，不能重复执行。');
-    assert.match(task.messages.at(-1).text, /新的 ChatGPT 会话/);
+    assert.equal(task.workFinalReportRepairAttempts, 3);
+    assert.match(task.messages.at(-1).text, /重新开启工作最终报告会话/);
+    assert.equal(hooks.queueWorkFinalReportRepair(task, '验收回复 JSON 无法解析'), 'queued');
+    assert.equal(task.state, 'queued');
+    assert.equal(task.workFinalReportRepairAttempts, 3);
     assert.match(task.messages.at(-1).text, /自动重发/);
   } finally {
     dom.window.close();
@@ -1047,7 +1070,7 @@ test('manual task recovery arms the final-reply fallback identity for the exact 
       goal:'恢复当前任务',
       goalRevision:4,
       mode:'once',
-      phase:'review',
+      phase:'work',
       round:2,
       state:'blocked',
       url:'https://chatgpt.com/c/manual-recovery',
@@ -1060,7 +1083,7 @@ test('manual task recovery arms the final-reply fallback identity for the exact 
     assert.deepEqual(JSON.parse(JSON.stringify(task.recoveredFinalIdentity)), {
       url:'https://chatgpt.com/c/manual-recovery',
       token:'manual-recovery-token',
-      phase:'review',
+      phase:'work',
       round:2,
       goalRevision:4,
       allowStaticFinal:true,
@@ -1238,38 +1261,31 @@ test('automatic recovery still refuses a bare static reply without final toolbar
   }
 });
 
-test('a confirmed Work reply is copied verbatim into the next review prompt', async () => {
+test('a confirmed Work final report directly queues the next Work round', async () => {
   const { dom, hooks } = await createHarness('<main></main>');
   try {
-    const finalReply = '已完成目标。\n证据：PR #2580 已合并，exact-main packaged run 正在验证。';
+    const finalReply = JSON.stringify({
+      taskId:'TFI-USERSCRIPT-RECOVERY-009-test', round:1, status:'next',
+      summary:'已核实实现和现有证据，仍有一个真实缺口。',
+      next:'读取缺口对应源码，修改生产代码，运行 GitHub Actions 并提交验证结果.',
+    });
     const task = {
-      id: 'TFI-USERSCRIPT-RECOVERY-009-test',
-      mode: 'continuous',
-      phase: 'work',
-      round: 1,
-      goal: '修复最终回复识别并交给验收会话。',
-      goalRevision: 3,
-      dispatchGoalRevision: 3,
-      url: 'https://chatgpt.com/c/work-turn-1',
-      token: 'work-turn-token',
-      state: 'waiting',
-      attempted: true,
-      messages: [],
-      history: [],
-      attachments: [{ id: 'evidence-image', name: 'evidence.png', type: 'image/png', size: 4, lastModified: 1 }],
+      id:'TFI-USERSCRIPT-RECOVERY-009-test', mode:'continuous', phase:'work', round:1,
+      goal:'修复最终回复识别', goalRevision:3, dispatchGoalRevision:3,
+      url:'https://chatgpt.com/c/work-turn-1', token:'work-turn-token', state:'waiting',
+      attempted:true, messages:[], history:[],
+      attachments:[{id:'evidence-image',name:'evidence.png',type:'image/png',size:4,lastModified:1}],
     };
-
     hooks.finish(task, finalReply);
-
-    assert.equal(task.phase, 'review');
-    assert.equal(task.state, 'queued');
-    assert.equal(task.result, finalReply);
-    assert.deepEqual(task.attachments, [{ id: 'evidence-image', name: 'evidence.png', type: 'image/png', size: 4, lastModified: 1 }]);
-    assert.match(hooks.plannerPrompt(task), new RegExp(`Work 自然结果：${finalReply.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}`));
-    assert.match(hooks.plannerPrompt(task), /evidence\.png/);
-  } finally {
-    dom.window.close();
-  }
+    assert.equal(task.phase,'work');
+    assert.equal(task.round,2);
+    assert.equal(task.state,'queued');
+    assert.equal(task.next,'读取缺口对应源码，修改生产代码，运行 GitHub Actions 并提交验证结果.');
+    assert.equal(task.result,finalReply);
+    assert.deepEqual(task.attachments,[{id:'evidence-image',name:'evidence.png',type:'image/png',size:4,lastModified:1}]);
+    assert.match(hooks.workPrompt(task),/读取缺口对应源码/);
+    assert.match(hooks.workPrompt(task),/evidence\.png/);
+  } finally { dom.window.close(); }
 });
 
 test('a review result that requests more work keeps the same attachments for the next Work round', async () => {
@@ -1310,7 +1326,7 @@ test('a review result that requests more work keeps the same attachments for the
 });
 
 
-test('marker-virtualized review consumes an exact visible next report without a stored Stop identity', async () => {
+test('marker-virtualized Work final report consumes an exact visible next report without a stored Stop identity', async () => {
   const taskId = 'visible-review-next';
   const report = JSON.stringify({
     taskId,
@@ -1338,7 +1354,7 @@ test('marker-virtualized review consumes an exact visible next report without a 
       goalRevision:1,
       dispatchGoalRevision:1,
       mode:'goal',
-      phase:'review',
+      phase:'work',
       round:8,
       state:'waiting',
       url:'https://chatgpt.com/c/visible-review-next',
@@ -1365,7 +1381,7 @@ test('marker-virtualized review consumes an exact visible next report without a 
     assert.equal(task.state, 'queued');
     assert.equal(task.next, '继续处理 strict 第一 blocker，并重新验收。');
     assert.ok(task.messages.some(item => item.role === 'assistant' && String(item.text || '').includes('"status":"next"')));
-    assert.ok(task.messages.some(item => /规划\/验收要求继续/.test(String(item.text || ''))));
+    assert.ok(task.messages.some(item => /工作最终报告要求继续/.test(String(item.text || ''))));
     assert.equal(task.connectionInterruptedFreshDispatch || false, false);
   } finally {
     hooks.pause();
@@ -1373,7 +1389,7 @@ test('marker-virtualized review consumes an exact visible next report without a 
   }
 });
 
-test('marker-virtualized review does not promote a visible report for another task', async () => {
+test('marker-virtualized Work final report does not promote a visible report for another task', async () => {
   const { dom, window, hooks } = await createHarness(`
     <main>
       <article data-testid="conversation-turn-assistant">
@@ -1393,7 +1409,7 @@ test('marker-virtualized review does not promote a visible report for another ta
       goalRevision:1,
       dispatchGoalRevision:1,
       mode:'goal',
-      phase:'review',
+      phase:'work',
       round:8,
       state:'waiting',
       url:'https://chatgpt.com/c/visible-review-mismatch',
@@ -1407,9 +1423,10 @@ test('marker-virtualized review does not promote a visible report for another ta
     await hooks.inspect(task, null);
     const observation = hooks.observations.get(task.id);
     assert.equal(observation?.final, false);
-    assert.equal(task.phase, 'review');
+    assert.equal(task.phase, 'work');
     assert.equal(task.round, 8);
     assert.equal(task.next || '', '');
+    assert.notEqual(task.state, 'reviewing');
   } finally {
     hooks.pause();
     dom.window.close();

@@ -4,6 +4,14 @@
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
 入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.47`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
 
+## 2.10.53 Work 最终报告直接驱动继续执行
+
+- 取消独立的验收/Review 会话。持续目标始终保持 `phase=work`。
+- `workPrompt()` 现在要求 Work 先真实执行、核对证据，再以 `MAHAYANA_TASK_REPORT_V1` 作为最终回复。
+- `status=complete` 直接结束任务；`status=next` 直接保存 `next` 并进入下一轮 Work，不再新开验收会话。
+- 用户脚本不改写 `summary` / `next`；报告身份仍严格校验当前 `taskId + round`。
+- 历史持久化的 `phase=review` / `reviewing` 任务启动时迁移到 Work，不删除目标、结果或附件。
+
 ## 2.10.41 首次模型选择等待菜单加载
 
 - 首次打开模型列表也使用单次点击和间隔控制。

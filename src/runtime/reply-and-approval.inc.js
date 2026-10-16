@@ -298,7 +298,7 @@
     const recoveryLabel = options.recoveryLabel
       ? `${options.recoveryLabel}第 ${recoveryCount} 次`
       : `连接中断自动恢复第 ${recoveryCount} 次`;
-    log(task, `${reason}；已结束当前故障会话派发并切换到新的 ChatGPT 会话恢复当前${task.phase === 'review' ? '规划/验收' : 'Work'}阶段（${recoveryLabel}）。${carrySourceNote}${carry ? '新会话提示词会把可见回复和实际工作步骤作为已完成工作现场一起继续承接；' : ''}保留任务、phase、round、目标/next 和附件；新会话会生成新的发送标识与会话链接，不会在故障旧会话重复发送“${CONTINUATION_PROMPT}”。`);
+    log(task, `${reason}；已结束当前故障会话派发并切换到新的 ChatGPT 会话恢复当前${'Work'}阶段（${recoveryLabel}）。${carrySourceNote}${carry ? '新会话提示词会把可见回复和实际工作步骤作为已完成工作现场一起继续承接；' : ''}保留任务、phase、round、目标/next 和附件；新会话会生成新的发送标识与会话链接，不会在故障旧会话重复发送“${CONTINUATION_PROMPT}”。`);
     save();
     return true;
   }
@@ -854,13 +854,13 @@
       const candidate = latestTurn();
       const observedBoundaryKey = String(task.stopObservedAssistantBoundaryKey || '');
       const candidateBoundaryKey = assistantResponseBoundaryKey(candidate);
-      const currentReview = task.phase === 'review'
+      const currentReport = task.phase === 'work'
         && candidate.text
         && candidate.hasNaturalReply
         && !candidate.streaming
-          ? currentReviewReport(candidate.text, task)
+          ? currentWorkFinalReport(candidate.text, task)
           : null;
-      const structuredReviewFinal = Boolean(currentReview);
+      const structuredWorkFinal = Boolean(currentReport);
       const mountedUser = conversationRoleNodes('user').at(-1);
       const sameObservedUser = Boolean(
         mountedUser
@@ -872,27 +872,27 @@
         observedBoundaryKey
         && candidateBoundaryKey === observedBoundaryKey
       );
-      // Review has a stronger semantic final identity than ordinary Work:
-      // parseReview() requires the exact current taskId + round + status/schema.
+      // Work final report has a stronger semantic final identity than ordinary Work:
+      // parseWorkFinalReport() requires the exact current taskId + round + status/schema.
       // Once this exact dispatch was observed generating on this exact route,
       // a valid current Review result must not depend on renderer-only turn keys
       // surviving virtualization/remount. Treat the result itself as the final
       // response signal, while keeping structural-boundary + toolbar recovery
-      // for non-Review replies and malformed Review text.
-      const reviewResultFinal = Boolean(
-        structuredReviewFinal
+      // for non-report replies and malformed report text.
+      const workResultFinal = Boolean(
+        structuredWorkFinal
         && candidate.text
         && candidate.hasNaturalReply
         && !candidate.streaming
       );
       if (candidate.text
         && !candidate.streaming
-        && (((sameObservedResponse || sameObservedUser) && candidate.final) || reviewResultFinal)) {
+        && (((sameObservedResponse || sameObservedUser) && candidate.final) || workResultFinal)) {
         return {
           ...candidate,
-          final:Boolean(candidate.final || reviewResultFinal),
-          structuredReviewFinal,
-          reviewResultFinal,
+          final:Boolean(candidate.final || workResultFinal),
+          structuredWorkFinal,
+          workResultFinal,
           owned:true,
           recoveredRouteOwned:true,
           stopBoundRouteFinal:true,
@@ -1566,11 +1566,11 @@
     const taskURL = canonicalConversationURL(task.url);
     if (!liveURL || !taskURL || liveURL !== taskURL) return false;
     const turn = taskTurnForInspection(task);
-    if (task.phase === 'review' && !task.attempted && !cards().length
+    if (task.phase === 'work' && !task.attempted && !cards().length
       && !conversationURLOwner(liveURL, task.id)
       && connectionInterruptedNotice(turn)) {
       const transcript = visibleAssistantWorkTranscript(task, { allowExactRouteFallback:true });
-      if (completeReviewReport(transcript.text, task)) return true;
+      if (completeWorkFinalReport(transcript.text, task)) return true;
     }
     return Boolean(turn.owned && turn.final && turn.text && !stopButton() && !cards().length);
   }

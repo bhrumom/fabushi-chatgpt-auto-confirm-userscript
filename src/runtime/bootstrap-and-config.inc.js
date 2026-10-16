@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.52
+// @version      2.10.53
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -15,6 +15,7 @@
 const BOOTSTRAP_MARKER = 'fabushi-auto-confirm-bootstrap-v1';
 const BOOTSTRAP_STALE_MS = 15_000;
 let bootstrapRetryCount = 0;
+const MAX_WORK_FINAL_REPORT_REPAIR_ATTEMPTS = 3;
 let bootstrapAttemptToken = '';
 let bootstrapCleanup = async () => {};
 
@@ -67,7 +68,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.52';
+  const VERSION = '2.10.53';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -191,9 +192,8 @@ async function bootstrapAttempt() {
   const ENDED_NO_FINAL_STABILITY_MS = 8000;
   // Review/acceptance turns can temporarily lose Stop while ChatGPT is still
   // reasoning or hydrating the committed JSON response. Do not duplicate the
-  // review after the ordinary eight-second ended-state window; keep the exact
-  // conversation for a bounded two-minute settlement grace instead.
-  const REVIEW_ENDED_NO_FINAL_STABILITY_MS = 2 * 60 * 1000;
+  // Work has a single bounded ended-state window; final-report settlement is
+  // handled by the Work final-report contract rather than a separate Review phase.
   const RELOAD_STOP_ABSENCE_STABILITY_MS = 8000;
   const RATE_LIMIT_FRESH_RETRY_AFTER = 3;
   // The carry is normally much smaller than this. Keep a generous bound so a
@@ -345,7 +345,7 @@ async function bootstrapAttempt() {
   const STORAGE_EMERGENCY_GLOBAL_MESSAGE_CHARS = 200000;
   // Rendering is still bounded independently from the two-hour retained log
   // so a verbose task cannot monopolize the ChatGPT renderer.
-  const AUTO_RECOVERABLE_STATE_NAMES = new Set(['queued', 'sending', 'uploading', 'waiting', 'loading', 'generating', 'approval', 'reviewing']);
+  const AUTO_RECOVERABLE_STATE_NAMES = new Set(['queued', 'sending', 'uploading', 'waiting', 'loading', 'generating', 'approval']);
   const volatileStorageShadow = new Map();
   const fabushiStorageSizeCache = new Map();
   const WORKBENCH_OVERFLOW_KEY = 'fabushi-workbench-overflow-v1:';

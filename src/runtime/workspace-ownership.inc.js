@@ -232,6 +232,19 @@
       ownershipMigrated = true;
     }
   }
+  // v2.10.53 removes the independent Review conversation. Legacy persisted
+  // Review records are migrated to the single Work phase without deleting goals,
+  // attachments, results, or the active conversation route.
+  let reportPhaseMigrated = false;
+  for (const task of data.tasks) {
+    if (task.phase !== 'review') continue;
+    task.phase = 'work';
+    task.workFinalReportRepairAttempts = Number(task.reviewRepairAttempts || 0);
+    delete task.reviewRepairAttempts;
+    if (task.state === 'reviewing') task.state = task.url ? 'waiting' : 'queued';
+    task.updatedAt = Date.now();
+    reportPhaseMigrated = true;
+  }
   data.tabControls ||= {};
   data.selectedByTab ||= {};
   const legacyControl = {
@@ -251,7 +264,7 @@
       set:value => { data.tabControls[tabId] ||= {}; data.tabControls[tabId][field] = value; },
     });
   }
-  if (ownershipMigrated) persistWorkbenchState(data);
+  if (ownershipMigrated || reportPhaseMigrated) persistWorkbenchState(data);
   // v2.10.18 keeps localStorage latest-only. Legacy queues/runtimes were already
   // migrated into the canonical workbench by earlier releases, so retaining
   // paused copies only wastes origin quota and can eventually make storage full.
@@ -296,9 +309,9 @@
   const attachmentDispatchContexts = new Map();
   const approvalAttempts = new WeakMap();
   const terminal = new Set(['done', 'blocked', 'cancelled']);
-  const resumableStates = new Set(['queued', 'sending', 'uploading', 'waiting', 'loading', 'generating', 'approval', 'reviewing']);
+  const resumableStates = new Set(['queued', 'sending', 'uploading', 'waiting', 'loading', 'generating', 'approval']);
   const pausableStates = new Set([...resumableStates, 'blocked']);
-  const statusNames = { queued:'等待派发', sending:'正在发送', uploading:'正在上传附件', waiting:'等待响应', loading:'正在加载', generating:'正在生成', approval:'等待授权', reviewing:'正在验收', done:'已完成', blocked:'需要处理', paused:'已暂停', cancelled:'已取消' };
+  const statusNames = { queued:'等待派发', sending:'正在发送', uploading:'正在上传附件', waiting:'等待响应', loading:'正在加载', generating:'正在生成', approval:'等待授权', done:'已完成', blocked:'需要处理', paused:'已暂停', cancelled:'已取消' };
   const REASONING_PRESETS = Object.freeze([
     Object.freeze({ index:0, key:'instant', label:'即时', effort:'none' }),
     Object.freeze({ index:1, key:'medium', label:'中', effort:'medium' }),
