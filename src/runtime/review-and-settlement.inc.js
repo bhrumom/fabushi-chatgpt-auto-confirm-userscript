@@ -104,7 +104,8 @@
     return report;
   }
   // Legacy test/API name only; this is the same strict Work report parser.
-  function parseReview(value, task) { return parseWorkFinalReport(value, task); }\n  function completeWorkFinalReport(value, task) {
+  function parseReview(value, task) { return parseWorkFinalReport(value, task); }
+  function completeWorkFinalReport(value, task) {
     if (!task || task.phase !== 'work') return null;
     const source = String(value || '');
     let start = -1, depth = 0, quoted = false, escaped = false;
