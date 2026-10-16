@@ -8534,8 +8534,8 @@ ${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carry
       // has proved ownership. An unowned final-looking response must not block
       // the bounded WorkFinal no-final settlement timer.
       final:Boolean(
-        (turn.owned && (turn.final || structuredWorkFinalFinal))
-        || visibleWorkFinalFinal
+        visibleWorkFinalFinal
+        || (turn.owned && structuredWorkFinalFinal)
       ),
       responseActions:turn.responseActions,
       responseActionsComplete:turn.responseActionsComplete,
