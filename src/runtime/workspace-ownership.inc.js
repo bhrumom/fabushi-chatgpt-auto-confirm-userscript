@@ -232,6 +232,19 @@
       ownershipMigrated = true;
     }
   }
+  // v2.10.53 removes the independent Review conversation. Legacy persisted
+  // Review records are migrated to the single Work phase without deleting goals,
+  // attachments, results, or the active conversation route.
+  let reportPhaseMigrated = false;
+  for (const task of data.tasks) {
+    if (task.phase !== 'review') continue;
+    task.phase = 'work';
+    task.workFinalReportRepairAttempts = Number(task.reviewRepairAttempts || 0);
+    delete task.reviewRepairAttempts;
+    if (task.state === 'reviewing') task.state = task.url ? 'waiting' : 'queued';
+    task.updatedAt = Date.now();
+    reportPhaseMigrated = true;
+  }
   data.tabControls ||= {};
   data.selectedByTab ||= {};
   const legacyControl = {
@@ -251,7 +264,7 @@
       set:value => { data.tabControls[tabId] ||= {}; data.tabControls[tabId][field] = value; },
     });
   }
-  if (ownershipMigrated) persistWorkbenchState(data);
+  if (ownershipMigrated || reportPhaseMigrated) persistWorkbenchState(data);
   // v2.10.18 keeps localStorage latest-only. Legacy queues/runtimes were already
   // migrated into the canonical workbench by earlier releases, so retaining
   // paused copies only wastes origin quota and can eventually make storage full.
