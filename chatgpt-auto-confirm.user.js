@@ -6209,6 +6209,9 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
           button,
           arrow:trustedArrow,
           deny:trustedDeny,
+          // A trusted explicit/structural authorization surface with only an
+          // exact primary Allow action is directly actionable. This does not
+          // apply to an isolated Allow control outside a trusted card surface.
           directActionable:Boolean(
             !trustedArrow
             && isDirectPrimaryAuthorizationAllow(button)
@@ -6527,8 +6530,10 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
       log(task, '已点击“允许本次会话”，进入授权提交保护期；即使卡片暂时 disabled、重挂载或瞬时消失，也不会切换会话。');
       return true;
     }
-    // No conversation-scoped menu option was exposed. Fall back to the
-    // exact primary Allow instead of choosing a persistent/global menu item.
+    // The card may expose the split menu but not offer a conversation-scoped
+    // option in that menu. Per the current product behavior, use the exact
+    // primary Allow as the bounded fallback rather than choosing a persistent
+    // menu item or abandoning the current conversation.
     if (isDirectPrimaryAuthorizationAllow(card.button) && enabled(card.button)) {
       checkAuthorizationRun(signal, queueOwned);
       activateControl(card.button);
