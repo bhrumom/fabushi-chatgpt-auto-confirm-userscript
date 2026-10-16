@@ -858,9 +858,9 @@
         && candidate.text
         && candidate.hasNaturalReply
         && !candidate.streaming
-          ? currentReviewReport(candidate.text, task)
+          ? currentWorkFinalReport(candidate.text, task)
           : null;
-      const structuredReviewFinal = Boolean(currentReview);
+      const structuredWorkFinal = Boolean(currentReview);
       const mountedUser = conversationRoleNodes('user').at(-1);
       const sameObservedUser = Boolean(
         mountedUser
@@ -872,27 +872,27 @@
         observedBoundaryKey
         && candidateBoundaryKey === observedBoundaryKey
       );
-      // Review has a stronger semantic final identity than ordinary Work:
-      // parseReview() requires the exact current taskId + round + status/schema.
+      // Work final report has a stronger semantic final identity than ordinary Work:
+      // parseWorkFinalReport() requires the exact current taskId + round + status/schema.
       // Once this exact dispatch was observed generating on this exact route,
       // a valid current Review result must not depend on renderer-only turn keys
       // surviving virtualization/remount. Treat the result itself as the final
       // response signal, while keeping structural-boundary + toolbar recovery
-      // for non-Review replies and malformed Review text.
-      const reviewResultFinal = Boolean(
-        structuredReviewFinal
+      // for non-report replies and malformed report text.
+      const workResultFinal = Boolean(
+        structuredWorkFinal
         && candidate.text
         && candidate.hasNaturalReply
         && !candidate.streaming
       );
       if (candidate.text
         && !candidate.streaming
-        && (((sameObservedResponse || sameObservedUser) && candidate.final) || reviewResultFinal)) {
+        && (((sameObservedResponse || sameObservedUser) && candidate.final) || workResultFinal)) {
         return {
           ...candidate,
-          final:Boolean(candidate.final || reviewResultFinal),
-          structuredReviewFinal,
-          reviewResultFinal,
+          final:Boolean(candidate.final || workResultFinal),
+          structuredWorkFinal,
+          workResultFinal,
           owned:true,
           recoveredRouteOwned:true,
           stopBoundRouteFinal:true,
