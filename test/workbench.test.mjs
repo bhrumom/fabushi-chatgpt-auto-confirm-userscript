@@ -516,7 +516,7 @@ test('changing the workbench model changes only the selected existing task and s
   }finally{h.pause();dom.window.close();}
 });
 
-test('running Work task model change is used in later Work dispatch',async()=>{
+test('running Work task model change is used in the next Review and later Work dispatch',async()=>{
   const {w,h,dom,state}=await liveNestedModelFixture('GPT-5.6 Sol');
   try{
     const task=h.enqueue('continuous goal','goal',[],3,'gpt-5.6-sol');
@@ -540,7 +540,7 @@ test('running Work task model change is used in later Work dispatch',async()=>{
     task.phase='review';task.round=4;task.state='queued';task.url='';task.token='';
     h.setRunningForTest(true);
     assert.equal(await h.ensureTaskModelPreset(task,null),true);
-    assert.equal(state.selected,'GPT-6','the next Work round switches to latest Fabushi selection');
+    assert.equal(state.selected,'GPT-6','the next Review round switches to latest Fabushi selection');
     assert.equal(task.modelPresetConfirmedKey,'gpt-6');
     assert.equal(h.currentTaskModelStillConfirmed(task,'gpt-6'),true);
     dropdown.value='gpt-5.5';dropdown.dispatchEvent(new w.Event('change',{bubbles:true}));
@@ -556,7 +556,7 @@ test('running Work task model change is used in later Work dispatch',async()=>{
 
 test('pre-Send gate rejects an in-flight selector change after model/strength preparation',()=>{
   const begin=source.indexOf('async function send(task, signal)');
-  const end=source.indexOf('function workFinalReportParseError',begin);
+  const end=source.indexOf('function reviewParseError',begin);
   const body=source.slice(begin,end);
   const capture=body.indexOf('const verifiedModelPreset = taskModelPreset(task)');
   const model=body.indexOf('ensureTaskModelPreset(task, signal)');
@@ -664,7 +664,7 @@ test('live nested menu switches GPT-6 to GPT-5.6 Sol, reopens the submenu, and v
 test('live nested menu switches GPT-5.6 Sol to GPT-6 with the same radio verification flow',async()=>{
   const {h,dom,state}=await liveNestedModelFixture('GPT-5.6 Sol');
   try {
-    const task={id:'live-to-six',ownerTabId:h.getTabId(),goal:'model',phase:'work',round:4,state:'sending',modelPreset:'gpt-6',messages:[]};
+    const task={id:'live-to-six',ownerTabId:h.getTabId(),goal:'model',phase:'review',round:4,state:'sending',modelPreset:'gpt-6',messages:[]};
     h.data.tasks.push(task);h.setRunningForTest(true);
     assert.equal(await h.ensureTaskModelPreset(task,null),true);
     assert.equal(state.selected,'GPT-6');
@@ -797,7 +797,7 @@ test('sticky radio cannot be dismissed without a safe outside heading and fails 
 
 test('send gate verifies Chat mode, then model, then reasoning, then attachments',()=>{
   const begin=source.indexOf('async function send(task, signal)');
-  const end=source.indexOf('function workFinalReportParseError',begin);
+  const end=source.indexOf('function reviewParseError',begin);
   const body=source.slice(begin,end);
   const order=['ensureChatMode(task, signal)','ensureTaskModelPreset(task, signal)','ensureTaskReasoningPreset(task, signal)','ensureTaskAttachments(task, input, signal)'].map(token=>body.indexOf(token));
   assert.ok(order.every(index=>index>=0));
@@ -1116,7 +1116,7 @@ test('English Work offer countdown is recognized and retries Stay in chat only a
   </section><form><textarea id="prompt-textarea"></textarea></form></main>`);
   try{
     w.history.pushState({},'', '/c/stay-english');
-    const task={id:'stay-english',ownerTabId:h.getTabId(),goal:'current ongoing goal',mode:'goal',phase:'work',round:4,state:'waiting',url:'https://chatgpt.com/c/stay-english',token:'stay-english-token',messages:[]};
+    const task={id:'stay-english',ownerTabId:h.getTabId(),goal:'current ongoing goal',mode:'goal',phase:'review',round:4,state:'waiting',url:'https://chatgpt.com/c/stay-english',token:'stay-english-token',messages:[]};
     h.data.tasks.push(task);h.setRunningForTest(true);
     let stayClicks=0,workClicks=0;
     w.document.querySelector('#stay').addEventListener('click',()=>stayClicks++);
@@ -1132,7 +1132,7 @@ test('English Work offer countdown is recognized and retries Stay in chat only a
     assert.equal(stayClicks,2,'bounded retry while same real offer remains');
     assert.equal(workClicks,0);
     assert.equal(task.round,4);
-    assert.equal(task.phase,'work');
+    assert.equal(task.phase,'review');
     assert.equal(task.token,'stay-english-token');
     assert.equal(task.url,'https://chatgpt.com/c/stay-english');
   }finally{h.pause();dom.window.close();}
@@ -1432,7 +1432,7 @@ test('loading detection ignores transcript, composer, sidebar and workbench indi
 test('task reassignment changes only ownership and preserves paused execution identity',async()=>{
   const {h,w,dom}=await fixture();
   const task=h.enqueue('move me','goal');
-  Object.assign(task,{state:'paused',pausedState:'waiting',phase:'work',round:4,url:'https://chatgpt.com/c/kept',token:'kept-token',attempted:true,next:'keep next',attachments:[{id:'file-1',name:'keep.png'}]});
+  Object.assign(task,{state:'paused',pausedState:'waiting',phase:'review',round:4,url:'https://chatgpt.com/c/kept',token:'kept-token',attempted:true,next:'keep next',attachments:[{id:'file-1',name:'keep.png'}]});
   const sibling={id:'sibling',ownerTabId:'target-workspace',goal:'already there',state:'waiting',updatedAt:1,messages:[]};
   h.data.tasks.push(sibling);
   w.localStorage.setItem('fabushi-workspace-heartbeat-v1:target-workspace',JSON.stringify({ownerTabId:'target-workspace',at:Date.now(),autoResume:true,running:true}));
@@ -1440,7 +1440,7 @@ test('task reassignment changes only ownership and preserves paused execution id
   assert.equal(await h.assignTaskToWorkspace(task.id,'target-workspace'),true);
   assert.equal(task.ownerTabId,'target-workspace');
   assert.equal(task.state,'paused');
-  assert.equal(task.phase,'work');
+  assert.equal(task.phase,'review');
   assert.equal(task.round,4);
   assert.equal(task.url,'https://chatgpt.com/c/kept');
   assert.equal(task.token,'kept-token');
@@ -1485,7 +1485,7 @@ test('new-tab assignment opens a short-lived task-only transfer ticket',async()=
 });
 test('new tab claims the transfer workspace and adopts only the ticketed task',async()=>{
   const owner='new-tab-owner', sourceOwner='source-tab', token='ticket-token';
-  const task={id:'assigned-only',ownerTabId:sourceOwner,goal:'task goal',state:'waiting',phase:'work',round:3,url:'https://chatgpt.com/c/existing-chat',token:'dispatch-token',attempted:true,attachments:[{id:'attachment-1',name:'doc.pdf'}],messages:[]};
+  const task={id:'assigned-only',ownerTabId:sourceOwner,goal:'task goal',state:'waiting',phase:'review',round:3,url:'https://chatgpt.com/c/existing-chat',token:'dispatch-token',attempted:true,attachments:[{id:'attachment-1',name:'doc.pdf'}],messages:[]};
   const ticket={version:1,token,taskId:task.id,sourceOwnerTabId:sourceOwner,targetOwnerTabId:owner,at:Date.now()};
   const {h,w,dom}=await fixture('',window=>{
     window.localStorage.setItem('fabushi-workbench-v2',JSON.stringify({tasks:[task],selectedByTab:{},tabControls:{[sourceOwner]:{autoResume:true,controlRevision:0}}}));
@@ -1494,7 +1494,7 @@ test('new tab claims the transfer workspace and adopts only the ticketed task',a
   assert.equal(h.getTabId(),owner);
   assert.equal(h.tabTasks().length,1);
   assert.equal(h.tabTasks()[0].id,task.id);
-  assert.equal(h.tabTasks()[0].phase,'work');
+  assert.equal(h.tabTasks()[0].phase,'review');
   assert.equal(h.tabTasks()[0].round,3);
   assert.equal(h.tabTasks()[0].url,task.url);
   assert.equal(h.tabTasks()[0].token,task.token);
@@ -1624,7 +1624,7 @@ test('thinking-only response with final toolbar is ended without a final answer'
     const first=task.abnormalNoFinalSince;
     task.abnormalNoFinalSince=Date.now()-9_000;
     await h.inspect(task,null);
-    assert.equal(task.state,'waiting');
+    assert.equal(task.state,'queued');
     assert.equal(task.connectionInterruptedFreshDispatch,true);
     assert.equal(task.continuationCount||0,0);
     assert.equal(clicks,0,'do not click Send in the terminated old conversation');
@@ -1682,7 +1682,7 @@ test('stable owned natural reply completes after eight seconds when renderer exp
 
     h.observations.set(task.id,{...observation,naturalFinalCandidate:true,naturalFinalSince:Date.now()-9_000,text:'这是已经完成的最终自然语言回复。'});
     await h.inspect(task,null);
-    assert.equal(task.state,'waiting');
+    assert.equal(task.state,'done');
     assert.ok(task.messages.some(item=>item.role==='assistant' && /最终自然语言回复/.test(item.text||'')));
   } finally {h.pause();dom.window.close();}
 });
@@ -1778,7 +1778,7 @@ test('marker-virtualized exact-route waiting task queues a fresh session after s
     task.abnormalNoFinalSince=Date.now()-9_000;
     await h.inspect(task,null);
 
-    assert.equal(task.state,'waiting');
+    assert.equal(task.state,'queued');
     assert.equal(task.url,'');
     assert.equal(task.token,'');
     assert.equal(task.connectionInterruptedFreshDispatch,true);
@@ -1860,7 +1860,7 @@ test('waiting response queues a fresh session after eight stable seconds despite
     task.abnormalNoFinalSince=Date.now()-9_000;
     await h.inspect(task,null);
 
-    assert.equal(task.state,'waiting');
+    assert.equal(task.state,'queued');
     assert.equal(task.url,'');
     assert.equal(task.continuationCount||0,0);
     assert.equal(clicks,0);
@@ -1892,7 +1892,7 @@ test('manual recovered marker-virtualized tool-only conversation also continues 
     task.abnormalNoFinalSince=Date.now()-9_000;
     await h.inspect(task,null);
 
-    assert.equal(task.state,'waiting');
+    assert.equal(task.state,'queued');
     assert.equal(task.url,'');
     assert.equal(task.continuationCount,0);
     assert.equal(clicks,0);
@@ -1936,7 +1936,7 @@ test('a late sibling final toolbar completes normally without injecting continua
     const previous=h.observations.get(task.id);
     h.observations.set(task.id,{...previous,final:true,finalSince:Date.now()-5_000,text:turn.text,clear:true});
     await h.inspect(task,null);
-    assert.equal(task.state,'waiting');
+    assert.equal(task.state,'done');
     assert.equal(task.continuationCount||0,0);
     assert.equal(clicks,0);
     assert.equal(w.document.querySelector('#prompt-textarea').value,'');
@@ -2061,7 +2061,7 @@ test('a length-limit notice without safe current assistant work does not queue a
   } finally {h.pause();dom.window.close();}
 });
 
-test('terminal length CTA with stopped thinking and no reply continues Work once',async()=>{
+test('terminal length CTA with stopped thinking and no reply continues Work and Review once',async()=>{
   for (const phase of ['work','review']) {
     const {h,w,dom}=await fixture(`<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish [Fabushi:terminal-empty]</div></article><button>已停止思考</button><div role="status">你已达到此对话的长度上限，你可以开始新聊天以继续对话。</div><button>开始新聊天</button></main>`);
     try {
@@ -2133,13 +2133,13 @@ test('a length-limit handoff waits for the active response and then carries its 
   } finally {h.pause();dom.window.close();}
 });
 
-test('fresh Work prompts include the previous length-limited reply and final-report contract',async()=>{
+test('fresh Work and Review prompts include the previous length-limited reply without changing their contracts',async()=>{
   const {h,dom}=await fixture();
   const base={id:'length-prompt',round:4,goal:'original goal',next:'continue implementation',token:'new-token',lengthLimitCarry:'上一会话已经修改 foo.rs，下一步需要完成 bar.rs。',lengthLimitHopCount:2,attachments:[{id:'a',name:'proof.png',type:'image/png',size:10}]};
   const work=h.workPrompt({...base,phase:'work'});
   assert.match(work,/continue implementation/);
   assert.match(work,/上一会话已经修改 foo\.rs/);
-  assert.match(work,/请直接执行当前任务/);
+  assert.match(work,/从停止处继续/);
   assert.match(work,/不要重新从头执行/);
   assert.match(work,/MAHAYANA_TASK_REPORT_V1/);
 
@@ -2169,7 +2169,7 @@ test('a length-limit notice wins over a final-looking toolbar and queues a fresh
   dom.window.close();
 });
 
-test('a stale page-chrome length notice cannot suppress completed Work final-report handoff',async()=>{
+test('a stale page-chrome length notice cannot suppress completed Work to Review handoff',async()=>{
   const {h,w,dom}=await fixture(`<main>
     <article data-testid="conversation-turn-user"><div data-message-author-role="user">finish [Fabushi:stale-chrome-final]</div></article>
     <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">全部工作已经完成，提交和测试结果可以交由独立验收。</div></div><button aria-label="复制回复"></button></article>
@@ -2189,12 +2189,12 @@ test('a stale page-chrome length notice cannot suppress completed Work final-rep
     observation.finalSince=Date.now()-5000;
     observation.since=Date.now()-5000;
     await h.inspect(task,null);
-    assert.equal(task.phase,'work');
-    assert.equal(task.state,'waiting');
-    assert.equal(task.url,'https://chatgpt.com/c/stale-chrome-final');
-    assert.equal(task.result,'');
+    assert.equal(task.phase,'review');
+    assert.equal(task.state,'queued');
+    assert.equal(task.url,'');
+    assert.match(task.result,/全部工作已经完成/);
     assert.equal(task.lengthLimitCarry||'','');
-    assert.equal(task.messages.some(item=>/工作最终报告/.test(item.text||'')),false);
+    assert.ok(task.messages.some(item=>/正在新开规划\/验收会话/.test(item.text||'')));
   } finally {h.pause();dom.window.close();}
 });
 
@@ -2443,7 +2443,7 @@ test.skip('connection interruption carries visible semantic work from zero-rect 
     assert.doesNotMatch(task.abnormalFreshCarry,/连接已中断/);
 
     const prompt=h.workPrompt({...task,token:'fresh-zero-rect-token'});
-    assert.match(prompt,/直接执行当前任务/);
+    assert.match(prompt,/一、验收会话最终给出的本轮提示词/);
     assert.match(prompt,/continue exact architecture parity work/);
     assert.ok(prompt.includes('二、异常会话里 ChatGPT 已经工作的实时记录（可见回复 + 实际工作步骤）：'));
     assert.match(prompt,/PR #19 只是 spec-only/);
@@ -3108,7 +3108,7 @@ test('abnormal fresh-chat Work prompt has the required three parts and ignores s
   const {h,dom}=await fixture();
   const task={id:'carry-prompt',round:6,goal:'original target',next:'planner final next instruction',phase:'work',token:'carry-token',abnormalFreshCarry:'partial assistant progress from failed chat',abnormalFreshCarryPhase:'work',abnormalFreshCarryRound:6};
   const prompt=h.workPrompt(task);
-  assert.match(prompt,/直接执行当前任务/);
+  assert.match(prompt,/一、验收会话最终给出的本轮提示词/);
   assert.match(prompt,/planner final next instruction/);
   assert.ok(prompt.includes('二、异常会话里 ChatGPT 已经工作的实时记录（可见回复 + 实际工作步骤）：'));
   assert.match(prompt,/partial assistant progress from failed chat/);
@@ -3118,8 +3118,8 @@ test('abnormal fresh-chat Work prompt has the required three parts and ignores s
   assert.ok(prompt.indexOf('partial assistant progress from failed chat') < prompt.lastIndexOf('original target'));
   assert.doesNotMatch(h.workPrompt({...task,round:7}),/partial assistant progress from failed chat/,'carry is generation-bound to the interrupted phase and round');
 
-  const review=h.workPrompt({...task,phase:'work',abnormalFreshCarryPhase:'review',result:'Work natural result'});
-  assert.match(review,/已有工作现场/);
+  const review=h.workPrompt({...task,phase:'work',abnormalFreshCarryPhase:'work',result:'Work natural result'});
+  assert.match(review,/异常会话中 ChatGPT 已经产生的实时工作记录/);
   assert.match(review,/partial assistant progress from failed chat/);
   assert.match(review,/MAHAYANA_TASK_REPORT_V1/);
   dom.window.close();
@@ -3150,23 +3150,23 @@ test('abnormal later-round recovery preserves both prior completed result and in
   dom.window.close();
 });
 
-test('Work final JSON must itself contain only executable instructions',async()=>{
+test('review final JSON must itself contain only executable Work instructions',async()=>{
   const {h,dom}=await fixture();
   try {
-    const task={id:'review-output-contract',round:7,goal:'完成所有生产代码职责',phase:'work',result:'当前 main 的完整性门仍未关闭',token:'review-contract-token'};
+    const task={id:'review-output-contract',round:7,goal:'完成所有生产代码职责',phase:'review',result:'当前 main 的完整性门仍未关闭',token:'review-contract-token'};
     const prompt=h.workPrompt(task);
-    assert.match(prompt,/taskId":"\$\{task\.id\}"/);
+    assert.match(prompt,/本次验收身份固定为 taskId="review-output-contract"、round=7/);
     assert.match(prompt,/MAHAYANA_TASK_REPORT_V1/);
     assert.match(prompt,/严格只输出以下 MAHAYANA_TASK_REPORT_V1 JSON/);
-    assert.match(prompt,/最终回复必须严格只输出以下 MAHAYANA_TASK_REPORT_V1 JSON/);
-    assert.match(prompt,/不要输出验收会话、审查会话、角色分派/);
-    assert.doesNotMatch(prompt,/「下一轮」「下轮」/);
-    assert.match(prompt,/next 必须是直接执行动作/);
-    assert.match(prompt,/next 必须是直接实施动作/);
-    assert.match(prompt,/保留仓库、文件、PR、SHA、测试和门槛/);
-    assert.match(prompt,/complete.*next 必须为空字符串/);
-    assert.match(prompt,/next":"status 为 complete 时必须为空字符串/);
-    assert.doesNotMatch(prompt,/下一轮的具体工作安排/);
+    assert.match(prompt,/脚本不会替你删词或改写 next/,'the Review author, not userscript postprocessing, owns final language');
+    assert.match(prompt,/全部自然语言字段（特别是 summary、next）禁止出现角色分派/);
+    assert.match(prompt,/「下一轮」「下轮」/,'explicitly forbid the misleading handoff vocabulary in the authored final report');
+    assert.match(prompt,/如果它在安排谁来执行、或说明自己只读，就先自行重写为动作指令/);
+    assert.match(prompt,/next 必须以直接实施的动词或「第一步」开头/);
+    assert.match(prompt,/保留具体仓库、文件、PR、SHA、步骤顺序和验收门槛/);
+    assert.match(prompt,/status 为 complete 时.*next 必须为空字符串/);
+    assert.match(prompt,/"next":"status 为 next 时：直接写可立即实施的具体代码、验证和提交动作；status 为 complete 时为空字符串"/);
+    assert.doesNotMatch(prompt,/"next":"status 为 next 时下一轮的具体工作安排/,'JSON output example cannot teach the reviewer to write another-session narration');
     const next='第一步重新读取 main 与 PR exact HEAD；第二步修复生产代码；第三步在 GitHub Actions 验证并提交。';
     const report=h.parseReview(JSON.stringify({taskId:task.id,round:task.round,status:'next',summary:'仍有未闭合的真实生产缺口',next}),task);
     assert.equal(report.next,next,'Review JSON content is passed through without scripted rewriting');
@@ -3496,7 +3496,7 @@ test('historical final answer cannot complete a new user turn',async()=>{
   assert.equal(h.latestTurn().text,'Thinking');
   dom.window.close();
 });
-test('Work final reports are tied to exact task and round',async()=>{
+test('review reports are tied to exact task and round',async()=>{
   const {h,dom}=await fixture();const task={id:'a',round:2};
   assert.equal(h.parseReview('{"taskId":"a","round":2,"status":"complete","summary":"verified"}',task).status,'complete');
   assert.throws(()=>h.parseReview('{"taskId":"b","round":2,"status":"complete","summary":"verified"}',task));
@@ -3695,7 +3695,7 @@ test('scheduler keeps sends and approvals exclusive while rotating inspections',
   for (const state of ['queued','sending','uploading','loading','approval']) {
     assert.equal(h.taskHoldsScheduler({state}),true,`holds ${state}`);
   }
-  for (const state of ['waiting','generating']) {
+  for (const state of ['waiting','generating','reviewing']) {
     assert.equal(h.taskHoldsScheduler({state,url:'https://chatgpt.com/c/live'}),false,`rotates ${state}`);
   }
   for (const state of ['done','blocked','cancelled','paused']) {
@@ -3779,7 +3779,7 @@ test('pause marks active tasks and resume restores their runnable states',async(
   const {h,dom}=await fixture();
   const waiting={id:'waiting',goal:'watch',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/live',token:'owner',messages:[]};
   const queued={id:'queued',goal:'send',state:'queued',phase:'work',round:1,url:'',token:'',messages:[]};
-  const blocked={id:'blocked',goal:'keep evidence',state:'blocked',phase:'work',round:1,url:'https://chatgpt.com/c/evidence',token:'evidence',messages:[]};
+  const blocked={id:'blocked',goal:'keep evidence',state:'blocked',phase:'review',round:1,url:'https://chatgpt.com/c/evidence',token:'evidence',messages:[]};
   h.data.tasks.push(waiting,queued,blocked);
   h.pause(true);
   assert.equal(h.data.autoResume,false);
@@ -4048,7 +4048,7 @@ test('same-document hot replacement keeps the workspace and continuous review tr
   const replacementTask=w.replacementHooks.data.tasks.find(item=>item.id===task.id);
   assert.ok(replacementTask,'the continuous task remains owned by the replacement instance');
   w.replacementHooks.finish(replacementTask,'completed Work result');
-  assert.equal(replacementTask.phase,'work');
+  assert.equal(replacementTask.phase,'review');
   assert.equal(replacementTask.state,'queued');
   assert.equal(replacementTask.url,'');
   assert.match(replacementTask.messages.at(-1).text,/新开规划\/验收会话/);
@@ -4368,12 +4368,12 @@ test('cancelled unsent tasks return to the dispatch queue and keep attachments',
 });
 test('cancelled queued planner does not reopen the previous Work URL',async()=>{
   const {h,dom}=await fixture();
-  const task={id:'cancelled-planner',goal:'continue me',next:'verify the new round',mode:'goal',phase:'work',round:2,state:'cancelled',url:'',sessionUrl:'https://chatgpt.com/c/previous-work',sessionUrls:['https://chatgpt.com/c/previous-work'],token:'',attempted:false,messages:[]};
+  const task={id:'cancelled-planner',goal:'continue me',next:'verify the new round',mode:'goal',phase:'review',round:2,state:'cancelled',url:'',sessionUrl:'https://chatgpt.com/c/previous-work',sessionUrls:['https://chatgpt.com/c/previous-work'],token:'',attempted:false,messages:[]};
   h.data.tasks.push(task);
   assert.equal(h.restoreCancelledTask(task),true);
   assert.equal(task.state,'queued');
   assert.equal(task.url,'');
-  assert.equal(task.phase,'work');
+  assert.equal(task.phase,'review');
   dom.window.close();
 });
 test('quota banner is ignored while real safety challenges remain blockers',async()=>{
@@ -4465,7 +4465,7 @@ test('paused legacy sidebar waits resume directly from their recorded URL',async
 });
 test('resuming a queued next round never reopens a historical Work URL',async()=>{
   const {h,dom}=await fixture();
-  const task={id:'queued-next-round',goal:'continue with the new round',mode:'goal',phase:'work',round:2,state:'paused',pausedState:'queued',url:'',sessionUrl:'https://chatgpt.com/c/previous-work',sessionUrls:['https://chatgpt.com/c/previous-work'],token:'',attempted:false,messages:[]};
+  const task={id:'queued-next-round',goal:'continue with the new round',mode:'goal',phase:'review',round:2,state:'paused',pausedState:'queued',url:'',sessionUrl:'https://chatgpt.com/c/previous-work',sessionUrls:['https://chatgpt.com/c/previous-work'],token:'',attempted:false,messages:[]};
   h.data.tasks.push(task);
   assert.equal(h.restorePausedTasks(12),true);
   assert.equal(task.state,'queued');
@@ -4607,7 +4607,7 @@ test('synthetic conversation URL automatically becomes a fresh resend',async()=>
 test('ambiguous send timeout prioritizes the current-round bound conversation before any resend',async()=>{
   const {h,w,dom}=await fixture();
   w.history.pushState({},'', '/c/other-conversation');
-  const task={id:'sent-bound',goal:'review once',mode:'goal',round:1,state:'sending',phase:'work',url:'https://chatgpt.com/c/bound-conversation',token:'one-dispatch',attempted:true,sentAt:Date.now(),messages:[]};
+  const task={id:'sent-bound',goal:'review once',mode:'goal',round:1,state:'sending',phase:'review',url:'https://chatgpt.com/c/bound-conversation',token:'one-dispatch',attempted:true,sentAt:Date.now(),messages:[]};
   h.data.tasks.push(task);
   h.stopAmbiguousSend(task,false,1_000_000);
   assert.equal(task.state,'waiting');
@@ -4621,7 +4621,7 @@ test('ambiguous send timeout prioritizes the current-round bound conversation be
 test('loading recovery never refreshes an owned conversation after its final reply is already visible',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">验收 [Fabushi:final-no-refresh-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown" data-is-streaming="false">验收最终回复已经完成。</div></div><button aria-label="复制回复"></button><button aria-label="评价回复"></button></article><form><textarea id="prompt-textarea"></textarea></form></main>');
   w.history.pushState({},'', '/c/final-no-refresh');
-  const task={id:'final-no-refresh',ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'work',round:4,state:'waiting',url:'https://chatgpt.com/c/final-no-refresh',token:'final-no-refresh-token',attempted:false,messages:[],routeRecoveryAttempts:0,workspaceDocumentRecoveryAttempts:0};
+  const task={id:'final-no-refresh',ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'review',round:4,state:'waiting',url:'https://chatgpt.com/c/final-no-refresh',token:'final-no-refresh-token',attempted:false,messages:[],routeRecoveryAttempts:0,workspaceDocumentRecoveryAttempts:0};
   h.data.tasks.push(task);
   assert.equal(h.latestTurn(task).final,true);
   assert.equal(h.recoverStalledRoute(new URL(task.url),task),false);
@@ -4839,7 +4839,7 @@ test('unbound ambiguous send older than 90 seconds immediately queues a fresh re
   const {h,w,dom}=await fixture();
   w.history.pushState({},'', '/c/old-conversation');
   const attachments=[{id:'proof',name:'proof.png',type:'image/png',size:12,lastModified:1}];
-  const task={id:'sent-unbound',ownerTabId:h.getTabId(),goal:'review once',next:'keep the same next step',mode:'goal',round:3,state:'sending',phase:'work',url:'',token:'one-dispatch',attempted:true,dispatchOriginURL:'https://chatgpt.com/c/old-conversation',sentAt:1,attachments,messages:[]};
+  const task={id:'sent-unbound',ownerTabId:h.getTabId(),goal:'review once',next:'keep the same next step',mode:'goal',round:3,state:'sending',phase:'review',url:'',token:'one-dispatch',attempted:true,dispatchOriginURL:'https://chatgpt.com/c/old-conversation',sentAt:1,attachments,messages:[]};
   h.data.tasks.push(task);
   h.data.lastDispatchAt=999_999;
   h.stopAmbiguousSend(task,false,1_000_000);
@@ -4851,7 +4851,7 @@ test('unbound ambiguous send older than 90 seconds immediately queues a fresh re
   assert.equal(task.ambiguousFreshRetryCount,1);
   assert.equal(task.ambiguousSendRefreshAttempts,0);
   assert.equal(task.ambiguousSendRefreshAt,0);
-  assert.equal(task.phase,'work');
+  assert.equal(task.phase,'review');
   assert.equal(task.round,3);
   assert.equal(task.goal,'review once');
   assert.equal(task.next,'keep the same next step');
@@ -4870,12 +4870,12 @@ test('edited goal is persisted and replaces stale next-round instructions',async
   assert.equal(task.next,'');
   assert.equal(task.goalRevision,1);
   assert.match(h.workPrompt({...task,token:'t'}),/^新目标\n/);
-  assert.match(task.messages.at(-1).text,/按新目标重新执行/);
+  assert.match(task.messages.at(-1).text,/下一轮将按新目标执行/);
   dom.window.close();
 });
 test('goal edits during review discard stale acceptance next and start a new work round',async()=>{
   const {h,dom}=await fixture();
-  const task={id:'review-edit',goal:'旧目标',next:'',mode:'goal',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/review',token:'review-token',messages:[],goalRevision:0,dispatchGoalRevision:0,result:'旧结果'};
+  const task={id:'review-edit',goal:'旧目标',next:'',mode:'goal',phase:'review',round:1,state:'waiting',url:'https://chatgpt.com/c/review',token:'review-token',messages:[],goalRevision:0,dispatchGoalRevision:0,result:'旧结果'};
   h.data.tasks.push(task);
   h.editGoal(task,'新目标');
   h.finish(task,'{"taskId":"review-edit","round":1,"status":"next","summary":"旧验收","next":"继续旧目标"}');
@@ -4883,12 +4883,12 @@ test('goal edits during review discard stale acceptance next and start a new wor
   assert.equal(task.round,2);
   assert.equal(task.next,'');
   assert.equal(task.goal,'新目标');
-  assert.match(task.messages.at(-1).text,/忽略旧结果/);
+  assert.match(task.messages.at(-1).text,/忽略旧验收结论/);
   dom.window.close();
 });
 test('editing a queued review skips the unsent stale planner immediately',async()=>{
   const {h,dom}=await fixture();
-  const task={id:'queued-review-edit',goal:'旧目标',next:'旧验收安排',mode:'goal',phase:'work',round:1,state:'queued',url:'',token:'old-token',messages:[],goalRevision:0,result:'旧结果'};
+  const task={id:'queued-review-edit',goal:'旧目标',next:'旧验收安排',mode:'goal',phase:'review',round:1,state:'queued',url:'',token:'old-token',messages:[],goalRevision:0,result:'旧结果'};
   h.data.tasks.push(task);
   assert.equal(h.editGoal(task,'新目标'),true);
   assert.equal(task.phase,'work');
@@ -4896,7 +4896,7 @@ test('editing a queued review skips the unsent stale planner immediately',async(
   assert.equal(task.next,'');
   assert.equal(task.token,'');
   assert.equal(task.state,'queued');
-  assert.match(task.messages.at(-1).text,/尚未发送的旧工作结果已跳过/);
+  assert.match(task.messages.at(-1).text,/尚未发送的旧验收已跳过/);
   dom.window.close();
 });
 test('message history keeps a hard-bounded rolling two-hour window',async()=>{
@@ -5171,7 +5171,7 @@ test('dispatches keep a full cooldown between Chat sessions',async()=>{
 test('the fourth distinct rate-limit episode abandons the old conversation and queues a fresh resend',async()=>{
   const {h,dom}=await fixture();
   const attachments=[{id:'proof',name:'proof.png',type:'image/png',size:12}];
-  const task={id:'rate-limit-4',ownerTabId:h.getTabId(),goal:'finish it',mode:'goal',phase:'work',round:3,state:'waiting',url:'https://chatgpt.com/c/rate-limit-old',token:'rate-token',attempted:false,attachments,messages:[]};
+  const task={id:'rate-limit-4',ownerTabId:h.getTabId(),goal:'finish it',mode:'goal',phase:'review',round:3,state:'waiting',url:'https://chatgpt.com/c/rate-limit-old',token:'rate-token',attempted:false,attachments,messages:[]};
   h.data.tasks.push(task);
   assert.ok(h.restForRateLimit(task,1_000)>0);
   assert.equal(task.rateLimitEpisodes,1);
@@ -5184,7 +5184,7 @@ test('the fourth distinct rate-limit episode abandons the old conversation and q
   assert.equal(task.url,'');
   assert.equal(task.token,'');
   assert.equal(task.rateLimitEpisodes,0);
-  assert.equal(task.phase,'work');
+  assert.equal(task.phase,'review');
   assert.equal(task.round,3);
   assert.equal(task.goal,'finish it');
   assert.deepEqual(task.attachments,attachments);
@@ -5745,7 +5745,7 @@ test('a navigation permit consumes no local budget until the route change is com
     try { Object.defineProperty(window,'postMessage',{configurable:true,writable:true,value:bridge}); }
     catch { window.postMessage=bridge; }
   });
-  const task={id:'guard-task',phase:'work',round:2,goalRevision:7,state:'waiting',url:'https://chatgpt.com/c/review-route',messages:[]};
+  const task={id:'guard-task',phase:'review',round:2,goalRevision:7,state:'reviewing',url:'https://chatgpt.com/c/review-route',messages:[]};
   try {
     const pending=h.requestHostNavigationPermit('https://chatgpt.com/c/next-route',task,{reason:'route-switch'});
     await new Promise(resolve=>w.setTimeout(resolve,0));
@@ -5756,7 +5756,7 @@ test('a navigation permit consumes no local budget until the route change is com
     assert.equal(granted.leaseId,'lease-1');
     assert.equal(navigationRequests()[0].payload.capability,'tab-navigation-guard');
     assert.equal(navigationRequests()[0].payload.taskId,'guard-task');
-    assert.equal(navigationRequests()[0].payload.phase,'work');
+    assert.equal(navigationRequests()[0].payload.phase,'review');
     assert.equal(navigationRequests()[0].payload.round,2);
     assert.equal(navigationRequests()[0].payload.goalRevision,7);
     assert.equal(navigationRequests()[0].pluginId,'chatgpt-auto-confirm');
@@ -5801,9 +5801,9 @@ test('stale navigation leases are cancelled with the canonical plugin identity',
 
 test('root dispatch navigation tickets are bound to the current review generation',async()=>{
   const {h,dom}=await fixture();
-  const task={id:'review-dispatch',ownerTabId:h.getTabId(),phase:'work',round:3,goalRevision:9,state:'queued',url:'',attempted:false,messages:[]};
+  const task={id:'review-dispatch',ownerTabId:h.getTabId(),phase:'review',round:3,goalRevision:9,state:'queued',url:'',attempted:false,messages:[]};
   h.data.tasks.push(task);
-  const ticket={task:task.id,path:'/',href:'https://chatgpt.com/',resume:true,direct:true,purpose:'dispatch',phase:'work',round:3,goalRevision:9};
+  const ticket={task:task.id,path:'/',href:'https://chatgpt.com/',resume:true,direct:true,purpose:'dispatch',phase:'review',round:3,goalRevision:9};
   assert.equal(h.validNavigationTicket(ticket),true);
   assert.equal(h.validNavigationTicket({...ticket,goalRevision:8}),false);
   assert.equal(h.validNavigationTicket({...ticket,phase:'work'}),false);
@@ -5859,7 +5859,7 @@ test('observed Stop disappearance keeps a strong final toolbar in the same conve
     observation.idleSince=Date.now()-5_000;
     await h.inspect(task,null);
     assert.equal(task.state,'queued','normal goal-mode completion advances to the review phase');
-    assert.equal(task.phase,'work');
+    assert.equal(task.phase,'review');
     assert.equal(task.connectionInterruptedFreshDispatch||false,false,'this queue transition is normal completion, not abnormal fresh-chat recovery');
     assert.ok(task.messages.some(item=>item.role==='assistant' && /模块 A/.test(item.text||'')));
     assert.equal(task.abnormalFreshCarry||'','');
@@ -5945,7 +5945,7 @@ test('reload inherited Stop observation waits for hydration but keeps a strong f
     task.reloadStopAbsentSince=Date.now()-9000;
     await h.inspect(task,null);
     assert.equal(task.state,'queued','stable hydrated final reply completes normally and advances goal mode to review');
-    assert.equal(task.phase,'work');
+    assert.equal(task.phase,'review');
     assert.equal(task.connectionInterruptedFreshDispatch||false,false,'normal completion must not be mislabeled as Stop-disappearance recovery');
     assert.ok(task.messages.some(item=>item.role==='assistant' && /恢复出新的进度/.test(item.text||'')));
     assert.equal(task.abnormalFreshCarry||'','');
@@ -6092,9 +6092,9 @@ test('abnormal work trace carries current fallback-turn prose and tertiary activ
     assert.match(task.abnormalFreshCarry,/等待了20秒/);
 
     const prompt=h.workPrompt({...task,token:'fresh-trace-token'});
-    assert.match(prompt,/直接执行当前任务/);
+    assert.match(prompt,/一、验收会话最终给出的本轮提示词/);
     assert.match(prompt,/continue exact HEAD work/);
-    assert.match(prompt,/上一轮已完成的 Work 最终回复/);
+    assert.match(prompt,/二、上一轮已经完成的 Work 最终回复/);
     assert.match(prompt,/上一轮已经完成 inference 基线核对/);
     assert.ok(prompt.includes('三、异常会话里 ChatGPT 已经工作的实时记录（可见回复 + 实际工作步骤）：'));
     assert.match(prompt,/完成 GitHub PR #20 并检查 CI 任务构件/);
@@ -6495,12 +6495,12 @@ test('durable handoff snapshot is phase round and goal-revision bound and cannot
   </main>`);
   try {
     w.history.pushState({},'', '/c/snapshot-scope');
-    const task={id:'snapshot-scope',ownerTabId:h.getTabId(),goal:'goal',result:'work result',mode:'goal',phase:'work',round:4,state:'waiting',url:'https://chatgpt.com/c/snapshot-scope',token:'snapshot-scope',attempted:false,goalRevision:2,messages:[]};
+    const task={id:'snapshot-scope',ownerTabId:h.getTabId(),goal:'goal',result:'work result',mode:'goal',phase:'review',round:4,state:'waiting',url:'https://chatgpt.com/c/snapshot-scope',token:'snapshot-scope',attempted:false,goalRevision:2,messages:[]};
     h.data.tasks.push(task);
     assert.equal(h.persistHandoffReplySnapshot(task),true);
     assert.match(h.handoffReplySnapshotForCurrentPhase(task),/已检查证据/);
     task.connectionInterruptedFreshDispatch=true;
-    assert.match(h.workPrompt(task),/已检查证据/,'fresh Review prompt includes the same-phase durable reply snapshot');
+    assert.match(h.plannerPrompt(task),/已检查证据/,'fresh Review prompt includes the same-phase durable reply snapshot');
     task.round=5;
     assert.equal(h.handoffReplySnapshotForCurrentPhase(task),'','snapshot cannot cross rounds');
     task.round=4; task.goalRevision=3;
@@ -6790,7 +6790,7 @@ test('live review fallback-turn shape recognizes the settled JSON response and o
   const {h,w,dom}=await fixture(html);
   try {
     w.history.pushState({},'', '/c/live-review-shape');
-    const task={id:taskId,ownerTabId:h.getTabId(),goal:'验收所有架构迁移',mode:'goal',phase:'work',round:2,state:'waiting',url:'https://chatgpt.com/c/live-review-shape',token:'live-review-shape-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
+    const task={id:taskId,ownerTabId:h.getTabId(),goal:'验收所有架构迁移',mode:'goal',phase:'review',round:2,state:'waiting',url:'https://chatgpt.com/c/live-review-shape',token:'live-review-shape-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
     h.data.tasks.push(task);
     const turn=h.latestTurn(task);
     assert.equal(turn.owned,true);
@@ -6807,7 +6807,7 @@ test('review Stop disappearance waits for final settlement instead of opening a 
   const {h,w,dom}=await fixture('<main><div id="review-turn" data-content-search-turn-key="fallback-turn-review-race"><div data-content-search-unit-key="fallback-turn-review-race:0:user"><div data-user-message-bubble="true">独立验收 [Fabushi:review-settlement-race-token]</div></div><div id="review-assistant" data-content-search-unit-key="fallback-turn-review-race:2:assistant"><div data-message-content>正在独立核验 exact HEAD 和 CI。</div></div></div><button id="stop" data-testid="stop-button" aria-label="停止生成">停止</button><form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form></main>');
   try {
     w.history.pushState({},'', '/c/review-settlement-race');
-    const task={id:taskId,ownerTabId:h.getTabId(),goal:'验收所有架构迁移',mode:'goal',phase:'work',round:5,state:'waiting',url:'https://chatgpt.com/c/review-settlement-race',token:'review-settlement-race-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
+    const task={id:taskId,ownerTabId:h.getTabId(),goal:'验收所有架构迁移',mode:'goal',phase:'review',round:5,state:'waiting',url:'https://chatgpt.com/c/review-settlement-race',token:'review-settlement-race-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
     h.data.tasks.push(task);
     await h.start(false);
     await h.inspect(task,null);
@@ -6848,7 +6848,7 @@ test('marker-virtualized review JSON on the same Stop-observed response settles 
   const {h,w,dom}=await fixture('<main><div id="review-turn" data-content-search-turn-key="review-structured-same-response"><div id="review-user" data-content-search-unit-key="review-structured-same-response:0:user"><div data-user-message-bubble="true">独立验收 [Fabushi:review-structured-token]</div></div><div id="review-assistant" data-content-search-unit-key="review-structured-same-response:2:assistant"><div data-message-content>正在核验。</div></div></div><button id="stop" data-testid="stop-button" aria-label="停止生成">停止</button><form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form></main>');
   try {
     w.history.pushState({},'', '/c/review-structured-virtualized');
-    const task={id:taskId,ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'work',round:7,state:'waiting',url:'https://chatgpt.com/c/review-structured-virtualized',token:'review-structured-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
+    const task={id:taskId,ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'review',round:7,state:'waiting',url:'https://chatgpt.com/c/review-structured-virtualized',token:'review-structured-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
     h.data.tasks.push(task);
     await h.start(false);
     await h.inspect(task,null);
@@ -6861,7 +6861,7 @@ test('marker-virtualized review JSON on the same Stop-observed response settles 
     const promoted=h.taskTurnForInspection(task);
     assert.equal(promoted.owned,true);
     assert.equal(promoted.stopBoundRouteFinal,true);
-    assert.equal(promoted.structuredWorkFinal,true);
+    assert.equal(promoted.structuredReviewFinal,true);
     assert.equal(promoted.final,true);
     assert.equal(promoted.text,review);
 
@@ -6883,13 +6883,13 @@ test('review no-final recovery remains bounded after two quiet minutes',async()=
   const {h,w,dom}=await fixture('<main><div data-content-search-turn-key="review-expiry-turn"><div data-content-search-unit-key="review-expiry-turn:0:user"><div data-user-message-bubble="true">独立验收 [Fabushi:review-expiry-token]</div></div><div data-content-search-unit-key="review-expiry-turn:2:assistant"><div data-message-content>仍在等待最终验收报告。</div></div></div><button id="stop" data-testid="stop-button" aria-label="停止生成">停止</button><form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form></main>');
   try {
     w.history.pushState({},'', '/c/review-expiry');
-    const task={id:'review-expiry',ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'work',round:3,state:'waiting',url:'https://chatgpt.com/c/review-expiry',token:'review-expiry-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
+    const task={id:'review-expiry',ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'review',round:3,state:'waiting',url:'https://chatgpt.com/c/review-expiry',token:'review-expiry-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
     h.data.tasks.push(task);
     await h.start(false);
     await h.inspect(task,null);
     w.document.querySelector('#stop').remove();
     await h.inspect(task,null);
-    assert.ok(Number(task.abnormalNoFinalSince)>=0);
+    assert.ok(Number(task.abnormalNoFinalSince)>0);
     task.abnormalNoFinalSince=Date.now()-121_000;
     await h.inspect(task,null);
     assert.equal(task.state,'queued','a truly quiet review still gets bounded abnormal recovery');
@@ -6911,7 +6911,7 @@ test('marker-virtualized review final accepts the exact current report even when
   </main>`);
   try {
     w.history.pushState({},'', '/c/review-result-no-boundary');
-    const task={id:taskId,ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'work',round:12,state:'waiting',url:'https://chatgpt.com/c/review-result-no-boundary',token:'review-result-no-boundary-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
+    const task={id:taskId,ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'review',round:12,state:'waiting',url:'https://chatgpt.com/c/review-result-no-boundary',token:'review-result-no-boundary-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
     h.data.tasks.push(task);
     await h.start(false);
     await h.inspect(task,null);
@@ -6924,8 +6924,8 @@ test('marker-virtualized review final accepts the exact current report even when
 
     const promoted=h.taskTurnForInspection(task);
     assert.equal(promoted.owned,true,'the exact current taskId+round report is semantic final evidence');
-    assert.equal(promoted.workResultFinal,true);
-    assert.equal(promoted.structuredWorkFinal,true);
+    assert.equal(promoted.reviewResultFinal,true);
+    assert.equal(promoted.structuredReviewFinal,true);
     assert.equal(promoted.final,true);
     assert.equal(promoted.text,review);
 
@@ -6957,7 +6957,7 @@ test('marker-virtualized review final accepts the exact current report after the
   </main>`);
   try {
     w.history.pushState({},'', '/c/review-result-remounted');
-    const task={id:taskId,ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'work',round:6,state:'waiting',url:'https://chatgpt.com/c/review-result-remounted',token:'review-result-remounted-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
+    const task={id:taskId,ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'review',round:6,state:'waiting',url:'https://chatgpt.com/c/review-result-remounted',token:'review-result-remounted-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
     h.data.tasks.push(task);
     await h.start(false);
     await h.inspect(task,null);
@@ -6973,7 +6973,7 @@ test('marker-virtualized review final accepts the exact current report after the
 
     const promoted=h.taskTurnForInspection(task);
     assert.equal(promoted.owned,true,'valid current Review result survives renderer structural-key remount');
-    assert.equal(promoted.workResultFinal,true);
+    assert.equal(promoted.reviewResultFinal,true);
     assert.equal(promoted.final,true);
 
     await h.inspect(task,null);
@@ -6984,7 +6984,7 @@ test('marker-virtualized review final accepts the exact current report after the
     observation.idleSince=Date.now()-5_000;
     await h.inspect(task,null);
     assert.equal(task.state,'done');
-    assert.equal(task.phase,'work');
+    assert.equal(task.phase,'review');
     assert.equal(task.connectionInterruptedFreshDispatch||false,false);
   } finally {h.pause();dom.window.close();}
 });
@@ -7002,7 +7002,7 @@ test('review result fallback rejects a report for a different task or round even
   </main>`);
   try {
     w.history.pushState({},'', '/c/review-result-wrong-identity');
-    const task={id:taskId,ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'work',round:4,state:'waiting',url:'https://chatgpt.com/c/review-result-wrong-identity',token:'review-result-wrong-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
+    const task={id:taskId,ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'review',round:4,state:'waiting',url:'https://chatgpt.com/c/review-result-wrong-identity',token:'review-result-wrong-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
     h.data.tasks.push(task);
     await h.start(false);
     await h.inspect(task,null);
@@ -7015,7 +7015,7 @@ test('review result fallback rejects a report for a different task or round even
     await h.inspect(task,null);
     assert.equal(task.state,'waiting');
     assert.equal(task.connectionInterruptedFreshDispatch||false,false);
-    assert.ok(Number(task.abnormalNoFinalSince)>=0);
+    assert.ok(Number(task.abnormalNoFinalSince)>0);
   } finally {h.pause();dom.window.close();}
 });
 
@@ -7032,7 +7032,7 @@ test('marker-virtualized review final on the same Stop-observed response parses 
   </main>`);
   try {
     w.history.pushState({},'', '/c/review-virtualized-next');
-    const task={id:taskId,ownerTabId:h.getTabId(),goal:'完成所有架构 parity',mode:'goal',phase:'work',round:9,state:'waiting',url:'https://chatgpt.com/c/review-virtualized-next',token:'review-vnext',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'上一轮 Work 结果',messages:[]};
+    const task={id:taskId,ownerTabId:h.getTabId(),goal:'完成所有架构 parity',mode:'goal',phase:'review',round:9,state:'waiting',url:'https://chatgpt.com/c/review-virtualized-next',token:'review-vnext',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'上一轮 Work 结果',messages:[]};
     h.data.tasks.push(task);
     await h.start(false);
 
@@ -7073,13 +7073,13 @@ test('marker-virtualized review final on the same Stop-observed response parses 
     assert.equal(task.connectionInterruptedFreshDispatch||false,false);
     assert.equal(task.abnormalFreshCarry||'','');
     assert.ok(task.messages.some(item=>item.role==='assistant' && item.text===review),'the real final review body is preserved and parsed');
-    assert.ok(task.messages.some(item=>/工作最终报告要求继续：仍有两个真实阻塞需要继续/.test(item.text||'')));
+    assert.ok(task.messages.some(item=>/规划\/验收要求继续：仍有两个真实阻塞需要继续/.test(item.text||'')));
   } finally {h.pause();dom.window.close();}
 });
 
 test('marker-virtualized review complete on the same Stop-observed response finishes normally',async()=>{
   const taskId='review-virtualized-complete';
-  const review=JSON.stringify({taskId,round:4,status:'complete',summary:'所有要求已有 exact-head 证据，验收完成。',next:''});
+  const review=JSON.stringify({taskId,round:4,status:'complete',summary:'所有要求已有 exact-head 证据，验收完成。'});
   const {h,w,dom}=await fixture(`<main>
     <div id="review-turn" data-content-search-turn-key="review-turn-complete">
       <div id="review-user" data-content-search-unit-key="review-turn-complete:user"><div data-user-message-bubble="true">独立验收 [Fabushi:review-vcomplete]</div></div>
@@ -7090,7 +7090,7 @@ test('marker-virtualized review complete on the same Stop-observed response fini
   </main>`);
   try {
     w.history.pushState({},'', '/c/review-virtualized-complete');
-    const task={id:taskId,ownerTabId:h.getTabId(),goal:'完成所有要求',mode:'goal',phase:'work',round:4,state:'waiting',url:'https://chatgpt.com/c/review-virtualized-complete',token:'review-vcomplete',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work 已完成',messages:[]};
+    const task={id:taskId,ownerTabId:h.getTabId(),goal:'完成所有要求',mode:'goal',phase:'review',round:4,state:'waiting',url:'https://chatgpt.com/c/review-virtualized-complete',token:'review-vcomplete',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work 已完成',messages:[]};
     h.data.tasks.push(task);
     await h.start(false);
     await h.inspect(task,null);
@@ -7112,9 +7112,9 @@ test('marker-virtualized review complete on the same Stop-observed response fini
 
     await h.inspect(task,null);
     assert.equal(task.state,'done');
-    assert.equal(task.phase,'work');
+    assert.equal(task.phase,'review');
     assert.equal(task.connectionInterruptedFreshDispatch||false,false);
-    assert.ok(task.messages.some(item=>/工作最终报告确认完成：所有要求已有 exact-head 证据/.test(item.text||'')));
+    assert.ok(task.messages.some(item=>/验收完成：所有要求已有 exact-head 证据/.test(item.text||'')));
   } finally {h.pause();dom.window.close();}
 });
 
@@ -7129,7 +7129,7 @@ test('marker virtualization cannot consume a different final assistant response 
   </main>`);
   try {
     w.history.pushState({},'', '/c/review-boundary-mismatch');
-    const task={id:'review-boundary-mismatch',ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'work',round:3,state:'waiting',url:'https://chatgpt.com/c/review-boundary-mismatch',token:'review-boundary-mismatch',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'work',messages:[]};
+    const task={id:'review-boundary-mismatch',ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'review',round:3,state:'waiting',url:'https://chatgpt.com/c/review-boundary-mismatch',token:'review-boundary-mismatch',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'work',messages:[]};
     h.data.tasks.push(task);
     await h.start(false);
     await h.inspect(task,null);
@@ -7148,12 +7148,12 @@ test('marker virtualization cannot consume a different final assistant response 
     await h.inspect(task,null);
     assert.equal(task.state,'waiting','unproven Review response stays fail-closed during the settlement grace');
     assert.equal(task.connectionInterruptedFreshDispatch||false,false);
-    assert.ok(Number(task.abnormalNoFinalSince)>=0);
+    assert.ok(Number(task.abnormalNoFinalSince)>0);
     task.abnormalNoFinalSince=Date.now()-121_000;
     await h.inspect(task,null);
     assert.equal(task.state,'queued','after the bounded Review grace the existing abnormal fresh-session recovery resumes');
     assert.equal(task.connectionInterruptedFreshDispatch,true);
-    assert.equal(task.phase,'work');
+    assert.equal(task.phase,'review');
     assert.equal(task.round,3);
     assert.match(task.messages.at(-1)?.text||'',/已经结束但没有最终回复/);
   } finally {h.pause();dom.window.close();}
@@ -7170,7 +7170,7 @@ test('marker-virtualized final without a structural response key stays fail-clos
   </main>`);
   try {
     w.history.pushState({},'', '/c/review-no-boundary');
-    const task={id:'review-no-boundary',ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'work',round:2,state:'waiting',url:'https://chatgpt.com/c/review-no-boundary',token:'review-no-boundary',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'work',messages:[]};
+    const task={id:'review-no-boundary',ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'review',round:2,state:'waiting',url:'https://chatgpt.com/c/review-no-boundary',token:'review-no-boundary',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'work',messages:[]};
     h.data.tasks.push(task);
     await h.start(false);
     await h.inspect(task,null);
@@ -7187,7 +7187,7 @@ test('marker-virtualized final without a structural response key stays fail-clos
     await h.inspect(task,null);
     assert.equal(task.state,'waiting');
     assert.equal(task.connectionInterruptedFreshDispatch||false,false);
-    assert.ok(Number(task.abnormalNoFinalSince)>=0);
+    assert.ok(Number(task.abnormalNoFinalSince)>0);
     task.abnormalNoFinalSince=Date.now()-121_000;
     await h.inspect(task,null);
     assert.equal(task.connectionInterruptedFreshDispatch,true);
@@ -7195,8 +7195,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2.10.53$/m);
-  assert.match(source,/const VERSION = '2.10.53'/);
+  assert.match(source,/^\/\/ @version\s+2.10.52$/m);
+  assert.match(source,/const VERSION = '2.10.52'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
@@ -7472,7 +7472,7 @@ test('recovered static reply with stale page loader takes abnormal-end recovery 
     task.abnormalNoFinalSince=Date.now()-9_000;
     await h.inspect(task,null);
 
-    assert.equal(task.state,'waiting');
+    assert.equal(task.state,'queued');
     assert.equal(task.url,'');
     assert.equal(task.token,'');
     assert.equal(task.connectionInterruptedFreshDispatch,true);
@@ -7548,11 +7548,11 @@ test('initial model selection waits for delayed strength without repeatedly togg
   try {
     const task={id:'foreign-handoff',ownerTabId:'other-live-owner',goal:'continue migration',state:'paused',pausedState:'sending',phase:'work',round:11,pauseRevision:0,updatedAt:10,messages:[]};
     h.data.tasks.push(task);
-    h.mergeStoredTasks({tasks:[{...task,state:'queued',phase:'work',result:'final Work reply',updatedAt:20}],tabControls:{}});
-    assert.equal(task.state,'queued');assert.equal(task.phase,'work');assert.equal(task.result,'final Work reply');
+    h.mergeStoredTasks({tasks:[{...task,state:'queued',phase:'review',result:'final Work reply',updatedAt:20}],tabControls:{}});
+    assert.equal(task.state,'queued');assert.equal(task.phase,'review');assert.equal(task.result,'final Work reply');
     h.log(task,'foreign workspace refresh');
     const saved=JSON.parse(w.localStorage.getItem('fabushi-workbench-v2')).tasks.find(t=>t.id===task.id);
-    assert.equal(saved.state,'queued');assert.equal(saved.phase,'work');
+    assert.equal(saved.state,'queued');assert.equal(saved.phase,'review');
   } finally {dom.window.close();}
 });
  test('individual pause and resume advance task revisions and reject older pauses',async()=>{
@@ -7579,20 +7579,20 @@ for (const kind of ['complete','next','truncated','foreign','newer-user','approv
   try {
     w.history.replaceState({},'', '/c/interrupted-review-contract');
     w.document.getElementById('complete-report').textContent=content;
-    const task={id:'interrupted-review-contract',ownerTabId:h.getTabId(),goal:'goal',mode:'goal',phase:'work',round:4,state:'waiting',url:w.location.href,token:'review-contract',attempted:false,result:'Preserve Work result',messages:[]};
+    const task={id:'interrupted-review-contract',ownerTabId:h.getTabId(),goal:'goal',mode:'goal',phase:'review',round:4,state:'waiting',url:w.location.href,token:'review-contract',attempted:false,result:'Preserve Work result',messages:[]};
     h.data.tasks.push(task);h.setRunningForTest(true);
     if(kind==='newer-user')w.document.querySelector('main').insertAdjacentHTML('beforeend','<section><div data-message-author-role="user">Unrelated new request</div></section>');
     if(kind==='approval')w.document.querySelector('main').insertAdjacentHTML('beforeend','<div data-testid="approval-card"><button>允许一次</button><button>拒绝</button></div>');
     await h.inspect(task,null);
     if(['complete','next','changed'].includes(kind)){
-      assert.ok(task.interruptedWorkFinalIdentity,'complete contract enters semantic stability gate despite Stop');
-      task.interruptedWorkFinalSince=Date.now()-2000;
+      assert.ok(task.interruptedReviewIdentity,'complete contract enters semantic stability gate despite Stop');
+      task.interruptedReviewSince=Date.now()-2000;
       if(kind==='changed'){w.document.getElementById('complete-report').textContent=JSON.stringify({...report,next:'Changed next'});}
       await h.inspect(task,null);
       if(kind==='complete')assert.equal(task.state,'done');
       else if(kind==='next'){assert.equal(task.phase,'work');assert.equal(task.round,5);assert.equal(task.next,report.next);assert.equal(task.state,'queued');}
-      else {assert.equal(task.phase,'work');assert.equal(task.round,4);assert.ok(Date.now()-task.interruptedWorkFinalSince<1500);}
-    }else{assert.equal(task.phase,'work');assert.equal(task.round,4);assert.notEqual(task.state,'done');assert.ok(!task.interruptedWorkFinalIdentity);}
+      else {assert.equal(task.phase,'review');assert.equal(task.round,4);assert.ok(Date.now()-task.interruptedReviewSince<1500);}
+    }else{assert.equal(task.phase,'review');assert.equal(task.round,4);assert.notEqual(task.state,'done');assert.ok(!task.interruptedReviewIdentity);}
     assert.equal(task.result,'Preserve Work result');
     assert.ok(!task.connectionInterruptedFreshDispatch,'complete template never fresh-handoffs Review');
   }finally{h.pause();dom.window.close();}
@@ -7602,7 +7602,7 @@ for(const kind of ['valid','pause-before-grant','changed-round','draft-before-gr
  const {h,w,dom}=await fixture('<main><div class="animate-spin"></div><form><textarea id="prompt-textarea"></textarea></form></main>');
  try{
   w.history.replaceState({},'', '/c/host-fallback');
-  const task={id:'host-fallback',ownerTabId:h.getTabId(),goal:'keep',mode:'goal',phase:'work',round:3,state:'loading',url:w.location.href,token:'keep-token',attempted:false,messages:[],attachments:[],rendererRecoveryExhausted:true};
+  const task={id:'host-fallback',ownerTabId:h.getTabId(),goal:'keep',mode:'goal',phase:'review',round:3,state:'loading',url:w.location.href,token:'keep-token',attempted:false,messages:[],attachments:[],rendererRecoveryExhausted:true};
   h.data.tasks.push(task);h.setRunningForTest(true);const requests=[],commits=[];
   w.postMessage=message=>{
    if(message.type==='navigation-guard.request')requests.push(message);
@@ -7635,7 +7635,7 @@ for(const scenario of ['final','newer-user'])test(`adopted markerless Work final
   await h.inspect(task,null);
   const obs=h.observations.get(task.id);if(obs){obs.since=Date.now()-10000;obs.finalSince=Date.now()-10000;obs.idleSince=Date.now()-10000;}
   await h.inspect(task,null);
-  if(scenario==='final'){assert.equal(task.phase,'work');assert.equal(task.state,'queued');assert.match(task.result,/Work completed/);assert.ok(!task.connectionInterruptedFreshDispatch);}
+  if(scenario==='final'){assert.equal(task.phase,'review');assert.equal(task.state,'queued');assert.match(task.result,/Work completed/);assert.ok(!task.connectionInterruptedFreshDispatch);}
   else{assert.equal(task.phase,'work');assert.equal(h.taskTurnForInspection(task).owned,false);}
  }finally{h.pause();dom.window.close();}
 });
