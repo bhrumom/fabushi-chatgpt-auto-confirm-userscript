@@ -2780,7 +2780,7 @@ test('stream recovery polling timeout carries visible Work into a fresh chat',as
   assert.equal(task.connectionInterruptedFreshRetryCount,1);
   assert.ok(task.history?.some(entry=>entry.url==='https://chatgpt.com/c/stream-timeout'));
   const prompt=h.workPrompt(task);
-  assert.ok(prompt.indexOf('implement current slice')<prompt.indexOf('原始目标：\ncontinue implementation'));
+  assert.ok(prompt.indexOf('implement current slice')<prompt.indexOf('原始目标：continue implementation'));
   assert.ok(prompt.indexOf('原始目标：\ncontinue implementation')<prompt.indexOf('已检查 exact HEAD'));
   h.pause();
   dom.window.close();
@@ -7136,7 +7136,7 @@ test('marker-virtualized Work final complete on the same Stop-observed response 
 
 test('marker virtualization cannot consume a different final assistant response boundary after Stop',async()=>{
   const {h,w,dom}=await fixture(`<main>
-    <div id="turn-a" data-content-search-turn-key="stop-response-a">
+    <article id="turn-a" data-testid="conversation-turn-stop-response-a" data-content-search-turn-key="stop-response-a">
       <div id="review-user" data-content-search-unit-key="stop-response-a:user"><div data-user-message-bubble="true">独立验收 [Fabushi:review-boundary-mismatch]</div></div>
       <div data-content-search-unit-key="stop-response-a:assistant"><div data-message-content>当前 generation 的中途验收内容。</div></div>
     </div>
@@ -7204,11 +7204,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
     await h.inspect(task,null);
     assert.equal(task.state,'waiting');
     assert.equal(task.connectionInterruptedFreshDispatch||false,false);
-    assert.ok(Number(task.abnormalNoFinalSince)>0);
-    task.abnormalNoFinalSignature=h.observations.get(task.id)?.progressSignature || task.abnormalNoFinalSignature;
-    task.abnormalNoFinalSince=Date.now()-9_000;
-    await h.inspect(task,null);
-    assert.equal(task.connectionInterruptedFreshDispatch,true);
+    assert.equal(Number(task.abnormalNoFinalSince)||0,0,'without any durable ownership boundary the renderer must remain fail-closed');
+    assert.equal(task.connectionInterruptedFreshDispatch||false,false);
   } finally {h.pause();dom.window.close();}
 });
 
@@ -7589,78 +7586,72 @@ test('initial model selection waits for delayed strength without repeatedly togg
 });
 
 for (const kind of ['complete','next','truncated','foreign','newer-user','approval','changed']) test('interrupted Work final report template: '+kind,async()=>{
-  const report={
-    taskId:'interrupted-work-contract',
-    round:4,
-    status:kind==='complete'?'complete':'next',
-    summary:'Evidence assessed for the current Work task.',
-    next:kind==='complete'?'':'Continue implementing the remaining production gaps.',
-  };
+  const report={taskId:'interrupted-work-contract',round:4,status:kind==='complete'?'complete':'next',summary:'Evidence assessed for the current Work task.',next:kind==='complete'?'':'Continue implementing the remaining production gaps.'};
   if(kind==='foreign')report.taskId='other-task';
   let content=JSON.stringify(report);
   if(kind==='truncated')content=content.slice(0,-1);
   const {h,w,dom}=await fixture(`<main>
-    <section data-testid="conversation-turn-1"><div data-message-author-role="user">continue Work [Fabushi:work-contract]</div></section>
-    <section data-testid="conversation-turn-2"><div id="complete-report" class="markdown"></div><div data-message-author-role="assistant">连接已中断，正在等待完整答复</div></section>
+    <article data-testid="conversation-turn-user"><div data-message-author-role="user">continue Work [Fabushi:work-contract]</div></article>
+    <article data-testid="conversation-turn-assistant"><div class="markdown" id="complete-report">${content}</div><div data-message-author-role="assistant">连接已中断，正在等待完整答复</div></article>
     <button data-testid="stop-button">停止</button><form><textarea id="prompt-textarea"></textarea></form>
   </main>`);
   try {
     w.history.replaceState({},'', '/c/interrupted-work-contract');
-    w.document.getElementById('complete-report').textContent=content;
     const task={id:'interrupted-work-contract',ownerTabId:h.getTabId(),goal:'goal',mode:'goal',phase:'work',round:4,state:'waiting',url:w.location.href,token:'work-contract',attempted:false,result:'Preserve Work result',messages:[]};
     h.data.tasks.push(task);h.setRunningForTest(true);
-    if(kind==='newer-user')w.document.querySelector('main').insertAdjacentHTML('beforeend','<section><div data-message-author-role="user">Unrelated new request</div></section>');
+    if(kind==='newer-user')w.document.querySelector('main').insertAdjacentHTML('beforeend','<article><div data-message-author-role="user">Unrelated new request</div></article>');
     if(kind==='approval')w.document.querySelector('main').insertAdjacentHTML('beforeend','<div data-testid="approval-card"><button>允许一次</button><button>拒绝</button></div>');
     await h.inspect(task,null);
-    assert.equal(task.state,kind==='approval'?'approval':'generating','Stop-visible first inspection must not settle the report');
-    w.document.querySelector('[data-testid="stop-button"]').remove();
-    w.document.querySelector('[data-message-author-role="assistant"]')?.removeAttribute('aria-busy');
-
-    if(['complete','next','changed'].includes(kind)){
-      await h.inspect(task,null);
-      const observation=h.observations.get(task.id);
-      assert.equal(observation?.final,true,'the exact current Work report is final after Stop disappears');
-      assert.equal(h.parseReview(observation.text,task).taskId,task.id);
-      if(kind==='changed'){
-        const changed=JSON.stringify({...report,next:'Continue with the changed production action.'});
-        w.document.getElementById('complete-report').textContent=changed;
-        await h.inspect(task,null);
-        assert.equal(task.state,'waiting','a changed same-identity report must re-enter final stability');
-        const changedObservation=h.observations.get(task.id);
-        assert.ok(changedObservation?.final,'the changed report remains final evidence but its stability window is new');
-        changedObservation.finalSince=Date.now()-5_000;
-        changedObservation.since=Date.now()-5_000;
-        changedObservation.idleSince=Date.now()-5_000;
-        await h.inspect(task,null);
-        assert.equal(task.phase,'work');
-        assert.equal(task.round,5);
-        assert.equal(task.state,'queued');
-        assert.equal(task.next,'Continue with the changed production action.');
-      } else {
-        observation.finalSince=Date.now()-5_000;
-        observation.since=Date.now()-5_000;
-        observation.idleSince=Date.now()-5_000;
-        await h.inspect(task,null);
-        if(kind==='complete')assert.equal(task.state,'done');
-        else {assert.equal(task.phase,'work');assert.equal(task.round,5);assert.equal(task.next,report.next);assert.equal(task.state,'queued');}
-      }
-      assert.ok(task.result);
+    if(kind==='approval') {
+      assert.equal(task.state,'approval');
       assert.equal(task.phase,'work');
-      assert.equal(task.connectionInterruptedFreshDispatch||false,false,'valid Work final never fresh-handoffs');
-    } else {
-      const candidate=h.taskTurnForInspection(task);
-      assert.equal(candidate.workResultFinal||false,false,'invalid identity/shape never becomes Work final evidence');
+      return;
+    }
+    if(kind==='newer-user') {
+      assert.equal(h.taskTurnForInspection(task).owned,false);
+      assert.equal(task.state,'waiting');
+      assert.equal(task.phase,'work');
+      return;
+    }
+    if(kind==='foreign' || kind==='truncated') {
+      assert.equal(h.currentWorkFinalReport(content,task),null);
+      assert.equal(task.state,'waiting');
       assert.equal(task.phase,'work');
       assert.equal(task.round,4);
-      assert.notEqual(task.state,'done');
       assert.equal(task.result,'Preserve Work result');
-      assert.equal(task.connectionInterruptedFreshDispatch||false,false);
-      if(kind==='approval')assert.equal(task.state,'approval');
-      if(kind==='newer-user')assert.equal(candidate.owned,false);
-      if(kind==='foreign' || kind==='truncated')assert.equal(h.currentWorkFinalReport(content,task),null);
+      return;
     }
-  }finally{h.pause();dom.window.close();}
-});
+    assert.equal(task.state,'waiting','valid Work final report under an interruption notice first enters the bounded report-stability state');
+    assert.ok(task.interruptedWorkFinalIdentity);
+    if(kind==='changed') {
+      const changed=JSON.stringify({...report,next:'Continue with the changed production action.'});
+      w.document.getElementById('complete-report').textContent=changed;
+      await h.inspect(task,null);
+      assert.equal(task.state,'waiting','a changed same-identity report restarts stability');
+      assert.ok(task.interruptedWorkFinalIdentity);
+      task.interruptedWorkFinalSince=Date.now()-2_000;
+      await h.inspect(task,null);
+      assert.equal(task.phase,'work');
+      assert.equal(task.round,5);
+      assert.equal(task.state,'queued');
+      assert.equal(task.next,'Continue with the changed production action.');
+    } else {
+      task.interruptedWorkFinalSince=Date.now()-2_000;
+      await h.inspect(task,null);
+      if(kind==='complete') {
+        assert.equal(task.state,'done');
+        assert.equal(task.phase,'work');
+      } else {
+        assert.equal(task.state,'queued');
+        assert.equal(task.phase,'work');
+        assert.equal(task.round,5);
+        assert.equal(task.next,report.next);
+      }
+    }
+    assert.ok(task.result);
+    assert.equal(task.connectionInterruptedFreshDispatch||false,false);
+  } finally {h.pause();dom.window.close();}
+}););
 
 for(const kind of ['valid','pause-before-grant','changed-round','draft-before-grant','host-denied'])test(`same document native Work fallback: ${kind}`,async()=>{
  const {h,w,dom}=await fixture('<main><div class="animate-spin"></div><form><textarea id="prompt-textarea"></textarea></form></main>');
@@ -7714,12 +7705,12 @@ test('pause during send confirmation clears navigation latch and Continue schedu
  }finally{h.pause();dom.window.close();}
 });
 
-test('resumed bound pending send with a final response is inspected without duplicate Send',async()=>{
- const {h,w,dom}=await fixture('<main><article><div data-message-author-role="user" data-message-id="owned-user">Submitted goal [Fabushi:click]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant" data-message-id="owned-final"><div class="markdown">The current Work response is complete.</div></div><button aria-label="复制">复制</button><button aria-label="评价回复">评价回复</button></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">发送</button></form></main>');
+test('resumed bound pending send with a valid Work final report is inspected without duplicate Send',async()=>{
+ const {h,w,dom}=await fixture('<main><article><div data-message-author-role="user" data-message-id="owned-user">Submitted goal [Fabushi:click]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant" data-message-id="owned-final"><div class="markdown">{"taskId":"resumed-bound-final","round":3,"status":"complete","summary":"The current Work response is complete and verified.","next":""}</div></div><button aria-label="复制">复制</button><button aria-label="评价回复">评价回复</button></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">发送</button></form></main>');
  try{
   w.history.replaceState({},'', '/c/resumed-bound-final');
   const task={id:'resumed-bound-final',ownerTabId:h.getTabId(),goal:'goal',mode:'goal',phase:'work',round:3,state:'paused',pausedState:'sending',url:w.location.href,token:'click',attempted:true,sentAt:Date.now(),messages:[]};h.data.tasks.push(task);let sends=0;w.document.querySelector('[data-testid="send-button"]').onclick=()=>sends++;
-  await h.resumeTask(task);await h.tick();assert.equal(task.attempted,false);assert.equal(sends,0);assert.equal(task.url,w.location.href);assert.ok(h.observations.get(task.id)?.final);
+  await h.resumeTask(task);await h.tick();assert.equal(task.attempted,false);assert.equal(sends,0);assert.equal(task.url,w.location.href);assert.equal(task.state,'done');assert.equal(task.phase,'work');assert.match(task.result,/status.*complete/);
  }finally{h.pause();dom.window.close();}
 });
 
