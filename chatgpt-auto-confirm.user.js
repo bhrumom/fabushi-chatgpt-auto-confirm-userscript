@@ -9618,8 +9618,9 @@ NaN
         row.draggable=true;row.title='拖动到其他工作区以分配此任务';
         row.addEventListener('dragstart',event=>{event.dataTransfer?.setData('application/x-fabushi-task',item.id);event.dataTransfer?.setData('text/plain',item.id);if(event.dataTransfer)event.dataTransfer.effectAllowed='move';});
         const selectControl=element(interactive?'button':'div','','task-select');
-        if(interactive){selectControl.type='button';selectControl.setAttribute('aria-label',`查看任务详情：${item.goal.slice(0,80)}`);selectControl.onclick=()=>{selected=item.id;save();};}
-        selectControl.append(element('span',item.goal.slice(0,34),'task-name'));
+        const itemGoal = String(item.goal || '');
+        if(interactive){selectControl.type='button';selectControl.setAttribute('aria-label',`查看任务详情：${itemGoal.slice(0,80)}`);selectControl.onclick=()=>{selected=item.id;save();};}
+        selectControl.append(element('span',itemGoal.slice(0,34),'task-name'));
         const meta=element('span','','task-meta');
         if(item.id===current&&running)meta.append(element('span','●','run-indicator'));
         const badge=element('span',item.state==='sending'&&item.attempted?'等待发送确认':statusNames[item.state]||item.state,'state-badge');badge.dataset.state=item.state;
@@ -9632,7 +9633,7 @@ NaN
         selectControl.append(meta); row.append(selectControl);
         {
           const actions=element('div','','task-row-actions');
-          const move=element('select','','task-move');move.setAttribute('aria-label',`分配任务：${item.goal.slice(0,60)}`);const placeholder=element('option','分配到…');placeholder.value='';move.append(placeholder);
+          const move=element('select','','task-move');move.setAttribute('aria-label',`分配任务：${itemGoal.slice(0,60)}`);const placeholder=element('option','分配到…');placeholder.value='';move.append(placeholder);
           for(const workspace of [{ownerTabId:tabId,label:'当前标签页',live:true},...workspaceSnapshots.map((workspace,index)=>({ownerTabId:workspace.ownerTabId,label:`标签页 ${index+1}`,live:workspace.live}))])if(workspace.live&&workspace.ownerTabId!==item.ownerTabId){const option=element('option',workspace.label);option.value=workspace.ownerTabId;move.append(option);}
           const newChoice=element('option','新标签页');newChoice.value='__new__';move.append(newChoice);
           move.onchange=event=>{event.stopPropagation();const target=move.value;move.value='';if(target==='__new__')try{openTaskInNewWorkspace(item.id);}catch(error){showError(error);}else if(target)assignTaskToWorkspace(item.id,target).catch(showError);};actions.append(move);
