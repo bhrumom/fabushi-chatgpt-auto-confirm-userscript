@@ -664,7 +664,7 @@ test('live nested menu switches GPT-6 to GPT-5.6 Sol, reopens the submenu, and v
 test('live nested menu switches GPT-5.6 Sol to GPT-6 with the same radio verification flow',async()=>{
   const {h,dom,state}=await liveNestedModelFixture('GPT-5.6 Sol');
   try {
-    const task={id:'live-to-six',ownerTabId:h.getTabId(),goal:'model',phase:'review',round:4,state:'sending',modelPreset:'gpt-6',messages:[]};
+    const task={id:'live-to-six',ownerTabId:h.getTabId(),goal:'model',phase:'work',round:4,state:'sending',modelPreset:'gpt-6',messages:[]};
     h.data.tasks.push(task);h.setRunningForTest(true);
     assert.equal(await h.ensureTaskModelPreset(task,null),true);
     assert.equal(state.selected,'GPT-6');
@@ -1432,7 +1432,7 @@ test('loading detection ignores transcript, composer, sidebar and workbench indi
 test('task reassignment changes only ownership and preserves paused execution identity',async()=>{
   const {h,w,dom}=await fixture();
   const task=h.enqueue('move me','goal');
-  Object.assign(task,{state:'paused',pausedState:'waiting',phase:'review',round:4,url:'https://chatgpt.com/c/kept',token:'kept-token',attempted:true,next:'keep next',attachments:[{id:'file-1',name:'keep.png'}]});
+  Object.assign(task,{state:'paused',pausedState:'waiting',phase:'work',round:4,url:'https://chatgpt.com/c/kept',token:'kept-token',attempted:true,next:'keep next',attachments:[{id:'file-1',name:'keep.png'}]});
   const sibling={id:'sibling',ownerTabId:'target-workspace',goal:'already there',state:'waiting',updatedAt:1,messages:[]};
   h.data.tasks.push(sibling);
   w.localStorage.setItem('fabushi-workspace-heartbeat-v1:target-workspace',JSON.stringify({ownerTabId:'target-workspace',at:Date.now(),autoResume:true,running:true}));
@@ -3785,7 +3785,7 @@ test('pause marks active tasks and resume restores their runnable states',async(
   const {h,dom}=await fixture();
   const waiting={id:'waiting',goal:'watch',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/live',token:'owner',messages:[]};
   const queued={id:'queued',goal:'send',state:'queued',phase:'work',round:1,url:'',token:'',messages:[]};
-  const blocked={id:'blocked',goal:'keep evidence',state:'blocked',phase:'review',round:1,url:'https://chatgpt.com/c/evidence',token:'evidence',messages:[]};
+  const blocked={id:'blocked',goal:'keep evidence',state:'blocked',phase:'work',round:1,url:'https://chatgpt.com/c/evidence',token:'evidence',messages:[]};
   h.data.tasks.push(waiting,queued,blocked);
   h.pause(true);
   assert.equal(h.data.autoResume,false);
@@ -4373,9 +4373,9 @@ test('cancelled unsent tasks return to the dispatch queue and keep attachments',
   assert.deepEqual(task.attachments,[{id:'cancelled-file',name:'cancelled.pdf',type:'application/pdf',size:4,lastModified:1}]);
   dom.window.close();
 });
-test('cancelled queued planner does not reopen the previous Work URL',async()=>{
+test('cancelled queued Work task does not reopen the previous Work URL',async()=>{
   const {h,dom}=await fixture();
-  const task={id:'cancelled-planner',goal:'continue me',next:'verify the new round',mode:'goal',phase:'review',round:2,state:'cancelled',url:'',sessionUrl:'https://chatgpt.com/c/previous-work',sessionUrls:['https://chatgpt.com/c/previous-work'],token:'',attempted:false,messages:[]};
+  const task={id:'cancelled-planner',goal:'continue me',next:'verify the new round',mode:'goal',phase:'work',round:2,state:'cancelled',url:'',sessionUrl:'https://chatgpt.com/c/previous-work',sessionUrls:['https://chatgpt.com/c/previous-work'],token:'',attempted:false,messages:[]};
   h.data.tasks.push(task);
   assert.equal(h.restoreCancelledTask(task),true);
   assert.equal(task.state,'queued');
@@ -4470,9 +4470,9 @@ test('paused legacy sidebar waits resume directly from their recorded URL',async
   assert.match(task.messages.at(-1).text,/不等待侧栏/);
   dom.window.close();
 });
-test('resuming a queued next round never reopens a historical Work URL',async()=>{
+test('resuming a queued Work round never reopens a historical Work URL',async()=>{
   const {h,dom}=await fixture();
-  const task={id:'queued-next-round',goal:'continue with the new round',mode:'goal',phase:'review',round:2,state:'paused',pausedState:'queued',url:'',sessionUrl:'https://chatgpt.com/c/previous-work',sessionUrls:['https://chatgpt.com/c/previous-work'],token:'',attempted:false,messages:[]};
+  const task={id:'queued-next-round',goal:'continue with the new round',mode:'goal',phase:'work',round:2,state:'paused',pausedState:'queued',url:'',sessionUrl:'https://chatgpt.com/c/previous-work',sessionUrls:['https://chatgpt.com/c/previous-work'],token:'',attempted:false,messages:[]};
   h.data.tasks.push(task);
   assert.equal(h.restorePausedTasks(12),true);
   assert.equal(task.state,'queued');
@@ -4611,10 +4611,10 @@ test('synthetic conversation URL automatically becomes a fresh resend',async()=>
   h.pause();
   dom.window.close();
 });
-test('ambiguous send timeout prioritizes the current-round bound conversation before any resend',async()=>{
+test('ambiguous send timeout prioritizes the current-round Work conversation before any resend',async()=>{
   const {h,w,dom}=await fixture();
   w.history.pushState({},'', '/c/other-conversation');
-  const task={id:'sent-bound',goal:'review once',mode:'goal',round:1,state:'sending',phase:'review',url:'https://chatgpt.com/c/bound-conversation',token:'one-dispatch',attempted:true,sentAt:Date.now(),messages:[]};
+  const task={id:'sent-bound',goal:'continue once',mode:'goal',round:1,state:'sending',phase:'work',url:'https://chatgpt.com/c/bound-conversation',token:'one-dispatch',attempted:true,sentAt:Date.now(),messages:[]};
   h.data.tasks.push(task);
   h.stopAmbiguousSend(task,false,1_000_000);
   assert.equal(task.state,'waiting');
@@ -4625,10 +4625,10 @@ test('ambiguous send timeout prioritizes the current-round bound conversation be
   assert.match(task.messages.at(-1).text,/最终回复/);
   dom.window.close();
 });
-test('loading recovery never refreshes an owned conversation after its final reply is already visible',async()=>{
+test('loading recovery never refreshes an owned Work conversation after its final reply is already visible',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">验收 [Fabushi:final-no-refresh-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown" data-is-streaming="false">验收最终回复已经完成。</div></div><button aria-label="复制回复"></button><button aria-label="评价回复"></button></article><form><textarea id="prompt-textarea"></textarea></form></main>');
   w.history.pushState({},'', '/c/final-no-refresh');
-  const task={id:'final-no-refresh',ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'review',round:4,state:'waiting',url:'https://chatgpt.com/c/final-no-refresh',token:'final-no-refresh-token',attempted:false,messages:[],routeRecoveryAttempts:0,workspaceDocumentRecoveryAttempts:0};
+  const task={id:'final-no-refresh',ownerTabId:h.getTabId(),goal:'继续完成',mode:'goal',phase:'work',round:4,state:'waiting',url:'https://chatgpt.com/c/final-no-refresh',token:'final-no-refresh-token',attempted:false,messages:[],routeRecoveryAttempts:0,workspaceDocumentRecoveryAttempts:0};
   h.data.tasks.push(task);
   assert.equal(h.latestTurn(task).final,true);
   assert.equal(h.recoverStalledRoute(new URL(task.url),task),false);
@@ -4842,11 +4842,11 @@ test('visibility-aware supervision slows ordinary scans but preserves short reco
   dom.window.close();
 });
 
-test('unbound ambiguous send older than 90 seconds immediately queues a fresh resend without refresh delay',async()=>{
+test('unbound ambiguous Work send older than 90 seconds immediately queues a fresh resend without refresh delay',async()=>{
   const {h,w,dom}=await fixture();
   w.history.pushState({},'', '/c/old-conversation');
   const attachments=[{id:'proof',name:'proof.png',type:'image/png',size:12,lastModified:1}];
-  const task={id:'sent-unbound',ownerTabId:h.getTabId(),goal:'review once',next:'keep the same next step',mode:'goal',round:3,state:'sending',phase:'review',url:'',token:'one-dispatch',attempted:true,dispatchOriginURL:'https://chatgpt.com/c/old-conversation',sentAt:1,attachments,messages:[]};
+  const task={id:'sent-unbound',ownerTabId:h.getTabId(),goal:'continue once',next:'keep the same next step',mode:'goal',round:3,state:'sending',phase:'work',url:'',token:'one-dispatch',attempted:true,dispatchOriginURL:'https://chatgpt.com/c/old-conversation',sentAt:1,attachments,messages:[]};
   h.data.tasks.push(task);
   h.data.lastDispatchAt=999_999;
   h.stopAmbiguousSend(task,false,1_000_000);
@@ -5175,7 +5175,7 @@ test('dispatches keep a full cooldown between Chat sessions',async()=>{
   dom.window.close();
 });
 
-test('the fourth distinct rate-limit episode abandons the old conversation and queues a fresh resend',async()=>{
+test('the fourth distinct rate-limit episode abandons the old Work conversation and queues a fresh resend',async()=>{
   const {h,dom}=await fixture();
   const attachments=[{id:'proof',name:'proof.png',type:'image/png',size:12}];
   const task={id:'rate-limit-4',ownerTabId:h.getTabId(),goal:'finish it',mode:'goal',phase:'work',round:3,state:'waiting',url:'https://chatgpt.com/c/rate-limit-old',token:'rate-token',attempted:false,attachments,messages:[]};
@@ -5731,7 +5731,7 @@ test('blocked ambiguous send remains resumable when no route is visible and keep
   dom.window.close();
 });
 
-test('a navigation permit consumes no local budget until the route change is committed',async()=>{
+test('a Work navigation permit consumes no local budget until the route change is committed',async()=>{
   const requests=[];
   const navigationRequests=()=>requests.filter(message=>message?.type==='navigation-guard.request');
   const {h,w,dom}=await fixture('',window=>{
@@ -5752,7 +5752,7 @@ test('a navigation permit consumes no local budget until the route change is com
     try { Object.defineProperty(window,'postMessage',{configurable:true,writable:true,value:bridge}); }
     catch { window.postMessage=bridge; }
   });
-  const task={id:'guard-task',phase:'review',round:2,goalRevision:7,state:'reviewing',url:'https://chatgpt.com/c/review-route',messages:[]};
+  const task={id:'guard-task',phase:'work',round:2,goalRevision:7,state:'waiting',url:'https://chatgpt.com/c/work-route',messages:[]};
   try {
     const pending=h.requestHostNavigationPermit('https://chatgpt.com/c/next-route',task,{reason:'route-switch'});
     await new Promise(resolve=>w.setTimeout(resolve,0));
@@ -5806,11 +5806,11 @@ test('stale navigation leases are cancelled with the canonical plugin identity',
   }
 });
 
-test('root dispatch navigation tickets are bound to the current review generation',async()=>{
+test('root dispatch navigation tickets are bound to the current Work generation',async()=>{
   const {h,dom}=await fixture();
-  const task={id:'review-dispatch',ownerTabId:h.getTabId(),phase:'review',round:3,goalRevision:9,state:'queued',url:'',attempted:false,messages:[]};
+  const task={id:'work-dispatch',ownerTabId:h.getTabId(),phase:'work',round:3,goalRevision:9,state:'queued',url:'',attempted:false,messages:[]};
   h.data.tasks.push(task);
-  const ticket={task:task.id,path:'/',href:'https://chatgpt.com/',resume:true,direct:true,purpose:'dispatch',phase:'review',round:3,goalRevision:9};
+  const ticket={task:task.id,path:'/',href:'https://chatgpt.com/',resume:true,direct:true,purpose:'dispatch',phase:'work',round:3,goalRevision:9};
   assert.equal(h.validNavigationTicket(ticket),true);
   assert.equal(h.validNavigationTicket({...ticket,goalRevision:8}),false);
   assert.equal(h.validNavigationTicket({...ticket,phase:'work'}),false);
@@ -6494,7 +6494,7 @@ test('pagehide persists the current assistant reply and fresh prompt falls back 
   } finally {h.pause();dom.window.close();}
 });
 
-test('durable handoff snapshot is phase round and goal-revision bound and cannot cross a foreign route',async()=>{
+test('durable Work handoff snapshot is phase round and goal-revision bound and cannot cross a foreign route',async()=>{
   const {h,w,dom}=await fixture(`<main>
     <article data-testid="conversation-turn-user"><div data-message-author-role="user">review [Fabushi:snapshot-scope]</div></article>
     <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">本规划会话已检查证据并列出剩余项。</div></div></article>
@@ -6502,7 +6502,7 @@ test('durable handoff snapshot is phase round and goal-revision bound and cannot
   </main>`);
   try {
     w.history.pushState({},'', '/c/snapshot-scope');
-    const task={id:'snapshot-scope',ownerTabId:h.getTabId(),goal:'goal',result:'work result',mode:'goal',phase:'review',round:4,state:'waiting',url:'https://chatgpt.com/c/snapshot-scope',token:'snapshot-scope',attempted:false,goalRevision:2,messages:[]};
+    const task={id:'snapshot-scope',ownerTabId:h.getTabId(),goal:'goal',result:'work result',mode:'goal',phase:'work',round:4,state:'waiting',url:'https://chatgpt.com/c/snapshot-scope',token:'snapshot-scope',attempted:false,goalRevision:2,messages:[]};
     h.data.tasks.push(task);
     assert.equal(h.persistHandoffReplySnapshot(task),true);
     assert.match(h.handoffReplySnapshotForCurrentPhase(task),/已检查证据/);
@@ -7659,7 +7659,7 @@ for(const kind of ['valid','pause-before-grant','changed-round','draft-before-gr
  const {h,w,dom}=await fixture('<main><div class="animate-spin"></div><form><textarea id="prompt-textarea"></textarea></form></main>');
  try{
   w.history.replaceState({},'', '/c/host-fallback');
-  const task={id:'host-fallback',ownerTabId:h.getTabId(),goal:'keep',mode:'goal',phase:'review',round:3,state:'loading',url:w.location.href,token:'keep-token',attempted:false,messages:[],attachments:[],rendererRecoveryExhausted:true};
+  const task={id:'host-fallback',ownerTabId:h.getTabId(),goal:'keep',mode:'goal',phase:'work',round:3,state:'loading',url:w.location.href,token:'keep-token',attempted:false,messages:[],attachments:[],rendererRecoveryExhausted:true};
   h.data.tasks.push(task);h.setRunningForTest(true);const requests=[],commits=[];
   w.postMessage=message=>{
    if(message.type==='navigation-guard.request')requests.push(message);
