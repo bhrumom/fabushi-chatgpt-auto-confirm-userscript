@@ -694,7 +694,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const carry = String(task?.lengthLimitCarry || '').trim();
     if (task?.lengthLimitNoReply) return `\n上一会话已达到 ChatGPT 对话长度上限并显示开始新聊天，未生成可提取的新回复。继续同一阶段的当前任务；没有新的完成结果，不要把上限提示或停止思考当作工作成果。${carry ? `\n更早会话保留的接力上下文（并非上一会话的新回复）：\n${carry}\n` : ''}\n`;
     if (!carry) return '';
-    const phase = task.phase === 'review' ? '规划/验收' : 'Work';
+    const phase = 'Work';
     const hop = Math.max(1, Number(task.lengthLimitHopCount || 1));
     return `\n上一会话因达到 ChatGPT 对话长度上限而被系统结束。下面是上一会话页面最后显示的 assistant 回复（${phase} 接力第 ${hop} 次）。请把它当作同一任务已经完成到这里的工作现场，从停止处继续，不要重新从头执行已经完成的步骤，也不要只总结这段内容；继续实际推进，直到本轮得到真正最终回复。\n--- 上一会话实时回复开始 ---\n${carry}\n--- 上一会话实时回复结束 ---\n`;
   }
