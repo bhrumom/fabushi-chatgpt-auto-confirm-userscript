@@ -722,7 +722,8 @@ ${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carry
 [Fabushi:${task.token}]`;
   }
   // Legacy test/API name only; production dispatch always calls workPrompt directly.
-  function plannerPrompt(task) { return workPrompt(task); }\n  function currentTaskModelStillConfirmed(task, verifiedPreset) {
+  function plannerPrompt(task) { return workPrompt(task); }
+  function currentTaskModelStillConfirmed(task, verifiedPreset) {
     // A user can change the Fabushi task's model during any awaited part of
     // preflight. Only the exact requested model confirmed in this dispatch
     // may pass through the final Send boundary.
