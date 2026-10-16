@@ -410,15 +410,15 @@ test('malformed review reports requeue only the review phase and never discard W
     };
     hooks.data.tasks.push(task);
     assert.equal(hooks.queueWorkFinalReportRepair(task, '验收回复 JSON 无法解析'), 'queued');
-    assert.equal(task.phase, 'review');
+    assert.equal(task.phase, 'work');
     assert.equal(task.state, 'queued');
     assert.equal(task.url, '');
     assert.equal(task.token, '');
     assert.equal(task.result, 'Work 已完成，不能重复执行。');
     assert.deepEqual(task.attachments, [{ id:'clip', name:'clip.mp4' }]);
-    assert.equal(task.reviewRepairAttempts, 1);
+    assert.equal(task.workFinalReportRepairAttempts, 1);
     assert.equal(hooks.queueWorkFinalReportRepair(task, '验收回复 JSON 无法解析'), 'queued');
-    assert.equal(task.reviewRepairAttempts, 2);
+    assert.equal(task.workFinalReportRepairAttempts, 2);
     assert.equal(hooks.queueWorkFinalReportRepair(task, '验收回复 JSON 无法解析'), 'queued');
     assert.equal(task.state, 'queued');
     assert.equal(task.url, '');
