@@ -201,8 +201,31 @@
     task.history ||= [];
     task.history.push({ url:sessionURL || task.url, phase:'work', round:task.round });
     task.history = task.history.slice(-40);
-    const report = parseWorkFinalReport(reply, task);
+    const reportReply = String(reply ?? '');
+    let report;
+    try {
+      report = parseWorkFinalReport(reportReply, task);
+    } catch (error) {
+      // If Work did the implementation but its final report is malformed,
+      // preserve that exact current-round reply before the repair path clears
+      // the active conversation identity. Never carry a reply from an older
+      // goal revision into a newly edited task.
+      if (error?.code === 'invalid-work-final-report'
+        && Number(task.dispatchGoalRevision || 0) === Number(task.goalRevision || 0)) {
+        task.workFinalReportRepairCarry = reportReply.slice(0, 24000);
+        task.workFinalReportRepairCarryTaskId = String(task.id || '');
+        task.workFinalReportRepairCarryRound = Number(task.round || 0);
+        task.workFinalReportRepairCarryGoalRevision = Number(task.goalRevision || 0);
+        task.updatedAt = Date.now();
+        save();
+      }
+      throw error;
+    }
     task.workFinalReportRepairAttempts = 0;
+    task.workFinalReportRepairCarry = '';
+    task.workFinalReportRepairCarryTaskId = '';
+    task.workFinalReportRepairCarryRound = 0;
+    task.workFinalReportRepairCarryGoalRevision = 0;
     if (task.mode === 'once') {
       task.next = report.status === 'next' ? report.next.slice(0,16000) : '';
       state(task, 'done', `工作最终报告：${report.summary}`);
