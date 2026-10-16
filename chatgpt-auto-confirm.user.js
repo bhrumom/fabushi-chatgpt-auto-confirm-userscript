@@ -7331,7 +7331,8 @@ ${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carry
 输出前自行检查：taskId 和 round 必须与当前任务完全一致；complete 必须有充分真实证据且 next=""；next 必须是直接执行动作而不是会话分工、角色说明或泛泛计划。不要输出验收会话、审查会话、角色分派、未来会话安排或只读身份的旁白。
 [Fabushi:${task.token}]`;
   }
-  // Legacy test/API name only; production dispatch always calls workPrompt directly.\n  function plannerPrompt(task) { return workPrompt(task); }\n  function currentTaskModelStillConfirmed(task, verifiedPreset) {
+  // Legacy test/API name only; production dispatch always calls workPrompt directly.
+  function plannerPrompt(task) { return workPrompt(task); }\n  function currentTaskModelStillConfirmed(task, verifiedPreset) {
     // A user can change the Fabushi task's model during any awaited part of
     // preflight. Only the exact requested model confirmed in this dispatch
     // may pass through the final Send boundary.
@@ -7594,7 +7595,8 @@ ${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carry
     if (report.status === 'next' && (typeof report.next !== 'string' || !report.next.trim())) throw workFinalReportParseError('工作最终报告缺少可执行的下一步动作。');
     return report;
   }
-  // Legacy test/API name only; this is the same strict Work report parser.\n  function parseReview(value, task) { return parseWorkFinalReport(value, task); }\n  function completeWorkFinalReport(value, task) {
+  // Legacy test/API name only; this is the same strict Work report parser.
+  function parseReview(value, task) { return parseWorkFinalReport(value, task); }\n  function completeWorkFinalReport(value, task) {
     if (!task || task.phase !== 'work') return null;
     const source = String(value || '');
     let start = -1, depth = 0, quoted = false, escaped = false;
