@@ -443,7 +443,11 @@ test('malformed Work final reports requeue only the Work final-report repair and
     assert.equal(task.url, '');
     assert.equal(task.token, '');
     assert.equal(task.result, 'Work 已完成，不能重复执行。');
+    assert.equal(task.workFinalReportRepairAttempts, 3);
     assert.match(task.messages.at(-1).text, /重新开启工作最终报告会话/);
+    assert.equal(hooks.queueWorkFinalReportRepair(task, '验收回复 JSON 无法解析'), 'queued');
+    assert.equal(task.state, 'queued');
+    assert.equal(task.workFinalReportRepairAttempts, 3);
     assert.match(task.messages.at(-1).text, /自动重发/);
   } finally {
     dom.window.close();
