@@ -542,7 +542,7 @@
       signature=nextSignature;
       const nearBottom=feed.scrollHeight-feed.scrollTop-feed.clientHeight<80;
       feed.replaceChildren();
-      if(!task)feed.append(element('p','在下方输入任务。单次任务等待一次最终回复；持续目标在每轮结束后新开规划/验收会话，由规划结果安排下一轮。会话恢复按已记录的唯一链接进行，不需要手动点击继续。'));
+      if(!task)feed.append(element('p','在下方输入任务。单次任务等待一次最终回复；持续目标在每轮结束后由工作最终报告直接决定完成或继续执行。会话恢复按已记录的唯一链接进行，不需要手动点击继续。'));
       if(task)feed.append(element('div',`当前目标：${task.goal}`,'goal'));
       if(task)feed.append(element('div',`ChatGPT：${modelPresetLabel(task.modelPreset)} · ${reasoningPresetLabel(task.reasoningPreset)}`,'reasoning-preset'));
       if(task?.attachments?.length)feed.append(element('div',`任务附件：${taskAttachmentSummary(task)}`,'attachment-summary'));
