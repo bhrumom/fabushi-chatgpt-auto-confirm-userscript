@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.50
+// @version      2.10.51
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -67,7 +67,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.50';
+  const VERSION = '2.10.51';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -5970,6 +5970,14 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
   }
   const allowLabel = /^(?:允许(?:一次)?|批准(?:一次)?|allow(?: once| one time)?|approve(?: once| one time)?)$/i;
   const denyLabel = /^(?:拒绝|不允许|deny|decline|reject)$/i;
+  // Some authorization cards intentionally expose only one primary approval
+  // action and no conversation-scoped menu. This exact matcher is deliberately
+  // narrower than allowLabel so arbitrary "Allow" controls cannot become
+  // direct-approval candidates.
+  function isDirectPrimaryAuthorizationAllow(node) {
+    const value = label(node);
+    return /^(?:允许|批准|allow|approve)$/iu.test(value);
+  }
   function approvalArrow(node, allowButton) {
     return node !== allowButton && (
       node.hasAttribute('aria-haspopup')
@@ -6194,11 +6202,21 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
       if (trustedContainer && !seen.has(trustedContainer)) {
         seen.add(trustedContainer);
         const actions = nodes('button,[role=button]', trustedContainer);
+        const trustedArrow = actions.find(node => approvalArrow(node, button)) || null;
+        const trustedDeny = actions.find(node => actionMatches(node, denyLabel)) || null;
         result.push({
           container:trustedContainer,
           button,
-          arrow:actions.find(node => approvalArrow(node, button)) || null,
-          deny:actions.find(node => actionMatches(node, denyLabel)) || null,
+          arrow:trustedArrow,
+          deny:trustedDeny,
+          // A trusted explicit/structural authorization surface with only an
+          // exact primary Allow action is directly actionable. This does not
+          // apply to an isolated Allow control outside a trusted card surface.
+          directActionable:Boolean(
+            !trustedArrow
+            && isDirectPrimaryAuthorizationAllow(button)
+            && enabled(button)
+          ),
           actionable:false,
         });
       }
@@ -6462,12 +6480,29 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
   }
   async function authorize(card, task, signal, queueOwned = true) {
     if (!card?.container?.isConnected || !visible(card.container)) return false;
-    if (!card.actionable || !enabled(card.button) || !enabled(card.arrow)) {
+    if (!enabled(card.button)) {
       if (task) {
         const started = markApprovalUnavailable(task, currentConversationURL(), Date.now());
         if (started) {
           log(task, `授权卡仍存在但控件正在处理或暂不可用；保持当前会话等待。若连续 ${Math.ceil(APPROVAL_UNAVAILABLE_REFRESH_MS / 1000)} 秒仍未恢复，将刷新当前会话而不是一直等待，也不会把 Stop 消失当成结束。`);
         }
+      }
+      return false;
+    }
+    if (!card.actionable) {
+      if (card.directActionable && isDirectPrimaryAuthorizationAllow(card.button)) {
+        checkAuthorizationRun(signal, queueOwned);
+        const last = approvalAttempts.get(card.button) || 0;
+        if (Date.now() - last < 15000) return false;
+        approvalAttempts.set(card.button, Date.now());
+        activateControl(card.button);
+        if (task) beginApprovalSettlement(task);
+        log(task, '授权卡没有“允许本次会话”选项；已直接点击主“允许”，进入授权提交保护期。');
+        return true;
+      }
+      if (task) {
+        const started = markApprovalUnavailable(task, currentConversationURL(), Date.now());
+        if (started) log(task, '授权卡已识别，但当前没有可用的会话级选项或安全的主“允许”操作；保持当前会话等待。');
       }
       return false;
     }
@@ -6499,6 +6534,17 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
       activateControl(option);
       if (task) beginApprovalSettlement(task);
       log(task, '已点击“允许本次会话”，进入授权提交保护期；即使卡片暂时 disabled、重挂载或瞬时消失，也不会切换会话。');
+      return true;
+    }
+    // The card may expose the split menu but not offer a conversation-scoped
+    // option in that menu. Per the current product behavior, use the exact
+    // primary Allow as the bounded fallback rather than choosing a persistent
+    // menu item or abandoning the current conversation.
+    if (isDirectPrimaryAuthorizationAllow(card.button) && enabled(card.button)) {
+      checkAuthorizationRun(signal, queueOwned);
+      activateControl(card.button);
+      if (task) beginApprovalSettlement(task);
+      log(task, '授权菜单没有“允许本次会话”选项；已直接点击主“允许”，进入授权提交保护期。');
       return true;
     }
     if (task) {
