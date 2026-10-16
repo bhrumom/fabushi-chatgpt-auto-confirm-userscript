@@ -76,7 +76,7 @@ async function fixture(body='', setup=()=>{}, url='https://chatgpt.com/') {
     const form = w.document.querySelector('form') || w.document.body;
     form.append(trigger);
   }
-  await w.eval(source.replace('  mount();','  window.testHooks = { restorePausedTask, pauseTask, mergeStoredTasks, blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, interruptedFreshHandoffApprovalGate, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, assistantResponseBoundaryKey, taskTurnForInspection, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, conversationLoadFailure, clearConversationLoadFailureState, recoverConversationLoadFailure, cards, authorizationCardShell, structuralAuthorizationSurface, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, normalizeModelPreset, modelPresetLabel, taskModelPreset, normalizeReasoningPreset, reasoningPresetLabel, taskReasoningPreset, localizedChatWorkModeKind, chatWorkModeSelection, chatWorkModeControls, workModeEvidence, chatWorkModeState, ensureChatMode, chatWorkContinueOffer, chatWorkStayIdentity, clearChatWorkStayState, handleChatWorkContinueOffer, modelPickerTrigger, modelTriggerMatches, closedComposerModelHint, reopenModelPicker, modelMenuOption, modelSubmenuEntry, modelRadioOptions, modelRadioOption, modelRadioSelected, modelSubmenuHintMatches, openModelRadioList, confirmModelRadioSelection, ensureTaskModelPreset, currentTaskModelStillConfirmed, reasoningPickerTrigger, reasoningSliderState, clearReasoningPickerRecovery, waitForReasoningPicker, ensureTaskReasoningPreset, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, markApprovalUnavailable, clearApprovalUnavailableRefresh, refreshUnavailableApproval, isConversationScopedAllow, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, requestSameDocumentHostReload, resetRendererRecoveryState, recoverStalledRoute, holdForChatGPTLoading, refreshStalledConversation, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, storageStatusText, readRecentActivitySession, writeRecentActivitySession, recordRecentActivity, restoreRecentActivityMessages, taskRecoveryStatusText, taskStatusText, persistWorkbenchState, durableTaskSnapshot, durableWorkbenchSnapshot, fitWorkbenchSnapshotToLocalBudget, writeLocalStorageRecord, readStorageString, readWorkbenchOverflow, cleanupStaleFabushiStorage, fabushiLocalStorageFootprint, storageBudgets:()=>({workbench:WORKBENCH_LOCAL_STORAGE_TARGET_CHARS,total:FABUSHI_LOCAL_STORAGE_MAX_CHARS}), scheduleWorkspaceHeartbeat, workspaceHeartbeatScheduled:()=>Boolean(workspaceHeartbeatTimer), storagePersistenceStatus:()=>storagePersistenceStatus, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, setNavigatingForTest:value=>{navigating=Boolean(value);}, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), setRunningForTest:value=>{running=Boolean(value);}, getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { restorePausedTask, pauseTask, mergeStoredTasks, blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, interruptedFreshHandoffApprovalGate, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, assistantResponseBoundaryKey, taskTurnForInspection, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, conversationLoadFailure, clearConversationLoadFailureState, recoverConversationLoadFailure, cards, authorizationCardShell, structuralAuthorizationSurface, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, plannerPrompt, normalizeModelPreset, modelPresetLabel, taskModelPreset, normalizeReasoningPreset, reasoningPresetLabel, taskReasoningPreset, localizedChatWorkModeKind, chatWorkModeSelection, chatWorkModeControls, workModeEvidence, chatWorkModeState, ensureChatMode, chatWorkContinueOffer, chatWorkStayIdentity, clearChatWorkStayState, handleChatWorkContinueOffer, modelPickerTrigger, modelTriggerMatches, closedComposerModelHint, reopenModelPicker, modelMenuOption, modelSubmenuEntry, modelRadioOptions, modelRadioOption, modelRadioSelected, modelSubmenuHintMatches, openModelRadioList, confirmModelRadioSelection, ensureTaskModelPreset, currentTaskModelStillConfirmed, reasoningPickerTrigger, reasoningSliderState, clearReasoningPickerRecovery, waitForReasoningPicker, ensureTaskReasoningPreset, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, markApprovalUnavailable, clearApprovalUnavailableRefresh, refreshUnavailableApproval, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, requestSameDocumentHostReload, resetRendererRecoveryState, recoverStalledRoute, holdForChatGPTLoading, refreshStalledConversation, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, storageStatusText, readRecentActivitySession, writeRecentActivitySession, recordRecentActivity, restoreRecentActivityMessages, taskRecoveryStatusText, taskStatusText, persistWorkbenchState, durableTaskSnapshot, durableWorkbenchSnapshot, fitWorkbenchSnapshotToLocalBudget, writeLocalStorageRecord, readStorageString, readWorkbenchOverflow, cleanupStaleFabushiStorage, fabushiLocalStorageFootprint, storageBudgets:()=>({workbench:WORKBENCH_LOCAL_STORAGE_TARGET_CHARS,total:FABUSHI_LOCAL_STORAGE_MAX_CHARS}), scheduleWorkspaceHeartbeat, workspaceHeartbeatScheduled:()=>Boolean(workspaceHeartbeatTimer), storagePersistenceStatus:()=>storagePersistenceStatus, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, setNavigatingForTest:value=>{navigating=Boolean(value);}, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), setRunningForTest:value=>{running=Boolean(value);}, getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('recent activity restores the last two hours after reload without putting history back into localStorage',async()=>{
@@ -3199,7 +3199,7 @@ test('nested split authorization card is detected without article/section wrappe
   assert.equal(detected[0].actionable,false);
   dom.window.close();
 });
-test('current allow-once split authorization card is detected and selects only the conversation grant',async()=>{
+test('current allow-once authorization card is clicked directly even when a scope menu exists',async()=>{
   const {w,h,dom}=await fixture('<main><div id="card"><div>GitHub</div><form><button type="button">拒绝<kbd aria-hidden="true">Esc</kbd></button><div><button type="button" id="allow-once"><span>允许一次</span><kbd aria-hidden="true">⏎</kbd></button><button type="button" aria-haspopup="menu" aria-label="审批选项" aria-expanded="false" data-state="closed"><svg></svg></button></div></form></div></main>');
   const primary=w.document.querySelector('#allow-once');
   const arrow=w.document.querySelector('[aria-label="审批选项"]');
@@ -3207,18 +3207,16 @@ test('current allow-once split authorization card is detected and selects only t
   primary.onclick=()=>primaryClicks++;
   arrow.addEventListener('pointerdown',()=>{
     arrowClicks++;
-    if(w.document.querySelector('[role=menu]'))return;
     const menu=w.document.createElement('div');menu.setAttribute('role','menu');
-    const once=w.document.createElement('div');once.setAttribute('role','menuitem');once.textContent='允许一次';
     const conversation=w.document.createElement('div');conversation.setAttribute('role','menuitem');conversation.textContent='Allow GitHub for this conversation';
     conversation.onclick=()=>conversationApprovals++;
-    menu.append(once,conversation);w.document.body.append(menu);
+    menu.append(conversation);w.document.body.append(menu);
   });
   assert.equal(h.cards().length,1);
   await h.authorize(h.cards()[0],null,null,false);
-  assert.equal(arrowClicks,1);
-  assert.equal(conversationApprovals,1);
-  assert.equal(primaryClicks,0);
+  assert.equal(arrowClicks,0);
+  assert.equal(conversationApprovals,0);
+  assert.equal(primaryClicks,1);
   dom.window.close();
 });
 
@@ -3346,18 +3344,18 @@ test('approval settlement suppresses unavailable-card refresh and successful gra
   } finally { h.pause(); dom.window.close(); }
 });
 
-test('missing conversation-scoped grant enters periodic approval recovery while manual mode does not refresh',async()=>{
-  const {w,h,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:approval-menu-hydration]</div></article><div id="approval"><button type="button">拒绝</button><div><button type="button">允许一次</button><button type="button" aria-haspopup="menu" aria-label="审批选项">⌄</button></div></div><form><textarea id="prompt-textarea"></textarea></form></main>');
+test('primary Allow once completes an authorization card without a conversation-scoped menu',async()=>{
+  const {w,h,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:approval-menu-hydration]</div></article><div id="approval"><button type="button">拒绝</button><div><button type="button" id="allow-once">允许一次</button><button type="button" aria-haspopup="menu" aria-label="审批选项">⌄</button></div></div><form><textarea id="prompt-textarea"></textarea></form></main>');
   try {
     w.history.pushState({},'', '/c/approval-menu-hydration');
     const task={id:'approval-menu-hydration',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:3,state:'approval',url:'https://chatgpt.com/c/approval-menu-hydration',token:'approval-menu-hydration',attempted:false,messages:[]};
     h.data.tasks.push(task);
     h.data.autoApprove=true;
-    assert.equal(await h.authorize(h.cards()[0],task,null,false),false,'menu without conversation grant stays pending');
-    assert.ok(Number(task.approvalUnavailableSince)>0);
-    task.approvalUnavailableSince=Date.now()-61_000;
-    h.data.autoApprove=false;
-    assert.equal(h.refreshUnavailableApproval(task,false,Date.now()),false,'manual approval mode never performs periodic page reloads');
+    let clicks=0;w.document.querySelector('#allow-once').onclick=()=>clicks++;
+    assert.equal(await h.authorize(h.cards()[0],task,null,false),true);
+    assert.equal(clicks,1);
+    assert.equal(task.approvalUnavailableSince||0,0);
+    assert.ok(Number(task.approvalSettlementUntil)>Date.now());
   } finally { h.pause(); dom.window.close(); }
 });
 
@@ -3371,16 +3369,10 @@ test('approval submission latch survives a transient card DOM gap and expires sa
     await h.start();
     await h.inspect(task,null);
     const approval=w.document.querySelector('#approval');
-    const arrow=w.document.querySelector('#arrow');
-    arrow.addEventListener('pointerdown',()=>{
-      if(w.document.querySelector('[role=menu]'))return;
-      const menu=w.document.createElement('div');menu.setAttribute('role','menu');
-      const conversation=w.document.createElement('div');conversation.setAttribute('role','menuitem');conversation.textContent='Allow GitHub for this conversation';
-      conversation.addEventListener('click',()=>approval.remove());
-      menu.append(conversation);w.document.body.append(menu);
-    });
+    const primary=w.document.querySelector('#allow-once');
+    primary.addEventListener('click',()=>approval.remove());
     await h.authorize(h.cards()[0],task,null,true);
-    assert.ok(Number(task.approvalSettlementUntil)>Date.now(),'conversation-scoped approval starts a persisted settlement latch');
+    assert.ok(Number(task.approvalSettlementUntil)>Date.now(),'primary current-action approval starts a persisted settlement latch');
     assert.equal(h.cards().length,0,'the fixture reproduces the transient post-click DOM gap');
     w.document.querySelector('[data-testid="stop-button"]').remove();
     await h.inspect(task,null);
@@ -4172,49 +4164,40 @@ test('a newer manual pause from another tab wins over a stale runner write',asyn
   assert.equal(persisted.tasks[0].state,'paused');
   dom.window.close();
 });
-test('pause between opening approval menu and selecting scope prevents approval',async()=>{
-  const {w,h,dom}=await fixture('<main><div><p>任意内容</p><button>拒绝</button><button>允许</button><button aria-haspopup="menu">⌄</button></div><div role="menu"><button role="menuitem">允许本次会话</button></div></main>');
-  let approvals=0;w.document.querySelector('[role=menuitem]').onclick=()=>approvals++;
+test('pause before an authorization click prevents approval',async()=>{
+  const {w,h,dom}=await fixture('<main><div><p>任意内容</p><button>拒绝</button><button id="allow">允许</button><button aria-haspopup="menu">⌄</button></div></main>');
+  let approvals=0;w.document.querySelector('#allow').onclick=()=>approvals++;
   await h.start();
-  const task={messages:[]};
-  const work=h.authorize(h.cards()[0],task);
   h.pause();
-  await assert.rejects(work);
+  const task={messages:[]};
+  await assert.rejects(h.authorize(h.cards()[0],task));
   assert.equal(approvals,0);
   dom.window.close();
 });
-test('global approval setting handles a card in a non-queue Chat',async()=>{
-  const {w,h,dom}=await fixture('<main><div id="card"><p>任意内容</p><button>拒绝</button><button>允许</button><button aria-haspopup="menu">⌄</button><div role="menu"><button role="menuitem">允许本次会话</button></div></div></main>');
-  let arrowClicks=0, approvals=0;
-  w.document.querySelector('[aria-haspopup]').onclick=()=>arrowClicks++;
-  w.document.querySelector('[role=menuitem]').onclick=()=>approvals++;
+test('global approval setting clicks every current-action card in a non-queue Chat',async()=>{
+  const {w,h,dom}=await fixture('<main><div id="card-a" class="approval-card"><p>任意内容 A</p><button>Deny</button><button id="allow-a">Allow</button><button aria-haspopup="menu">⌄</button></div><div id="card-b" class="authorization-card"><p>任意内容 B</p><button>Deny</button><button id="allow-b">Allow once</button><button aria-haspopup="menu">⌄</button></div></main>');
+  let allowA=0, allowB=0, menuClicks=0;
+  w.document.querySelector('#allow-a').onclick=()=>allowA++;
+  w.document.querySelector('#allow-b').onclick=()=>allowB++;
+  w.document.querySelectorAll('[aria-haspopup]').forEach(node=>node.onclick=()=>menuClicks++);
   h.data.globalAutoApprove=true;
   assert.equal(await h.processGlobalApprovalCards(),true);
-  assert.equal(arrowClicks,1);
-  assert.equal(approvals,1);
+  assert.equal(allowA,1);
+  assert.equal(allowB,1);
+  assert.equal(menuClicks,0);
   dom.window.close();
 });
-test('connector-named conversation grant is accepted but permanent grants are rejected',async()=>{
-  const {w,h,dom}=await fixture();
-  const option=w.document.createElement('button');
-  option.setAttribute('aria-label','Allow GitHub for this conversation');
-  assert.equal(h.isConversationScopedAllow(option),true);
-  option.setAttribute('aria-label','Always allow GitHub');
-  assert.equal(h.isConversationScopedAllow(option),false);
-  option.setAttribute('aria-label','允许 GitHub 用于此对话');
-  assert.equal(h.isConversationScopedAllow(option),true);
-  option.setAttribute('aria-label','始终允许 GitHub');
-  assert.equal(h.isConversationScopedAllow(option),false);
-  dom.window.close();
-});
-test('GitHub card selects from the live UI selects its connector-named menu item',async()=>{
-  const {w,h,dom}=await fixture('<main><div id="card"><h2>允许 ChatGPT 使用 GitHub？</h2><button>拒绝</button><button>允许</button><button aria-haspopup="menu" aria-label="Allow GitHub for this conversation">⌄</button></div><div role="menu"><button role="menuitem" aria-label="Allow GitHub for this conversation">Allow GitHub for this conversation</button></div></main>');
-  let arrowClicks=0, approvals=0;
-  w.document.querySelector('#card [aria-haspopup]').onclick=()=>arrowClicks++;
+
+test('GitHub authorization card clicks its primary Allow instead of opening a scope menu',async()=>{
+  const {w,h,dom}=await fixture('<main><div id="card"><h2>允许 ChatGPT 使用 GitHub？</h2><button id="deny">拒绝</button><button id="allow">允许</button><button id="arrow" aria-haspopup="menu" aria-label="Allow GitHub for this conversation">⌄</button></div><div role="menu"><button role="menuitem" aria-label="Allow GitHub for this conversation">Allow GitHub for this conversation</button></div></main>');
+  let primaryClicks=0, arrowClicks=0, approvals=0;
+  w.document.querySelector('#allow').onclick=()=>primaryClicks++;
+  w.document.querySelector('#arrow').onclick=()=>arrowClicks++;
   w.document.querySelector('[role=menuitem]').onclick=()=>approvals++;
   await h.authorize(h.cards()[0],null,null,false);
-  assert.equal(arrowClicks,1);
-  assert.equal(approvals,1);
+  assert.equal(primaryClicks,1);
+  assert.equal(arrowClicks,0);
+  assert.equal(approvals,0);
   dom.window.close();
 });
 test('resumed exact-route task recognizes an approval card after its user marker is virtualized',async()=>{
@@ -4352,19 +4335,14 @@ test('resumed approval card stays unassigned when a foreign task marker owns the
   assert.notEqual(result.state,'approval','a visible marker for a different task must retain the fail-closed boundary');
   dom.window.close();
 });
-test('Radix authorization trigger opens on pointerdown before selecting its div menuitem',async()=>{
-  const {w,h,dom}=await fixture('<main><div id="card"><p>任意内容</p><button>拒绝</button><button>允许</button><button aria-haspopup="menu" aria-label="Allow GitHub for this conversation">⌄</button></div></main>');
-  let pointerdowns=0, approvals=0;
-  w.document.querySelector('[aria-haspopup]').addEventListener('pointerdown',async()=>{
-    pointerdowns++;
-    if(w.document.querySelector('[role=menu]'))return;
-    const menu=w.document.createElement('div');menu.setAttribute('role','menu');
-    const option=w.document.createElement('div');option.setAttribute('role','menuitem');option.textContent='Allow GitHub for this conversation';
-    option.addEventListener('click',()=>approvals++);menu.append(option);w.document.body.append(menu);
-  });
+test('authorization card does not open its Radix scope trigger when clicking primary Allow',async()=>{
+  const {w,h,dom}=await fixture('<main><div id="card"><p>任意内容</p><button>拒绝</button><button id="allow">允许</button><button id="arrow" aria-haspopup="menu" aria-label="Allow GitHub for this conversation">⌄</button></div></main>');
+  let pointerdowns=0, primaryClicks=0;
+  w.document.querySelector('#arrow').addEventListener('pointerdown',()=>pointerdowns++);
+  w.document.querySelector('#allow').onclick=()=>primaryClicks++;
   await h.authorize(h.cards()[0],null,null,false);
-  assert.equal(pointerdowns,1);
-  assert.equal(approvals,1);
+  assert.equal(pointerdowns,0);
+  assert.equal(primaryClicks,1);
   dom.window.close();
 });
 test('cancelled tasks resume the exact persisted conversation when possible',async()=>{
@@ -7217,8 +7195,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2.10.51$/m);
-  assert.match(source,/const VERSION = '2.10.51'/);
+  assert.match(source,/^\/\/ @version\s+2.10.52$/m);
+  assert.match(source,/const VERSION = '2.10.52'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
@@ -7764,20 +7742,60 @@ test('split authorization falls back to primary Allow when no conversation-scope
   }finally{h.pause();dom.window.close();}
 });
 
-test('conversation-scoped authorization remains preferred over primary Allow fallback',async()=>{
+test('all authorization cards click the primary current-action control',async()=>{
+  const {w,h,dom}=await fixture('<main><section class="approval-card"><h3>任意授权请求 A</h3><button id="deny-a">拒绝</button><button id="allow-a">允许</button><button id="arrow-a" aria-haspopup="menu">⌄</button></section><section class="authorization-card"><h3>任意授权请求 B</h3><button id="deny-b">Deny</button><button id="allow-b">Allow once</button><button id="arrow-b" aria-haspopup="menu">⌄</button></section></main>');
+  try{
+    let allowClicks=0, onceClicks=0, menuClicks=0;
+    w.document.querySelector('#allow-a').addEventListener('click',()=>allowClicks++);
+    w.document.querySelector('#allow-b').addEventListener('click',()=>onceClicks++);
+    w.document.querySelector('#arrow-a').addEventListener('click',()=>menuClicks++);
+    w.document.querySelector('#arrow-b').addEventListener('click',()=>menuClicks++);
+    const pending=h.cards();
+    assert.equal(pending.length,2);
+    for(const card of pending) assert.equal(card.directActionable,true);
+    for(const card of pending) await h.authorize(card,null,null,false);
+    assert.equal(allowClicks,1);
+    assert.equal(onceClicks,1);
+    assert.equal(menuClicks,0);
+  }finally{h.pause();dom.window.close();}
+});
+
+test('primary Allow is clicked even when a conversation-scoped menu is available',async()=>{
   const {w,h,dom}=await fixture('<main><section class="approval-card"><h3>任意授权请求</h3><button id="deny">拒绝</button><button id="allow">允许</button><button id="arrow" aria-haspopup="menu">⌄</button></section></main>');
   try{
-    let allowClicks=0, scopedClicks=0;
+    let allowClicks=0, menuClicks=0;
     w.document.querySelector('#allow').addEventListener('click',()=>allowClicks++);
-    w.document.querySelector('#arrow').addEventListener('pointerdown',()=>{
+    w.document.querySelector('#arrow').addEventListener('click',()=>menuClicks++);
+    await h.authorize(h.cards()[0],null,null,false);
+    assert.equal(allowClicks,1);
+    assert.equal(menuClicks,0);
+  }finally{h.pause();dom.window.close();}
+});
+
+test('primary Allow once is clicked directly',async()=>{
+  const {w,h,dom}=await fixture('<main><section data-testid="approval-card"><h3>任意授权请求</h3><button id="deny">Deny</button><button id="allow-once">Allow once</button></section></main>');
+  try{
+    let clicks=0;
+    w.document.querySelector('#allow-once').addEventListener('click',()=>clicks++);
+    await h.authorize(h.cards()[0],null,null,false);
+    assert.equal(clicks,1);
+  }finally{h.pause();dom.window.close();}
+});
+
+test('persistent authorization choices are not auto-selected',async()=>{
+  const {w,h,dom}=await fixture('<main><section class="approval-card"><h3>任意授权请求</h3><button id="deny">Deny</button><button id="allow">Allow</button><button id="arrow" aria-haspopup="menu">⌄</button></section></main>');
+  try{
+    let primaryClicks=0, permanentClicks=0;
+    w.document.querySelector('#allow').addEventListener('click',()=>primaryClicks++);
+    w.document.querySelector('#arrow').addEventListener('click',()=>{
       const menu=w.document.createElement('div');menu.setAttribute('role','menu');
-      const option=w.document.createElement('div');option.setAttribute('role','menuitem');option.textContent='允许本次会话';
-      option.addEventListener('click',()=>scopedClicks++);
+      const option=w.document.createElement('button');option.textContent='Always allow';
+      option.addEventListener('click',()=>permanentClicks++);
       menu.append(option);w.document.body.append(menu);
     });
     await h.authorize(h.cards()[0],null,null,false);
-    assert.equal(scopedClicks,1);
-    assert.equal(allowClicks,0);
+    assert.equal(primaryClicks,1);
+    assert.equal(permanentClicks,0);
   }finally{h.pause();dom.window.close();}
 });
 

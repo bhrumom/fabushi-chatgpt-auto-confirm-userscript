@@ -951,13 +951,13 @@
   }
   const allowLabel = /^(?:允许(?:一次)?|批准(?:一次)?|allow(?: once| one time)?|approve(?: once| one time)?)$/i;
   const denyLabel = /^(?:拒绝|不允许|deny|decline|reject)$/i;
-  // Some authorization cards intentionally expose only one primary approval
-  // action and no conversation-scoped menu. This exact matcher is deliberately
-  // narrower than allowLabel so arbitrary "Allow" controls cannot become
-  // direct-approval candidates.
+  // Every trusted authorization card should answer its current action.
+  // ChatGPT's current-action controls are Allow / Allow once; broader saved
+  // permission choices such as Allow low-risk / Always allow are intentionally
+  // not part of this matcher, so the automation never upgrades a one-action
+  // approval into a persistent grant.
   function isDirectPrimaryAuthorizationAllow(node) {
-    const value = label(node);
-    return /^(?:允许|批准|allow|approve)$/iu.test(value);
+    return actionMatches(node, allowLabel);
   }
   function approvalArrow(node, allowButton) {
     return node !== allowButton && (
@@ -1168,6 +1168,7 @@
             button,
             arrow:completeArrow,
             deny:completeDeny,
+            directActionable:Boolean(isDirectPrimaryAuthorizationAllow(button) && enabled(button)),
             actionable:Boolean(enabled(button) && enabled(completeArrow) && enabled(completeDeny)),
           });
         }
@@ -1194,8 +1195,7 @@
           // exact primary Allow action is directly actionable. This does not
           // apply to an isolated Allow control outside a trusted card surface.
           directActionable:Boolean(
-            !trustedArrow
-            && isDirectPrimaryAuthorizationAllow(button)
+            isDirectPrimaryAuthorizationAllow(button)
             && enabled(button)
           ),
           actionable:false,
@@ -1454,89 +1454,35 @@
     node.dispatchEvent(new PointerCtor('pointerdown', { bubbles:true, cancelable:true, button:0, buttons:1, pointerType:'mouse', isPrimary:true }));
     node.click();
   }
-  function isConversationScopedAllow(node) {
-    const value = label(node);
-    if (/始终|总是|永久|所有(?:会话|对话)|always|all (?:chats|conversations|sessions)|future (?:chats|conversations|sessions)/i.test(value)) return false;
-    return /^(?:允许本次会话|在此对话中允许|允许此对话|允许\s+.{1,80}?\s+(?:用于|在)?(?:本次会话|此对话)|allow (?:for )?this (?:chat|conversation|session)|allow .{1,80}? for this (?:chat|conversation|session))$/iu.test(value);
-  }
   async function authorize(card, task, signal, queueOwned = true) {
-    if (!card?.container?.isConnected || !visible(card.container)) return false;
+    if (!card?.container?.isConnected || !visible(card.container) || !card.button) return false;
     if (!enabled(card.button)) {
       if (task) {
         const started = markApprovalUnavailable(task, currentConversationURL(), Date.now());
         if (started) {
-          log(task, `授权卡仍存在但控件正在处理或暂不可用；保持当前会话等待。若连续 ${Math.ceil(APPROVAL_UNAVAILABLE_REFRESH_MS / 1000)} 秒仍未恢复，将刷新当前会话而不是一直等待，也不会把 Stop 消失当成结束。`);
+          log(task, `授权卡仍存在但主授权控件正在处理或暂不可用；保持当前会话等待。若连续 ${Math.ceil(APPROVAL_UNAVAILABLE_REFRESH_MS / 1000)} 秒仍未恢复，将刷新当前会话而不是一直等待，也不会把 Stop 消失当成结束。`);
         }
       }
       return false;
     }
-    if (!card.actionable) {
-      if (card.directActionable && isDirectPrimaryAuthorizationAllow(card.button)) {
-        checkAuthorizationRun(signal, queueOwned);
-        const last = approvalAttempts.get(card.button) || 0;
-        if (Date.now() - last < 15000) return false;
-        approvalAttempts.set(card.button, Date.now());
-        activateControl(card.button);
-        if (task) beginApprovalSettlement(task);
-        log(task, '授权卡没有“允许本次会话”选项；已直接点击主“允许”，进入授权提交保护期。');
-        return true;
-      }
+    // All recognized authorization cards use the primary current-action
+    // control directly. Do not open the adjacent scope menu: it may contain
+    // persistent choices such as Always allow / Allow low-risk actions.
+    if (!isDirectPrimaryAuthorizationAllow(card.button)) {
       if (task) {
         const started = markApprovalUnavailable(task, currentConversationURL(), Date.now());
-        if (started) log(task, '授权卡已识别，但当前没有可用的会话级选项或安全的主“允许”操作；保持当前会话等待。');
-      }
-      return false;
-    }
-    const last = approvalAttempts.get(card.button) || 0;
-    if (Date.now() - last < 15000) return false;
-    approvalAttempts.set(card.button, Date.now());
-    const candidates = nodes('button,[role=button]', card.container).filter(enabled);
-    const arrow = (enabled(card.arrow) && card.arrow)
-      || candidates.find(node => node.hasAttribute('aria-haspopup'))
-      || candidates.find(node => node !== card.button && /箭头|展开|选项|更多|menu|options|expand/i.test(label(node)))
-      || candidates.find(node => node !== card.button && !text(node) && node.querySelector('svg') && node.parentElement === card.button.parentElement)
-      || (enabled(card.button) && card.button.querySelector('svg') ? card.button : null);
-    if (!arrow) {
-      if (task) {
-        const started = markApprovalUnavailable(task, currentConversationURL(), Date.now());
-        if (started) log(task, `授权卡已识别，但下拉授权控件尚未完全加载；若连续 ${Math.ceil(APPROVAL_UNAVAILABLE_REFRESH_MS / 1000)} 秒仍不可用，将刷新当前会话。`);
-      } else {
-        log(task, '授权卡已识别，但尚未找到可用的下拉箭头；保持等待。');
+        if (started) log(task, '授权卡已识别，但没有安全的当前操作“允许/允许一次”主按钮；保持当前会话等待。');
       }
       return false;
     }
     checkAuthorizationRun(signal, queueOwned);
-    activateControl(arrow);
-    for (let attempt = 0; attempt < 6; attempt++) {
-      await delay(250, signal ?? null); checkAuthorizationRun(signal, queueOwned);
-      const option = nodes('[role=menuitem],[role=option], [role=menu] button').filter(enabled)
-        .find(isConversationScopedAllow);
-      if (!option) continue;
-      activateControl(option);
-      if (task) beginApprovalSettlement(task);
-      log(task, '已点击“允许本次会话”，进入授权提交保护期；即使卡片暂时 disabled、重挂载或瞬时消失，也不会切换会话。');
-      return true;
-    }
-    // The card may expose the split menu but not offer a conversation-scoped
-    // option in that menu. Per the current product behavior, use the exact
-    // primary Allow as the bounded fallback rather than choosing a persistent
-    // menu item or abandoning the current conversation.
-    if (isDirectPrimaryAuthorizationAllow(card.button) && enabled(card.button)) {
-      checkAuthorizationRun(signal, queueOwned);
-      activateControl(card.button);
-      if (task) beginApprovalSettlement(task);
-      log(task, '授权菜单没有“允许本次会话”选项；已直接点击主“允许”，进入授权提交保护期。');
-      return true;
-    }
-    if (task) {
-      const started = markApprovalUnavailable(task, currentConversationURL(), Date.now());
-      if (started) {
-        log(task, `授权菜单尚未加载“允许本次会话”；保持当前会话等待。若连续 ${Math.ceil(APPROVAL_UNAVAILABLE_REFRESH_MS / 1000)} 秒仍缺失，将刷新当前会话，不会选择“始终允许”。`);
-      }
-    } else {
-      log(task, '授权菜单没有“允许本次会话”；保留当前会话等待处理。');
-    }
-    return false;
+    const last = approvalAttempts.get(card.button) || 0;
+    if (Date.now() - last < 15000) return false;
+    approvalAttempts.set(card.button, Date.now());
+    activateControl(card.button);
+    if (task) beginApprovalSettlement(task);
+    log(task, '已直接点击授权卡主“允许/允许一次”，进入授权提交保护期；不会展开授权范围菜单或选择永久授权。');
+    return true;
   }
   async function processGlobalApprovalCards() {
     if (!data.globalAutoApprove || globalApprovalBusy) return false;
@@ -1544,8 +1490,11 @@
     if (!pending.length) return false;
     globalApprovalBusy = true;
     try {
-      await authorize(pending[0], null, globalApprovalController?.signal, false);
-      return true;
+      let approved = false;
+      for (const card of pending) {
+        if (await authorize(card, null, globalApprovalController?.signal, false)) approved = true;
+      }
+      return approved;
     } finally {
       globalApprovalBusy = false;
     }
