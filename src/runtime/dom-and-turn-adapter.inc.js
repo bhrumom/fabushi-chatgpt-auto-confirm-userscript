@@ -227,6 +227,26 @@
     task.approvalSettlementPhase = '';
     task.approvalSettlementRound = 0;
   }
+  function clearApprovalSubmission(task) {
+    if (!task) return;
+    task.approvalSubmissionAt = 0;
+    task.approvalSubmissionURL = '';
+    task.approvalSubmissionToken = '';
+    task.approvalSubmissionPhase = '';
+    task.approvalSubmissionRound = 0;
+  }
+  function approvalSubmissionMatches(task, route = '') {
+    if (!task || !Number(task.approvalSubmissionAt || 0)) return false;
+    const liveURL = canonicalConversationURL(route || currentConversationURL());
+    return Boolean(
+      liveURL
+      && liveURL === canonicalConversationURL(task.approvalSubmissionURL)
+      && liveURL === canonicalConversationURL(task.url)
+      && String(task.approvalSubmissionToken || '') === String(task.token || '')
+      && String(task.approvalSubmissionPhase || '') === String(task.phase || '')
+      && Number(task.approvalSubmissionRound || 0) === Number(task.round || 0)
+    );
+  }
   function approvalUnavailableIdentity(task, route = '') {
     if (!task) return '';
     const taskURL = canonicalConversationURL(task.url);
@@ -319,6 +339,11 @@
     task.approvalSettlementToken = String(task.token || '');
     task.approvalSettlementPhase = String(task.phase || '');
     task.approvalSettlementRound = Number(task.round || 0);
+    task.approvalSubmissionAt = now;
+    task.approvalSubmissionURL = canonicalConversationURL(currentConversationURL() || task.url);
+    task.approvalSubmissionToken = String(task.token || '');
+    task.approvalSubmissionPhase = String(task.phase || '');
+    task.approvalSubmissionRound = Number(task.round || 0);
     task.updatedAt = now;
     save();
   }
