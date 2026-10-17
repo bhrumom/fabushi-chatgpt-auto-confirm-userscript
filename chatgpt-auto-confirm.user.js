@@ -6315,6 +6315,8 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     // “Previous activity” alone must never select an unrelated control.
     const disclosures = nodes('button[aria-expanded="false"][aria-controls],[role="button"][aria-expanded="false"][aria-controls]')
       .filter(control => !own(control) && enabled(control)
+        && !control.hasAttribute('aria-haspopup')
+        && !actionMatches(control, allowLabel) && !actionMatches(control, denyLabel)
         && String(control.getAttribute('aria-controls') || '').split(/\s+/).some(id => {
           const target = document.getElementById(id);
           return target && (target === container || target.contains(container));

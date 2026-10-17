@@ -7963,6 +7963,11 @@ test('persisted manual approval explains its wait and exposes locate without ena
     const active=h.data.tasks.find(item=>item.id===task.id) || {...task,ownerTabId:h.getTabId()};
     if(!h.data.tasks.includes(active))h.data.tasks.push(active);
     active.ownerTabId=h.getTabId(); h.data.autoApprove=false; h.data.globalAutoApprove=false;
+    h.log(active,'restored approval fixture');
+    w.document.querySelector('[data-task-id="manual-locate"] .task-select').click();
+    assert.match(w.document.querySelector('.state-badge').textContent,/等待手动授权/);
+    assert.match(w.document.querySelector('.desk header strong').textContent,/自动授权已关闭/);
+    assert.equal([...w.document.querySelectorAll('.desk header button')].find(button=>button.textContent==='定位授权卡').hidden,false);
     assert.match(h.taskStatusText(active),/等待手动授权.*自动授权已关闭/);
     assert.match(h.taskRecoveryStatusText(active),/先前活动/);
     assert.match(h.taskRecoveryStatusText(active),/不会自动重发/);
@@ -7972,7 +7977,7 @@ test('persisted manual approval explains its wait and exposes locate without ena
   } finally {h.pause();dom.window.close();}
 });
 test('locate reveals only the disclosure owning the card and never grants or changes dispatch',async()=>{
-  const {h,w,dom}=await fixture('<main><button id="other" aria-expanded="false" aria-controls="unrelated">Previous activity</button><div id="unrelated"></div><button id="activity" aria-expanded="false" aria-controls="activity-body">先前活动</button><div id="activity-body"><details><summary>tool</summary><section class="approval-card"><button id="deny">拒绝</button><button id="allow">允许一次</button></section></details></div></main>');
+  const {h,w,dom}=await fixture('<main><button id="other" aria-expanded="false" aria-controls="unrelated">Previous activity</button><div id="unrelated"></div><button id="activity" aria-expanded="false" aria-controls="activity-body">先前活动</button><div id="activity-body"><details><summary>tool</summary><section class="approval-card"><button id="deny">拒绝</button><button id="allow" aria-expanded="false" aria-controls="activity-body">允许一次</button></section></details></div></main>');
   try {
     w.history.replaceState({},'', '/c/locate-card');
     const task={id:'locate-card',ownerTabId:h.getTabId(),state:'approval',url:w.location.href,token:'token-38',phase:'work',round:38,attempted:true,attachments:[{id:'file'}]};
