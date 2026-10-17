@@ -1,8 +1,12 @@
-# Fabushi 独立自动确认工作台 2.10.56
+# Fabushi 独立自动确认工作台 2.10.57
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.56`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.57`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+
+## 2.10.57 手动授权等待提示与卡片定位
+
+自动授权关闭时，工作台明确显示“等待手动授权”，并提示授权卡可能收在 ChatGPT 的“先前活动”中。新增“定位授权卡”按钮，只展开属于该卡片的折叠区域并滚动定位，不会点击允许、拒绝或改变授权设置。
 
 ## 2.10.56 授权卡重建与进行中任务恢复
 

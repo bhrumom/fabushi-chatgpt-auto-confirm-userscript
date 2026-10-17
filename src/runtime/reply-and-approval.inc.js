@@ -1227,6 +1227,32 @@
     scanDiagnostics.cardsMs += performance.now() - startedAt;
     return result;
   }
+  function locatePendingAuthorization(task) {
+    if (!task || task.state !== 'approval' || !taskBelongsToTab(task)) return false;
+    const route = currentConversationURL();
+    if (!route || route !== canonicalConversationURL(task.url)
+      || conversationURLOwner(route, task.id)
+      || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))) return false;
+    const card = cards({ wide:true })[0];
+    if (!card?.container?.isConnected) return false;
+    const container = card.container;
+    // Only explicit disclosure ownership is sufficient. Text such as
+    // “Previous activity” alone must never select an unrelated control.
+    const disclosures = nodes('button[aria-expanded="false"][aria-controls],[role="button"][aria-expanded="false"][aria-controls]')
+      .filter(control => !own(control) && enabled(control)
+        && !control.hasAttribute('aria-haspopup')
+        && !actionMatches(control, allowLabel) && !actionMatches(control, denyLabel)
+        && String(control.getAttribute('aria-controls') || '').split(/\s+/).some(id => {
+          const target = document.getElementById(id);
+          return target && (target === container || target.contains(container));
+        }));
+    for (let ancestor = container.parentElement; ancestor; ancestor = ancestor.parentElement) {
+      if (ancestor.tagName === 'DETAILS' && !ancestor.open) ancestor.open = true;
+    }
+    for (const disclosure of disclosures) activateControl(disclosure);
+    container.scrollIntoView?.({ block:'center', inline:'nearest', behavior:'instant' });
+    return true;
+  }
   // ChatGPT occasionally shows product announcements, image-generation tips,
   // feedback prompts, and other modal overlays that block the composer. These
   // are not authorization cards: close only an explicit dismiss control and

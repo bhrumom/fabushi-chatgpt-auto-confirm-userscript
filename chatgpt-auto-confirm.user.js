@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.56
+// @version      2.10.57
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -68,7 +68,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.56';
+  const VERSION = '2.10.57';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -6302,6 +6302,32 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     scanDiagnostics.cardsMs += performance.now() - startedAt;
     return result;
   }
+  function locatePendingAuthorization(task) {
+    if (!task || task.state !== 'approval' || !taskBelongsToTab(task)) return false;
+    const route = currentConversationURL();
+    if (!route || route !== canonicalConversationURL(task.url)
+      || conversationURLOwner(route, task.id)
+      || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))) return false;
+    const card = cards({ wide:true })[0];
+    if (!card?.container?.isConnected) return false;
+    const container = card.container;
+    // Only explicit disclosure ownership is sufficient. Text such as
+    // “Previous activity” alone must never select an unrelated control.
+    const disclosures = nodes('button[aria-expanded="false"][aria-controls],[role="button"][aria-expanded="false"][aria-controls]')
+      .filter(control => !own(control) && enabled(control)
+        && !control.hasAttribute('aria-haspopup')
+        && !actionMatches(control, allowLabel) && !actionMatches(control, denyLabel)
+        && String(control.getAttribute('aria-controls') || '').split(/\s+/).some(id => {
+          const target = document.getElementById(id);
+          return target && (target === container || target.contains(container));
+        }));
+    for (let ancestor = container.parentElement; ancestor; ancestor = ancestor.parentElement) {
+      if (ancestor.tagName === 'DETAILS' && !ancestor.open) ancestor.open = true;
+    }
+    for (const disclosure of disclosures) activateControl(disclosure);
+    container.scrollIntoView?.({ block:'center', inline:'nearest', behavior:'instant' });
+    return true;
+  }
   // ChatGPT occasionally shows product announcements, image-generation tips,
   // feedback prompts, and other modal overlays that block the composer. These
   // are not authorization cards: close only an explicit dismiss control and
@@ -9446,6 +9472,7 @@ NaN
     return Math.max(0, startedAt + SEND_CONFIRM_TIMEOUT_MS - now);
   }
   function taskStatusText(task, now = Date.now()) {
+    if (task?.state === 'approval' && taskBelongsToTab(task) && !data.autoApprove && !data.globalAutoApprove) return '等待手动授权（自动授权已关闭）';
     const remaining = sendConfirmationRemaining(task, now);
     if (remaining === null) return statusNames[task?.state] || task?.state || '';
     return remaining > 0
@@ -9453,6 +9480,9 @@ NaN
       : '发送确认超时，正在检查恢复';
   }
   function taskRecoveryStatusText(task, now = Date.now()) {
+    if (task?.state === 'approval') return !data.autoApprove && !data.globalAutoApprove
+      ? '自动授权已关闭，任务正在等待手动处理；授权卡可能收在“先前活动”中。点击“定位授权卡”后选择允许或拒绝；等待期间不会自动重发任务'
+      : '正在等待授权卡处理；可点击“定位授权卡”查看当前请求';
     const confirmationRemaining = sendConfirmationRemaining(task, now);
     if (confirmationRemaining !== null) return confirmationRemaining > 0
       ? `原消息已尝试发送，尚未确认本轮会话；约 ${Math.ceil(confirmationRemaining / 1000)} 秒后执行恢复检查，期间保留原发送标识，不重复发送`
@@ -9507,7 +9537,8 @@ NaN
     const chat = element('div','','chat'), head = element('header'), heading = element('strong','任务工作台');
     const editGoalButton = element('button','编辑目标');
     const settingsButton = element('button','设置'), pauseButton = element('button','暂停当前任务'), close = element('button','×'); close.setAttribute('aria-label','收起任务工作台');
-    head.append(heading,editGoalButton,settingsButton,pauseButton,close);
+    const locateApprovalButton = element('button','定位授权卡'); locateApprovalButton.type='button'; locateApprovalButton.hidden=true;
+    head.append(heading,editGoalButton,settingsButton,pauseButton,locateApprovalButton,close);
     const settings = element('div','','settings');
     const globalApproval = element('input'); globalApproval.type='checkbox'; globalApproval.checked=data.globalAutoApprove;
     const globalApprovalLabel = element('label');
@@ -9679,6 +9710,9 @@ NaN
       if (modelScopeHint.textContent !== modelHint) modelScopeHint.textContent = modelHint;
       heading.textContent=task ? (task.mode==='goal'?'持续目标':'单次任务')+' · '+taskStatusText(task) : '任务工作台';
       editGoalButton.disabled=!task || task.state==='done';
+      locateApprovalButton.hidden=task?.state!=='approval';
+      auto.checked=Boolean(data.autoApprove);
+      globalApproval.checked=Boolean(data.globalAutoApprove);
       memoryStatusNode.textContent=[memoryStatusText(), storageStatusText(), `宿主唤醒 ${backgroundClock.status().lastWakeAt ? new Date(backgroundClock.status().lastWakeAt).toLocaleTimeString() : '等待'}，时钟响应 ${backgroundClock.status().hostReplies}`].filter(Boolean).join(' · ');
       memoryCleanupButton.disabled=memoryMonitorBusy || hostMemoryPending.size > 0;
       const runnableCount=tabTasks().filter(item=>!terminal.has(item.state)&&item.state!=='paused').length;
@@ -9695,7 +9729,7 @@ NaN
         Math.max(0,Math.ceil((Number(item.noFinalReplyRecoveryUntil||0)-Date.now())/60000)),
       ];
       const nextSidebarSignature=JSON.stringify([
-        selected,current,running,
+        selected,current,running,Boolean(data.autoApprove),Boolean(data.globalAutoApprove),
         currentTasks.map(rowSignature),
         workspaceSnapshots.map(workspace=>[workspace.ownerTabId,workspace.live,workspace.tasks.map(rowSignature)]),
       ]);
@@ -9736,7 +9770,7 @@ NaN
         selectControl.append(element('span',itemGoal.slice(0,34),'task-name'));
         const meta=element('span','','task-meta');
         if(item.id===current&&running)meta.append(element('span','●','run-indicator'));
-        const badge=element('span',item.state==='sending'&&item.attempted?'等待发送确认':statusNames[item.state]||item.state,'state-badge');badge.dataset.state=item.state;
+        const badge=element('span',item.state==='sending'&&item.attempted?'等待发送确认':taskStatusText(item),'state-badge');badge.dataset.state=item.state;
         meta.append(badge,document.createTextNode(`第 ${item.round} 轮`));
         if (taskAttachments(item).length) meta.append(document.createTextNode(` · 📎 ${taskAttachments(item).length}`));
         const recoveryRemaining = Number(item.noFinalReplyRecoveryUntil || 0) - Date.now();
@@ -9859,6 +9893,11 @@ NaN
     function showError(error){notice.textContent=error.message;}
     launch.onclick=()=>{desk.classList.toggle('open');paint();};close.onclick=()=>desk.classList.remove('open');
     editGoalButton.onclick=()=>{const task=data.tasks.find(item=>item.id===selected&&taskBelongsToTab(item));if(!task)return;const value=window.prompt('编辑任务目标',task.goal||'');if(value!==null)editGoal(task,value);};
+    locateApprovalButton.onclick=()=>{
+      const task=data.tasks.find(item=>item.id===selected && taskBelongsToTab(item));
+      if(locatePendingAuthorization(task)) desk.classList.remove('open');
+      else showError(new Error('当前会话尚未挂载可定位的授权卡；请展开 ChatGPT 的“先前活动”查看。任务和自动授权设置保持不变。'));
+    };
     settingsButton.onclick=()=>settings.classList.toggle('open');
     pauseButton.onclick=()=>{const task=data.tasks.find(item=>item.id===selected&&taskBelongsToTab(item));if(task?.state==='paused'||task?.state==='cancelled'||task?.state==='blocked')resumeTask(task).catch(showError);else if(task&&!terminal.has(task.state)){if(running)pauseTask(task);else{current=task.id;lastSwitch=Date.now();start(false).catch(showError);}}else if(running)pause(true);else start(true).catch(showError);};
     globalPauseButton.onclick=()=>{if(running)pause(true);else start(true).catch(showError);};
