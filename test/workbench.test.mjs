@@ -7857,3 +7857,77 @@ test('isolated primary Allow remains excluded from direct authorization fallback
     assert.equal(h.cards({wide:true}).length,0);
   }finally{h.pause();dom.window.close();}
 });
+
+test('remounted authorization controls cannot repeat a submitted grant inside settlement',async()=>{
+  const {w,h,dom}=await fixture('<main><div id="approval"><button type="button">拒绝</button><div><button type="button" id="allow-once">允许一次</button><button type="button" aria-haspopup="menu" aria-label="审批选项">⌄</button></div></div></main>');
+  try {
+    w.history.pushState({},'', '/c/remounted-grant');
+    const task={id:'remounted-grant',ownerTabId:h.getTabId(),goal:'continue',phase:'work',round:1,state:'approval',url:'https://chatgpt.com/c/remounted-grant',token:'remounted-grant',attempted:true,messages:[]};
+    h.data.tasks.push(task);h.data.autoApprove=true;
+    let clicks=0;
+    w.document.querySelector('#approval').addEventListener('click',event=>{if(event.target.id==='allow-once')clicks++;});
+    assert.equal(await h.authorize(h.cards()[0],task,null,false),true);
+    const submitted=task.approvalSubmissionAt;
+    const deadline=task.approvalSettlementUntil;
+    const oldButton=w.document.querySelector('#allow-once');
+    oldButton.replaceWith(oldButton.cloneNode(true));
+    w.Date.now=()=>submitted+1_000;
+    assert.equal(await h.authorize(h.cards()[0],task,null,false),false);
+    assert.equal(clicks,1,'new DOM identity cannot bypass the persisted grant identity');
+    assert.equal(task.approvalSubmissionAt,submitted);
+    assert.equal(task.approvalSettlementUntil,deadline,'remount cannot postpone settlement indefinitely');
+    w.Date.now=()=>deadline+1;
+    assert.equal(await h.authorize(h.cards()[0],task,null,false),false);
+    assert.equal(clicks,1);
+    assert.equal(h.refreshUnavailableApproval(task,false,deadline+60_001),true);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('attempted authorization recovery rejects every mismatched identity and inactive state',async()=>{
+  const {w,h,dom}=await fixture('<main></main>');
+  try {
+    w.history.pushState({},'', '/c/attempted-identity');
+    h.data.autoApprove=true;
+    const base={id:'attempted-identity',ownerTabId:h.getTabId(),goal:'continue',phase:'work',round:2,state:'approval',url:'https://chatgpt.com/c/attempted-identity',token:'attempted-identity',attempted:true,messages:[],approvalSubmissionAt:1_000_000,approvalSubmissionURL:'https://chatgpt.com/c/attempted-identity',approvalSubmissionToken:'attempted-identity',approvalSubmissionPhase:'work',approvalSubmissionRound:2};
+    const cases=[
+      ['missing submission',{approvalSubmissionAt:0}],
+      ['submission route',{approvalSubmissionURL:'https://chatgpt.com/c/another-route'}],
+      ['task route',{url:'https://chatgpt.com/c/another-route'}],
+      ['token',{approvalSubmissionToken:'another-token'}],
+      ['phase',{approvalSubmissionPhase:'review'}],
+      ['round',{approvalSubmissionRound:1}],
+      ['paused',{state:'paused'}],['cancelled',{state:'cancelled'}],['blocked',{state:'blocked'}],
+    ];
+    for(const [name,patch] of cases){
+      const task={...base,messages:[]};
+      h.markApprovalUnavailable(task,task.url,1_000_000);
+      Object.assign(task,patch);
+      assert.equal(h.refreshUnavailableApproval(task,false,1_060_000),false,name);
+      assert.equal(task.approvalUnavailableRefreshCount||0,0,name+' cannot consume an attempt');
+      assert.equal(task.attempted,true);
+    }
+    const disabled={...base,messages:[]};
+    h.markApprovalUnavailable(disabled,disabled.url,1_000_000);
+    h.data.autoApprove=false;
+    assert.equal(h.refreshUnavailableApproval(disabled,false,1_060_000),false);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('attempted grant recovery exhausts without replaying or losing task and attachment identity',async()=>{
+  const {w,h,dom}=await fixture('<main></main>');
+  try {
+    w.history.pushState({},'', '/c/attempted-exhaustion');h.data.autoApprove=true;
+    const task={id:'attempted-exhaustion',ownerTabId:h.getTabId(),goal:'preserve goal',phase:'work',round:3,state:'approval',url:'https://chatgpt.com/c/attempted-exhaustion',token:'attempted-exhaustion',attempted:true,messages:[],attachments:[{id:'attachment-1',name:'evidence.png'}],approvalSubmissionAt:1_000_000,approvalSubmissionURL:'https://chatgpt.com/c/attempted-exhaustion',approvalSubmissionToken:'attempted-exhaustion',approvalSubmissionPhase:'work',approvalSubmissionRound:3};
+    h.data.tasks.push(task);h.markApprovalUnavailable(task,task.url,1_000_000);
+    const retained=JSON.stringify([task.url,task.token,task.attempted,task.goal,task.phase,task.round,task.attachments]);
+    for(let attempt=1;attempt<=3;attempt++){
+      assert.equal(h.refreshUnavailableApproval(task,false,1_000_000+60_000*attempt),true);
+      assert.equal(task.approvalUnavailableRefreshCount,attempt);
+    }
+    assert.equal(h.refreshUnavailableApproval(task,false,1_240_000),true);
+    assert.equal(task.state,'blocked');
+    assert.equal(JSON.stringify([task.url,task.token,task.attempted,task.goal,task.phase,task.round,task.attachments]),retained);
+    assert.equal(h.refreshUnavailableApproval(task,false,1_300_000),false,'exhaustion cannot begin another episode');
+    assert.ok(task.messages.some(item=>/3 次后仍未解除/.test(item.text)));
+  } finally {h.pause();dom.window.close();}
+});
