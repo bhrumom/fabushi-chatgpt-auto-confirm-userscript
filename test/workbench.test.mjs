@@ -3362,7 +3362,7 @@ test('a submitted authorization card is never clicked again while settlement is 
   const {w,h,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:authorization-stuck-submit]</div></article><div id="approval"><button type="button">拒绝</button><div><button type="button" id="allow-once">允许一次</button><button type="button" aria-haspopup="menu" aria-label="审批选项">⌄</button></div></div><form><textarea id="prompt-textarea"></textarea></form></main>');
   try {
     w.history.pushState({},'', '/c/authorization-stuck-submit');
-    const task={id:'authorization-stuck-submit',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'approval',url:'https://chatgpt.com/c/authorization-stuck-submit',token:'authorization-stuck-submit',attempted:false,messages:[]};
+    const task={id:'authorization-stuck-submit',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'approval',url:'https://chatgpt.com/c/authorization-stuck-submit',token:'authorization-stuck-submit',attempted:true,messages:[]};
     h.data.tasks.push(task);
     h.data.autoApprove=true;
     let clicks=0;
@@ -3376,7 +3376,7 @@ test('a submitted authorization card is never clicked again while settlement is 
     assert.equal(await h.authorize(h.cards()[0],task,null,false),false,'a still-visible card after settlement is recovery evidence, not permission to click again');
     assert.equal(clicks,1,'the primary grant is clicked exactly once per submission identity');
     assert.ok(Number(task.approvalUnavailableSince)>0,'stuck settlement enters the bounded same-route recovery episode');
-    assert.equal(h.refreshUnavailableApproval(task,false,submittedAt+settlementMs+refreshMs+1),true);
+    assert.equal(h.refreshUnavailableApproval(task,false,submittedAt+settlementMs+refreshMs+1),true,'same-route recovery is permitted while the exact Work send is blocked on this submitted grant');
     assert.equal(task.url,'https://chatgpt.com/c/authorization-stuck-submit');
   } finally { h.pause(); dom.window.close(); }
 });
