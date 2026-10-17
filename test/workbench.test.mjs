@@ -7971,7 +7971,10 @@ test('persisted manual approval explains its wait and exposes locate without ena
     assert.match(h.taskStatusText(active),/等待手动授权.*自动授权已关闭/);
     assert.match(h.taskRecoveryStatusText(active),/先前活动/);
     assert.match(h.taskRecoveryStatusText(active),/不会自动重发/);
-    h.data.autoApprove=true; assert.equal(h.taskStatusText(active),'等待授权');
+    const auto=w.document.querySelector('.compose input[type=checkbox]');
+    auto.checked=true; auto.dispatchEvent(new w.Event('change'));
+    assert.equal(h.taskStatusText(active),'等待授权');
+    assert.equal(w.document.querySelector('.state-badge').textContent,'等待授权');
     h.data.autoApprove=false; h.data.globalAutoApprove=true; assert.equal(h.taskStatusText(active),'等待授权');
     assert.equal(active.token,'keep-token'); assert.equal(active.round,38);
   } finally {h.pause();dom.window.close();}

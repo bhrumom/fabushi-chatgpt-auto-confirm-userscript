@@ -190,7 +190,7 @@
     return Math.max(0, startedAt + SEND_CONFIRM_TIMEOUT_MS - now);
   }
   function taskStatusText(task, now = Date.now()) {
-    if (task?.state === 'approval' && !data.autoApprove && !data.globalAutoApprove) return '等待手动授权（自动授权已关闭）';
+    if (task?.state === 'approval' && taskBelongsToTab(task) && !data.autoApprove && !data.globalAutoApprove) return '等待手动授权（自动授权已关闭）';
     const remaining = sendConfirmationRemaining(task, now);
     if (remaining === null) return statusNames[task?.state] || task?.state || '';
     return remaining > 0
@@ -447,7 +447,7 @@
         Math.max(0,Math.ceil((Number(item.noFinalReplyRecoveryUntil||0)-Date.now())/60000)),
       ];
       const nextSidebarSignature=JSON.stringify([
-        selected,current,running,
+        selected,current,running,Boolean(data.autoApprove),Boolean(data.globalAutoApprove),
         currentTasks.map(rowSignature),
         workspaceSnapshots.map(workspace=>[workspace.ownerTabId,workspace.live,workspace.tasks.map(rowSignature)]),
       ]);
