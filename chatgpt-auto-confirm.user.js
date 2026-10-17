@@ -9538,7 +9538,7 @@ NaN
     const editGoalButton = element('button','编辑目标');
     const settingsButton = element('button','设置'), pauseButton = element('button','暂停当前任务'), close = element('button','×'); close.setAttribute('aria-label','收起任务工作台');
     const locateApprovalButton = element('button','定位授权卡'); locateApprovalButton.type='button'; locateApprovalButton.hidden=true;
-    head.append(heading,locateApprovalButton,editGoalButton,settingsButton,pauseButton,close);
+    head.append(heading,editGoalButton,settingsButton,pauseButton,locateApprovalButton,close);
     const settings = element('div','','settings');
     const globalApproval = element('input'); globalApproval.type='checkbox'; globalApproval.checked=data.globalAutoApprove;
     const globalApprovalLabel = element('label');
