@@ -7923,6 +7923,11 @@ test('attempted grant recovery exhausts without replaying or losing task and att
     for(let attempt=1;attempt<=3;attempt++){
       assert.equal(h.refreshUnavailableApproval(task,false,1_000_000+60_000*attempt),true);
       assert.equal(task.approvalUnavailableRefreshCount,attempt);
+      if(attempt===1){
+        const automaticallyRecovered={...task,messages:[]};
+        assert.equal(h.prepareTaskForRecovery(automaticallyRecovered,{automatic:true}),true);
+        assert.equal(automaticallyRecovered.approvalUnavailableRefreshCount,1,'automatic host recovery retains the bounded episode');
+      }
     }
     assert.equal(h.refreshUnavailableApproval(task,false,1_240_000),true);
     assert.equal(task.state,'blocked');

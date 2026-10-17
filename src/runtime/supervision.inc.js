@@ -257,8 +257,10 @@ NaN
   function prepareTaskForRecovery(task, { automatic = false } = {}) {
     if (!taskBelongsToTab(task) || !task || terminal.has(task.state) && task.state !== 'blocked') return false;
     if (task.approvalRecoveryExhausted && automatic) return false;
-    task.approvalRecoveryExhausted = false;
-    clearApprovalUnavailableRefresh(task);
+    if (!automatic) {
+      task.approvalRecoveryExhausted = false;
+      clearApprovalUnavailableRefresh(task);
+    }
     data.autoResume = true;
     data.pausedAt = 0;
     const adoptedURL = task.state === 'blocked'
