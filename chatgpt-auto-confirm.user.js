@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.54
+// @version      2.10.55
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -68,7 +68,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.54';
+  const VERSION = '2.10.55';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -238,6 +238,8 @@ async function bootstrapAttempt() {
   // card becomes usable. This is deliberately separate from generic stalled
   // recovery because unresolved authorization must never escalate to fresh chat.
   const APPROVAL_UNAVAILABLE_REFRESH_MS = 60 * 1000;
+  // Do not refresh an unresolved authorization forever; retain the task for manual recovery after this many same-route attempts.
+  const MAX_APPROVAL_UNAVAILABLE_REFRESH_ATTEMPTS = 3;
   // Never abandon a bound conversation from one instantaneous "no approval"
   // sample. ChatGPT can mount approval UI between renderer slices, and the
   // current approval card may sit outside the role-derived message scopes.
@@ -2854,6 +2856,26 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     task.approvalSettlementPhase = '';
     task.approvalSettlementRound = 0;
   }
+  function clearApprovalSubmission(task) {
+    if (!task) return;
+    task.approvalSubmissionAt = 0;
+    task.approvalSubmissionURL = '';
+    task.approvalSubmissionToken = '';
+    task.approvalSubmissionPhase = '';
+    task.approvalSubmissionRound = 0;
+  }
+  function approvalSubmissionMatches(task, route = '') {
+    if (!task || !Number(task.approvalSubmissionAt || 0)) return false;
+    const liveURL = canonicalConversationURL(route || currentConversationURL());
+    return Boolean(
+      liveURL
+      && liveURL === canonicalConversationURL(task.approvalSubmissionURL)
+      && liveURL === canonicalConversationURL(task.url)
+      && String(task.approvalSubmissionToken || '') === String(task.token || '')
+      && String(task.approvalSubmissionPhase || '') === String(task.phase || '')
+      && Number(task.approvalSubmissionRound || 0) === Number(task.round || 0)
+    );
+  }
   function approvalUnavailableIdentity(task, route = '') {
     if (!task) return '';
     const taskURL = canonicalConversationURL(task.url);
@@ -2904,18 +2926,29 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     return now - Math.max(since, lastRefresh) >= APPROVAL_UNAVAILABLE_REFRESH_MS;
   }
   function refreshUnavailableApproval(task, perform = true, now = Date.now()) {
-    if (!task || task.state === 'paused' || task.state === 'cancelled' || task.attempted || !data.autoApprove) return false;
+    if (!task || task.state === 'paused' || task.state === 'cancelled' || task.state === 'blocked'
+      || task.attempted || !data.autoApprove) return false;
     const conversationURL = currentConversationURL() || canonicalConversationURL(task.url);
     const taskURL = canonicalConversationURL(task.url);
     if (!conversationURL || !taskURL || conversationURL !== taskURL) return false;
     if (!approvalUnavailableRefreshDue(task, conversationURL, now)) return false;
-    const nextCount = Number(task.approvalUnavailableRefreshCount || 0) + 1;
+    const previousCount = Number(task.approvalUnavailableRefreshCount || 0);
+    if (previousCount >= MAX_APPROVAL_UNAVAILABLE_REFRESH_ATTEMPTS) {
+      clearApprovalUnavailableRefresh(task);
+      task.state = 'blocked';
+      task.updatedAt = now;
+      observations.delete(task.id);
+      log(task, `授权卡在同一会话恢复 ${MAX_APPROVAL_UNAVAILABLE_REFRESH_ATTEMPTS} 次后仍未解除；已停止自动点击和刷新。请先在当前 ChatGPT 会话完成必要的授权/登录，再在 Fabushi 工作台手动继续该任务。原会话、发送标识、阶段、轮次、目标和附件均已保留；不会新开会话或重复发送。`);
+      save();
+      return true;
+    }
+    const nextCount = previousCount + 1;
     task.approvalUnavailableRefreshCount = nextCount;
     task.approvalUnavailableRefreshAt = now;
     task.state = 'approval';
     task.updatedAt = now;
     observations.delete(task.id);
-    log(task, `授权卡持续 ${Math.ceil(APPROVAL_UNAVAILABLE_REFRESH_MS / 1000)} 秒仍未完全加载或暂不可用；正在刷新当前会话（第 ${nextCount} 次），保留会话、发送标识、附件和当前阶段，不会新开会话或重复发送。`);
+    log(task, `授权提交保护期结束后，授权卡仍未解除；正在刷新当前会话（第 ${nextCount}/${MAX_APPROVAL_UNAVAILABLE_REFRESH_ATTEMPTS} 次），保留会话、发送标识、附件和当前阶段，不会新开会话或重复发送。`);
     save();
     if (!perform) return true;
     navigating = true;
@@ -2935,6 +2968,11 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     task.approvalSettlementToken = String(task.token || '');
     task.approvalSettlementPhase = String(task.phase || '');
     task.approvalSettlementRound = Number(task.round || 0);
+    task.approvalSubmissionAt = now;
+    task.approvalSubmissionURL = canonicalConversationURL(currentConversationURL() || task.url);
+    task.approvalSubmissionToken = String(task.token || '');
+    task.approvalSubmissionPhase = String(task.phase || '');
+    task.approvalSubmissionRound = Number(task.round || 0);
     task.updatedAt = now;
     save();
   }
@@ -6508,9 +6546,24 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
       return false;
     }
     checkAuthorizationRun(signal, queueOwned);
+    const now = Date.now();
+    // Once an explicit current-action grant was submitted, never click the same
+    // still-mounted card again. Wait for the renderer to remove it; if it does
+    // not settle, enter the bounded same-route recovery path instead.
+    if (task && approvalSubmissionMatches(task, currentConversationURL())
+      && now - Number(task.approvalSubmissionAt || 0) >= APPROVAL_SETTLEMENT_MS) {
+      markApprovalUnavailable(task, currentConversationURL(), now);
+      return false;
+    }
     const last = approvalAttempts.get(card.button) || 0;
-    if (Date.now() - last < 15000) return false;
-    approvalAttempts.set(card.button, Date.now());
+    if (now - last < 15000) {
+      if (task && approvalSubmissionMatches(task, currentConversationURL())
+        && !approvalSettlementActive(task, currentConversationURL(), now)) {
+        markApprovalUnavailable(task, currentConversationURL(), now);
+      }
+      return false;
+    }
+    approvalAttempts.set(card.button, now);
     activateControl(card.button);
     if (task) beginApprovalSettlement(task);
     log(task, '已直接点击授权卡主“允许/允许一次”，进入授权提交保护期；不会展开授权范围菜单或选择永久授权。');
@@ -7895,6 +7948,11 @@ ${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carry
     const approvalVisible = approvalRouteEligible && pending.length > 0;
     const approvalSettling = approvalRouteEligible && approvalSettlementActive(task, liveURL, now);
     const approvalBlocking = approvalVisible || approvalSettling;
+    if (!approvalVisible && !approvalSettling && Number(task.approvalSubmissionAt || 0)) {
+      clearApprovalSubmission(task);
+      task.updatedAt = now;
+      save();
+    }
     if (((!approvalVisible && !approvalSettling) || !data.autoApprove)
       && clearApprovalUnavailableRefresh(task)) {
       task.updatedAt = now;

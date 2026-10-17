@@ -3325,6 +3325,11 @@ test('disabled automatic approval refreshes the same conversation after one minu
     assert.equal(h.refreshUnavailableApproval(task,false,started+119_999),false,'the next approval refresh requires another full minute');
     assert.equal(h.refreshUnavailableApproval(task,false,started+120_000),true);
     assert.equal(task.approvalUnavailableRefreshCount,2);
+    assert.equal(h.refreshUnavailableApproval(task,false,started+180_000),true,'the third same-route refresh remains bounded and preserves task identity');
+    assert.equal(task.approvalUnavailableRefreshCount,3);
+    assert.equal(h.refreshUnavailableApproval(task,false,started+240_000),true,'exhaustion transitions to manual recovery instead of refreshing forever');
+    assert.equal(task.state,'blocked');
+    assert.equal(task.approvalUnavailableRefreshCount,0,'exhaustion clears the repeating recovery counter');
     assert.equal(task.url,'https://chatgpt.com/c/approval-refresh','repeated recovery never creates a fresh conversation');
   } finally { h.pause(); dom.window.close(); }
 });
@@ -3350,6 +3355,29 @@ test('approval settlement suppresses unavailable-card refresh and successful gra
     assert.equal(task.approvalUnavailableIdentity||'','', 'successful conversation grant clears unavailable-card recovery');
     h.markApprovalUnavailable(task,task.url,Date.now()-120_000);
     assert.equal(h.refreshUnavailableApproval(task,false,Date.now()),false,'active settlement latch has precedence over renderer refresh');
+  } finally { h.pause(); dom.window.close(); }
+});
+
+test('a submitted authorization card is never clicked again while settlement is stuck',async()=>{
+  const {w,h,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:authorization-stuck-submit]</div></article><div id="approval"><button type="button">拒绝</button><div><button type="button" id="allow-once">允许一次</button><button type="button" aria-haspopup="menu" aria-label="审批选项">⌄</button></div></div><form><textarea id="prompt-textarea"></textarea></form></main>');
+  try {
+    w.history.pushState({},'', '/c/authorization-stuck-submit');
+    const task={id:'authorization-stuck-submit',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'approval',url:'https://chatgpt.com/c/authorization-stuck-submit',token:'authorization-stuck-submit',attempted:false,messages:[]};
+    h.data.tasks.push(task);
+    h.data.autoApprove=true;
+    let clicks=0;
+    w.document.querySelector('#allow-once').addEventListener('click',()=>clicks++);
+    assert.equal(await h.authorize(h.cards()[0],task,null,false),true);
+    assert.equal(clicks,1);
+    const submittedAt=Number(task.approvalSubmissionAt);
+    assert.ok(submittedAt>0);
+    const settlementMs=12_000; const refreshMs=60_000;
+    w.Date.now=()=>submittedAt+settlementMs+1;
+    assert.equal(await h.authorize(h.cards()[0],task,null,false),false,'a still-visible card after settlement is recovery evidence, not permission to click again');
+    assert.equal(clicks,1,'the primary grant is clicked exactly once per submission identity');
+    assert.ok(Number(task.approvalUnavailableSince)>0,'stuck settlement enters the bounded same-route recovery episode');
+    assert.equal(h.refreshUnavailableApproval(task,false,submittedAt+settlementMs+refreshMs+1),true);
+    assert.equal(task.url,'https://chatgpt.com/c/authorization-stuck-submit');
   } finally { h.pause(); dom.window.close(); }
 });
 
@@ -7176,8 +7204,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2.10.54$/m);
-  assert.match(source,/const VERSION = '2.10.54'/);
+  assert.match(source,/^\/\/ @version\s+2.10.55$/m);
+  assert.match(source,/const VERSION = '2.10.55'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);

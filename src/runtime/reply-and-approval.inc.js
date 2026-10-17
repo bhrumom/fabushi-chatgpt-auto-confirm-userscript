@@ -1476,9 +1476,24 @@
       return false;
     }
     checkAuthorizationRun(signal, queueOwned);
+    const now = Date.now();
+    // Once an explicit current-action grant was submitted, never click the same
+    // still-mounted card again. Wait for the renderer to remove it; if it does
+    // not settle, enter the bounded same-route recovery path instead.
+    if (task && approvalSubmissionMatches(task, currentConversationURL())
+      && now - Number(task.approvalSubmissionAt || 0) >= APPROVAL_SETTLEMENT_MS) {
+      markApprovalUnavailable(task, currentConversationURL(), now);
+      return false;
+    }
     const last = approvalAttempts.get(card.button) || 0;
-    if (Date.now() - last < 15000) return false;
-    approvalAttempts.set(card.button, Date.now());
+    if (now - last < 15000) {
+      if (task && approvalSubmissionMatches(task, currentConversationURL())
+        && !approvalSettlementActive(task, currentConversationURL(), now)) {
+        markApprovalUnavailable(task, currentConversationURL(), now);
+      }
+      return false;
+    }
+    approvalAttempts.set(card.button, now);
     activateControl(card.button);
     if (task) beginApprovalSettlement(task);
     log(task, '已直接点击授权卡主“允许/允许一次”，进入授权提交保护期；不会展开授权范围菜单或选择永久授权。');

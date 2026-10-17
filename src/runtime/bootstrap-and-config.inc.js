@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.54
+// @version      2.10.55
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -68,7 +68,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.54';
+  const VERSION = '2.10.55';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -238,6 +238,8 @@ async function bootstrapAttempt() {
   // card becomes usable. This is deliberately separate from generic stalled
   // recovery because unresolved authorization must never escalate to fresh chat.
   const APPROVAL_UNAVAILABLE_REFRESH_MS = 60 * 1000;
+  // Do not refresh an unresolved authorization forever; retain the task for manual recovery after this many same-route attempts.
+  const MAX_APPROVAL_UNAVAILABLE_REFRESH_ATTEMPTS = 3;
   // Never abandon a bound conversation from one instantaneous "no approval"
   // sample. ChatGPT can mount approval UI between renderer slices, and the
   // current approval card may sit outside the role-derived message scopes.

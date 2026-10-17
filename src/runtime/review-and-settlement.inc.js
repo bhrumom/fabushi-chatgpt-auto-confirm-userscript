@@ -345,6 +345,11 @@
     const approvalVisible = approvalRouteEligible && pending.length > 0;
     const approvalSettling = approvalRouteEligible && approvalSettlementActive(task, liveURL, now);
     const approvalBlocking = approvalVisible || approvalSettling;
+    if (!approvalVisible && !approvalSettling && Number(task.approvalSubmissionAt || 0)) {
+      clearApprovalSubmission(task);
+      task.updatedAt = now;
+      save();
+    }
     if (((!approvalVisible && !approvalSettling) || !data.autoApprove)
       && clearApprovalUnavailableRefresh(task)) {
       task.updatedAt = now;
