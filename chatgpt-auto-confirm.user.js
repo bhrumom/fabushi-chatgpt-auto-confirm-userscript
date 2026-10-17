@@ -2927,10 +2927,14 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
   }
   function refreshUnavailableApproval(task, perform = true, now = Date.now()) {
     if (!task || task.state === 'paused' || task.state === 'cancelled' || task.state === 'blocked'
-      || task.attempted || !data.autoApprove) return false;
+      || !data.autoApprove) return false;
     const conversationURL = currentConversationURL() || canonicalConversationURL(task.url);
     const taskURL = canonicalConversationURL(task.url);
     if (!conversationURL || !taskURL || conversationURL !== taskURL) return false;
+    // A tool call may be in-flight when ChatGPT pauses on its authorization
+    // card. Permit same-route refresh only for the exact grant submission we
+    // recorded; an unrelated attempted send must remain protected from replay.
+    if (task.attempted && !approvalSubmissionMatches(task, conversationURL)) return false;
     if (!approvalUnavailableRefreshDue(task, conversationURL, now)) return false;
     const previousCount = Number(task.approvalUnavailableRefreshCount || 0);
     if (previousCount >= MAX_APPROVAL_UNAVAILABLE_REFRESH_ATTEMPTS) {
