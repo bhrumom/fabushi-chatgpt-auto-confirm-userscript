@@ -101,7 +101,7 @@
   const taskBelongsToTab = task => Boolean(task && (task.ownerTabId === tabId || (!task.ownerTabId && legacyOwner === tabId)));
   const tabTasks = () => data.tasks.filter(taskBelongsToTab);
   function taskCanBeRecoveredByHost(task) {
-    return Boolean(task && (
+    return Boolean(task && !task.approvalRecoveryExhausted && (
       AUTO_RECOVERABLE_STATE_NAMES.has(String(task.state || ''))
       || task.state === 'blocked'
     ));

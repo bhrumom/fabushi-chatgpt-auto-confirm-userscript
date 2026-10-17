@@ -298,15 +298,20 @@
   }
   function refreshUnavailableApproval(task, perform = true, now = Date.now()) {
     if (!task || task.state === 'paused' || task.state === 'cancelled' || task.state === 'blocked'
-      || task.attempted || !data.autoApprove) return false;
+      || !data.autoApprove) return false;
     const conversationURL = currentConversationURL() || canonicalConversationURL(task.url);
     const taskURL = canonicalConversationURL(task.url);
     if (!conversationURL || !taskURL || conversationURL !== taskURL) return false;
+    // A tool call may be in-flight when ChatGPT pauses on its authorization
+    // card. Permit same-route refresh only for the exact grant submission we
+    // recorded; an unrelated attempted send must remain protected from replay.
+    if (task.attempted && !approvalSubmissionMatches(task, conversationURL)) return false;
     if (!approvalUnavailableRefreshDue(task, conversationURL, now)) return false;
     const previousCount = Number(task.approvalUnavailableRefreshCount || 0);
     if (previousCount >= MAX_APPROVAL_UNAVAILABLE_REFRESH_ATTEMPTS) {
       clearApprovalUnavailableRefresh(task);
       task.state = 'blocked';
+      task.approvalRecoveryExhausted = true;
       task.updatedAt = now;
       observations.delete(task.id);
       log(task, `授权卡在同一会话恢复 ${MAX_APPROVAL_UNAVAILABLE_REFRESH_ATTEMPTS} 次后仍未解除；已停止自动点击和刷新。请先在当前 ChatGPT 会话完成必要的授权/登录，再在 Fabushi 工作台手动继续该任务。原会话、发送标识、阶段、轮次、目标和附件均已保留；不会新开会话或重复发送。`);

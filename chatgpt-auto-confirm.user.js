@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.55
+// @version      2.10.56
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -68,7 +68,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.55';
+  const VERSION = '2.10.56';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -2266,7 +2266,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
   const taskBelongsToTab = task => Boolean(task && (task.ownerTabId === tabId || (!task.ownerTabId && legacyOwner === tabId)));
   const tabTasks = () => data.tasks.filter(taskBelongsToTab);
   function taskCanBeRecoveredByHost(task) {
-    return Boolean(task && (
+    return Boolean(task && !task.approvalRecoveryExhausted && (
       AUTO_RECOVERABLE_STATE_NAMES.has(String(task.state || ''))
       || task.state === 'blocked'
     ));
@@ -2927,15 +2927,20 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
   }
   function refreshUnavailableApproval(task, perform = true, now = Date.now()) {
     if (!task || task.state === 'paused' || task.state === 'cancelled' || task.state === 'blocked'
-      || task.attempted || !data.autoApprove) return false;
+      || !data.autoApprove) return false;
     const conversationURL = currentConversationURL() || canonicalConversationURL(task.url);
     const taskURL = canonicalConversationURL(task.url);
     if (!conversationURL || !taskURL || conversationURL !== taskURL) return false;
+    // A tool call may be in-flight when ChatGPT pauses on its authorization
+    // card. Permit same-route refresh only for the exact grant submission we
+    // recorded; an unrelated attempted send must remain protected from replay.
+    if (task.attempted && !approvalSubmissionMatches(task, conversationURL)) return false;
     if (!approvalUnavailableRefreshDue(task, conversationURL, now)) return false;
     const previousCount = Number(task.approvalUnavailableRefreshCount || 0);
     if (previousCount >= MAX_APPROVAL_UNAVAILABLE_REFRESH_ATTEMPTS) {
       clearApprovalUnavailableRefresh(task);
       task.state = 'blocked';
+      task.approvalRecoveryExhausted = true;
       task.updatedAt = now;
       observations.delete(task.id);
       log(task, `授权卡在同一会话恢复 ${MAX_APPROVAL_UNAVAILABLE_REFRESH_ATTEMPTS} 次后仍未解除；已停止自动点击和刷新。请先在当前 ChatGPT 会话完成必要的授权/登录，再在 Fabushi 工作台手动继续该任务。原会话、发送标识、阶段、轮次、目标和附件均已保留；不会新开会话或重复发送。`);
@@ -3511,7 +3516,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
       // stopped as blocked. A transient navigation warning can be the newest
       // log while the same conversation is still generating; redispatching
       // that task would create a second concurrent ChatGPT conversation.
-      if (task.state !== 'blocked' || !legacyNavigationFailure) continue;
+      if (task.state !== 'blocked' || task.approvalRecoveryExhausted || !legacyNavigationFailure) continue;
       const liveURL = currentConversationURL();
       if (task.token && liveURL && hasTaskMarker(task)) captureConversationURL(task, liveURL);
       // Do not resurrect a historical URL after Work has advanced to a
@@ -3550,7 +3555,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     if (data.autoResume === false) return '';
     const recovered = [];
     for (const task of data.tasks) {
-      if (!taskBelongsToTab(task) || !['blocked', 'paused'].includes(task.state)) continue;
+      if (!taskBelongsToTab(task) || task.approvalRecoveryExhausted || !['blocked', 'paused'].includes(task.state)) continue;
       if (task.state === 'paused' && task.pausedState !== 'blocked') continue;
       const messages = Array.isArray(task.messages) ? task.messages.slice(-16) : [];
       const exhausted = messages.some(item => /会话已结束但没有最终回复[\s\S]*自动重发次数已用尽|自动重发次数已用尽[\s\S]*会话已结束但没有最终回复/i.test(String(item?.text || '')));
@@ -3578,7 +3583,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     if (data.autoResume === false) return '';
     const recovered = [];
     for (const task of data.tasks) {
-      if (!taskBelongsToTab(task) || !taskAttachments(task).length) continue;
+      if (!taskBelongsToTab(task) || task.approvalRecoveryExhausted || !taskAttachments(task).length) continue;
       if (!['blocked', 'paused'].includes(task.state)) continue;
       if (task.state === 'paused' && task.pausedState !== 'blocked') continue;
       if (task.attempted || canonicalConversationURL(task.url)) continue;
@@ -6550,9 +6555,13 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     // Once an explicit current-action grant was submitted, never click the same
     // still-mounted card again. Wait for the renderer to remove it; if it does
     // not settle, enter the bounded same-route recovery path instead.
-    if (task && approvalSubmissionMatches(task, currentConversationURL())
-      && now - Number(task.approvalSubmissionAt || 0) >= APPROVAL_SETTLEMENT_MS) {
-      markApprovalUnavailable(task, currentConversationURL(), now);
+    if (task && approvalSubmissionMatches(task, currentConversationURL())) {
+      // DOM remounts replace the WeakMap key during settlement. The persisted
+      // dispatch identity still owns that grant, so a new node is not a new
+      // authorization request and must not reset the settlement deadline.
+      if (!approvalSettlementActive(task, currentConversationURL(), now)) {
+        markApprovalUnavailable(task, currentConversationURL(), now);
+      }
       return false;
     }
     const last = approvalAttempts.get(card.button) || 0;
@@ -6987,6 +6996,8 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     clearReloadStopAbsenceState(task);
   }
   function clearDispatchIntent(task) {
+    task.approvalRecoveryExhausted = false;
+    clearApprovalSubmission(task);
     clearRecoveredFinalIdentity(task);
     task.explicitRecoveryActive = false;
     task.preview = '';
@@ -7092,7 +7103,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
   }
 
   function queueBlockedFreshRetry(task, reason = '任务进入需要处理状态') {
-    if (!task || ['done', 'cancelled'].includes(task.state)) return '';
+    if (!task || ['done', 'cancelled'].includes(task.state) || task.approvalRecoveryExhausted) return '';
     const attempt = Number(task.blockedAutoRetryCount || 0) + 1;
     const detail = String(reason || '任务进入需要处理状态').trim() || '任务进入需要处理状态';
     const retryDelayMs = attempt <= 1 ? 0 : Math.min(
@@ -9115,6 +9126,11 @@ NaN
   }
   function prepareTaskForRecovery(task, { automatic = false } = {}) {
     if (!taskBelongsToTab(task) || !task || terminal.has(task.state) && task.state !== 'blocked') return false;
+    if (task.approvalRecoveryExhausted && automatic) return false;
+    if (!automatic) {
+      task.approvalRecoveryExhausted = false;
+      clearApprovalUnavailableRefresh(task);
+    }
     data.autoResume = true;
     data.pausedAt = 0;
     const adoptedURL = task.state === 'blocked'
@@ -9181,7 +9197,7 @@ NaN
   }
   function recoverPersistedBlockedTasks() {
     if (data.autoResume === false) return '';
-    const task = tabTasks().find(item => item.state === 'blocked');
+    const task = tabTasks().find(item => item.state === 'blocked' && !item.approvalRecoveryExhausted);
     if (!task) return '';
     queueBlockedFreshRetry(task, '检测到历史“需要处理”任务');
     return task.id;

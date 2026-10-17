@@ -1480,9 +1480,13 @@
     // Once an explicit current-action grant was submitted, never click the same
     // still-mounted card again. Wait for the renderer to remove it; if it does
     // not settle, enter the bounded same-route recovery path instead.
-    if (task && approvalSubmissionMatches(task, currentConversationURL())
-      && now - Number(task.approvalSubmissionAt || 0) >= APPROVAL_SETTLEMENT_MS) {
-      markApprovalUnavailable(task, currentConversationURL(), now);
+    if (task && approvalSubmissionMatches(task, currentConversationURL())) {
+      // DOM remounts replace the WeakMap key during settlement. The persisted
+      // dispatch identity still owns that grant, so a new node is not a new
+      // authorization request and must not reset the settlement deadline.
+      if (!approvalSettlementActive(task, currentConversationURL(), now)) {
+        markApprovalUnavailable(task, currentConversationURL(), now);
+      }
       return false;
     }
     const last = approvalAttempts.get(card.button) || 0;

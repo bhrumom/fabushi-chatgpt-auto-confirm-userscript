@@ -256,6 +256,11 @@ NaN
   }
   function prepareTaskForRecovery(task, { automatic = false } = {}) {
     if (!taskBelongsToTab(task) || !task || terminal.has(task.state) && task.state !== 'blocked') return false;
+    if (task.approvalRecoveryExhausted && automatic) return false;
+    if (!automatic) {
+      task.approvalRecoveryExhausted = false;
+      clearApprovalUnavailableRefresh(task);
+    }
     data.autoResume = true;
     data.pausedAt = 0;
     const adoptedURL = task.state === 'blocked'
@@ -322,7 +327,7 @@ NaN
   }
   function recoverPersistedBlockedTasks() {
     if (data.autoResume === false) return '';
-    const task = tabTasks().find(item => item.state === 'blocked');
+    const task = tabTasks().find(item => item.state === 'blocked' && !item.approvalRecoveryExhausted);
     if (!task) return '';
     queueBlockedFreshRetry(task, '检测到历史“需要处理”任务');
     return task.id;

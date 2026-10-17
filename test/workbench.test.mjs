@@ -76,7 +76,7 @@ async function fixture(body='', setup=()=>{}, url='https://chatgpt.com/') {
     const form = w.document.querySelector('form') || w.document.body;
     form.append(trigger);
   }
-  await w.eval(source.replace('  mount();','  window.testHooks = { restorePausedTask, pauseTask, mergeStoredTasks, blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, interruptedFreshHandoffApprovalGate, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, assistantResponseBoundaryKey, taskTurnForInspection, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, conversationLoadFailure, clearConversationLoadFailureState, recoverConversationLoadFailure, cards, authorizationCardShell, structuralAuthorizationSurface, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, normalizeModelPreset, modelPresetLabel, taskModelPreset, normalizeReasoningPreset, reasoningPresetLabel, taskReasoningPreset, localizedChatWorkModeKind, chatWorkModeSelection, chatWorkModeControls, workModeEvidence, chatWorkModeState, ensureChatMode, chatWorkContinueOffer, chatWorkStayIdentity, clearChatWorkStayState, handleChatWorkContinueOffer, modelPickerTrigger, modelTriggerMatches, closedComposerModelHint, reopenModelPicker, modelMenuOption, modelSubmenuEntry, modelRadioOptions, modelRadioOption, modelRadioSelected, modelSubmenuHintMatches, openModelRadioList, confirmModelRadioSelection, ensureTaskModelPreset, currentTaskModelStillConfirmed, reasoningPickerTrigger, reasoningSliderState, clearReasoningPickerRecovery, waitForReasoningPicker, ensureTaskReasoningPreset, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, markApprovalUnavailable, clearApprovalUnavailableRefresh, refreshUnavailableApproval, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, requestSameDocumentHostReload, resetRendererRecoveryState, recoverStalledRoute, holdForChatGPTLoading, refreshStalledConversation, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, storageStatusText, readRecentActivitySession, writeRecentActivitySession, recordRecentActivity, restoreRecentActivityMessages, taskRecoveryStatusText, taskStatusText, persistWorkbenchState, durableTaskSnapshot, durableWorkbenchSnapshot, fitWorkbenchSnapshotToLocalBudget, writeLocalStorageRecord, readStorageString, readWorkbenchOverflow, cleanupStaleFabushiStorage, fabushiLocalStorageFootprint, storageBudgets:()=>({workbench:WORKBENCH_LOCAL_STORAGE_TARGET_CHARS,total:FABUSHI_LOCAL_STORAGE_MAX_CHARS}), scheduleWorkspaceHeartbeat, workspaceHeartbeatScheduled:()=>Boolean(workspaceHeartbeatTimer), storagePersistenceStatus:()=>storagePersistenceStatus, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, setNavigatingForTest:value=>{navigating=Boolean(value);}, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), setRunningForTest:value=>{running=Boolean(value);}, getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { taskCanBeRecoveredByHost, restorePausedTask, pauseTask, mergeStoredTasks, blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, interruptedFreshHandoffApprovalGate, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, assistantResponseBoundaryKey, taskTurnForInspection, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, conversationLoadFailure, clearConversationLoadFailureState, recoverConversationLoadFailure, cards, authorizationCardShell, structuralAuthorizationSurface, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, normalizeModelPreset, modelPresetLabel, taskModelPreset, normalizeReasoningPreset, reasoningPresetLabel, taskReasoningPreset, localizedChatWorkModeKind, chatWorkModeSelection, chatWorkModeControls, workModeEvidence, chatWorkModeState, ensureChatMode, chatWorkContinueOffer, chatWorkStayIdentity, clearChatWorkStayState, handleChatWorkContinueOffer, modelPickerTrigger, modelTriggerMatches, closedComposerModelHint, reopenModelPicker, modelMenuOption, modelSubmenuEntry, modelRadioOptions, modelRadioOption, modelRadioSelected, modelSubmenuHintMatches, openModelRadioList, confirmModelRadioSelection, ensureTaskModelPreset, currentTaskModelStillConfirmed, reasoningPickerTrigger, reasoningSliderState, clearReasoningPickerRecovery, waitForReasoningPicker, ensureTaskReasoningPreset, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, markApprovalUnavailable, clearApprovalUnavailableRefresh, refreshUnavailableApproval, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, requestSameDocumentHostReload, resetRendererRecoveryState, recoverStalledRoute, holdForChatGPTLoading, refreshStalledConversation, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, storageStatusText, readRecentActivitySession, writeRecentActivitySession, recordRecentActivity, restoreRecentActivityMessages, taskRecoveryStatusText, taskStatusText, persistWorkbenchState, durableTaskSnapshot, durableWorkbenchSnapshot, fitWorkbenchSnapshotToLocalBudget, writeLocalStorageRecord, readStorageString, readWorkbenchOverflow, cleanupStaleFabushiStorage, fabushiLocalStorageFootprint, storageBudgets:()=>({workbench:WORKBENCH_LOCAL_STORAGE_TARGET_CHARS,total:FABUSHI_LOCAL_STORAGE_MAX_CHARS}), scheduleWorkspaceHeartbeat, workspaceHeartbeatScheduled:()=>Boolean(workspaceHeartbeatTimer), storagePersistenceStatus:()=>storagePersistenceStatus, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, setNavigatingForTest:value=>{navigating=Boolean(value);}, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), setRunningForTest:value=>{running=Boolean(value);}, getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('recent activity restores the last two hours after reload without putting history back into localStorage',async()=>{
@@ -3362,7 +3362,7 @@ test('a submitted authorization card is never clicked again while settlement is 
   const {w,h,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:authorization-stuck-submit]</div></article><div id="approval"><button type="button">拒绝</button><div><button type="button" id="allow-once">允许一次</button><button type="button" aria-haspopup="menu" aria-label="审批选项">⌄</button></div></div><form><textarea id="prompt-textarea"></textarea></form></main>');
   try {
     w.history.pushState({},'', '/c/authorization-stuck-submit');
-    const task={id:'authorization-stuck-submit',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'approval',url:'https://chatgpt.com/c/authorization-stuck-submit',token:'authorization-stuck-submit',attempted:false,messages:[]};
+    const task={id:'authorization-stuck-submit',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'approval',url:'https://chatgpt.com/c/authorization-stuck-submit',token:'authorization-stuck-submit',attempted:true,messages:[]};
     h.data.tasks.push(task);
     h.data.autoApprove=true;
     let clicks=0;
@@ -3376,7 +3376,7 @@ test('a submitted authorization card is never clicked again while settlement is 
     assert.equal(await h.authorize(h.cards()[0],task,null,false),false,'a still-visible card after settlement is recovery evidence, not permission to click again');
     assert.equal(clicks,1,'the primary grant is clicked exactly once per submission identity');
     assert.ok(Number(task.approvalUnavailableSince)>0,'stuck settlement enters the bounded same-route recovery episode');
-    assert.equal(h.refreshUnavailableApproval(task,false,submittedAt+settlementMs+refreshMs+1),true);
+    assert.equal(h.refreshUnavailableApproval(task,false,submittedAt+settlementMs+refreshMs+1),true,'same-route recovery is permitted while the exact Work send is blocked on this submitted grant');
     assert.equal(task.url,'https://chatgpt.com/c/authorization-stuck-submit');
   } finally { h.pause(); dom.window.close(); }
 });
@@ -7204,8 +7204,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2.10.55$/m);
-  assert.match(source,/const VERSION = '2.10.55'/);
+  assert.match(source,/^\/\/ @version\s+2.10.56$/m);
+  assert.match(source,/const VERSION = '2.10.56'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
@@ -7856,4 +7856,99 @@ test('isolated primary Allow remains excluded from direct authorization fallback
   try{
     assert.equal(h.cards({wide:true}).length,0);
   }finally{h.pause();dom.window.close();}
+});
+
+test('remounted authorization controls cannot repeat a submitted grant inside settlement',async()=>{
+  const {w,h,dom}=await fixture('<main><div id="approval"><button type="button">拒绝</button><div><button type="button" id="allow-once">允许一次</button><button type="button" aria-haspopup="menu" aria-label="审批选项">⌄</button></div></div></main>');
+  try {
+    w.history.pushState({},'', '/c/remounted-grant');
+    const task={id:'remounted-grant',ownerTabId:h.getTabId(),goal:'continue',phase:'work',round:1,state:'approval',url:'https://chatgpt.com/c/remounted-grant',token:'remounted-grant',attempted:true,messages:[]};
+    h.data.tasks.push(task);h.data.autoApprove=true;
+    let clicks=0;
+    w.document.querySelector('#approval').addEventListener('click',event=>{if(event.target.id==='allow-once')clicks++;});
+    assert.equal(await h.authorize(h.cards()[0],task,null,false),true);
+    const submitted=task.approvalSubmissionAt;
+    const deadline=task.approvalSettlementUntil;
+    const oldButton=w.document.querySelector('#allow-once');
+    oldButton.replaceWith(oldButton.cloneNode(true));
+    w.Date.now=()=>submitted+1_000;
+    assert.equal(await h.authorize(h.cards()[0],task,null,false),false);
+    assert.equal(clicks,1,'new DOM identity cannot bypass the persisted grant identity');
+    assert.equal(task.approvalSubmissionAt,submitted);
+    assert.equal(task.approvalSettlementUntil,deadline,'remount cannot postpone settlement indefinitely');
+    w.Date.now=()=>deadline+1;
+    assert.equal(await h.authorize(h.cards()[0],task,null,false),false);
+    assert.equal(clicks,1);
+    assert.equal(h.refreshUnavailableApproval(task,false,deadline+60_001),true);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('attempted authorization recovery rejects every mismatched identity and inactive state',async()=>{
+  const {w,h,dom}=await fixture('<main></main>');
+  try {
+    w.history.pushState({},'', '/c/attempted-identity');
+    h.data.autoApprove=true;
+    const base={id:'attempted-identity',ownerTabId:h.getTabId(),goal:'continue',phase:'work',round:2,state:'approval',url:'https://chatgpt.com/c/attempted-identity',token:'attempted-identity',attempted:true,messages:[],approvalSubmissionAt:1_000_000,approvalSubmissionURL:'https://chatgpt.com/c/attempted-identity',approvalSubmissionToken:'attempted-identity',approvalSubmissionPhase:'work',approvalSubmissionRound:2};
+    const cases=[
+      ['missing submission',{approvalSubmissionAt:0}],
+      ['submission route',{approvalSubmissionURL:'https://chatgpt.com/c/another-route'}],
+      ['task route',{url:'https://chatgpt.com/c/another-route'}],
+      ['token',{approvalSubmissionToken:'another-token'}],
+      ['phase',{approvalSubmissionPhase:'review'}],
+      ['round',{approvalSubmissionRound:1}],
+      ['paused',{state:'paused'}],['cancelled',{state:'cancelled'}],['blocked',{state:'blocked'}],
+    ];
+    for(const [name,patch] of cases){
+      const task={...base,messages:[]};
+      h.markApprovalUnavailable(task,task.url,1_000_000);
+      Object.assign(task,patch);
+      assert.equal(h.refreshUnavailableApproval(task,false,1_060_000),false,name);
+      assert.equal(task.approvalUnavailableRefreshCount||0,0,name+' cannot consume an attempt');
+      assert.equal(task.attempted,true);
+    }
+    const disabled={...base,messages:[]};
+    h.markApprovalUnavailable(disabled,disabled.url,1_000_000);
+    h.data.autoApprove=false;
+    assert.equal(h.refreshUnavailableApproval(disabled,false,1_060_000),false);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('attempted grant recovery exhausts without replaying or losing task and attachment identity',async()=>{
+  const {w,h,dom}=await fixture('<main></main>');
+  try {
+    w.history.pushState({},'', '/c/attempted-exhaustion');h.data.autoApprove=true;
+    const task={id:'attempted-exhaustion',ownerTabId:h.getTabId(),goal:'preserve goal',phase:'work',round:3,state:'approval',url:'https://chatgpt.com/c/attempted-exhaustion',token:'attempted-exhaustion',attempted:true,messages:[],attachments:[{id:'attachment-1',name:'evidence.png'}],approvalSubmissionAt:1_000_000,approvalSubmissionURL:'https://chatgpt.com/c/attempted-exhaustion',approvalSubmissionToken:'attempted-exhaustion',approvalSubmissionPhase:'work',approvalSubmissionRound:3};
+    h.data.tasks.push(task);h.markApprovalUnavailable(task,task.url,1_000_000);
+    const retained=JSON.stringify([task.url,task.token,task.attempted,task.goal,task.phase,task.round,task.attachments]);
+    for(let attempt=1;attempt<=3;attempt++){
+      assert.equal(h.refreshUnavailableApproval(task,false,1_000_000+60_000*attempt),true);
+      assert.equal(task.approvalUnavailableRefreshCount,attempt);
+      if(attempt===1){
+        const automaticallyRecovered={...task,messages:[]};
+        assert.equal(h.prepareTaskForRecovery(automaticallyRecovered,{automatic:true}),true);
+        assert.equal(automaticallyRecovered.approvalUnavailableRefreshCount,1,'automatic host recovery retains the bounded episode');
+      }
+    }
+    assert.equal(h.refreshUnavailableApproval(task,false,1_240_000),true);
+    assert.equal(task.state,'blocked');
+    assert.equal(JSON.stringify([task.url,task.token,task.attempted,task.goal,task.phase,task.round,task.attachments]),retained);
+    assert.equal(h.refreshUnavailableApproval(task,false,1_300_000),false,'exhaustion cannot begin another episode');
+    assert.ok(task.messages.some(item=>/3 次后仍未解除/.test(item.text)));
+    const restored=JSON.parse(JSON.stringify(h.durableTaskSnapshot(task)));
+    h.data.tasks[0]=restored;
+    assert.equal(restored.approvalRecoveryExhausted,true,'the exhaustion marker survives durable storage');
+    restored.messages=[{text:'会话切换未确认'},{text:'会话已结束但没有最终回复，自动重发次数已用尽'}];
+    assert.equal(h.taskCanBeRecoveredByHost(restored),false,'no automatic host recovery ticket for exhausted grants');
+    assert.equal(h.recoverLegacyNavigationFailures(),'','older navigation messages cannot resurrect an exhausted grant');
+    assert.equal(h.recoverLegacyExhaustedNoFinalReplies(),'','older no-final messages cannot override grant exhaustion');
+    assert.equal(h.recoverPersistedBlockedTasks(),'','bootstrap must not fresh-dispatch an exhausted grant');
+    assert.equal(h.prepareTaskForRecovery(restored,{automatic:true}),false,'host recovery cannot bypass the manual gate');
+    assert.equal(restored.state,'blocked');
+    assert.equal(JSON.stringify([restored.url,restored.token,restored.attempted,restored.goal,restored.phase,restored.round,restored.attachments.map(a=>({id:a.id,name:a.name}))]),retained);
+    assert.equal(h.prepareTaskForRecovery(restored),true,'explicit recovery can inspect the retained conversation');
+    assert.equal(restored.state,'waiting');
+    assert.equal(restored.url,task.url);
+    assert.equal(restored.token,task.token);
+    assert.equal(restored.approvalRecoveryExhausted,false);
+  } finally {h.pause();dom.window.close();}
 });
