@@ -41,5 +41,30 @@ Different routes, tokens, phases or rounds fail closed. A remounted button must 
 ## Release, migration, rollback and observability
 Merge after exact-head checks; verify main CI; release immutable bundle. No destructive migration. Rollback through a reviewed revert and a higher version rather than replacing an existing release. Record source SHA, Actions commands/counts, release tag/digest and blocked configuration. Runtime logs identify same-route recovery count and exhaustion without credential values.
 
-## Compliance record
-AR-R1–R8 / AR-AC1–AC6: pending final evidence. PR #172 pre-extension head 9f9ba447 passed Actions 38985652277: 435 total, 428 passed, 7 skipped, 0 failed. That run does not accept the subsequent changes. htch-runtime is offline in current device discovery; live acceptance is blocked. Repository secret RELEASE_TOKEN is absent; automatic publishing is not configured.
+## Compliance record — 2026-10-17
+
+Implementation PR #172 is merged as `5bbc6562d9f7632caa2ef65be175c3d36732f076`. Exact PR source `351ed7389265acfe1dd85d859ad30b7a4e9587d6` passed Actions [38986791480](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/actions/runs/38986791480); canonical-main source passed [38986965406](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/actions/runs/38986965406). Both ran `npm run build:check`, `node --check chatgpt-auto-confirm.user.js` and `npm test` on ubuntu-latest / Node 24, all exit 0. Each suite: 438 total, 431 passed, 7 skipped, 0 failed. Actions logs are the verification artifact; no separate test artifact was uploaded.
+
+| Requirement / acceptance | Status | Evidence / reason |
+| --- | --- | --- |
+| AR-R1 / AR-AC1 | passed | Remounted current-action Allow is clicked once, keeps its settlement deadline, then permits identity-bound same-route recovery. Exact-source regression passes. |
+| AR-R2 | passed | Settlement and 60-second cadence tests pass; three refreshes retain the original URL/token/phase/round. |
+| AR-R3 / AR-AC2 | passed | Missing submission and route/token/phase/round mismatch, pause/cancel/blocked and autoApprove=false cases all reject attempted-send recovery. |
+| AR-R4 / AR-AC3 | passed | Durable exhausted task rejects bootstrap, legacy navigation/no-final and automatic host recovery, with goal/attachments/dispatch identity preserved. Automatic host resume preserves the pre-exhaustion budget. Explicit recovery retains the same conversation. |
+| AR-R5 | passed | Full suite covers disabled-card presence, settlement DOM gap, interrupted Work report complete/next, malformed report carry and stale error/final precedence. |
+| AR-R6 / AR-AC4 | passed | PR and canonical-main runs above verify exact implementation revisions; seven existing skips remain skips. No local executable verification. |
+| AR-R7 | passed for versioned release; stable-download observation blocked | CLI published the exact tested main bundle after main CI. GitHub API main blob equals local uploaded blob `cf67d9e4d0983f83e29751f143c16ba490a3b368`. Direct raw.githubusercontent.com readback twice failed with connection reset; do not infer endpoint availability from API equality. |
+| AR-AC5 | blocked for direct stable URL; versioned asset passed | Release/tag/asset provenance below is confirmed. Stable URL direct HTTP readback was unavailable from this environment. |
+| AR-R8 | passed as evidence accounting | Installation observation and live behavior are recorded separately below. |
+| AR-AC6 | blocked | htch-runtime remains offline in device discovery; no allowed authenticated live browser was available. No local Mac/Windows live acceptance was executed. |
+| Automatic publishing | blocked / not-configured | Main Release run [38987081598](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/actions/runs/38987081598) failed at Validate release credential, exit 1: RELEASE_TOKEN absent. CLI publication does not configure future automated releases. |
+
+### Release and installation evidence
+
+- [v2.10.56](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/releases/tag/v2.10.56) was published at 2026-10-17T00:36:02Z (08:36:02 Asia/Shanghai) using the existing authenticated GitHub CLI, without storing workstation credentials as a repository secret.
+- Release target and lightweight tag both resolve to `5bbc6562d9f7632caa2ef65be175c3d36732f076`, the last bundle-changing commit.
+- Asset `chatgpt-auto-confirm.user.js`: 526619 bytes; GitHub-provided digest and uploaded file SHA-256 both `f30096bdd8a19f5f6f5edd9490eaaa3a3ed8132f3912d558c54565526b1b95c5`.
+- The Chrome Marketplace check continued reporting installed 2.10.55. The tested release file was then imported through the existing Fabushi script manager; UI readback showed `2.10.56 chatgpt-auto-confirm 已启用` and a successful installation message. This is an installation operation and read-only version observation, not acceptance. No duplicate script entry was shown.
+- Existing ChatGPT task tabs were not reloaded or sent new prompts. Their loaded runtime revision and live authorization/final-reply/next-round behavior remain unverified. The temporary extension-management tab was closed and the original 修复脚本卡顿问题 tab was restored.
+
+Overall task status remains active/blocked on allowed-runtime live acceptance and stable endpoint availability. No full end-to-end completion is claimed. Final linked PR descriptions may supplement delivery readback without changing this behavior contract.
