@@ -311,6 +311,7 @@
     if (previousCount >= MAX_APPROVAL_UNAVAILABLE_REFRESH_ATTEMPTS) {
       clearApprovalUnavailableRefresh(task);
       task.state = 'blocked';
+      task.approvalRecoveryExhausted = true;
       task.updatedAt = now;
       observations.delete(task.id);
       log(task, `授权卡在同一会话恢复 ${MAX_APPROVAL_UNAVAILABLE_REFRESH_ATTEMPTS} 次后仍未解除；已停止自动点击和刷新。请先在当前 ChatGPT 会话完成必要的授权/登录，再在 Fabushi 工作台手动继续该任务。原会话、发送标识、阶段、轮次、目标和附件均已保留；不会新开会话或重复发送。`);

@@ -325,6 +325,8 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     clearReloadStopAbsenceState(task);
   }
   function clearDispatchIntent(task) {
+    task.approvalRecoveryExhausted = false;
+    clearApprovalSubmission(task);
     clearRecoveredFinalIdentity(task);
     task.explicitRecoveryActive = false;
     task.preview = '';
@@ -430,7 +432,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
   }
 
   function queueBlockedFreshRetry(task, reason = '任务进入需要处理状态') {
-    if (!task || ['done', 'cancelled'].includes(task.state)) return '';
+    if (!task || ['done', 'cancelled'].includes(task.state) || task.approvalRecoveryExhausted) return '';
     const attempt = Number(task.blockedAutoRetryCount || 0) + 1;
     const detail = String(reason || '任务进入需要处理状态').trim() || '任务进入需要处理状态';
     const retryDelayMs = attempt <= 1 ? 0 : Math.min(

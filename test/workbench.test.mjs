@@ -7929,5 +7929,17 @@ test('attempted grant recovery exhausts without replaying or losing task and att
     assert.equal(JSON.stringify([task.url,task.token,task.attempted,task.goal,task.phase,task.round,task.attachments]),retained);
     assert.equal(h.refreshUnavailableApproval(task,false,1_300_000),false,'exhaustion cannot begin another episode');
     assert.ok(task.messages.some(item=>/3 次后仍未解除/.test(item.text)));
+    const restored=JSON.parse(JSON.stringify(h.durableTaskSnapshot(task)));
+    h.data.tasks[0]=restored;
+    assert.equal(restored.approvalRecoveryExhausted,true,'the exhaustion marker survives durable storage');
+    assert.equal(h.recoverPersistedBlockedTasks(),'','bootstrap must not fresh-dispatch an exhausted grant');
+    assert.equal(h.prepareTaskForRecovery(restored,{automatic:true}),false,'host recovery cannot bypass the manual gate');
+    assert.equal(restored.state,'blocked');
+    assert.equal(JSON.stringify([restored.url,restored.token,restored.attempted,restored.goal,restored.phase,restored.round,restored.attachments.map(a=>({id:a.id,name:a.name}))]),retained);
+    assert.equal(h.prepareTaskForRecovery(restored),true,'explicit recovery can inspect the retained conversation');
+    assert.equal(restored.state,'waiting');
+    assert.equal(restored.url,task.url);
+    assert.equal(restored.token,task.token);
+    assert.equal(restored.approvalRecoveryExhausted,false);
   } finally {h.pause();dom.window.close();}
 });

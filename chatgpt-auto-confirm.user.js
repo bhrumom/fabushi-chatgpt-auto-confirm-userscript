@@ -2940,6 +2940,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     if (previousCount >= MAX_APPROVAL_UNAVAILABLE_REFRESH_ATTEMPTS) {
       clearApprovalUnavailableRefresh(task);
       task.state = 'blocked';
+      task.approvalRecoveryExhausted = true;
       task.updatedAt = now;
       observations.delete(task.id);
       log(task, `授权卡在同一会话恢复 ${MAX_APPROVAL_UNAVAILABLE_REFRESH_ATTEMPTS} 次后仍未解除；已停止自动点击和刷新。请先在当前 ChatGPT 会话完成必要的授权/登录，再在 Fabushi 工作台手动继续该任务。原会话、发送标识、阶段、轮次、目标和附件均已保留；不会新开会话或重复发送。`);
@@ -6995,6 +6996,8 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     clearReloadStopAbsenceState(task);
   }
   function clearDispatchIntent(task) {
+    task.approvalRecoveryExhausted = false;
+    clearApprovalSubmission(task);
     clearRecoveredFinalIdentity(task);
     task.explicitRecoveryActive = false;
     task.preview = '';
@@ -7100,7 +7103,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
   }
 
   function queueBlockedFreshRetry(task, reason = '任务进入需要处理状态') {
-    if (!task || ['done', 'cancelled'].includes(task.state)) return '';
+    if (!task || ['done', 'cancelled'].includes(task.state) || task.approvalRecoveryExhausted) return '';
     const attempt = Number(task.blockedAutoRetryCount || 0) + 1;
     const detail = String(reason || '任务进入需要处理状态').trim() || '任务进入需要处理状态';
     const retryDelayMs = attempt <= 1 ? 0 : Math.min(
@@ -9123,6 +9126,9 @@ NaN
   }
   function prepareTaskForRecovery(task, { automatic = false } = {}) {
     if (!taskBelongsToTab(task) || !task || terminal.has(task.state) && task.state !== 'blocked') return false;
+    if (task.approvalRecoveryExhausted && automatic) return false;
+    task.approvalRecoveryExhausted = false;
+    clearApprovalUnavailableRefresh(task);
     data.autoResume = true;
     data.pausedAt = 0;
     const adoptedURL = task.state === 'blocked'
@@ -9189,7 +9195,7 @@ NaN
   }
   function recoverPersistedBlockedTasks() {
     if (data.autoResume === false) return '';
-    const task = tabTasks().find(item => item.state === 'blocked');
+    const task = tabTasks().find(item => item.state === 'blocked' && !item.approvalRecoveryExhausted);
     if (!task) return '';
     queueBlockedFreshRetry(task, '检测到历史“需要处理”任务');
     return task.id;
