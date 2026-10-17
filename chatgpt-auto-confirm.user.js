@@ -2266,7 +2266,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
   const taskBelongsToTab = task => Boolean(task && (task.ownerTabId === tabId || (!task.ownerTabId && legacyOwner === tabId)));
   const tabTasks = () => data.tasks.filter(taskBelongsToTab);
   function taskCanBeRecoveredByHost(task) {
-    return Boolean(task && (
+    return Boolean(task && !task.approvalRecoveryExhausted && (
       AUTO_RECOVERABLE_STATE_NAMES.has(String(task.state || ''))
       || task.state === 'blocked'
     ));
@@ -3516,7 +3516,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
       // stopped as blocked. A transient navigation warning can be the newest
       // log while the same conversation is still generating; redispatching
       // that task would create a second concurrent ChatGPT conversation.
-      if (task.state !== 'blocked' || !legacyNavigationFailure) continue;
+      if (task.state !== 'blocked' || task.approvalRecoveryExhausted || !legacyNavigationFailure) continue;
       const liveURL = currentConversationURL();
       if (task.token && liveURL && hasTaskMarker(task)) captureConversationURL(task, liveURL);
       // Do not resurrect a historical URL after Work has advanced to a
@@ -3555,7 +3555,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     if (data.autoResume === false) return '';
     const recovered = [];
     for (const task of data.tasks) {
-      if (!taskBelongsToTab(task) || !['blocked', 'paused'].includes(task.state)) continue;
+      if (!taskBelongsToTab(task) || task.approvalRecoveryExhausted || !['blocked', 'paused'].includes(task.state)) continue;
       if (task.state === 'paused' && task.pausedState !== 'blocked') continue;
       const messages = Array.isArray(task.messages) ? task.messages.slice(-16) : [];
       const exhausted = messages.some(item => /会话已结束但没有最终回复[\s\S]*自动重发次数已用尽|自动重发次数已用尽[\s\S]*会话已结束但没有最终回复/i.test(String(item?.text || '')));
@@ -3583,7 +3583,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     if (data.autoResume === false) return '';
     const recovered = [];
     for (const task of data.tasks) {
-      if (!taskBelongsToTab(task) || !taskAttachments(task).length) continue;
+      if (!taskBelongsToTab(task) || task.approvalRecoveryExhausted || !taskAttachments(task).length) continue;
       if (!['blocked', 'paused'].includes(task.state)) continue;
       if (task.state === 'paused' && task.pausedState !== 'blocked') continue;
       if (task.attempted || canonicalConversationURL(task.url)) continue;

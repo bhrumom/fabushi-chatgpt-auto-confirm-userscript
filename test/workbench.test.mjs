@@ -7932,6 +7932,10 @@ test('attempted grant recovery exhausts without replaying or losing task and att
     const restored=JSON.parse(JSON.stringify(h.durableTaskSnapshot(task)));
     h.data.tasks[0]=restored;
     assert.equal(restored.approvalRecoveryExhausted,true,'the exhaustion marker survives durable storage');
+    restored.messages=[{text:'会话切换未确认'},{text:'会话已结束但没有最终回复，自动重发次数已用尽'}];
+    assert.equal(h.taskCanBeRecoveredByHost(restored),false,'no automatic host recovery ticket for exhausted grants');
+    assert.equal(h.recoverLegacyNavigationFailures(),'','older navigation messages cannot resurrect an exhausted grant');
+    assert.equal(h.recoverLegacyExhaustedNoFinalReplies(),'','older no-final messages cannot override grant exhaustion');
     assert.equal(h.recoverPersistedBlockedTasks(),'','bootstrap must not fresh-dispatch an exhausted grant');
     assert.equal(h.prepareTaskForRecovery(restored,{automatic:true}),false,'host recovery cannot bypass the manual gate');
     assert.equal(restored.state,'blocked');
