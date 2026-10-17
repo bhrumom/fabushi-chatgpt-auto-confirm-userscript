@@ -33,4 +33,22 @@ No destructive migration. Use normal PR merge, tested main release, then import 
 User screenshot and read-only Chrome AX observation 2026-10-17; canonical main e6d70da709a670a19e98aab3ec98a1a27c630c7a; bounded-authorization-recovery-v2.10.55.md; authorization-primary-allow-fallback-v2.10.51.md.
 
 ## Compliance
-Pending exact-head verification and delivery; no completion claimed.
+Implementation PR [#174](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/pull/174) merged as `a04a927c10dcf7ece10ac4141a1acc473a9ef235`. PR exact source `ce0532526a9b0c5f20982d3b43d7fc82da681f3f` passed [Test 39007501263](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/actions/runs/39007501263); canonical main passed [Test 39007614472](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/actions/runs/39007614472). Both ran `npm run build:check`, `node --check chatgpt-auto-confirm.user.js`, and `npm test` on ubuntu-latest / Node 24, all exit 0: 441 total, 434 passed, 7 existing skips, 0 failed. No local generator, build, test or acceptance was run.
+
+| Requirement / criterion | Status | Evidence / reason |
+| --- | --- | --- |
+| LA-R1 / LA-AC1 | passed | Persisted manual approval test verifies wait explanation, header/sidebar text, locate action, and immediate sidebar update after changing the task checkbox. Both automatic modes retain automatic wording. |
+| LA-R2 | passed | Locate rechecks local ownership, approval state, exact route, competing owner/marker and live card. Missing/foreign/paused/competing cases pass. |
+| LA-R3 / LA-AC2 | passed | Owning aria-controls disclosure and closed details are revealed; unrelated disclosure and grant/deny controls are not activated. No card returns failure and UI retains manual-expansion guidance. No text-only disclosure guessing. |
+| LA-R4 | passed | Locate regression preserves serialized dispatch/attachments and autoApprove=false. Existing bounded recovery, settlement, no-duplicate and final-reply suite passes unchanged. |
+| LA-R5 / LA-AC3 | passed | Exact PR/main checks above; version/runtime parity verified by Actions. Release and installation observations below are separate from live acceptance. |
+| LA-AC4 release and installation | passed | Versioned tag, source blob, asset digest and installed enabled version verified below. |
+| LA-AC4 allowed-runtime live acceptance | blocked | Device discovery reports htch-runtime offline. No authenticated allowed browser was available for live acceptance. Existing local task pages were not reloaded or used to exercise the new behavior. |
+| Stable raw download availability | blocked | Direct raw.githubusercontent.com download returned curl exit 35, connection reset. API blob equality and release integrity do not prove raw endpoint availability. |
+| Automatic release configuration | blocked / not-configured | Release run 39007696218 failed. CLI publication is a delivery fallback, not proof of configured RELEASE_TOKEN. |
+
+Release [v2.10.57](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/releases/tag/v2.10.57) tag and target resolve to `a04a927c10dcf7ece10ac4141a1acc473a9ef235`. Asset `chatgpt-auto-confirm.user.js`: 529518 bytes, Git blob `5244433fb3e6c541108b71396e7a0f9186169501`, SHA-256 `a178b6a900c1019c55405f4a6dc88a117d19c5390d5ea8b4e9aeb9946f8c8e6c`; GitHub asset digest equals the uploaded tested file. The CLI created this immutable release only after canonical-main Test succeeded.
+
+Read-only Chrome installation observation after importing that file into the existing Fabushi script manager: one ChatGPT auto-confirm entry, `2.10.57 chatgpt-auto-confirm 已启用`, with successful installation message. The temporary management tab was closed and the original task tab restored. The original tab was already at a later conversation with a Stop control, so no active response was interrupted. Import confirms installation, not the loaded revision of existing pages; already-loaded runtimes activate the update on their next normal document load.
+
+Local investigation before implementation expanded Previous activity and exposed a real GitHub Allow once card. No grant was clicked and neither automation checkbox was changed. Implementation/Actions/release/installation are delivered; allowed-runtime end-to-end acceptance remains blocked as recorded.
