@@ -45,20 +45,20 @@ jobs:
 
       - name: Validate release credential
         env:
-          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          RELEASE_TOKEN: ${{ secrets.OFFICIAL_SITE_RELEASE_PAT }}
         shell: bash
         run: |
           set -euo pipefail
           if [[ -z "${RELEASE_TOKEN:-}" ]]; then
-            echo "::error::Repository Actions secret RELEASE_TOKEN is required. Configure a repository-owned token with Contents: write and Metadata: read; do not send the token by email."
+            echo "::error::Organization Actions secret OFFICIAL_SITE_RELEASE_PAT is required. Keep the repository public so it inherits the bhrumom organization secret; do not send the token by email."
             exit 1
           fi
 
       - name: Create missing GitHub Release
         env:
           # workflow_run GITHUB_TOKEN was denied by repository integration policy.
-          # Use an explicitly configured repository-owned token for the release write.
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          # Reuse the existing bhrumom organization release credential without exposing its value.
+          GH_TOKEN: ${{ secrets.OFFICIAL_SITE_RELEASE_PAT }}
           TAG: ${{ steps.identity.outputs.tag }}
           SOURCE_SHA: ${{ steps.identity.outputs.source_sha }}
         shell: bash
