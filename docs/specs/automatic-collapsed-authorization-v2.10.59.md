@@ -25,6 +25,6 @@ Regression fixtures reproduce CSS-hidden mounted cards, disclosure remount, clos
 Publish immutable additive version through existing workflow or authenticated CLI after main Test. Import verified asset into same script record. Prior version remains available for rollback. Record test/CI/asset/installation separately from live recovery evidence.
 
 ## Compliance
-R1-R5: passed in 14 focused regressions, including the ordinary inspect path, remount/fresh scan, closed details, manual/global modes, pause/abort/foreign/competing route, historical boundary, pacing and missing disclosure recovery. Task round/token/URL/phase/attachments remain unchanged. Full regression and exact-head CI remain delivery gates.
+R1-R5: passed in 15 focused regressions, including the ordinary inspect path, remount/fresh scan, closed details, manual/global modes, pause/abort/foreign/competing route, historical boundary, pacing and missing disclosure recovery. Task round/token/URL/phase/attachments remain unchanged. Full regression and exact-head CI remain delivery gates.
 R6: blocked pending exact-head PR/main checks, publication and installed readback.
 Live incident recovery: passed; expansion caused existing enabled automation to approve and resume the original conversation without manual Send.

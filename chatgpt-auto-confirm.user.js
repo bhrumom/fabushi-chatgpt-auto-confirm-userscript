@@ -6317,8 +6317,8 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     if (!container?.isConnected) return false;
     // Never reveal a historical card before the latest user boundary.
     const latestUser = conversationRoleNodes('user').at(-1);
-    if (automatic && latestUser && !latestUser.contains(container)
-      && !(latestUser.compareDocumentPosition(container) & Node.DOCUMENT_POSITION_FOLLOWING)) return false;
+    if (automatic && latestUser && (latestUser.contains(container)
+      || !(latestUser.compareDocumentPosition(container) & Node.DOCUMENT_POSITION_FOLLOWING))) return false;
     // Explicit ownership only: permission controls and unrelated activity
     // disclosures are never candidates, even if their labels match.
     const disclosures = nodes('button[aria-expanded="false"][aria-controls],[role="button"][aria-expanded="false"][aria-controls]')

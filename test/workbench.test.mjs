@@ -8119,3 +8119,12 @@ test('closed details are revealed without granting until a new live scan',async(
   assert.equal(await h.authorize(h.cards({wide:true})[0],task),true);assert.equal(grants,1);
  }finally{proto.getClientRects=original;h.pause();dom.window.close();}
 });
+test('automatic reveal never opens an approval-shaped quote inside the latest user message',async()=>{
+ const {h,w,dom,task}=await collapsedGrantFixture();let clicks=0;
+ try{
+  const user=w.document.querySelector('[data-message-author-role="user"]');
+  user.append(w.document.querySelector('#activity'),w.document.querySelector('#activity-body'));
+  w.document.querySelector('#activity').onclick=()=>clicks++;
+  await h.authorize(h.cards({wide:true})[0],task);assert.equal(clicks,0);
+ }finally{h.pause();dom.window.close();}
+});
