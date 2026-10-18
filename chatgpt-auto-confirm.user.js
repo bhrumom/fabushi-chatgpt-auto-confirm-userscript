@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.58
+// @version      2.10.59
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -68,7 +68,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.58';
+  const VERSION = '2.10.59';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -6304,17 +6304,23 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     scanDiagnostics.cardsMs += performance.now() - startedAt;
     return result;
   }
-  function locatePendingAuthorization(task) {
+  const approvalDisclosureAttempts = new WeakMap();
+  function authorizationRevealRouteEligible(task) {
     if (!task || task.state !== 'approval' || !taskBelongsToTab(task)) return false;
     const route = currentConversationURL();
-    if (!route || route !== canonicalConversationURL(task.url)
-      || conversationURLOwner(route, task.id)
-      || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))) return false;
-    const card = cards({ wide:true })[0];
-    if (!card?.container?.isConnected) return false;
-    const container = card.container;
-    // Only explicit disclosure ownership is sufficient. Text such as
-    // “Previous activity” alone must never select an unrelated control.
+    return Boolean(route && route === canonicalConversationURL(task.url)
+      && !conversationURLOwner(route, task.id)
+      && !tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item)));
+  }
+  function revealAuthorizationCard(card, { automatic = false, scroll = true } = {}) {
+    const container = card?.container;
+    if (!container?.isConnected) return false;
+    // Never reveal a historical card before the latest user boundary.
+    const latestUser = conversationRoleNodes('user').at(-1);
+    if (automatic && latestUser && (latestUser.contains(container)
+      || !(latestUser.compareDocumentPosition(container) & Node.DOCUMENT_POSITION_FOLLOWING))) return false;
+    // Explicit ownership only: permission controls and unrelated activity
+    // disclosures are never candidates, even if their labels match.
     const disclosures = nodes('button[aria-expanded="false"][aria-controls],[role="button"][aria-expanded="false"][aria-controls]')
       .filter(control => !own(control) && enabled(control)
         && !control.hasAttribute('aria-haspopup')
@@ -6323,12 +6329,26 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
           const target = document.getElementById(id);
           return target && (target === container || target.contains(container));
         }));
+    let revealed = false;
     for (let ancestor = container.parentElement; ancestor; ancestor = ancestor.parentElement) {
-      if (ancestor.tagName === 'DETAILS' && !ancestor.open) ancestor.open = true;
+      if (ancestor.tagName === 'DETAILS' && !ancestor.open) {
+        ancestor.open = true;
+        revealed = true;
+      }
     }
-    for (const disclosure of disclosures) activateControl(disclosure);
-    container.scrollIntoView?.({ block:'center', inline:'nearest', behavior:'instant' });
-    return true;
+    for (const disclosure of disclosures) {
+      const now = Date.now();
+      if (automatic && now - Number(approvalDisclosureAttempts.get(disclosure) || 0) < 15000) continue;
+      if (automatic) approvalDisclosureAttempts.set(disclosure, now);
+      activateControl(disclosure);
+      revealed = true;
+    }
+    if (scroll) container.scrollIntoView?.({ block:'center', inline:'nearest', behavior:'instant' });
+    return automatic ? revealed : true;
+  }
+  function locatePendingAuthorization(task) {
+    if (!authorizationRevealRouteEligible(task)) return false;
+    return revealAuthorizationCard(cards({ wide:true })[0]);
   }
   // ChatGPT occasionally shows product announcements, image-generation tips,
   // feedback prompts, and other modal overlays that block the composer. These
@@ -6558,7 +6578,17 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     node.click();
   }
   async function authorize(card, task, signal, queueOwned = true) {
-    if (!card?.container?.isConnected || !visible(card.container) || !card.button) return false;
+    if (!card?.container?.isConnected || !card.button) return false;
+    if (!visible(card.container) || !visible(card.button)) {
+      checkAuthorizationRun(signal, queueOwned);
+      const automatic = queueOwned ? data.autoApprove : data.globalAutoApprove;
+      if (!automatic || (task && !authorizationRevealRouteEligible(task))) return false;
+      const revealed = revealAuthorizationCard(card, { automatic:true, scroll:false });
+      // Revealing can remount the whole card. Never grant using this snapshot:
+      // the next scheduler pass must inspect fresh DOM and task state.
+      if (!revealed && task) markApprovalUnavailable(task, currentConversationURL(), Date.now());
+      return false;
+    }
     if (!enabled(card.button)) {
       if (task) {
         const started = markApprovalUnavailable(task, currentConversationURL(), Date.now());
