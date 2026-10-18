@@ -1,8 +1,12 @@
-# Fabushi 独立自动确认工作台 2.10.57
+# Fabushi 独立自动确认工作台 2.10.58
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.57`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.58`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+
+## 2.10.58 原标签页恢复凭据
+
+页面内刷新无效后，先持久保存原任务恢复凭据，再将同一带凭据地址交给宿主重载。配合宿主 0.7.2 的加载超时检查和丢弃兜底，保留原会话、任务与发送标识。
 
 ## 2.10.57 手动授权等待提示与卡片定位
 

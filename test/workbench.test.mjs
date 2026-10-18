@@ -7204,8 +7204,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2.10.57$/m);
-  assert.match(source,/const VERSION = '2.10.57'/);
+  assert.match(source,/^\/\/ @version\s+2.10.58$/m);
+  assert.match(source,/const VERSION = '2.10.58'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
@@ -7660,12 +7660,18 @@ for(const kind of ['valid','pause-before-grant','changed-round','draft-before-gr
   const first=h.requestSameDocumentHostReload(task);
   assert.equal(requests.length,1);assert.equal(requests[0].payload.hostReload,true);
   await h.requestSameDocumentHostReload(task);assert.equal(requests.length,1,'one request before asynchronous grant resolves');
+  const target=new URL(requests[0].payload.targetURL);
+  const recoveryToken=new URLSearchParams(target.hash.slice(1)).get('fabushi-resume');
+  assert.ok(recoveryToken);
+  const ticket=JSON.parse(w.localStorage.getItem('fabushi-workspace-recovery-v1:'+recoveryToken));
+  assert.equal(ticket.ownerTabId,h.getTabId()); assert.equal(ticket.taskId,task.id);
   if(kind==='pause-before-grant')task.state='paused';
   if(kind==='changed-round')task.round++;
   if(kind==='draft-before-grant')w.document.querySelector('textarea').value='Keep my draft';
   h.settleHostNavigationRequest(requests[0].requestId,{granted:kind!=='host-denied',leaseId:'lease',reason:'fixture'});
   await first;
   assert.equal(commits.length,kind==='valid'?1:0);
+  if(kind==='valid')assert.equal(commits[0].payload.targetURL,target.href);
   assert.equal(task.token,'keep-token');assert.equal(task.url,'https://chatgpt.com/c/host-fallback');
   if(kind==='valid'){await h.requestSameDocumentHostReload(task);assert.equal(requests.length,1);h.resetRendererRecoveryState(task);assert.equal(task.hostReloadAttemptIdentity,'');}
  }finally{h.pause();dom.window.close();}
@@ -8010,4 +8016,18 @@ test('locate fails closed for absent card, foreign route, competing owner or pau
     w.document.querySelector('.approval-card').remove();assert.equal(h.locatePendingAuthorization(task),false);
     assert.equal(clicks,0);assert.equal(task.token,'keep');
   } finally {h.pause();dom.window.close();}
+});
+
+test('same-document host fallback refuses recovery when its durable ticket cannot be stored',async()=>{
+ const {h,w,dom}=await fixture('<main><div class="animate-spin"></div><form><textarea id="prompt-textarea"></textarea></form></main>');
+ const proto=Object.getPrototypeOf(w.localStorage),original=proto.setItem;
+ try{
+  w.history.replaceState({},'', '/c/ticket-storage-full');
+  const task={id:'full',ownerTabId:h.getTabId(),goal:'keep',phase:'work',round:4,state:'loading',url:w.location.href,token:'original',messages:[],attachments:[]};
+  h.data.tasks.push(task);h.setRunningForTest(true);const messages=[];w.postMessage=m=>messages.push(m);
+  proto.setItem=function(k,v){if(String(k).startsWith('fabushi-workspace-recovery-v1:'))throw new w.DOMException('full','QuotaExceededError');return original.call(this,k,v);};
+  assert.equal(await h.requestSameDocumentHostReload(task),false);
+  assert.equal(messages.filter(m=>m.type==='navigation-guard.request').length,0);
+  assert.equal(task.token,'original');assert.equal(task.hostReloadAttemptIdentity,undefined);
+ }finally{proto.setItem=original;h.pause();dom.window.close();}
 });
