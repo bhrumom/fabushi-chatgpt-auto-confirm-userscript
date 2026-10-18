@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.57
+// @version      2.10.58
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -68,7 +68,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.57';
+  const VERSION = '2.10.58';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -1710,11 +1710,13 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
   }
   async function requestSameDocumentHostReload(task, identity = hostReloadIdentity(task)) {
     if (!hostReloadSafe(task, identity) || task.hostReloadAttemptIdentity === identity) return false;
+    const ticket = ensureAutomaticRecoveryTicket(task, { force:true });
+    if (!ticket?.recoveryURL) return false;
     task.hostReloadAttemptIdentity = identity;
     task.updatedAt = Date.now();
     log(task, '页面内刷新没有恢复消息区；正在请求宿主重载原标签页一次，保留任务、会话和发送标识，不会重复发送。');
     save();
-    const href = canonicalConversationURL(task.url);
+    const href = ticket.recoveryURL;
     const lease = await requestHostNavigationPermit(href, task, {
       force:true, recovery:true, hostReload:true, reason:'document-commit-timeout',
     });

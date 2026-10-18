@@ -299,11 +299,13 @@
   }
   async function requestSameDocumentHostReload(task, identity = hostReloadIdentity(task)) {
     if (!hostReloadSafe(task, identity) || task.hostReloadAttemptIdentity === identity) return false;
+    const ticket = ensureAutomaticRecoveryTicket(task, { force:true });
+    if (!ticket?.recoveryURL) return false;
     task.hostReloadAttemptIdentity = identity;
     task.updatedAt = Date.now();
     log(task, '页面内刷新没有恢复消息区；正在请求宿主重载原标签页一次，保留任务、会话和发送标识，不会重复发送。');
     save();
-    const href = canonicalConversationURL(task.url);
+    const href = ticket.recoveryURL;
     const lease = await requestHostNavigationPermit(href, task, {
       force:true, recovery:true, hostReload:true, reason:'document-commit-timeout',
     });
