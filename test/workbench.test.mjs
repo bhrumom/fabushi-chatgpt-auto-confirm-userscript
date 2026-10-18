@@ -7204,8 +7204,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2.10.58$/m);
-  assert.match(source,/const VERSION = '2.10.58'/);
+  assert.match(source,/^\/\/ @version\s+2.10.59$/m);
+  assert.match(source,/const VERSION = '2.10.59'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
@@ -8030,4 +8030,92 @@ test('same-document host fallback refuses recovery when its durable ticket canno
   assert.equal(messages.filter(m=>m.type==='navigation-guard.request').length,0);
   assert.equal(task.token,'original');assert.equal(task.hostReloadAttemptIdentity,undefined);
  }finally{proto.setItem=original;h.pause();dom.window.close();}
+});
+
+function collapsedGrantMarkup({details=false,historical=false}={}) {
+ const card='<section class="approval-card"><button class="deny">拒绝</button><button class="allow">允许一次</button><button aria-haspopup="menu">审批选项</button></section>';
+ return `<main><article><div data-message-author-role="user">current goal</div></article><button id="unrelated" aria-expanded="false" aria-controls="elsewhere">先前活动</button><div id="elsewhere"></div>`+
+ (details?`<details id="activity"><summary>先前活动</summary><div id="activity-body">${card}</div></details>`:`<button id="activity" aria-expanded="false" aria-controls="activity-body">先前活动</button><div id="activity-body" hidden>${card}</div>`)+
+ (historical?'<article><div data-message-author-role="user">newer manual goal</div></article>':'')+'</main>';
+}
+async function collapsedGrantFixture(options={}) {
+ const f=await fixture(collapsedGrantMarkup(options));const {h,w}=f;
+ w.history.replaceState({},'', '/c/collapsed-current');
+ const task={id:'collapsed-current',ownerTabId:h.getTabId(),state:'approval',url:w.location.href,token:'original-send',phase:'work',round:126,attempted:true,attachments:[{id:'original-file'}],messages:[]};
+ h.data.tasks.push(task);h.data.autoApprove=true;h.setRunningForTest(true);
+ return {...f,task};
+}
+test('collapsed pending grant reveals owning activity then grants only on a fresh scan after remount',async()=>{
+ const {h,w,dom,task}=await collapsedGrantFixture();let revealed=0,grants=0,unrelated=0;
+ try{
+  const before={token:task.token,round:task.round,phase:task.phase,url:task.url,attempted:task.attempted,attachments:JSON.stringify(task.attachments)};
+  w.document.querySelector('#unrelated').onclick=()=>unrelated++;
+  const stale=h.cards({wide:true})[0];assert.ok(stale);
+  w.document.querySelector('#activity').onclick=()=>{
+   revealed++;w.document.querySelector('#activity').setAttribute('aria-expanded','true');
+   const body=w.document.querySelector('#activity-body');body.hidden=false;body.innerHTML=body.innerHTML;
+   body.querySelector('.allow').onclick=()=>grants++;
+  };
+  assert.equal(await h.authorize(stale,task),false);assert.equal(revealed,1);assert.equal(grants,0);assert.equal(unrelated,0);assert.equal(stale.container.isConnected,false);
+  assert.equal(await h.authorize(h.cards({wide:true})[0],task),true);assert.equal(grants,1);
+  assert.equal(await h.authorize(h.cards({wide:true})[0],task),false);assert.equal(grants,1,'submission settlement prevents duplicate grants');
+  assert.deepEqual({token:task.token,round:task.round,phase:task.phase,url:task.url,attempted:task.attempted,attachments:JSON.stringify(task.attachments)},before);
+ }finally{h.pause();dom.window.close();}
+});
+for(const kind of ['manual','foreign-route','foreign-owner','competing','paused','aborted','historical'])test(`collapsed grant reveal fails closed: ${kind}`,async()=>{
+ const {h,w,dom,task}=await collapsedGrantFixture({historical:kind==='historical'});let clicks=0;
+ try{
+  w.document.querySelector('#activity').onclick=()=>clicks++;w.document.querySelector('.allow').onclick=()=>clicks++;
+  if(kind==='manual')h.data.autoApprove=false;
+  if(kind==='foreign-route')task.url='https://chatgpt.com/c/elsewhere';
+  if(kind==='foreign-owner')task.ownerTabId='another-owner';
+  if(kind==='competing')h.data.tasks.push({...task,id:'competing',token:'other'});
+  if(kind==='paused')task.state='paused';
+  const signal=kind==='aborted'?AbortSignal.abort():undefined;
+  if(kind==='aborted')await assert.rejects(h.authorize(h.cards({wide:true})[0],task,signal),/已暂停/);
+  else assert.equal(await h.authorize(h.cards({wide:true})[0],task,signal),false);
+  assert.equal(clicks,0);assert.equal(task.token,'original-send');assert.equal(task.round,126);
+ }finally{h.pause();dom.window.close();}
+});
+test('hidden card without an owning disclosure uses bounded unavailable recovery and repeated reveals are paced',async()=>{
+ const {h,w,dom,task}=await collapsedGrantFixture();let clicks=0;
+ try{
+  const card=h.cards({wide:true})[0];w.document.querySelector('#activity').onclick=()=>clicks++;
+  await h.authorize(card,task);await h.authorize(card,task);assert.equal(clicks,1);
+  w.document.querySelector('#activity').removeAttribute('aria-controls');
+  await h.authorize(card,task);assert.ok(task.approvalUnavailableSince,'unrevealable card must not wait silently forever');
+ }finally{h.pause();dom.window.close();}
+});
+test('global auto approval also reveals collapsed cards before granting and leaves manual global mode alone',async()=>{
+ const {h,w,dom,task}=await collapsedGrantFixture();let clicks=0;
+ try{
+  h.data.globalAutoApprove=false;await h.processGlobalApprovalCards();assert.equal(clicks,0);
+  w.document.querySelector('#activity').onclick=()=>{clicks++;w.document.querySelector('#activity-body').hidden=false;w.document.querySelector('#activity').setAttribute('aria-expanded','true');};
+  let grants=0;w.document.querySelector('.allow').onclick=()=>grants++;
+  h.data.globalAutoApprove=true;await h.processGlobalApprovalCards();assert.equal(clicks,1);assert.equal(grants,0);
+  await h.processGlobalApprovalCards();assert.equal(grants,1);
+ }finally{h.data.globalAutoApprove=false;h.pause();dom.window.close();}
+});
+
+test('ordinary task inspection reveals collapsed authorization before any ended-conversation handoff',async()=>{
+ const {h,w,dom,task}=await collapsedGrantFixture();let revealed=0,grants=0;
+ try{
+  task.goal='continue current work';task.mode='goal';
+  w.document.querySelector('#activity').onclick=()=>{revealed++;w.document.querySelector('#activity-body').hidden=false;w.document.querySelector('#activity').setAttribute('aria-expanded','true');};
+  w.document.querySelector('.allow').onclick=()=>grants++;
+  await h.inspect(task,null);
+  assert.equal(revealed,1);assert.equal(grants,0);assert.equal(task.state,'approval');assert.equal(task.url,w.location.href);assert.equal(task.round,126);assert.equal(task.token,'original-send');
+  await h.inspect(task,null);assert.equal(grants,1);assert.equal(task.round,126);assert.equal(task.token,'original-send');
+ }finally{h.pause();dom.window.close();}
+});
+test('closed details are revealed without granting until a new live scan',async()=>{
+ const {h,w,dom,task}=await collapsedGrantFixture({details:true});let grants=0;
+ const proto=w.HTMLElement.prototype,original=proto.getClientRects;
+ try{
+  proto.getClientRects=function(){return this.closest('details:not([open])')?[]:original.call(this);};
+  w.document.querySelector('.allow').onclick=()=>grants++;
+  assert.equal(await h.authorize(h.cards({wide:true})[0],task),false);
+  assert.equal(w.document.querySelector('details').open,true);assert.equal(grants,0);
+  assert.equal(await h.authorize(h.cards({wide:true})[0],task),true);assert.equal(grants,1);
+ }finally{proto.getClientRects=original;h.pause();dom.window.close();}
 });
