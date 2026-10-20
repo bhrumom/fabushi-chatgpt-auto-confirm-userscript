@@ -1,6 +1,6 @@
 # History-throttle acknowledgement and continuation-send reliability — Specification
 
-Status: in progress
+Status: completed
 Owner: ChatGPT auto-confirm userscript
 Last updated: 2026-09-22
 Related incident: live v2.9.61 screenshot shows history-only “请求过于频繁” popup still open and “继续完成所有” typed in the composer but not sent.
@@ -88,6 +88,26 @@ If the Send control is temporarily absent, keep the prompt and retry later rathe
 - AC-6: Exact-head Test, canonical-main Test and Release workflow all pass.
 - AC-7: Canonical main and GitHub Release report v2.9.62.
 
-## 8. Spec compliance record
+## 8. Delivery evidence
 
-Pending implementation and verification.
+- Implementation PR: #79.
+- Final exact-head SHA: `35108e8fedf646e4fc73f57c2986f665af06843a`.
+- Exact-head Test run: `35740145215`, conclusion `success`; full suite `182/182 PASS`, `0 FAIL`.
+- Squash merge / canonical source SHA: `30fb39e6a47830c9b34facacdf70d52786548672`.
+- Canonical-main Test run: `35740251265`, conclusion `success`.
+- Release workflow run: `35740322953`, conclusion `success`.
+- GitHub Release: `v2.9.62`, published 2026-09-22T14:26:34Z from `30fb39e6a47830c9b34facacdf70d52786548672`.
+- Release asset: `chatgpt-auto-confirm.user.js`, 289621 bytes, SHA-256 `4ede5c13bb1eea82ed7e92976ca1960164fca4a8512be8eae4f2a4a835f88080`.
+- Canonical main readback reports metadata `@version 2.9.62` and runtime `VERSION = '2.9.62'`.
+
+## 9. Spec compliance record
+
+| Requirement / AC | Status | Evidence / reason |
+| --- | --- | --- |
+| R1-R5 | passed | History-only request-frequency popup recognition now includes `明白了`, semantic popup discovery works without dialog roles/classes, and genuine request-wide throttling remains separate. |
+| R6-R11 | passed | Continuation send-control recognition covers current Chinese/English labels, waits up to 3 seconds for async React rendering/enabling, uses pointerdown+click activation, and does not increment continuation counters before the Send action is issued. |
+| R12-R15 | passed | New regressions cover the exact screenshot popup copy/no-role `明白了` action, asynchronously rendered `Send message`, and `aria-label=发送`; previous route-owned ended detection, draft, authorization and rate-limit guards remain green. |
+| R16 | passed | Metadata/runtime/version assertions report 2.9.62. |
+| R17 | passed | Exact-head Test 35740145215 passed before merge; canonical-main Test 35740251265 and Release 35740322953 succeeded. |
+| AC-1-AC-5 | passed | The popup is dismissed without cooldown and continuation text is committed through the current Send control without leaving an unsent composer or touching unrelated controls. |
+| AC-6-AC-7 | passed | Exact-head, canonical-main and Release workflows succeeded and canonical main/Release report v2.9.62. |
