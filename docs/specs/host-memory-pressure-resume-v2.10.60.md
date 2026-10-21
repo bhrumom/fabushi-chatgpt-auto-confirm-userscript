@@ -27,4 +27,13 @@ AC4: Host existing discard/resume tests and full userscript suite remain green. 
 No new permissions/schema required. Disable via existing workspace pause/autoResume. Previous release remains available for rollback. v2.9.99 is historical.
 
 ## Compliance
-Pending implementation and verification; each R/AC will be recorded with evidence before final delivery.
+| Requirement / AC | Status | Evidence |
+| --- | --- | --- |
+| R1 / AC1 | passed | Sustained-pressure and spike/reset regressions; bounded 30-second high-pressure timer. |
+| R2 | passed | Request preserves execution identity; host memory-task-resume and task-recovery-adapter suites: 10 passed. Installed host 0.7.2 runner bytes match tested source. |
+| R3 / AC2 | passed | Protected-state/storage matrix and scheduler fence regression; raw durable task readback before request. |
+| R4 / AC3 | passed | Active-tab refusal retry, persisted success cooldown, simulated host-timeout handling and scheduler fence regressions. Existing background-clock tests cover deadline delivery. |
+| R5 | passed | JS-heap status and host outcome messages; manual and local cleanup regressions. |
+| R6 / AC4 local and installation | passed | Final suite: 457 tests, 450 passed, 7 existing skips, 0 failures. Build consistency, syntax and diff checks pass. Existing Chrome host entry reads enabled 2.10.60; original tab workbench displays new memory policy and original task. |
+| AC4 natural high-pressure discard | blocked | During update, original task independently handed off via its ordinary abnormal-session policy from /c/6ad81323-6b0c-83e8-90d5-4a13d1014cca to /c/6ad815d5-6ea8-83e8-8d7d-356682e6459d. New runtime heap reads 666.3 MB, so no fresh natural high-pressure trigger is available. This decrease is not claimed as proof of new automatic discard. |
+| R6 CI and publication | blocked | PR #178 created; exact-head CI and publication tracked in final delivery evidence. |
