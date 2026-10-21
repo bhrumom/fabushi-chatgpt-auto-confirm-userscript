@@ -1,8 +1,14 @@
-# Fabushi 独立自动确认工作台 2.10.60
+# Fabushi 独立自动确认工作台 2.10.61
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.60`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.61`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+
+## 2.10.61 自动展开当前折叠消息
+
+- 在已绑定的任务会话中，自动点击最新消息的“显示更多 / Show more”，下一轮重新识别完整内容和任务标识。
+- 每次只展开一处；无响应或重新挂载的按钮有间隔与次数上限，不会无限点击，也不会重复发送任务。
+- 只处理当前消息，不操作侧栏、更多菜单、历史消息或已暂停任务。详见 [规格](docs/specs/collapsed-message-reveal-v2.10.61.md)。
 
 ## 2.10.60 持续高内存时由宿主释放并恢复原标签页
 

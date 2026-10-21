@@ -280,6 +280,7 @@
       state(task, 'waiting', '正在等待切换到当前任务会话；不会读取其他任务的页面内容。');
       return;
     }
+    if (revealCurrentCollapsedMessage(task, signal)) return;
     // Handle an in-response Work upsell before any generic modal dismissal or
     // Stop-absent/connection-interrupted fresh-chat decision. The exact task
     // route was checked above and no second ChatGPT prompt is sent here.

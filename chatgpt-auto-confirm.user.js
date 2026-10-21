@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.60
+// @version      2.10.61
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -68,7 +68,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.60';
+  const VERSION = '2.10.61';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -2830,6 +2830,67 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     // role/ownership still come exclusively from canonical role evidence.
     const turn = node.closest?.(conversationTurnSelector);
     return Boolean(turn && visible(turn) && hasTextNode(node));
+  }
+  // Message truncation is a one-way reveal, never send/final/approval evidence.
+  // Keep a stable identity across React remounts and bound failed attempts.
+  const messageRevealAttempts = new Map();
+  function revealCurrentCollapsedMessage(task, signal) {
+    if (!running || signal?.aborted || navigating || hostMemoryPending.size
+      || !taskBelongsToTab(task) || terminal.has(task.state) || task.state === 'paused') return false;
+    const route = currentConversationURL();
+    if (!route || route !== canonicalConversationURL(task.url)
+      || conversationURLOwner(route, task.id)
+      || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))
+      || approvalSettlementActive(task, route)) return false;
+    const users = conversationRoleNodes('user');
+    const user = users.at(-1);
+    if (!user || !renderedConversationMessage(user)) return false;
+    const marker = taskMarkerUser(task);
+    if (marker && marker !== user && !(Number(task.continuationCount || 0) > 0
+      && normalize(text(user)) === CONTINUATION_PROMPT)) return false;
+    const assistant = conversationRoleNodes('assistant').filter(node =>
+      Boolean(user.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING)).at(-1);
+    const targets = [user, assistant].filter(Boolean);
+    const input = composer();
+    for (const target of targets) {
+      const role = target === user ? 'user' : 'assistant';
+      // A role host may omit the sibling Show more button. Its nearest turn
+      // is usable only if it contains no different user boundary. Filter each
+      // control by its own role and position for shared fallback turns.
+      const turn = target.closest(conversationTurnSelector);
+      const scope = turn && !users.some(item => item !== user && turn.contains(item)) ? turn : target;
+      const candidates = nodes('button,[role="button"]', scope).filter(control => {
+        if (!enabled(control) || control.hasAttribute('aria-haspopup')
+          || control.getAttribute('aria-expanded') === 'true'
+          || control.closest('a,pre,code,blockquote,[role="menu"],[role="dialog"],nav,aside,form,textarea,[contenteditable="true"]')
+          || (input && (control.contains(input) || input.contains(control)))) return false;
+        const name = normalize(control.getAttribute('aria-label') || control.textContent);
+        if (!/^(?:显示更多|顯示更多|展开更多|展開更多|阅读更多|閱讀更多|show more|read more|see more)$/iu.test(name)) return false;
+        const controlRole = conversationRole(control.closest(conversationRoleSelector));
+        if (controlRole && controlRole !== role) return false;
+        if (role === 'user') return !assistant || Boolean(control.compareDocumentPosition(assistant) & Node.DOCUMENT_POSITION_FOLLOWING);
+        return Boolean(user.compareDocumentPosition(control) & Node.DOCUMENT_POSITION_FOLLOWING)
+          && (target.contains(control) || Boolean(target.compareDocumentPosition(control) & Node.DOCUMENT_POSITION_FOLLOWING));
+      });
+      for (const control of candidates) {
+        const key = JSON.stringify([task.id, task.token, task.phase, task.round, route,
+          recoveryUserBoundaryKey(target), normalize(control.getAttribute('aria-label') || control.textContent)]);
+        const now = Date.now();
+        const previous = messageRevealAttempts.get(key);
+        if (previous?.count >= 3) continue;
+        // During bounded hydration wait, do not classify the old truncated DOM.
+        if (previous && now - previous.at < 15000) return true;
+        if (!messageRevealAttempts.has(key) && messageRevealAttempts.size >= 24) {
+          messageRevealAttempts.delete(messageRevealAttempts.keys().next().value);
+        }
+        messageRevealAttempts.set(key, {at:now, count:(previous?.count || 0) + 1});
+        observations.delete(task.id);
+        activateControl(control);
+        log(task, '已展开当前折叠消息；下一轮重新读取完整内容，保留本轮发送标识，不重复发送。');
+        return true;
+      }
+    }
+    return false;
   }
   const pageUiAuthoredInputSelector = '#prompt-textarea,textarea,input,[contenteditable="true"],[role="textbox"]';
   function pageUiTextRecords() {
@@ -8001,6 +8062,7 @@ ${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carry
       state(task, 'waiting', '正在等待切换到当前任务会话；不会读取其他任务的页面内容。');
       return;
     }
+    if (revealCurrentCollapsedMessage(task, signal)) return;
     // Handle an in-response Work upsell before any generic modal dismissal or
     // Stop-absent/connection-interrupted fresh-chat decision. The exact task
     // route was checked above and no second ChatGPT prompt is sent here.
@@ -9038,6 +9100,7 @@ ${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carry
         log(task, '异常会话延迟恢复等待结束，插件继续自动新开会话。');
         save();
       }
+      if (revealCurrentCollapsedMessage(task, signal)) return;
       if (task.attempted) {
         const liveURL = currentConversationURL();
         // A matching URL without the task marker is not enough to confirm a
