@@ -4373,13 +4373,13 @@ test('resumed approval card stays unassigned when a foreign task marker owns the
   assert.notEqual(result.state,'approval','a visible marker for a different task must retain the fail-closed boundary');
   dom.window.close();
 });
-test('authorization card does not open its Radix scope trigger when clicking primary Allow',async()=>{
+test('authorization card opens its Radix scope trigger before primary fallback',async()=>{
   const {w,h,dom}=await fixture('<main><div id="card"><p>任意内容</p><button>拒绝</button><button id="allow">允许</button><button id="arrow" aria-haspopup="menu" aria-label="Allow GitHub for this conversation">⌄</button></div></main>');
   let pointerdowns=0, primaryClicks=0;
   w.document.querySelector('#arrow').addEventListener('pointerdown',()=>pointerdowns++);
   w.document.querySelector('#allow').onclick=()=>primaryClicks++;
   await h.authorize(h.cards()[0],null,null,false);
-  assert.equal(pointerdowns,0);
+  assert.equal(pointerdowns,1);
   assert.equal(primaryClicks,1);
   dom.window.close();
 });
