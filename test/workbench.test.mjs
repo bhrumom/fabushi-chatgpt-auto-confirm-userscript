@@ -4226,7 +4226,7 @@ test('global approval setting clicks every current-action card in a non-queue Ch
   dom.window.close();
 });
 
-test('GitHub authorization card clicks its primary Allow instead of opening a scope menu',async()=>{
+test('GitHub authorization ignores an unrelated pre-existing scope menu',async()=>{
   const {w,h,dom}=await fixture('<main><div id="card"><h2>允许 ChatGPT 使用 GitHub？</h2><button id="deny">拒绝</button><button id="allow">允许</button><button id="arrow" aria-haspopup="menu" aria-label="Allow GitHub for this conversation">⌄</button></div><div role="menu"><button role="menuitem" aria-label="Allow GitHub for this conversation">Allow GitHub for this conversation</button></div></main>');
   let primaryClicks=0, arrowClicks=0, approvals=0;
   w.document.querySelector('#allow').onclick=()=>primaryClicks++;
@@ -4234,7 +4234,7 @@ test('GitHub authorization card clicks its primary Allow instead of opening a sc
   w.document.querySelector('[role=menuitem]').onclick=()=>approvals++;
   await h.authorize(h.cards()[0],null,null,false);
   assert.equal(primaryClicks,1);
-  assert.equal(arrowClicks,0);
+  assert.equal(arrowClicks,1);
   assert.equal(approvals,0);
   dom.window.close();
 });
@@ -7836,7 +7836,7 @@ test('all authorization cards inspect scope before primary fallback',async()=>{
     for(const card of pending) await h.authorize(card,null,null,false);
     assert.equal(allowClicks,1);
     assert.equal(onceClicks,1);
-    assert.equal(menuClicks,1);
+    assert.equal(menuClicks,2);
   }finally{h.pause();dom.window.close();}
 });
 
@@ -7848,7 +7848,7 @@ test('primary Allow falls back after inspecting an empty scope menu',async()=>{
     w.document.querySelector('#arrow').addEventListener('click',()=>menuClicks++);
     await h.authorize(h.cards()[0],null,null,false);
     assert.equal(allowClicks,1);
-    assert.equal(menuClicks,0);
+    assert.equal(menuClicks,1);
   }finally{h.pause();dom.window.close();}
 });
 
