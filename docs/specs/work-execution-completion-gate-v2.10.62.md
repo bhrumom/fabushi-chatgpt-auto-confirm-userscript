@@ -1,6 +1,6 @@
 # Work execution-completion gate — v2.10.62
 
-Status: active
+Status: released
 Owner: Fabushi ChatGPT Auto-confirm userscript
 Last updated: 2026-10-21
 Related issue/task/PR: User request 2026-10-21; implementation branch fix/work-prompt-execution-completion-gate-v2.10.62
@@ -33,7 +33,7 @@ Strengthen workPrompt() so the report template is only a per-round control/repor
 - R7: Keep the report schema and exact identity checks unchanged. status=complete requires an evidence-based summary and next=""; status=next must contain an immediate, concrete action that continues the work rather than session-routing prose.
 - R8: Add focused regression assertions for the new prompt requirements and verify the generated bundle, JavaScript syntax, and full test suite through GitHub Actions.
 
-## 5. Current state
+## 5. Initial state at specification time
 
 Canonical main is 2186156cf1f2693450961b03be5a3929d7059b03, runtime version 2.10.61. workPrompt() says to execute and check evidence, but does not establish a sufficiently explicit hard completion gate or define how to keep moving when some items are blocked.
 
@@ -122,10 +122,10 @@ Record exact branch/commit, PR head, workflow run/job results, merge SHA, canoni
 
 | Requirement / AC | Status | Evidence / reason |
 | --- | --- | --- |
-| R1-R8 | implemented and verified | `workPrompt()` and focused regression coverage are present; exact-head Test run 39588618814 on `9b2d8c1a59efd4c1615553d25f57fbcfd0f6b6ce` passed generated bundle parity, `node --check`, and the full Node/JSDOM suite (493 tests: 486 passed, 0 failed, 7 skipped). |
+| R1-R8 | implemented and verified | `workPrompt()` and focused regression coverage are present; exact PR-head Test run 39588857223 on `19a68529190b48baad510f648dc2036e90745adf` passed generated bundle parity, `node --check`, and the full Node/JSDOM suite (493 tests: 486 passed, 0 failed, 7 skipped). Canonical-main Test run 39589115791 on merge commit `1fec56158f5d50abbb3071a9d5300227af7aea45` also passed. |
 | AC-1 | passed | Strict execution-completion gate is present in the generated userscript and source prompt. |
 | AC-2 | passed | Prompt explicitly requires every in-scope requirement and acceptance criterion to be implemented and evidenced before `status=complete`. |
 | AC-3 | passed | Prompt requires `status=next` with an immediate action while actionable work or unresolved blockers remain. |
 | AC-4 | passed | Read-only scope and report-repair non-duplication are preserved by prompt and regression assertions. |
-| AC-5 | passed | Run 39588618814, exact head `9b2d8c1a59efd4c1615553d25f57fbcfd0f6b6ce`: bundle parity, syntax, and complete regression suite all passed. |
-| AC-6 | pending | Merge, canonical-main Test, release tag/asset digest, and public release verification remain. |
+| AC-5 | passed | Exact PR-head run 39588857223 on `19a68529190b48baad510f648dc2036e90745adf` and canonical-main run 39589115791 on `1fec56158f5d50abbb3071a9d5300227af7aea45` both passed bundle parity, syntax, and all regression tests. |
+| AC-6 | passed | PR #180 merged to main at `1fec56158f5d50abbb3071a9d5300227af7aea45`; canonical-main Test run 39589115791 passed; Release run 39589305774 passed; public release `v2.10.62` (release ID 419455907) published with asset `chatgpt-auto-confirm.user.js` (asset ID 662221369, SHA-256 `f1347da6a6c0b9953bad4c7b7e060999edd6450451eb3ac5c78bc276eb2a51be`). |
