@@ -4,6 +4,7 @@
   }
   async function tick() {
     if (!running || busy) return;
+    if (hostMemoryPending.size) { schedule(1000); return; }
     if (syncRemoteControl()) return;
     busy = true;
     const signal = controller.signal;
