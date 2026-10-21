@@ -41,7 +41,7 @@ test('Work prompt owns the final report contract and no planner prompt remains i
     const prompt = hooks.workPrompt(task);
     assert.match(prompt,/MAHAYANA_TASK_REPORT_V1/);
     assert.match(prompt,/"taskId":"direct-work-contract","round":3/);
-    assert.match(prompt,/直接执行当前任务/);
+    assert.match(prompt,/强制执行与完成门槛/);
     assert.match(prompt,/complete.*next/);
     assert.equal(typeof hooks.plannerPrompt,'undefined');
     assert.doesNotMatch(prompt,/独立的规划与验收会话/);
@@ -532,7 +532,7 @@ test('malformed Work final reply is durably carried into a report-only repair pr
     assert.equal(task.token, '');
 
     const prompt = hooks.workPrompt(task);
-    assert.match(prompt, /当前 Work 已完成实际执行/);
+    assert.match(prompt, /当前 Work 的最终报告未通过身份或格式校验/);
     assert.match(prompt, /不要重复执行已完成的工作/);
     assert.match(prompt, /原始目标：完成当前 Feature X 的生产实现和验证/);
     assert.match(prompt, /本轮执行指令：补齐 Feature X 的生产接线并运行 exact-head CI/);
