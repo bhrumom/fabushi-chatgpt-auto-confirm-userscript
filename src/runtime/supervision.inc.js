@@ -61,6 +61,7 @@
         log(task, '异常会话延迟恢复等待结束，插件继续自动新开会话。');
         save();
       }
+      if (revealCurrentCollapsedMessage(task, signal)) return;
       if (task.attempted) {
         const liveURL = currentConversationURL();
         // A matching URL without the task marker is not enough to confirm a
