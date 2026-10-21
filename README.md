@@ -1,8 +1,15 @@
-# Fabushi 独立自动确认工作台 2.10.61
+# Fabushi 独立自动确认工作台 2.10.62
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
 入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.61`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+
+## 2.10.62 严格执行完成门槛
+
+- 每轮最终报告模板只是状态报告，不是提前停止工作的许可；不能只分析、写计划、给建议或贴未落地代码。
+- 只有原始目标中的每一项要求和验收条件都已按任务范围实际完成，并有可追溯证据，才允许 status=complete。
+- 有任何可执行工作、缺少证据、GitHub Actions 尚未通过或任务要求的交付步骤未完成时，必须继续执行，并以 status=next 给出立即可执行的动作。
+- 遇到阻塞先推进独立事项，不得无状态变化地反复重试；明确只读审计仍保持只读，报告修复也不得重复已完成的生产修改。详见 [规格](docs/specs/work-execution-completion-gate-v2.10.62.md)。
 
 ## 2.10.61 自动展开当前折叠消息
 

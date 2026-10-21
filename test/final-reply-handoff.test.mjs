@@ -41,10 +41,39 @@ test('Work prompt owns the final report contract and no planner prompt remains i
     const prompt = hooks.workPrompt(task);
     assert.match(prompt,/MAHAYANA_TASK_REPORT_V1/);
     assert.match(prompt,/"taskId":"direct-work-contract","round":3/);
-    assert.match(prompt,/直接执行当前任务/);
+    assert.match(prompt,/强制执行与完成门槛/);
     assert.match(prompt,/complete.*next/);
     assert.equal(typeof hooks.plannerPrompt,'undefined');
     assert.doesNotMatch(prompt,/独立的规划与验收会话/);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('Work prompt enforces a hard execution-completion gate before terminal reporting', async () => {
+  const { dom, hooks } = await createHarness('<main></main>');
+  try {
+    const task = { id:'execution-gate', round:4, goal:'落实全部明确要求', mode:'goal', phase:'work', token:'execution-gate-token', attachments:[], result:'', next:'' };
+    const prompt = hooks.workPrompt(task);
+    assert.ok(prompt.includes('最终回复模板只是每轮的机器可读状态报告，不是停止工作的许可'));
+    assert.ok(prompt.includes('必须在内部逐项列出原始目标和每项明确要求/验收条件'));
+    assert.ok(prompt.includes('分析、方案、建议、任务拆解、代码片段、尚未应用的 diff 或口头声称均不等于完成'));
+    assert.ok(prompt.includes('只有每项要求和验收条件都已按原始范围实际完成，且有真实、可追溯的证据，才允许 status=complete'));
+    assert.ok(prompt.includes('queued/in_progress、失败、缺少证据、未提交变更'));
+    assert.ok(prompt.includes('若任务明确是只读审计，必须完成每一项真实读取'));
+    assert.ok(prompt.includes('若仍有未完成项，必须使用 status=next'));
+    assert.ok(prompt.includes('没有状态变化不得反复执行同一个失败动作'));
+    assert.ok(prompt.includes('任何一项未完成或未核验，status 必须是 next'));
+    const repairPrompt = hooks.workPrompt({
+      ...task,
+      workFinalReportRepairCarryTaskId: task.id,
+      workFinalReportRepairCarryRound: task.round,
+      workFinalReportRepairCarryGoalRevision: 0,
+      workFinalReportRepairCarry: '已完成生产修改的证据',
+    });
+    assert.ok(repairPrompt.includes('不得重复已完成的生产修改'));
+    assert.ok(repairPrompt.includes('若发现任何要求事实上尚未落实'));
+    assert.ok(repairPrompt.includes('不能把报告修复当作完成'));
   } finally {
     dom.window.close();
   }
@@ -503,8 +532,8 @@ test('malformed Work final reply is durably carried into a report-only repair pr
     assert.equal(task.token, '');
 
     const prompt = hooks.workPrompt(task);
-    assert.match(prompt, /当前 Work 已完成实际执行/);
-    assert.match(prompt, /不要重复执行已完成的工作/);
+    assert.match(prompt, /当前 Work 的最终报告未通过身份或格式校验/);
+    assert.match(prompt, /不得重复已完成的生产修改/);
     assert.match(prompt, /原始目标：完成当前 Feature X 的生产实现和验证/);
     assert.match(prompt, /本轮执行指令：补齐 Feature X 的生产接线并运行 exact-head CI/);
     assert.ok(prompt.includes(malformedReply), 'the exact malformed final reply is retained as progress context');
