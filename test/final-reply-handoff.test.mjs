@@ -533,7 +533,7 @@ test('malformed Work final reply is durably carried into a report-only repair pr
 
     const prompt = hooks.workPrompt(task);
     assert.match(prompt, /当前 Work 的最终报告未通过身份或格式校验/);
-    assert.match(prompt, /不要重复执行已完成的工作/);
+    assert.match(prompt, /不得重复已完成的生产修改/);
     assert.match(prompt, /原始目标：完成当前 Feature X 的生产实现和验证/);
     assert.match(prompt, /本轮执行指令：补齐 Feature X 的生产接线并运行 exact-head CI/);
     assert.ok(prompt.includes(malformedReply), 'the exact malformed final reply is retained as progress context');
