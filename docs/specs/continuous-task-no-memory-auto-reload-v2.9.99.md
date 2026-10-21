@@ -1,6 +1,6 @@
 # Continuous task processing without automatic memory reload — v2.9.99
 
-Status: completed  
+Status: superseded by host-memory-pressure-resume-v2.10.60.md (2026-10-21 user request)
 Owner: Fabushi ChatGPT Auto-confirm  
 Last updated: 2026-09-28  
 Related incident: the userscript interrupted an active task after the page JS-heap estimate reached 1.75 GiB and logged that it was releasing the old page supervisor and reloading the same ChatGPT conversation.

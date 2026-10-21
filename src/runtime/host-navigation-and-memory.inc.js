@@ -37,6 +37,8 @@
   let memorySnapshot = { supported:false, source:'performance.memory', at:0, reason:'not-sampled' };
   let memoryPressure = 'unsupported';
   let memoryLastAction = '';
+  let memoryHighSince = null;
+  const MEMORY_AUTO_ATTEMPT_KEY = 'fabushi-memory-auto-attempt-v1:' + tabId;
   let readTransientUIState = () => ({ hasDraft:false, hasFiles:false });
   let releaseTransientUIResources = () => false;
   let attachmentDBPromise = null;
@@ -474,7 +476,7 @@
     return false;
   }
   function hasUnsavedComposerInput() {
-    const candidates = [...document.querySelectorAll('#prompt-textarea, textarea[data-id="root"], textarea[placeholder*="Message" i], div[contenteditable="true"]')];
+    const candidates = [...document.querySelectorAll('textarea, [contenteditable="true"]')];
     return candidates.some(node => {
       if (node.closest?.(`#${ROOT}`)) return false;
       const value = 'value' in node ? node.value : node.textContent;
@@ -536,7 +538,7 @@
     const ratio = Number(memorySnapshot.ratio || 0);
     const level = memoryPressure === 'high' ? '高' : memoryPressure === 'elevated' ? '偏高' : '正常';
     const action = memoryLastAction ? ` · ${memoryLastAction.slice(0, 96)}` : '';
-    return `网页 JS 堆估算 ${formatMemoryBytes(memorySnapshot.usedBytes)} / ${formatMemoryBytes(memorySnapshot.limitBytes)}（${Math.round(ratio * 100)}%，${level}；仅诊断，不会自动刷新或中断任务）${action}`;
+    return `网页 JS 堆估算 ${formatMemoryBytes(memorySnapshot.usedBytes)} / ${formatMemoryBytes(memorySnapshot.limitBytes)}（${Math.round(ratio * 100)}%，${level}；持续高压时请求宿主释放并恢复原标签页）${action}`;
   }
   function settleHostMemoryRequest(requestId, result) {
     const pending = hostMemoryPending.get(requestId);
@@ -552,20 +554,55 @@
     memorySnapshot = snapshot;
     memoryPressure = memoryPressureLevel(snapshot);
     const safety = memoryDiscardSafety();
+    let recoveryTask = null;
     if (!userInitiated) {
-      cleanupLocalMemory({ reason });
-      memoryLastAction = '自动内存恢复已禁用；内存监测仅保留诊断与脚本本地清理，当前任务持续运行且不会因内存阈值刷新页面。';
-      paint?.();
-      return { ok:false, discarded:false, reloaded:false, reason:'automatic-memory-recovery-disabled', safety };
+      const candidates = tabTasks().filter(task => !terminal.has(task.state) && task.state !== 'paused');
+      recoveryTask = candidates.length === 1 ? candidates[0] : null;
+      const protectedState = !running || data.autoResume === false || busy || navigating || navigationRequestPending
+        || globalApprovalBusy || !recoveryTask || !['waiting','generating','reviewing'].includes(recoveryTask.state)
+        || !taskMatchesCurrentConversation(recoveryTask) || !canonicalConversationURL(recoveryTask.url)
+        || recoveryTask.attempted || recoveryTask.attachmentUploadPending || recoveryTask.pendingContinuation
+        || data.tasks.some(task => task !== recoveryTask && !terminal.has(task.state) && task.state !== 'paused' && taskMatchesCurrentConversation(task))
+        || safety.hasDraft || safety.hasPendingAttachment || cards().length > 0;
+      if (protectedState) {
+        memoryLastAction = '内存持续偏高；等待任务归属确认、发送/上传/授权结束及未保存输入清空后，再请求宿主恢复原标签页。';
+        paint?.();
+        return { ok:false, discarded:false, reloaded:false, reason:'unsafe-state', safety };
+      }
+      if (memoryPressure !== 'high' || memoryHighSince === null || now - memoryHighSince < MEMORY_MONITOR_INTERVAL_MS) {
+        return { ok:false, discarded:false, reason:'pressure-not-sustained', safety };
+      }
+      const lastAttempt = Number(read(MEMORY_AUTO_ATTEMPT_KEY, 0));
+      if (lastAttempt && now - lastAttempt < MEMORY_HOST_REQUEST_COOLDOWN_MS) {
+        memoryLastAction = '宿主内存恢复冷却中，保留当前任务并继续监督。';
+        return { ok:false, discarded:false, reason:'cooldown', safety };
+      }
+      safety.safe = true; // Stable response observation is recoverable, unlike an active send.
     }
     if (now - memoryLastHostRequestAt < memoryHostCooldownMs) {
       return { ok:false, discarded:false, reason:'cooldown', safety };
     }
     cleanupLocalMemory({ reason });
     if (hostMemoryPending.size) return { ok:false, discarded:false, reason:'request-pending', safety };
+    if (recoveryTask) {
+      // Do not destroy a page backed only by a volatile or session fallback.
+      if (!save() || !running || data.autoResume === false || !taskMatchesCurrentConversation(recoveryTask)
+        || !ensureAutomaticRecoveryTicket(recoveryTask, { force:true }) || !writeWorkspaceHeartbeat('memory-recovery')) {
+        memoryLastAction = '恢复记录未能可靠保存，保留当前页面，稍后重试内存回收。';
+        return { ok:false, discarded:false, reason:'checkpoint-storage-unavailable', safety };
+      }
+      let stored;
+      try { stored = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch {}
+      const saved = stored?.tasks?.find(task => task.id === recoveryTask.id && task.ownerTabId === tabId);
+      if (!saved || ['url','token','phase','round','state','attempted'].some(key => saved[key] !== recoveryTask[key])
+        || !writeLocalStorageRecord(MEMORY_AUTO_ATTEMPT_KEY, JSON.stringify(now), { critical:true })) {
+        return { ok:false, discarded:false, reason:'checkpoint-storage-unavailable', safety };
+      }
+    }
     const requestId = `fabushi-memory-${id()}`;
     const payload = {
-      capability:HOST_MEMORY_CAPABILITY,
+      capability:recoveryTask ? 'tab-memory-discard-resume' : HOST_MEMORY_CAPABILITY,
+      resumeAfterDiscard:Boolean(recoveryTask),
       version:VERSION,
       pressure:memoryPressure,
       usedBytes:snapshot.supported ? Math.min(Number(snapshot.usedBytes || 0), 16 * 1024 * 1024 * 1024) : 0,
@@ -598,8 +635,12 @@
         settleHostMemoryRequest(requestId, { ok:false, discarded:false, reason:'post-message-failed', safety });
       }
     });
-    if (response?.discarded) memoryLastAction = '宿主已请求 Chrome 卸载此非活动标签页；再次打开时会自动恢复任务。';
-    else if (response?.reason === 'active-tab') memoryLastAction = '当前标签页正在使用中；请先切换到其他标签页，宿主才能安全回收它。';
+    if (recoveryTask && !response?.discarded) removeLocalStorageRecord(MEMORY_AUTO_ATTEMPT_KEY);
+    if (response?.discarded) memoryLastAction = response.reloaded ? '宿主已释放并重载原标签页，原任务将自动恢复。' : '宿主已卸载原标签页；再次打开时恢复任务。';
+    else if (response?.reason === 'active-tab') {
+      memoryHostCooldownMs = MEMORY_MONITOR_INTERVAL_MS;
+      memoryLastAction = 'Chrome 暂不允许卸载当前活动标签页；进入后台后自动重试释放并恢复原任务。';
+    }
     else if (response?.reason === 'unsafe-state') memoryLastAction = '当前有发送、上传、审批、导航或未保存输入，暂不回收标签页。';
     else if (response?.reason === 'host-unavailable' || response?.reason === 'host-timeout') {
       memoryHostCooldownMs = 60000;
@@ -609,6 +650,8 @@
       memoryHostCooldownMs = 60000;
       memoryLastAction = `宿主未接力标签页：${String(response.reason).slice(0, 120)}。稍后重试。`;
     }
+    if (response?.discarded) memoryHostCooldownMs = MEMORY_HOST_REQUEST_COOLDOWN_MS;
+    else if (response?.reason === 'cooldown') memoryHostCooldownMs = Math.max(1000, Number(response.retryAfterMs) || MEMORY_HOST_REQUEST_COOLDOWN_MS);
     paint?.();
     return response;
   }
@@ -619,10 +662,14 @@
       const snapshot = readMemorySnapshot();
       memorySnapshot = snapshot;
       memoryPressure = memoryPressureLevel(snapshot);
-      // Diagnostic-only monitoring: high heap estimates may trigger bounded
-      // cleanup of script-owned stale state, but never navigation, reload,
-      // workspace release, runner suspension, tab discard, or task handoff.
+      const now = Date.now();
+      if (memoryPressure === 'high') {
+        if (memoryHighSince === null) memoryHighSince = now;
+      } else memoryHighSince = null;
       if (memoryPressure === 'elevated' || memoryPressure === 'high') cleanupLocalMemory({ reason:'memory-pressure' });
+      if (memoryHighSince !== null && now - memoryHighSince >= MEMORY_MONITOR_INTERVAL_MS) {
+        await requestHostMemoryCleanup({ reason:'sustained-memory-pressure' });
+      }
       paint?.();
       return snapshot;
     } finally {
@@ -636,6 +683,9 @@
       void inspectMemoryPressure().finally(() => scheduleMemoryMonitor());
     }, Math.max(1000, Number(delayMs) || MEMORY_MONITOR_INTERVAL_MS));
   }
+  listen(document, 'visibilitychange', () => {
+    if (document.visibilityState === 'hidden' && memoryHighSince !== null) scheduleMemoryMonitor(1000);
+  });
   function stopMemoryMonitor() {
     clearTimeout(memoryMonitorTimer);
     memoryMonitorTimer = null;

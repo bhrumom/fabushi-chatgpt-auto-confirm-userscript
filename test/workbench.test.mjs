@@ -76,7 +76,7 @@ async function fixture(body='', setup=()=>{}, url='https://chatgpt.com/') {
     const form = w.document.querySelector('form') || w.document.body;
     form.append(trigger);
   }
-  await w.eval(source.replace('  mount();','  window.testHooks = { locatePendingAuthorization, taskCanBeRecoveredByHost, restorePausedTask, pauseTask, mergeStoredTasks, blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, interruptedFreshHandoffApprovalGate, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, assistantResponseBoundaryKey, taskTurnForInspection, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, conversationLoadFailure, clearConversationLoadFailureState, recoverConversationLoadFailure, cards, authorizationCardShell, structuralAuthorizationSurface, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, normalizeModelPreset, modelPresetLabel, taskModelPreset, normalizeReasoningPreset, reasoningPresetLabel, taskReasoningPreset, localizedChatWorkModeKind, chatWorkModeSelection, chatWorkModeControls, workModeEvidence, chatWorkModeState, ensureChatMode, chatWorkContinueOffer, chatWorkStayIdentity, clearChatWorkStayState, handleChatWorkContinueOffer, modelPickerTrigger, modelTriggerMatches, closedComposerModelHint, reopenModelPicker, modelMenuOption, modelSubmenuEntry, modelRadioOptions, modelRadioOption, modelRadioSelected, modelSubmenuHintMatches, openModelRadioList, confirmModelRadioSelection, ensureTaskModelPreset, currentTaskModelStillConfirmed, reasoningPickerTrigger, reasoningSliderState, clearReasoningPickerRecovery, waitForReasoningPicker, ensureTaskReasoningPreset, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, markApprovalUnavailable, clearApprovalUnavailableRefresh, refreshUnavailableApproval, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, requestSameDocumentHostReload, resetRendererRecoveryState, recoverStalledRoute, holdForChatGPTLoading, refreshStalledConversation, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, inspectMemoryPressure, memoryStatusText, storageStatusText, readRecentActivitySession, writeRecentActivitySession, recordRecentActivity, restoreRecentActivityMessages, taskRecoveryStatusText, taskStatusText, persistWorkbenchState, durableTaskSnapshot, durableWorkbenchSnapshot, fitWorkbenchSnapshotToLocalBudget, writeLocalStorageRecord, readStorageString, readWorkbenchOverflow, cleanupStaleFabushiStorage, fabushiLocalStorageFootprint, storageBudgets:()=>({workbench:WORKBENCH_LOCAL_STORAGE_TARGET_CHARS,total:FABUSHI_LOCAL_STORAGE_MAX_CHARS}), scheduleWorkspaceHeartbeat, workspaceHeartbeatScheduled:()=>Boolean(workspaceHeartbeatTimer), storagePersistenceStatus:()=>storagePersistenceStatus, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, setNavigatingForTest:value=>{navigating=Boolean(value);}, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), setRunningForTest:value=>{running=Boolean(value);}, getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { locatePendingAuthorization, taskCanBeRecoveredByHost, restorePausedTask, pauseTask, mergeStoredTasks, blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, interruptedFreshHandoffApprovalGate, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, assistantResponseBoundaryKey, taskTurnForInspection, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, conversationLoadFailure, clearConversationLoadFailureState, recoverConversationLoadFailure, cards, authorizationCardShell, structuralAuthorizationSurface, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, normalizeModelPreset, modelPresetLabel, taskModelPreset, normalizeReasoningPreset, reasoningPresetLabel, taskReasoningPreset, localizedChatWorkModeKind, chatWorkModeSelection, chatWorkModeControls, workModeEvidence, chatWorkModeState, ensureChatMode, chatWorkContinueOffer, chatWorkStayIdentity, clearChatWorkStayState, handleChatWorkContinueOffer, modelPickerTrigger, modelTriggerMatches, closedComposerModelHint, reopenModelPicker, modelMenuOption, modelSubmenuEntry, modelRadioOptions, modelRadioOption, modelRadioSelected, modelSubmenuHintMatches, openModelRadioList, confirmModelRadioSelection, ensureTaskModelPreset, currentTaskModelStillConfirmed, reasoningPickerTrigger, reasoningSliderState, clearReasoningPickerRecovery, waitForReasoningPicker, ensureTaskReasoningPreset, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, markApprovalUnavailable, clearApprovalUnavailableRefresh, refreshUnavailableApproval, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, requestSameDocumentHostReload, resetRendererRecoveryState, recoverStalledRoute, holdForChatGPTLoading, refreshStalledConversation, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, settleHostMemoryRequest, inspectMemoryPressure, memoryStatusText, storageStatusText, readRecentActivitySession, writeRecentActivitySession, recordRecentActivity, restoreRecentActivityMessages, taskRecoveryStatusText, taskStatusText, persistWorkbenchState, durableTaskSnapshot, durableWorkbenchSnapshot, fitWorkbenchSnapshotToLocalBudget, writeLocalStorageRecord, readStorageString, readWorkbenchOverflow, cleanupStaleFabushiStorage, fabushiLocalStorageFootprint, storageBudgets:()=>({workbench:WORKBENCH_LOCAL_STORAGE_TARGET_CHARS,total:FABUSHI_LOCAL_STORAGE_MAX_CHARS}), scheduleWorkspaceHeartbeat, workspaceHeartbeatScheduled:()=>Boolean(workspaceHeartbeatTimer), storagePersistenceStatus:()=>storagePersistenceStatus, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, setNavigatingForTest:value=>{navigating=Boolean(value);}, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), setRunningForTest:value=>{running=Boolean(value);}, getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('recent activity restores the last two hours after reload without putting history back into localStorage',async()=>{
@@ -5619,80 +5619,102 @@ test('memory diagnostics identify a bounded JS heap estimate and pressure level'
   dom.window.close();
 });
 
-test('automatic memory monitoring never reloads or interrupts an active task at 1.8 GiB',async()=>{
-  const gib=1024*1024*1024;
-  const requests=[];
-  const {h,w,dom}=await fixture('',window=>{
-    Object.defineProperty(window.performance,'memory',{configurable:true,value:{usedJSHeapSize:1.8*gib,totalJSHeapSize:2.0*gib,jsHeapSizeLimit:4*gib}});
-    window.addEventListener('message',event=>{if(event.data?.source==='fabushi-userscript'&&event.data?.type==='tab-memory.request')requests.push(event.data);});
-  });
+async function memoryFixture(body='') {
+  const f=await fixture(body);
+  const {h,w}=f;
+  let now=Date.now(); w.Date.now=()=>now;
+  const heap={usedJSHeapSize:2.4*1024**3,totalJSHeapSize:2.7*1024**3,jsHeapSizeLimit:4*1024**3};
+  Object.defineProperty(w.performance,'memory',{configurable:true,value:heap});
+  w.history.replaceState({},'', '/c/memory-recovery');
+  const task={id:'memory-recovery',ownerTabId:h.getTabId(),goal:'private goal',mode:'goal',phase:'work',round:4,state:'generating',url:w.location.href,token:'same-send',attempted:false,attachments:[],messages:[]};
+  h.data.tasks.push(task); h.setRunningForTest(true);
+  const requests=[]; let response={ok:true,discarded:false,reason:'active-tab'};
+  w.postMessage=message=>{
+    if(message.type!=='tab-memory.request')return;
+    requests.push(message);
+    w.setTimeout(()=>w.dispatchEvent(new w.MessageEvent('message',{source:w,data:{source:'fabushi-extension',type:'tab-memory.response',requestId:message.requestId,ok:true,result:response}})),0);
+  };
+  return {...f,task,heap,requests,advance:ms=>{now+=ms;},reply:value=>{response=value;}};
+}
+test('sustained memory pressure requests host same-tab resume preserving dispatch identity',async()=>{
+  const f=await memoryFixture(); const {h,w,dom,task,requests}=f;
   try {
-    w.history.pushState({},'', '/c/memory-continuous');
-    const task={id:'memory-continuous',ownerTabId:h.getTabId(),goal:'keep processing',mode:'goal',phase:'work',round:4,state:'waiting',url:'https://chatgpt.com/c/memory-continuous',token:'keep-token',attempted:false,attachments:[],messages:[]};
-    h.data.tasks.push(task);
-    await h.inspectMemoryPressure();
-    await h.inspectMemoryPressure();
-    await h.inspectMemoryPressure();
-    assert.equal(h.memoryPressure(),'high');
-    assert.equal(requests.length,0,'automatic monitoring must never ask the host to discard/recover the tab');
-    assert.equal(task.state,'waiting');
-    assert.equal(task.url,'https://chatgpt.com/c/memory-continuous');
-    assert.equal(task.token,'keep-token');
-    assert.equal(task.phase,'work');
-    assert.equal(task.round,4);
-    assert.equal(task.memoryPressureReloadAt,undefined);
-    assert.equal(task.memoryPressureReloadURL,undefined);
+    await h.inspectMemoryPressure(); f.advance(29999); await h.inspectMemoryPressure();
+    assert.equal(requests.length,0);
+    f.advance(1); await h.inspectMemoryPressure();
+    assert.equal(requests.length,1);
+    const payload=requests[0].payload;
+    assert.equal(payload.capability,'tab-memory-discard-resume');
+    assert.equal(payload.resumeAfterDiscard,true); assert.equal(payload.safeToDiscard,true);
+    for(const key of ['goal','token','prompt','attachments'])assert.equal(payload[key],undefined);
+    const stored=JSON.parse(w.localStorage.getItem('fabushi-workbench-v2')).tasks.find(t=>t.id===task.id);
+    for(const key of ['id','url','token','phase','round','attempted','state'])assert.equal(stored[key],task[key]);
+    assert.ok(JSON.parse(w.localStorage.getItem('fabushi-workspace-auto-recovery-v1:'+h.getTabId())).token);
     assert.equal(h.getNavigationState().navigating,false);
-    assert.equal(w.sessionStorage.getItem('fabushi-workbench-navigation-v2'),null,'memory monitoring must not create a recovery navigation ticket');
-    assert.match(h.memoryStatusText(),/仅诊断，不会自动刷新或中断任务/);
+    assert.match(h.memoryStatusText(),/进入后台后自动重试/);
+    await h.inspectMemoryPressure(); assert.equal(requests.length,1);
+    f.advance(30000); await h.inspectMemoryPressure(); assert.equal(requests.length,2,'active-tab refusal retries without five-minute wait');
   } finally {h.pause();dom.window.close();}
 });
-
-test('automatic memory monitoring remains non-disruptive above 2 GiB',async()=>{
-  const gib=1024*1024*1024;
-  const requests=[];
-  const {h,w,dom}=await fixture('',window=>{
-    Object.defineProperty(window.performance,'memory',{configurable:true,value:{usedJSHeapSize:2.4*gib,totalJSHeapSize:2.7*gib,jsHeapSizeLimit:4*gib}});
-    window.addEventListener('message',event=>{if(event.data?.source==='fabushi-userscript'&&event.data?.type==='tab-memory.request')requests.push(event.data);});
-  });
-  try {
-    w.history.pushState({},'', '/c/memory-over-two');
-    const task={id:'memory-over-two',ownerTabId:h.getTabId(),goal:'continue despite heap estimate',mode:'once',phase:'work',round:1,state:'generating',url:'https://chatgpt.com/c/memory-over-two',token:'over-two-token',attempted:false,attachments:[],messages:[]};
-    h.data.tasks.push(task);
-    await h.inspectMemoryPressure();
-    await h.inspectMemoryPressure();
-    assert.equal(h.memoryPressure(),'high');
-    assert.equal(requests.length,0);
-    assert.equal(task.state,'generating');
-    assert.equal(task.url,'https://chatgpt.com/c/memory-over-two');
-    assert.equal(task.token,'over-two-token');
-    assert.equal(h.getNavigationState().navigating,false);
-    assert.equal(w.sessionStorage.getItem('fabushi-workbench-navigation-v2'),null);
-  } finally {h.pause();dom.window.close();}
+test('memory spike and normal or unsupported samples reset the sustained pressure timer',async()=>{
+  const f=await memoryFixture();const {h,w,dom,heap,requests}=f;
+  try{
+    await h.inspectMemoryPressure(); f.advance(30000);
+    heap.usedJSHeapSize=128*1024**2; await h.inspectMemoryPressure();
+    heap.usedJSHeapSize=2.4*1024**3; await h.inspectMemoryPressure(); assert.equal(requests.length,0);
+    f.advance(30000); Object.defineProperty(w.performance,'memory',{configurable:true,value:null}); await h.inspectMemoryPressure();
+    Object.defineProperty(w.performance,'memory',{configurable:true,value:heap}); await h.inspectMemoryPressure(); assert.equal(requests.length,0);
+    f.advance(30000); await h.inspectMemoryPressure(); assert.equal(requests.length,1);
+  }finally{h.pause();dom.window.close();}
+});
+test('memory recovery refuses unsafe states and failed durable checkpoint storage',async()=>{
+  const cases=['sending','uploading','loading','approval','paused','draft','attachment','ambiguous','foreign','pause-workspace','storage'];
+  for(const kind of cases){
+    const f=await memoryFixture(kind==='draft'?'<textarea>unsaved</textarea>':''); const {h,w,dom,task,requests}=f;
+    try{
+      if(['sending','uploading','loading','approval','paused'].includes(kind))task.state=kind;
+      if(kind==='attachment')task.attachmentUploadPending=true;
+      if(kind==='ambiguous')task.attempted=true;
+      if(kind==='foreign')task.url='https://chatgpt.com/c/foreign';
+      if(kind==='pause-workspace')h.data.autoResume=false;
+      if(kind==='storage')w.Storage.prototype.setItem=function(){throw new Error('blocked');};
+      await h.inspectMemoryPressure(); f.advance(30000); await h.inspectMemoryPressure();
+      assert.equal(requests.length,0,kind); assert.equal(task.token,'same-send',kind);
+    }finally{h.pause();dom.window.close();}
+  }
+});
+test('successful memory request persists cross-document cooldown',async()=>{
+  const f=await memoryFixture();const {h,w,dom,requests}=f;
+  try{
+    f.reply({ok:true,discarded:true,reloaded:true});
+    await h.inspectMemoryPressure(); f.advance(30000); await h.inspectMemoryPressure();
+    assert.equal(requests.length,1);
+    assert.ok(Number(w.localStorage.getItem('fabushi-memory-auto-attempt-v1:'+h.getTabId())));
+    f.advance(60000); await h.inspectMemoryPressure();assert.equal(requests.length,1);
+    f.advance(240000); await h.inspectMemoryPressure();assert.equal(requests.length,2);
+    assert.equal(h.hostMemoryPending().size,0);
+  }finally{h.pause();dom.window.close();}
 });
 
-test('non-user memory cleanup requests fail closed without reloading or contacting the host',async()=>{
-  const gib=1024*1024*1024;
-  const requests=[];
-  const {h,w,dom}=await fixture('',window=>{
-    Object.defineProperty(window.performance,'memory',{configurable:true,value:{usedJSHeapSize:2.1*gib,totalJSHeapSize:2.3*gib,jsHeapSizeLimit:4*gib}});
-    window.addEventListener('message',event=>{if(event.data?.source==='fabushi-userscript'&&event.data?.type==='tab-memory.request')requests.push(event.data);});
-  });
-  try {
-    w.history.pushState({},'', '/c/memory-disabled-direct');
-    const task={id:'memory-disabled-direct',ownerTabId:h.getTabId(),goal:'stay on this task',mode:'once',phase:'work',round:2,state:'waiting',url:'https://chatgpt.com/c/memory-disabled-direct',token:'same-token',attempted:false,attachments:[],messages:[]};
-    h.data.tasks.push(task);
-    const result=await h.requestHostMemoryCleanup({reason:'memory-pressure'});
-    assert.equal(result.reason,'automatic-memory-recovery-disabled');
-    assert.equal(result.reloaded,false);
-    assert.equal(requests.length,0);
-    assert.equal(task.url,'https://chatgpt.com/c/memory-disabled-direct');
-    assert.equal(task.token,'same-token');
-    assert.equal(task.state,'waiting');
-    assert.equal(h.getNavigationState().navigating,false);
-    assert.equal(w.sessionStorage.getItem('fabushi-workbench-navigation-v2'),null);
-    assert.match(h.memoryStatusText(),/自动内存恢复已禁用/);
-  } finally {h.pause();dom.window.close();}
+test('memory host decision fences scheduler and timed-out host requests retry after a bounded cooldown',async()=>{
+  const f=await memoryFixture(); const {h,w,dom,requests,task}=f;
+  try{
+    w.postMessage=message=>{if(message.type==='tab-memory.request')requests.push(message);};
+    await h.inspectMemoryPressure(); f.advance(30000);
+    const pending=h.inspectMemoryPressure();
+    assert.equal(h.hostMemoryPending().size,1);
+    const before=JSON.stringify(task);
+    await h.tick();
+    assert.equal(JSON.stringify(task),before,'scheduler must not inspect, send or navigate during host decision');
+    h.settleHostMemoryRequest(requests[0].requestId,{ok:false,discarded:false,reason:'host-timeout'});
+    await pending;
+    assert.equal(h.hostMemoryPending().size,0);
+    assert.match(h.memoryStatusText(),/桥接无响应/);
+    assert.equal(w.localStorage.getItem('fabushi-memory-auto-attempt-v1:'+h.getTabId()),null);
+    f.advance(59999); await h.inspectMemoryPressure(); assert.equal(requests.length,1);
+    f.advance(1); const retry=h.inspectMemoryPressure(); assert.equal(requests.length,2);
+    h.settleHostMemoryRequest(requests[1].requestId,{ok:false,discarded:false,reason:'host-timeout'}); await retry;
+  }finally{h.pause();dom.window.close();}
 });
 
 test('local memory cleanup bounds task logs without deleting task identity or attachments',async()=>{
@@ -7204,8 +7226,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2.10.59$/m);
-  assert.match(source,/const VERSION = '2.10.59'/);
+  assert.match(source,/^\/\/ @version\s+2.10.60$/m);
+  assert.match(source,/const VERSION = '2.10.60'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
@@ -7219,7 +7241,7 @@ test('the packaged userscript declares its stable remote update and download URL
   assert.doesNotMatch(source,/MEMORY_PRESSURE_SAMPLES|MEMORY_HOST_REQUEST_MIN_BYTES|MEMORY_SAME_TAB_RELOAD_COOLDOWN_MS/);
   assert.doesNotMatch(source,/function memoryReloadSafety|function reloadTaskForMemoryPressure|memoryPressureReloadAt|memoryPressureReloadURL/);
   assert.doesNotMatch(source,/网页 JS 堆估算已连续达到/);
-  assert.match(source,/automatic-memory-recovery-disabled/);
+  assert.match(source,/tab-memory-discard-resume/);
   assert.doesNotMatch(source,/ABNORMAL_NO_FINAL_CONTINUE_AFTER_MS/);
   assert.doesNotMatch(source,/AMBIGUOUS_SEND_REFRESH_MS|AMBIGUOUS_SEND_REFRESH_LIMIT/);
   assert.doesNotMatch(source,/STOP_MISSING_CONTINUE_GRACE_MS|stopMissingSince|stopMissingSignature/);
@@ -7457,7 +7479,7 @@ test('automatic memory diagnostics never ask the host even when no task is activ
     assert.equal(requests.length,0);
     assert.equal(h.memorySnapshot().usedBytes,1.8*gib);
     assert.match(h.memoryStatusText(),/网页 JS 堆估算/);
-    assert.match(h.memoryStatusText(),/仅诊断，不会自动刷新或中断任务/);
+    assert.match(h.memoryStatusText(),/持续高压时请求宿主释放并恢复原标签页/);
   } finally {h.pause();dom.window.close();}
 });
 

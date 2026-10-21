@@ -1,8 +1,14 @@
-# Fabushi 独立自动确认工作台 2.10.59
+# Fabushi 独立自动确认工作台 2.10.60
 
 这是 Fabushi 的独立油猴脚本源码仓库：
 `https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript`。
-入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.59`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+入口文件是 `chatgpt-auto-confirm.user.js`，当前版本为 `2.10.60`。Fabushi 宿主可直接运行该发布资产；不需要同时安装油猴副本。
+
+## 2.10.60 持续高内存时由宿主释放并恢复原标签页
+
+- 连续高压至少 30 秒后，持久化并核验原任务，再请求宿主 discard + reload 原标签页。保留会话、任务、轮次与发送标识，不重新发送目标。
+- 发送、上传、待授权、草稿、归属不明或保存失败时延后；Chrome 当前活动标签页在转入后台后重试，不抢焦点。跨刷新保留 5 分钟冷却，防止循环回收。
+- JS 堆估算不是 Chrome 标签页总内存。此版本取代 2.9.99 的仅诊断策略；详见 [规格](docs/specs/host-memory-pressure-resume-v2.10.60.md)。
 
 ## 2.10.59 自动展开折叠的待授权请求
 

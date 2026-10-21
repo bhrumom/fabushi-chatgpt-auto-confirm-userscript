@@ -1560,7 +1560,7 @@
     return true;
   }
   async function processGlobalApprovalCards() {
-    if (!data.globalAutoApprove || globalApprovalBusy) return false;
+    if (!data.globalAutoApprove || globalApprovalBusy || hostMemoryPending.size) return false;
     const pending = cards();
     if (!pending.length) return false;
     globalApprovalBusy = true;

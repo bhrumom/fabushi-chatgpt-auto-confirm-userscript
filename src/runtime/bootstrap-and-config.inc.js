@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.59
+// @version      2.10.60
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -68,7 +68,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.59';
+  const VERSION = '2.10.60';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -281,9 +281,8 @@ async function bootstrapAttempt() {
   const HOST_RECOVERY_RENEW_MS = 30000;
   const HOST_RECOVERY_RESPONSE_TTL_MS = 10000;
   // A userscript cannot read the renderer's RSS or force V8 to collect the
-  // whole ChatGPT page. Heap sampling is diagnostic-only: automatic monitoring
-  // may compact script-owned stale state, but it never reloads/navigates/releases
-  // the active task because of a memory threshold. Host discard remains manual.
+  // whole ChatGPT page. Sustained heap pressure uses checkpointed host
+  // discard/resume; active sends and unpersisted input remain protected.
   const HOST_MEMORY_CAPABILITY = 'tab-memory-discard';
   const HOST_MEMORY_REQUEST_TYPE = 'tab-memory.request';
   const HOST_MEMORY_RESPONSE_TYPE = 'tab-memory.response';
