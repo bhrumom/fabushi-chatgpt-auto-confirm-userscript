@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.62
+// @version      2.10.63
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -68,7 +68,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.62';
+  const VERSION = '2.10.63';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -6138,11 +6138,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
   }
   const allowLabel = /^(?:允许(?:一次)?|批准(?:一次)?|allow(?: once| one time)?|approve(?: once| one time)?)$/i;
   const denyLabel = /^(?:拒绝|不允许|deny|decline|reject)$/i;
-  // Every trusted authorization card should answer its current action.
-  // ChatGPT's current-action controls are Allow / Allow once; broader saved
-  // permission choices such as Allow low-risk / Always allow are intentionally
-  // not part of this matcher, so the automation never upgrades a one-action
-  // approval into a persistent grant.
+  // Exact primary actions remain the fallback after scoped-menu observation.
   function isDirectPrimaryAuthorizationAllow(node) {
     return actionMatches(node, allowLabel);
   }
@@ -6708,9 +6704,6 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
       }
       return false;
     }
-    // All recognized authorization cards use the primary current-action
-    // control directly. Do not open the adjacent scope menu: it may contain
-    // persistent choices such as Always allow / Allow low-risk actions.
     if (!isDirectPrimaryAuthorizationAllow(card.button)) {
       if (task) {
         const started = markApprovalUnavailable(task, currentConversationURL(), Date.now());
@@ -6740,10 +6733,41 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
       }
       return false;
     }
-    approvalAttempts.set(card.button, now);
-    activateControl(card.button);
+    let target = card.button;
+    let conversationGrant = false;
+    const route = currentConversationURL();
+    if (card.arrow) {
+      if (!enabled(card.arrow)) return false;
+      const previousMenus = new Set(nodes('[role="menu"]'));
+      const controlledId = card.arrow.getAttribute('aria-controls');
+      activateControl(card.arrow);
+      for (let attempt = 0; attempt < 7; attempt++) {
+        checkAuthorizationRun(signal, queueOwned);
+        if (currentConversationURL() !== route || !card.container.isConnected
+          || !enabled(card.button) || !enabled(card.arrow)) return false;
+        const menus = nodes('[role="menu"]').filter(menu => visible(menu) && (
+          (controlledId && menu.id === controlledId)
+          || card.container.contains(menu) || !previousMenus.has(menu)
+        ));
+        const option = menus.flatMap(menu => nodes('[role="menuitem"],button,[role="button"]', menu))
+          .find(node => enabled(node) && actionMatches(node,
+            /^(?:允许(?:本次|此|当前)(?:会话|对话)|(?:allow|approve)(?: .+?)? for (?:this|the current) (?:conversation|session|chat))$/i)
+            && !/(?:always|permanent|low.risk|all conversations|始终|永久|低风险|所有会话)/i.test(actionText(node)));
+        if (option) { target = option; conversationGrant = true; break; }
+        if (attempt < 6) await delay(120, signal);
+      }
+    }
+    checkAuthorizationRun(signal, queueOwned);
+    if (currentConversationURL() !== route || !card.container.isConnected
+      || !target.isConnected || !enabled(target)) return false;
+    // The task may have been paused or submitted while the menu hydrated.
+    if (task && approvalSubmissionMatches(task, route)) return false;
+    approvalAttempts.set(card.button, Date.now());
+    activateControl(target);
     if (task) beginApprovalSettlement(task);
-    log(task, '已直接点击授权卡主“允许/允许一次”，进入授权提交保护期；不会展开授权范围菜单或选择永久授权。');
+    log(task, conversationGrant
+      ? '已展开授权选项并选择“允许本次会话”，进入授权提交保护期。'
+      : '授权卡未提供本次会话选项，已点击“允许/允许一次”，进入授权提交保护期。');
     return true;
   }
   async function processGlobalApprovalCards() {
@@ -9701,7 +9725,7 @@ NaN
     const memoryCleanupButton = element('button','清理当前标签页内存','memory-cleanup'); memoryCleanupButton.type='button';
     const memoryStatusNode = element('small',[memoryStatusText(), storageStatusText(), `宿主唤醒 ${backgroundClock.status().lastWakeAt ? new Date(backgroundClock.status().lastWakeAt).toLocaleTimeString() : '等待'}，时钟响应 ${backgroundClock.status().hostReplies}`].filter(Boolean).join(' · '),'memory-status');
     chat.append(head);
-    settings.append(globalApprovalLabel,globalPauseButton,memoryCleanupButton,memoryStatusNode,element('small','此数值只估算网页 JavaScript 堆，不等于 Chrome 标签页完整内存。宿主只能卸载非活动且无未保存内容/进行中任务的标签页；重新打开时会重新加载。活动标签页无法通过 tabs.discard 清理到初始占用。'),element('small','自动点击每张授权卡的当前操作“允许/允许一次”；不会展开范围菜单，也不会选择“Allow low-risk actions”或“始终允许”。'));
+    settings.append(globalApprovalLabel,globalPauseButton,memoryCleanupButton,memoryStatusNode,element('small','此数值只估算网页 JavaScript 堆，不等于 Chrome 标签页完整内存。宿主只能卸载非活动且无未保存内容/进行中任务的标签页；重新打开时会重新加载。活动标签页无法通过 tabs.discard 清理到初始占用。'),element('small','自动展开授权选项，优先选择“允许本次会话”；没有该选项时使用“允许/允许一次”，不会选择永久或低风险授权。'));
     const feed = element('div','','feed'); feed.setAttribute('role','log'); feed.setAttribute('aria-live','polite');
     const notice = element('div','单标签页 · 已暂停','notice');
     const compose = element('form','','compose'), input = element('textarea'); input.placeholder = '输入任务目标，可直接粘贴图片或视频…'; input.setAttribute('aria-label','任务目标');

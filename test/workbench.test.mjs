@@ -3208,7 +3208,7 @@ test('nested split authorization card is detected without article/section wrappe
   assert.equal(detected[0].actionable,false);
   dom.window.close();
 });
-test('current allow-once authorization card is clicked directly even when a scope menu exists',async()=>{
+test('current allow-once authorization card prefers the conversation scope menu',async()=>{
   const {w,h,dom}=await fixture('<main><div id="card"><div>GitHub</div><form><button type="button">拒绝<kbd aria-hidden="true">Esc</kbd></button><div><button type="button" id="allow-once"><span>允许一次</span><kbd aria-hidden="true">⏎</kbd></button><button type="button" aria-haspopup="menu" aria-label="审批选项" aria-expanded="false" data-state="closed"><svg></svg></button></div></form></div></main>');
   const primary=w.document.querySelector('#allow-once');
   const arrow=w.document.querySelector('[aria-label="审批选项"]');
@@ -3223,9 +3223,9 @@ test('current allow-once authorization card is clicked directly even when a scop
   });
   assert.equal(h.cards().length,1);
   await h.authorize(h.cards()[0],null,null,false);
-  assert.equal(arrowClicks,0);
-  assert.equal(conversationApprovals,0);
-  assert.equal(primaryClicks,1);
+  assert.equal(arrowClicks,1);
+  assert.equal(conversationApprovals,1);
+  assert.equal(primaryClicks,0);
   dom.window.close();
 });
 
@@ -4222,11 +4222,11 @@ test('global approval setting clicks every current-action card in a non-queue Ch
   assert.equal(await h.processGlobalApprovalCards(),true);
   assert.equal(allowA,1);
   assert.equal(allowB,1);
-  assert.equal(menuClicks,0);
+  assert.equal(menuClicks,2);
   dom.window.close();
 });
 
-test('GitHub authorization card clicks its primary Allow instead of opening a scope menu',async()=>{
+test('GitHub authorization ignores an unrelated pre-existing scope menu',async()=>{
   const {w,h,dom}=await fixture('<main><div id="card"><h2>允许 ChatGPT 使用 GitHub？</h2><button id="deny">拒绝</button><button id="allow">允许</button><button id="arrow" aria-haspopup="menu" aria-label="Allow GitHub for this conversation">⌄</button></div><div role="menu"><button role="menuitem" aria-label="Allow GitHub for this conversation">Allow GitHub for this conversation</button></div></main>');
   let primaryClicks=0, arrowClicks=0, approvals=0;
   w.document.querySelector('#allow').onclick=()=>primaryClicks++;
@@ -4234,7 +4234,7 @@ test('GitHub authorization card clicks its primary Allow instead of opening a sc
   w.document.querySelector('[role=menuitem]').onclick=()=>approvals++;
   await h.authorize(h.cards()[0],null,null,false);
   assert.equal(primaryClicks,1);
-  assert.equal(arrowClicks,0);
+  assert.equal(arrowClicks,1);
   assert.equal(approvals,0);
   dom.window.close();
 });
@@ -4373,13 +4373,13 @@ test('resumed approval card stays unassigned when a foreign task marker owns the
   assert.notEqual(result.state,'approval','a visible marker for a different task must retain the fail-closed boundary');
   dom.window.close();
 });
-test('authorization card does not open its Radix scope trigger when clicking primary Allow',async()=>{
+test('authorization card opens its Radix scope trigger before primary fallback',async()=>{
   const {w,h,dom}=await fixture('<main><div id="card"><p>任意内容</p><button>拒绝</button><button id="allow">允许</button><button id="arrow" aria-haspopup="menu" aria-label="Allow GitHub for this conversation">⌄</button></div></main>');
   let pointerdowns=0, primaryClicks=0;
   w.document.querySelector('#arrow').addEventListener('pointerdown',()=>pointerdowns++);
   w.document.querySelector('#allow').onclick=()=>primaryClicks++;
   await h.authorize(h.cards()[0],null,null,false);
-  assert.equal(pointerdowns,0);
+  assert.equal(pointerdowns,1);
   assert.equal(primaryClicks,1);
   dom.window.close();
 });
@@ -7226,8 +7226,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2.10.62$/m);
-  assert.match(source,/const VERSION = '2.10.62'/);
+  assert.match(source,/^\/\/ @version\s+2.10.63$/m);
+  assert.match(source,/const VERSION = '2.10.63'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
@@ -7822,7 +7822,7 @@ test('split authorization falls back to primary Allow when no conversation-scope
   }finally{h.pause();dom.window.close();}
 });
 
-test('all authorization cards click the primary current-action control',async()=>{
+test('all authorization cards inspect scope before primary fallback',async()=>{
   const {w,h,dom}=await fixture('<main><section class="approval-card"><h3>任意授权请求 A</h3><button id="deny-a">拒绝</button><button id="allow-a">允许</button><button id="arrow-a" aria-haspopup="menu">⌄</button></section><section class="authorization-card"><h3>任意授权请求 B</h3><button id="deny-b">Deny</button><button id="allow-b">Allow once</button><button id="arrow-b" aria-haspopup="menu">⌄</button></section></main>');
   try{
     let allowClicks=0, onceClicks=0, menuClicks=0;
@@ -7836,11 +7836,11 @@ test('all authorization cards click the primary current-action control',async()=
     for(const card of pending) await h.authorize(card,null,null,false);
     assert.equal(allowClicks,1);
     assert.equal(onceClicks,1);
-    assert.equal(menuClicks,0);
+    assert.equal(menuClicks,2);
   }finally{h.pause();dom.window.close();}
 });
 
-test('primary Allow is clicked even when a conversation-scoped menu is available',async()=>{
+test('primary Allow falls back after inspecting an empty scope menu',async()=>{
   const {w,h,dom}=await fixture('<main><section class="approval-card"><h3>任意授权请求</h3><button id="deny">拒绝</button><button id="allow">允许</button><button id="arrow" aria-haspopup="menu">⌄</button></section></main>');
   try{
     let allowClicks=0, menuClicks=0;
@@ -7848,7 +7848,7 @@ test('primary Allow is clicked even when a conversation-scoped menu is available
     w.document.querySelector('#arrow').addEventListener('click',()=>menuClicks++);
     await h.authorize(h.cards()[0],null,null,false);
     assert.equal(allowClicks,1);
-    assert.equal(menuClicks,0);
+    assert.equal(menuClicks,1);
   }finally{h.pause();dom.window.close();}
 });
 
@@ -8149,4 +8149,45 @@ test('automatic reveal never opens an approval-shaped quote inside the latest us
   w.document.querySelector('#activity').onclick=()=>clicks++;
   await h.authorize(h.cards({wide:true})[0],task);assert.equal(clicks,0);
  }finally{h.pause();dom.window.close();}
+});
+
+test('delayed Chinese conversation grant beats primary and unrelated menu',async()=>{
+  const {h,w,dom}=await fixture('<main><section class="approval-card"><button>拒绝</button><button id="allow">允许一次</button><button id="arrow" aria-haspopup="menu">⌄</button></section></main><div role="menu"><button role="menuitem" id="foreign">允许本次会话</button></div>');
+  try {
+    let primary=0, scoped=0, foreign=0;
+    w.document.querySelector('#allow').onclick=()=>primary++;
+    w.document.querySelector('#foreign').onclick=()=>foreign++;
+    w.document.querySelector('#arrow').addEventListener('pointerdown',()=>{
+      w.setTimeout(()=>{
+        const menu=w.document.createElement('div');menu.setAttribute('role','menu');
+        menu.innerHTML='<div role="menuitem">允许本次会话</div>';
+        menu.firstChild.onclick=()=>scoped++;
+        w.document.body.append(menu);
+      },30);
+    });
+    assert.equal(await h.authorize(h.cards()[0],null,null,false),true);
+    assert.deepEqual([primary,scoped,foreign],[0,1,0]);
+    assert.equal(await h.authorize(h.cards()[0],null,null,false),false);
+    assert.equal(scoped,1);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('disabled scope arrow cannot bypass conversation selection',async()=>{
+  const {h,w,dom}=await fixture('<main><section class="approval-card"><button>拒绝</button><button id="allow">允许一次</button><button aria-haspopup="menu" disabled>⌄</button></section></main>');
+  try {
+    let clicks=0;w.document.querySelector('#allow').onclick=()=>clicks++;
+    assert.equal(await h.authorize(h.cards()[0],null,null,false),false);
+    assert.equal(clicks,0);
+  } finally {h.pause();dom.window.close();}
+});
+
+test('aborting during menu observation prevents both grant paths',async()=>{
+  const {h,w,dom}=await fixture('<main><section class="approval-card"><button>拒绝</button><button id="allow">允许一次</button><button id="arrow" aria-haspopup="menu">⌄</button></section></main>');
+  try {
+    const abort=new w.AbortController();let clicks=0;
+    w.document.querySelector('#allow').onclick=()=>clicks++;
+    w.document.querySelector('#arrow').addEventListener('pointerdown',()=>w.setTimeout(()=>abort.abort(),20));
+    await assert.rejects(h.authorize(h.cards()[0],null,abort.signal,false));
+    assert.equal(clicks,0);
+  } finally {h.pause();dom.window.close();}
 });

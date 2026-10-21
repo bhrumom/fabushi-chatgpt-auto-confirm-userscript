@@ -265,7 +265,7 @@
     const memoryCleanupButton = element('button','清理当前标签页内存','memory-cleanup'); memoryCleanupButton.type='button';
     const memoryStatusNode = element('small',[memoryStatusText(), storageStatusText(), `宿主唤醒 ${backgroundClock.status().lastWakeAt ? new Date(backgroundClock.status().lastWakeAt).toLocaleTimeString() : '等待'}，时钟响应 ${backgroundClock.status().hostReplies}`].filter(Boolean).join(' · '),'memory-status');
     chat.append(head);
-    settings.append(globalApprovalLabel,globalPauseButton,memoryCleanupButton,memoryStatusNode,element('small','此数值只估算网页 JavaScript 堆，不等于 Chrome 标签页完整内存。宿主只能卸载非活动且无未保存内容/进行中任务的标签页；重新打开时会重新加载。活动标签页无法通过 tabs.discard 清理到初始占用。'),element('small','自动点击每张授权卡的当前操作“允许/允许一次”；不会展开范围菜单，也不会选择“Allow low-risk actions”或“始终允许”。'));
+    settings.append(globalApprovalLabel,globalPauseButton,memoryCleanupButton,memoryStatusNode,element('small','此数值只估算网页 JavaScript 堆，不等于 Chrome 标签页完整内存。宿主只能卸载非活动且无未保存内容/进行中任务的标签页；重新打开时会重新加载。活动标签页无法通过 tabs.discard 清理到初始占用。'),element('small','自动展开授权选项，优先选择“允许本次会话”；没有该选项时使用“允许/允许一次”，不会选择永久或低风险授权。'));
     const feed = element('div','','feed'); feed.setAttribute('role','log'); feed.setAttribute('aria-live','polite');
     const notice = element('div','单标签页 · 已暂停','notice');
     const compose = element('form','','compose'), input = element('textarea'); input.placeholder = '输入任务目标，可直接粘贴图片或视频…'; input.setAttribute('aria-label','任务目标');
