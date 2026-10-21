@@ -50,6 +50,35 @@ test('Work prompt owns the final report contract and no planner prompt remains i
   }
 });
 
+test('Work prompt enforces a hard execution-completion gate before terminal reporting', async () => {
+  const { dom, hooks } = await createHarness('<main></main>');
+  try {
+    const task = { id:'execution-gate', round:4, goal:'落实全部明确要求', mode:'goal', phase:'work', token:'execution-gate-token', attachments:[], result:'', next:'' };
+    const prompt = hooks.workPrompt(task);
+    assert.ok(prompt.includes('最终回复模板只是每轮的机器可读状态报告，不是停止工作的许可'));
+    assert.ok(prompt.includes('必须在内部逐项列出原始目标和每项明确要求/验收条件'));
+    assert.ok(prompt.includes('分析、方案、建议、任务拆解、代码片段、尚未应用的 diff 或口头声称均不等于完成'));
+    assert.ok(prompt.includes('只有每项要求和验收条件都已按原始范围实际完成，且有真实、可追溯的证据，才允许 status=complete'));
+    assert.ok(prompt.includes('queued/in_progress、失败、缺少证据、未提交变更'));
+    assert.ok(prompt.includes('若任务明确是只读审计，必须完成每一项真实读取'));
+    assert.ok(prompt.includes('若仍有未完成项，必须使用 status=next'));
+    assert.ok(prompt.includes('没有状态变化不得反复执行同一个失败动作'));
+    assert.ok(prompt.includes('任何一项未完成或未核验，status 必须是 next'));
+    const repairPrompt = hooks.workPrompt({
+      ...task,
+      workFinalReportRepairCarryTaskId: task.id,
+      workFinalReportRepairCarryRound: task.round,
+      workFinalReportRepairCarryGoalRevision: 0,
+      workFinalReportRepairCarry: '已完成生产修改的证据',
+    });
+    assert.ok(repairPrompt.includes('不得重复已完成的生产修改'));
+    assert.ok(repairPrompt.includes('若发现任何要求事实上尚未落实'));
+    assert.ok(repairPrompt.includes('不能把报告修复当作完成'));
+  } finally {
+    dom.window.close();
+  }
+});
+
 test('semantic response actions recognize a completed reply when ChatGPT changes data-testid values', async () => {
   const { dom, hooks } = await createHarness(`
     <main>

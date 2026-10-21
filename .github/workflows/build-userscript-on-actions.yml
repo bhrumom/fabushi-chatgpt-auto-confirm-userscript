@@ -1,0 +1,39 @@
+name: Build userscript bundle on GitHub Actions
+
+on:
+  push:
+    branches:
+      - fix/work-prompt-execution-completion-gate-v2.10.62
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the task branch
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Generate the userscript bundle on GitHub Actions
+        run: npm run build
+
+      - name: Commit generated bundle to the task branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- chatgpt-auto-confirm.user.js; then
+            echo "Generated bundle is already current."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add chatgpt-auto-confirm.user.js
+          git commit -m "chore: regenerate userscript bundle for v2.10.62"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
