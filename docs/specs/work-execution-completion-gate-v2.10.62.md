@@ -122,5 +122,10 @@ Record exact branch/commit, PR head, workflow run/job results, merge SHA, canoni
 
 | Requirement / AC | Status | Evidence / reason |
 | --- | --- | --- |
-| R1-R8 | pending | Implementation and exact-head Actions verification not yet completed. |
-| AC-1 to AC-6 | pending | Implementation, merge, canonical-main and release evidence pending. |
+| R1-R8 | implemented and verified | `workPrompt()` and focused regression coverage are present; exact-head Test run 39588618814 on `9b2d8c1a59efd4c1615553d25f57fbcfd0f6b6ce` passed generated bundle parity, `node --check`, and the full Node/JSDOM suite (493 tests: 486 passed, 0 failed, 7 skipped). |
+| AC-1 | passed | Strict execution-completion gate is present in the generated userscript and source prompt. |
+| AC-2 | passed | Prompt explicitly requires every in-scope requirement and acceptance criterion to be implemented and evidenced before `status=complete`. |
+| AC-3 | passed | Prompt requires `status=next` with an immediate action while actionable work or unresolved blockers remain. |
+| AC-4 | passed | Read-only scope and report-repair non-duplication are preserved by prompt and regression assertions. |
+| AC-5 | passed | Run 39588618814, exact head `9b2d8c1a59efd4c1615553d25f57fbcfd0f6b6ce`: bundle parity, syntax, and complete regression suite all passed. |
+| AC-6 | pending | Merge, canonical-main Test, release tag/asset digest, and public release verification remain. |
