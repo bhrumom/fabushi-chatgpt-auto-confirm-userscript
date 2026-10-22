@@ -7226,8 +7226,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2.10.63$/m);
-  assert.match(source,/const VERSION = '2.10.63'/);
+  assert.match(source,/^\/\/ @version\s+2.10.64$/m);
+  assert.match(source,/const VERSION = '2.10.64'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
@@ -8190,4 +8190,61 @@ test('aborting during menu observation prevents both grant paths',async()=>{
     await assert.rejects(h.authorize(h.cards()[0],null,abort.signal,false));
     assert.equal(clicks,0);
   } finally {h.pause();dom.window.close();}
+});
+
+test('GPT-6 model confirmation dismisses a sticky radio popup through a page heading outside main',async()=>{
+  let outside=0,selectedClicks=0,sends=0;
+  const {h,w,dom}=await fixture('<div><h1>今天想聊点什么？</h1><button data-codex-intelligence-trigger="true" data-composer-navigation-target="reasoning" aria-haspopup="menu" aria-expanded="false" data-selected-reasoning-effort="medium">Medium</button><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">Send</button></form></div>',window=>{
+    const d=window.document,trigger=d.querySelector('[data-codex-intelligence-trigger]');
+    let opens=0;
+    trigger.addEventListener('click',()=>{
+      if(d.querySelector('[role=menu]'))return; // synthetic Escape/toggle ignored
+      trigger.setAttribute('aria-expanded','true');
+      const menu=d.createElement('div');menu.setAttribute('role','menu');
+      menu.innerHTML=++opens===1?'<div role="menuitemradio" aria-checked="true">GPT-6</div>':'<div data-reasoning-slider="true"><span role="slider" aria-valuenow="3" aria-valuemin="0" aria-valuemax="4"></span></div>';
+      menu.querySelector('[role=menuitemradio]')?.addEventListener('click',()=>selectedClicks++);
+      d.body.append(menu);
+    });
+    d.querySelector('h1').addEventListener('pointerdown',()=>{outside++;d.querySelector('[role=menu]')?.remove();trigger.setAttribute('aria-expanded','false');});
+    d.querySelector('[data-testid=send-button]').addEventListener('click',()=>sends++);
+  });
+  try{
+    const task={id:'six-sticky-close',ownerTabId:h.getTabId(),goal:'keep goal',token:'keep token',round:2,phase:'work',state:'sending',modelPreset:'gpt-6',reasoningPreset:3,messages:[]};
+    h.data.tasks.push(task);h.setRunningForTest(true);
+    assert.equal(await h.ensureTaskModelPreset(task,null),true);
+    assert.equal(task.modelPresetConfirmedKey,'gpt-6');
+    assert.equal(h.modelRadioOptions().length,0);
+    assert.equal(outside,1);
+    assert.equal(selectedClicks,0,'already selected GPT-6 is never reselected');
+    assert.equal(await h.ensureTaskReasoningPreset(task,null),true);
+    assert.equal(task.reasoningPresetConfirmedIndex,3);
+    assert.equal(task.modelPreset,'gpt-6');assert.equal(task.round,2);assert.equal(task.token,'keep token');
+    assert.equal(sends,0,'preflight does not Send');
+  }finally{h.pause();dom.window.close();}
+});
+
+test('inactive animated model radios and disabled strength cannot mask the active reasoning view',async()=>{
+  const {h,w,dom}=await fixture('<main><button data-codex-intelligence-trigger="true" data-composer-navigation-target="reasoning" aria-haspopup="menu" aria-expanded="true" data-selected-reasoning-effort="medium">Medium</button><div role="menu"><div data-active="false"><div role="menuitemradio" aria-checked="true">GPT-6</div><div data-reasoning-slider="true" aria-disabled="true"><span role="slider" aria-valuenow="1" aria-valuemin="0" aria-valuemax="4"></span></div></div><div aria-hidden="true"><div role="menuitemradio" aria-checked="true">GPT-5.6 Sol</div></div><div data-active="true"><div data-reasoning-slider="true"><span role="slider" aria-valuenow="3" aria-valuemin="0" aria-valuemax="4"></span></div></div></div></main>');
+  try{
+    const task={id:'active-strength',ownerTabId:h.getTabId(),state:'sending',phase:'work',round:1,reasoningPreset:3,messages:[]};
+    h.data.tasks.push(task);h.setRunningForTest(true);
+    assert.equal(h.modelRadioOptions().length,0,'laid-out inactive radios do not establish an open model list');
+    assert.equal(h.modelRadioOption('gpt-6'),null,'stale checked radio cannot confirm model');
+    assert.equal(await h.ensureTaskReasoningPreset(task,null),true);
+    assert.equal(task.reasoningPresetConfirmedIndex,3);
+  }finally{h.pause();dom.window.close();}
+});
+
+test('GPT-6 selected but undismissable popup fails closed and never clicks unsafe transcript headings',async()=>{
+  let unsafe=0;
+  const {h,w,dom}=await fixture('<article><h1>Transcript heading</h1></article><nav><h2>Navigation</h2></nav><header><h1>Title action</h1></header><button data-codex-intelligence-trigger="true" aria-haspopup="menu" aria-expanded="false">Medium</button><div role="menu"><div role="menuitemradio" aria-checked="true">GPT-6</div></div>',window=>{
+    window.document.querySelectorAll('h1,h2').forEach(n=>n.addEventListener('pointerdown',()=>unsafe++));
+  });
+  try{
+    const task={id:'unsafe-close',ownerTabId:h.getTabId(),state:'sending',phase:'work',round:1,modelPreset:'gpt-6',messages:[]};
+    h.data.tasks.push(task);h.setRunningForTest(true);
+    assert.equal(await h.ensureTaskModelPreset(task,null),false);
+    assert.notEqual(task.modelPresetConfirmedKey,'gpt-6');
+    assert.equal(unsafe,0);assert.equal(h.modelRadioOptions().length,1);
+  }finally{h.pause();dom.window.close();}
 });
