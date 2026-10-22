@@ -198,7 +198,7 @@
       : '发送确认超时，正在检查恢复';
   }
   function taskRecoveryStatusText(task, now = Date.now()) {
-    if (task?.concurrentRequestRetryAt) return '已识别并发请求过多；等待后重试，持续失败会自动接力';
+    if (task?.state === 'waiting' && Number(task.concurrentRequestRetryAt || 0) > now) return '已识别并发请求过多；等待后重试，持续失败会自动接力';
     if (data.requireAuthorizationBeforeNewChat && task?.authorizationRequiredContinuation) return `当前会话尚未出现授权卡片；已继续 ${authorizationContinuationAttempts(task)}/3 次，最多继续 3 次后新开会话`;
     if (task?.state === 'approval') return !data.autoApprove && !data.globalAutoApprove
       ? '自动授权已关闭，任务正在等待手动处理；授权卡可能收在“先前活动”中。点击“定位授权卡”后选择允许或拒绝；等待期间不会自动重发任务'

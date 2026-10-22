@@ -153,6 +153,7 @@ test('authorization check is an optional persisted workspace switch, default off
     assert.equal(h.data.requireAuthorizationBeforeNewChat,true);
     assert.equal(JSON.parse(w.localStorage.getItem('fabushi-workbench-v2')).tabControls[h.tabId].requireAuthorizationBeforeNewChat,true);
     h.data.tabControls.other={autoResume:true,requireAuthorizationBeforeNewChat:false};
+    h.data.tasks.push({id:'other-workspace-task',ownerTabId:'other',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/other-workspace',attachments:[]});
     const saved=h.durableWorkbenchSnapshot(h.data);
     assert.equal(saved.tabControls[h.tabId].requireAuthorizationBeforeNewChat,true);
     assert.equal(saved.tabControls.other.requireAuthorizationBeforeNewChat,false);
