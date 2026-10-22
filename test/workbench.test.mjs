@@ -2042,6 +2042,7 @@ test('conversation length-limit handoff copies the complete current assistant re
     <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">第二会话又完成 C/D。</div></div></article>
     <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">你已达到此对话的长度上限，你可以开始新聊天以继续对话。</div></div></article>`;
   task.url='https://chatgpt.com/c/length-two';
+  task.authorizationSeenURL=task.url; task.authorizationSeenAt=1; // This second handoff fixture also observed its own card.
   task.token='second-token';
   task.state='waiting';
   w.history.pushState({},'', '/c/length-two');
@@ -5438,7 +5439,7 @@ test('startup auto-resume arms recovered-final identity for the exact persisted 
   const restored=h.data.tasks.find(item=>item.id===task.id);
   assert.ok(restored);
   assert.deepEqual(JSON.parse(JSON.stringify(restored.recoveredFinalIdentity)),{
-    authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/startup-recovered-final', url:'https://chatgpt.com/c/startup-recovered-final',
+    url:'https://chatgpt.com/c/startup-recovered-final',
     token:'startup-recovered-token',
     phase:'work',
     round:5,
@@ -5483,7 +5484,7 @@ test('startup re-arm preserves explicit manual recovery across a document reload
   assert.ok(restored);
   assert.equal(restored.explicitRecoveryActive,true);
   assert.deepEqual(JSON.parse(JSON.stringify(restored.recoveredFinalIdentity)),{
-    authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/startup-explicit-recovery', url:'https://chatgpt.com/c/startup-explicit-recovery',
+    url:'https://chatgpt.com/c/startup-explicit-recovery',
     token:'startup-explicit-token',
     phase:'work',
     round:6,
@@ -7708,6 +7709,7 @@ for(const scenario of ['final','newer-user'])test(`adopted markerless Work final
   const task={id:'adopted-work-final',ownerTabId:h.getTabId(),goal:'goal',mode:'goal',phase:'work',round:2,state:'sending',authorizationSeenAt:1, authorizationSeenURL:'', url:'',token:'original-click',attempted:true,sentAt:Date.now()-100000,dispatchOriginURL:'',messages:[],sessionUrls:[]};
   h.data.tasks.push(task);h.setRunningForTest(true);
   assert.equal(h.adoptUnboundAttemptedConversation(task),w.location.href);
+  task.authorizationSeenURL=task.url; task.authorizationSeenAt=1; // Observed after the new route was bound.
   assert.ok(task.recoveredFinalIdentity);task.attempted=false;task.state='waiting';
   assert.equal(h.taskTurnForInspection(task).owned,true);assert.equal(h.taskTurnForInspection(task).final,true);
   if(scenario==='newer-user')w.document.querySelector('main').insertAdjacentHTML('beforeend','<article><div data-message-author-role="user" data-message-id="foreign-new">Other request</div></article>');

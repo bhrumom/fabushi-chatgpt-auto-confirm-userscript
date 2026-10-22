@@ -928,7 +928,7 @@ test('manual pause and resume re-arms recovered-final identity for a completed e
 
     assert.equal(await hooks.resumeTask(task), true);
     assert.deepEqual(JSON.parse(JSON.stringify(task.recoveredFinalIdentity)), {
-      authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/paused-resume-final', url:'https://chatgpt.com/c/paused-resume-final',
+      url:'https://chatgpt.com/c/paused-resume-final',
       token:'paused-resume-token',
       phase:'work',
       round:6,
@@ -1189,7 +1189,7 @@ test('manual task recovery arms the final-reply fallback identity for the exact 
     hooks.data.tasks.push(task);
     assert.equal(hooks.prepareTaskForRecovery(task), true);
     assert.deepEqual(JSON.parse(JSON.stringify(task.recoveredFinalIdentity)), {
-      authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/manual-recovery', url:'https://chatgpt.com/c/manual-recovery',
+      url:'https://chatgpt.com/c/manual-recovery',
       token:'manual-recovery-token',
       phase:'work',
       round:2,
@@ -1258,7 +1258,7 @@ test('restoring a waiting workspace into the current tab arms recovered-final id
     const restoredTask = hooks.data.tasks.find(item => item.id === task.id);
     assert.ok(restoredTask);
     assert.deepEqual(JSON.parse(JSON.stringify(restoredTask.recoveredFinalIdentity)), {
-      authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/current-tab-workspace-recovery', url:'https://chatgpt.com/c/current-tab-workspace-recovery',
+      url:'https://chatgpt.com/c/current-tab-workspace-recovery',
       token:'current-tab-workspace-token',
       phase:'work',
       round:4,
