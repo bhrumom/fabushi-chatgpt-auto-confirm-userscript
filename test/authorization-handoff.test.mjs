@@ -125,3 +125,18 @@ test('virtualized original marker continues only on the bound route without a co
     assert.equal(clicks,1);
   } finally {dom.window.close();}
 });
+
+test('an entirely unmounted original user still continues the ended bound assistant response',async()=>{
+  const {dom,w,h,task}=await harness();
+  try {
+    w.document.querySelector('[data-message-author-role="user"]').remove();
+    h.requireConversationAuthorization(task);
+    let clicks=0;w.document.querySelector('[data-testid="send-button"]').onclick=()=>clicks++;
+    assert.equal(await h.continueWithoutAuthorization(task,new w.AbortController().signal),true);
+    assert.equal(clicks,1);
+    task.continuationSentAt=1;
+    task.authorizationRequiredContinuation=true;
+    assert.equal(await h.continueWithoutAuthorization(task,new w.AbortController().signal),false);
+    assert.equal(clicks,1);
+  } finally {dom.window.close();}
+});

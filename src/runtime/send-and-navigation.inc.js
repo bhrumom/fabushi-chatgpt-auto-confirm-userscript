@@ -397,7 +397,8 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     // A persisted click intent is never retried against the same ended turn,
     // even if the send acknowledgment was lost during a reload.
     const user = conversationRoleNodes('user').at(-1);
-    const userBoundary = recoveryUserBoundaryKey(user);
+    const userBoundary = recoveryUserBoundaryKey(user)
+      || (routeFallback && task.token && turn.text ? `virtualized:${task.token}` : '');
     const boundary = JSON.stringify([userBoundary, assistantResponseBoundaryKey(turn) || recoveryUserBoundaryKey(turn.article)]);
     if (!userBoundary || !turn.owned) return false;
     if (task.authorizationContinuationURL === route
