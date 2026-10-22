@@ -1,6 +1,6 @@
 # Conversation authorization required before handoff — v2.10.66
 
-Status: active
+Status: completed
 Owner: Fabushi userscript
 Last updated: 2026-10-22
 
@@ -16,7 +16,7 @@ The user requires at least one observed authorization card in the current ended/
 - R6 / AC6: Build parity, syntax and full regressions run in GitHub Actions; inspect exact-head CI, main CI, release and installed runtime separately.
 
 ## Architecture / data flow
-Card scanner records authorizationSeenURL/authorizationSeenAt on the unique bound route owner. Boundary guards queue authorizationRequiredContinuation without clearing dispatch. inspect sends through the existing composer only on the owned route. A route-scoped persisted continuation intent prevents repeated clicks for the same ended turn. Existing final-report contract remains unchanged.
+Card scanner records authorizationSeenURL/authorizationSeenAt on the unique bound route owner. Boundary guards queue authorizationRequiredContinuation without clearing dispatch. inspect sends through the existing composer only on the owned route; the existing exact-route ended-session fallback also covers a virtualized or entirely unmounted original user marker, while rejecting competing markers. Pending cards still block handoff after appearance is recorded. A route-scoped persisted continuation intent prevents repeated clicks for the same ended turn. Existing final-report contract remains unchanged.
 
 ## Constraints and failure modes
 No local build/test; GitHub Actions is authoritative. Source concatenation may be performed as file generation. Unsendable or length-exhausted chats remain bound and visibly waiting; absence of a card never permits a fresh-chat escape. No backfill from generic history or earlier conversations. Old cards not observed by this version remain unknown. A successful card appearance does not prove successful authorization.
@@ -30,4 +30,11 @@ User request 2026-10-22; AGENTS.md; spec-first-ai-development.md; connection-int
 ## Compliance
 | Requirement | Status | Evidence |
 | --- | --- | --- |
-| R1–R6 / AC1–AC6 | pending | Implementation and cloud verification pending. |
+| R1 / AC1 | passed | Card scanner records route-scoped appearance; disabled card, durable snapshot, cross-route and quoted-controls regressions pass. |
+| R2 / AC2 | passed | Completion, next report, repair, interrupted/blocked/length/rate-limit transitions use the shared guard. No-card boundary regressions pass. |
+| R3 / AC3 | passed | Exact continuation prompt, original identity, draft/pause/aborted/foreign-route safeguards and virtualized/unmounted marker tests pass. |
+| R4 / AC4 | passed | Persisted ended-turn send intent, cooldown, same-boundary reload deduplication and URL-scoped authorization tests pass. |
+| R5 / AC5 | passed | Pending card still blocks handoff; existing authorization choice/settlement regression suite passes. |
+| R6 / AC6 | passed | PR #185 exact head 66b428a72927526847a4dfc726aea1adca1cf647: Test 39763730623 passed; merge dad0b3026d83c78634d36c7987ff6e641fe2d523: Test 39764106048 and Release 39764364645 passed. 520 tests: 513 pass, 0 fail, 7 skipped. Release v2.10.66 asset 665516250 SHA-256 841203c959c9866544dedf744d5a3ce67041d217d89c91d50b92a8bfd9c3cc9e matches source. Chrome installed/enabled 2.10.66; the original /c/6ad9e617-27bc-83e8-a0e9-6bc78d81f861 page reports runtime 2.10.66 after same-tab reload. |
+
+Live scope: installation, runtime version and preserved original route are observed. The new no-card continuation decision is covered by DOM regressions; a new natural ended-without-card transition has not yet been claimed as observed.
