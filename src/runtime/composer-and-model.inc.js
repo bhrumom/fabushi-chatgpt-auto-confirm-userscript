@@ -1213,77 +1213,64 @@
     }
     return null;
   }
-  function concurrentRequestRetry(turn, getPageRecords = pageUiTextRecords) {
-    const article = turn?.article;
-    if (!article) return null;
-    const follows = (a,b) => Boolean(a && b && (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING));
-    const user = conversationRoleNodes('user').at(-1);
-    for (const record of [...responseTextNodes(turn), ...getPageRecords()]) {
-      const parent = record.parent;
-      if (!parent || !visible(parent) || own(parent) || parent.closest('blockquote,pre,code')
-        || conversationRole(parent.closest?.(conversationRoleSelector)) === 'user'
-        || (!article.contains(parent) && !follows(article,parent))
-        || (user && !follows(user,parent))
-        || !/^(?:too many concurrent requests|并发请求过多|同时请求过多)[.!。！]?$/i.test(record.direct)) continue;
-      for (let scope = parent, depth = 0; scope && depth < 6; scope = scope.parentElement, depth++) {
-        if (scope.matches('main,[role="main"],body') || own(scope)) break;
-        const retry = nodes('button,[role="button"]', scope).find(control =>
-          enabled(control) && [text(control),control.getAttribute('aria-label'),control.getAttribute('title')]
-            .some(value => /^(?:重试|再次尝试|再试一次|retry|try again)$/i.test(normalize(value))));
-        if (retry) return retry;
-        if (scope === article) break;
-      }
-    }
-    return null;
+  function clearStoppedConversationInspection(task) {
+    task.stoppedConversationIdentity = '';
+    task.stoppedConversationSince = 0;
+    clearStopNoApprovalConfirmation(task);
   }
-  async function recoverConcurrentRequest(task, signal, now = Date.now()) {
+  async function recoverStoppedConversation(task, signal, now = Date.now()) {
     const route = currentConversationURL();
     if (!running || data.autoResume === false || signal?.aborted || !task
       || terminal.has(task.state) || task.state === 'paused' || task.attempted
       || !route || route !== canonicalConversationURL(task.url) || !taskBelongsToTab(task)
       || conversationURLOwner(route, task.id)
       || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))) return false;
+    const reset = () => {
+      if (task.stoppedConversationSince || task.stoppedConversationIdentity) {
+        clearStoppedConversationInspection(task); save();
+      }
+    };
+    if (stopButton()) { reset(); return false; }
     let turn = taskTurnForInspection(task);
     if (!turn.owned && !taskMarkerUser(task)
       && !conversationRoleNodes('user').some(node => /\[Fabushi:[^\]]+\]/.test(text(node)))) {
       turn = { ...latestTurn(), owned:true };
     }
-    if (!turn.owned || turn.final) return false;
-    const retry = concurrentRequestRetry(turn);
-    if (!retry) return false;
-    // An unresolved grant and genuine generation always keep their normal
-    // inspector path. Never click Retry through an active approval surface.
-    if (stopButton() || cards({ wide:true }).length || approvalSettlementActive(task, route) || blocker()) return false;
     const input = composer();
-    if (!input || normalize(input.value || input.textContent)) return true;
-    const key = JSON.stringify([route, recoveryUserBoundaryKey(conversationRoleNodes('user').at(-1)) || task.token,
-      String(task.phase || ''), Number(task.round || 0)]);
-    if (task.concurrentRequestIdentity !== key) {
-      task.concurrentRequestIdentity = key;
-      task.concurrentRequestRetryCount = 0;
-      task.concurrentRequestRetryAt = now + 30_000;
-      task.state = 'waiting';
-      log(task, '检测到当前回复 Too many concurrent requests（并发请求过多）；等待 30 秒后在原会话重试，不把错误当作完成。');
+    const hasResponse = Boolean(String(turn.text || '').trim() || (turn.article && hasTextNode(turn.article))
+      || (task.stopObservedGenerationAt && visibleConversationHasMessages()));
+    // A shell that has not hydrated its response is not an ended turn.
+    if (!turn.owned || !hasResponse || !input || normalize(input.value || input.textContent)
+      || turn.final || currentWorkFinalReport(turn.text, task) || blocker() || rateLimitNotice()) { reset(); return false; }
+    if (cards({ wide:true }).length || approvalSettlementActive(task, route, now)) { reset(); return false; }
+    const inheritedStop = task.stopObservedGenerationIdentity === stopObservedGenerationIdentity(task,route)
+      && task.stopObservedDocumentId && task.stopObservedDocumentId !== DOCUMENT_INSTANCE_ID;
+    if (inheritedStop && (!task.reloadStopAbsentSince
+      || now-Number(task.reloadStopAbsentSince) < RELOAD_STOP_ABSENCE_STABILITY_MS)) return false;
+    const identity = JSON.stringify([route, String(task.token || ''), String(task.phase || ''), Number(task.round || 0),
+      recoveryUserBoundaryKey(conversationRoleNodes('user').at(-1)), assistantResponseBoundaryKey(turn),
+      stalledConversationContentHash({conversationTail:[{role:'assistant',text:String(turn.text || '')}]})]);
+    if (task.stoppedConversationIdentity !== identity || !Number(task.stoppedConversationSince || 0)) {
+      task.stoppedConversationIdentity = identity;
+      task.stoppedConversationSince = now;
+      task.stopNoApprovalConfirmSince = now;
+      task.stopNoApprovalConfirmSignature = identity;
+      task.updatedAt = now;
       save();
-      return true;
+      return false; // Ordinary classification may continue during confirmation.
     }
-    if (now < Number(task.concurrentRequestRetryAt || 0)) return true;
-    if (!Number(task.concurrentRequestRetryCount || 0)) {
-      check(signal);
-      task.concurrentRequestRetryCount = 1;
-      task.concurrentRequestRetryAt = now + 60_000;
-      task.state = 'waiting';
-      save(); // Durable intent before Retry: reload must not replay it.
-      activateControl(retry);
-      log(task, '已在原会话重试并发请求错误；保留任务，等待最多 60 秒观察恢复，持续失败将按当前授权检查开关接力。');
-      return true;
+    const since = Math.min(Number(task.stoppedConversationSince), Number(task.stopNoApprovalConfirmSince || task.stoppedConversationSince));
+    if (now - since < STOP_NO_APPROVAL_CONFIRM_MS) return false;
+    // Always read the live entire-page card surfaces again after expansion and
+    // the quiet window. Neither a stale spinner nor unknown error copy wins.
+    if (stopButton() || cards({ wide:true }).length || approvalSettlementActive(task, route, now)) { reset(); return false; }
+    const queued = queueInterruptedFreshRetry(task,
+      '停止按钮已经消失且没有授权卡片；已展开当前消息并复核整页，未发现有效最终报告，按异常中断处理',
+      now, turn, {allowExactRouteFallback:true,recoveryLabel:'停止按钮消失接力（通用异常中断）',historyReason:'structural-stop-absence'});
+    if (task.authorizationRequiredContinuation) {
+      await continueWithoutAuthorization(task, signal, now, { endedConfirmed:true });
     }
-    if (requireConversationAuthorization(task, '并发请求过多，原会话重试后仍未恢复')) {
-      await continueWithoutAuthorization(task, signal, now);
-      return true;
-    }
-    return queueInterruptedFreshRetry(task, '并发请求过多，等待并重试后仍未恢复', now, turn,
-      { allowExactRouteFallback:true, recoveryLabel:'并发请求错误恢复', historyReason:'concurrent-request-error' });
+    return queued;
   }
   function sendTimeoutNotice(turn = null, getPageRecords = pageUiTextRecords) {
     const pattern = /消息(?:发送)?(?:超时|错误|失败)\s*[，,。.!]?\s*请重试|message (?:send|sending) timed out|message (?:error|failed)[\s,:-]*(?:please )?(?:retry|try again)|failed to send|(?:a\s+)?network (?:connection )?(?:error|failure)(?: occurred)?|connection (?:error|failed|failure)|(?:check|verify) (?:your )?(?:internet|network|connection)|网络(?:连接)?(?:错误|失败)|连接(?:错误|失败)|(?:请)?检查(?:一下)?(?:你的|您的)?(?:互联网|网络|连接)/i;
