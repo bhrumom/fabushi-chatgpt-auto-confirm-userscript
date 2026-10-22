@@ -76,7 +76,7 @@ async function fixture(body='', setup=()=>{}, url='https://chatgpt.com/') {
     const form = w.document.querySelector('form') || w.document.body;
     form.append(trigger);
   }
-  await w.eval(source.replace('  mount();','  window.testHooks = { locatePendingAuthorization, taskCanBeRecoveredByHost, restorePausedTask, pauseTask, mergeStoredTasks, blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, interruptedFreshHandoffApprovalGate, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, assistantResponseBoundaryKey, taskTurnForInspection, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, conversationLoadFailure, clearConversationLoadFailureState, recoverConversationLoadFailure, cards, authorizationCardShell, structuralAuthorizationSurface, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, normalizeModelPreset, modelPresetLabel, taskModelPreset, normalizeReasoningPreset, reasoningPresetLabel, taskReasoningPreset, localizedChatWorkModeKind, chatWorkModeSelection, chatWorkModeControls, workModeEvidence, chatWorkModeState, ensureChatMode, chatWorkContinueOffer, chatWorkStayIdentity, clearChatWorkStayState, handleChatWorkContinueOffer, modelPickerTrigger, modelTriggerMatches, closedComposerModelHint, reopenModelPicker, modelMenuOption, modelSubmenuEntry, modelRadioOptions, modelRadioOption, modelRadioSelected, modelSubmenuHintMatches, openModelRadioList, confirmModelRadioSelection, ensureTaskModelPreset, currentTaskModelStillConfirmed, reasoningPickerTrigger, reasoningSliderState, clearReasoningPickerRecovery, waitForReasoningPicker, ensureTaskReasoningPreset, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, markApprovalUnavailable, clearApprovalUnavailableRefresh, refreshUnavailableApproval, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, requestSameDocumentHostReload, resetRendererRecoveryState, recoverStalledRoute, holdForChatGPTLoading, refreshStalledConversation, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, settleHostMemoryRequest, inspectMemoryPressure, memoryStatusText, storageStatusText, readRecentActivitySession, writeRecentActivitySession, recordRecentActivity, restoreRecentActivityMessages, taskRecoveryStatusText, taskStatusText, persistWorkbenchState, durableTaskSnapshot, durableWorkbenchSnapshot, fitWorkbenchSnapshotToLocalBudget, writeLocalStorageRecord, readStorageString, readWorkbenchOverflow, cleanupStaleFabushiStorage, fabushiLocalStorageFootprint, storageBudgets:()=>({workbench:WORKBENCH_LOCAL_STORAGE_TARGET_CHARS,total:FABUSHI_LOCAL_STORAGE_MAX_CHARS}), scheduleWorkspaceHeartbeat, workspaceHeartbeatScheduled:()=>Boolean(workspaceHeartbeatTimer), storagePersistenceStatus:()=>storagePersistenceStatus, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, setNavigatingForTest:value=>{navigating=Boolean(value);}, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), setRunningForTest:value=>{running=Boolean(value);}, getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
+  await w.eval(source.replace('  mount();','  window.testHooks = { locatePendingAuthorization, taskCanBeRecoveredByHost, restorePausedTask, pauseTask, mergeStoredTasks, blocker, rateLimitNotice, sendTimeoutNotice, conversationLengthLimitNotice, queueConversationLengthHandoff, conversationLengthContinuationContext, connectionInterruptedNotice, interruptedFreshHandoffApprovalGate, visibleAssistantWorkTranscript, persistHandoffReplySnapshot, handoffReplySnapshotForCurrentPhase, freshHandoffCarryForCurrentPhase, stopObservedGenerationIdentity, assistantResponseBoundaryKey, taskTurnForInspection, queueInterruptedFreshRetry, clearPendingContinuation, sendContinuation, classify, pageLoadingState, conversationLoading, renderedConversationMessage, visibleConversationHasMessages, visibleConversationProgressFingerprint, conversationLoadFailure, clearConversationLoadFailureState, recoverConversationLoadFailure, cards, authorizationCardShell, structuralAuthorizationSurface, latestTurn, parseReview, normalizeAttachmentMeta, taskAttachmentSummary, attachmentPrompt, attachmentInputFor, assignFilesToInput, pasteFilesToComposer, attachmentReady, ensureTaskAttachments, retryAttachmentUpload, holdForChatGPTLoading, recoverLegacyAttachmentUploadTimeouts, workPrompt, normalizeModelPreset, modelPresetLabel, taskModelPreset, normalizeReasoningPreset, reasoningPresetLabel, taskReasoningPreset, localizedChatWorkModeKind, chatWorkModeSelection, chatWorkModeControls, workModeEvidence, chatWorkModeState, ensureChatMode, chatWorkContinueOffer, chatWorkStayIdentity, clearChatWorkStayState, handleChatWorkContinueOffer, modelPickerTrigger, reasoningSliderState, modelTriggerMatches, closedComposerModelHint, reopenModelPicker, modelMenuOption, modelSubmenuEntry, modelRadioOptions, modelRadioOption, modelRadioSelected, modelSubmenuHintMatches, openModelRadioList, confirmModelRadioSelection, ensureTaskModelPreset, currentTaskModelStillConfirmed, reasoningPickerTrigger, reasoningSliderState, clearReasoningPickerRecovery, waitForReasoningPicker, ensureTaskReasoningPreset, enqueue, start, tick, pause, restorePausedTasks, markTasksPaused, migratePersistedPause, syncRemoteControl, authorize, markApprovalUnavailable, clearApprovalUnavailableRefresh, refreshUnavailableApproval, processGlobalApprovalCards, setGlobalAutoApprove, dismissUnexpectedModals, restoreCancelledTask, resumeTask, prepareTaskForRecovery, recoverPersistedBlockedTasks, deleteTask, prepareRecordedConversationOpen, navigate, queueNavigation, directNavigate, beginGuardedNavigation, armNavigationCommitWatchdog, requestSameDocumentHostReload, resetRendererRecoveryState, recoverStalledRoute, holdForChatGPTLoading, refreshStalledConversation, stopAmbiguousSend, adoptUnboundAttemptedConversation, retainedPreparedComposer, clearRetainedPreparedComposer, visibilityAwareDelay, noFinalReplyBackoffMs, queueNoFinalReplyRetry, recoverLegacyNavigationFailures, recoverLegacyExhaustedNoFinalReplies, dispatchCooldownRemaining, restForRateLimit, activateControl, editGoal, finish, inspect, send, log, data, measurements, observations, canonicalConversationURL, currentConversationURL, transientConversationURL, recordConversationURL, recordedConversationURL, captureConversationURL, conversationURLOwner, quarantineTransientConversationBindings, taskMatchesCurrentConversation, taskHoldsScheduler, taskDeferredUntil, nextSupervisionTask, nextTaskWakeDelay, validNavigationTicket, taskBelongsToTab, tabTasks, recoverableWorkspaces, restoreWorkspace, assignTaskToWorkspace, openTaskInNewWorkspace, findAutomaticRecoveryOwner, writeWorkspaceHeartbeat, ensureAutomaticRecoveryTicket, requestHostRecoveryCapability, releaseHostRecoveryCapability, requestHostNavigationPermit, settleHostNavigationRequest, rememberNavigationCommit, cancelHostNavigationLease, readMemorySnapshot, memoryPressureLevel, compactTaskMessages, cleanupLocalMemory, requestHostMemoryCleanup, settleHostMemoryRequest, inspectMemoryPressure, memoryStatusText, storageStatusText, readRecentActivitySession, writeRecentActivitySession, recordRecentActivity, restoreRecentActivityMessages, taskRecoveryStatusText, taskStatusText, persistWorkbenchState, durableTaskSnapshot, durableWorkbenchSnapshot, fitWorkbenchSnapshotToLocalBudget, writeLocalStorageRecord, readStorageString, readWorkbenchOverflow, cleanupStaleFabushiStorage, fabushiLocalStorageFootprint, storageBudgets:()=>({workbench:WORKBENCH_LOCAL_STORAGE_TARGET_CHARS,total:FABUSHI_LOCAL_STORAGE_MAX_CHARS}), scheduleWorkspaceHeartbeat, workspaceHeartbeatScheduled:()=>Boolean(workspaceHeartbeatTimer), storagePersistenceStatus:()=>storagePersistenceStatus, memoryDiscardSafety, memorySnapshot:()=>memorySnapshot, memoryPressure:()=>memoryPressure, hostMemoryPending:()=>hostMemoryPending, hostRecoveryCapability:()=>hostRecoveryCapability, recoverStaleWorkspaceAutomatically, setNavigatingForTest:value=>{navigating=Boolean(value);}, getNavigationState:()=>({navigating,navigationRequestPending,timer:Boolean(timer),navigationTimer:Boolean(navigationTimer)}), setRunningForTest:value=>{running=Boolean(value);}, getTabId:()=>tabId, getCurrent:()=>current, getDocumentInstanceId:()=>DOCUMENT_INSTANCE_ID };\n  mount();'));
   return {w,dom,h:w.testHooks};
 }
 test('recent activity restores the last two hours after reload without putting history back into localStorage',async()=>{
@@ -626,7 +626,7 @@ async function liveNestedModelFixture(initialLabel='GPT-6', options={}) {
       state.triggerClicks++;state.triggerTimes.push(Date.now());
       const open=trigger.getAttribute('aria-expanded')==='true';
       trigger.setAttribute('aria-expanded',open?'false':'true');trigger.dataset.state=open?'closed':'open';
-      if(open){menu()?.remove();return;}
+      if(open){menu()?.remove();if(options.realTriggerLabels)trigger.textContent=state.selected==='GPT-6'?'Medium':shortLabel(state.selected)+' Medium';return;}
       renderParent();
     });
     window.__liveNestedModelState=state;
@@ -7226,8 +7226,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2.10.64$/m);
-  assert.match(source,/const VERSION = '2.10.64'/);
+  assert.match(source,/^\/\/ @version\s+2.10.65$/m);
+  assert.match(source,/const VERSION = '2.10.65'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
@@ -8246,5 +8246,88 @@ test('GPT-6 selected but undismissable popup fails closed and never clicks unsaf
     assert.equal(await h.ensureTaskModelPreset(task,null),false);
     assert.notEqual(task.modelPresetConfirmedKey,'gpt-6');
     assert.equal(unsafe,0);assert.equal(h.modelRadioOptions().length,1);
+  }finally{h.pause();dom.window.close();}
+});
+
+test('real ChatGPT hidden semantic thumb is read while keyboard events target the visible Strength owner',async()=>{
+  let keys=0,thumbKeys=0;
+  const {h,w,dom}=await fixture('<button data-codex-intelligence-trigger="true" data-composer-navigation-target="reasoning" aria-haspopup="menu" aria-expanded="false" data-selected-reasoning-effort="medium">Medium</button>',window=>{
+    const d=window.document,trigger=d.querySelector('button');let index=1;
+    trigger.addEventListener('click',()=>{
+      const old=d.querySelector('[role=menu]');if(old){old.remove();trigger.setAttribute('aria-expanded','false');return;}
+      trigger.setAttribute('aria-expanded','true');
+      const menu=d.createElement('div');menu.setAttribute('role','menu');
+      menu.innerHTML='<div data-active="true" aria-hidden="false"><div role="menuitem" aria-label="强度" data-reasoning-slider="true"><span role="slider" aria-hidden="true" aria-valuenow="'+index+'" aria-valuemin="0" aria-valuemax="4"></span></div></div><div data-active="false" aria-hidden="true"><div role="menuitemradio" aria-checked="true">GPT-6</div></div>';
+      const control=menu.querySelector('[data-reasoning-slider]'),thumb=control.querySelector('[role=slider]');
+      thumb.getClientRects=()=>[];
+      thumb.addEventListener('keydown',()=>thumbKeys++);
+      control.addEventListener('keydown',event=>{if(event.key==='ArrowRight'){keys++;index++;thumb.setAttribute('aria-valuenow',index);trigger.dataset.selectedReasoningEffort=['none','medium','high','max','medium'][index];}});
+      d.body.append(menu);
+    });
+  });
+  try{
+    const task={id:'hidden-thumb',ownerTabId:h.getTabId(),phase:'work',round:1,state:'sending',reasoningPreset:3,messages:[]};
+    h.data.tasks.push(task);h.setRunningForTest(true);
+    assert.equal(await h.ensureTaskReasoningPreset(task,null),true);
+    assert.equal(task.reasoningPresetConfirmedIndex,3);assert.equal(keys,2);assert.equal(thumbKeys,0);
+    assert.equal(w.document.querySelector('[data-codex-intelligence-trigger]').dataset.selectedReasoningEffort,'max');
+  }finally{h.pause();dom.window.close();}
+});
+
+test('semantic thumb visibility cannot authorize inactive disabled or malformed Strength owners',async()=>{
+  const {h,w,dom}=await fixture('<div role="menu"><div data-active="false"><div data-reasoning-slider="true"><span role="slider" aria-valuenow="3" aria-valuemin="0" aria-valuemax="4"></span></div></div><div aria-hidden="true"><div data-reasoning-slider="true"><span role="slider" aria-valuenow="3" aria-valuemin="0" aria-valuemax="4"></span></div></div><div data-reasoning-slider="true" aria-disabled="true"><span role="slider" aria-valuenow="3" aria-valuemin="0" aria-valuemax="4"></span></div></div>');
+  try{
+    assert.equal(h.reasoningSliderState(),null);
+    const owner=w.document.createElement('div');owner.dataset.reasoningSlider='true';
+    owner.innerHTML='<span role="slider" aria-hidden="true" aria-valuenow="3" aria-valuemin="0" aria-valuemax="4"></span>';w.document.body.append(owner);
+    assert.equal(h.reasoningSliderState().current,3);
+    const thumb=owner.firstElementChild;
+    for(const bad of [null,'','NaN','3.5','-1','5']){
+      if(bad===null)thumb.removeAttribute('aria-valuenow');else thumb.setAttribute('aria-valuenow',bad);
+      assert.equal(h.reasoningSliderState(),null,String(bad));
+    }
+  }finally{h.pause();dom.window.close();}
+});
+
+test('every supported model reuses only same-intent authoritative proof and invalidates it on live or task changes',async()=>{
+  for(const [label,key] of [['GPT-6','gpt-6'],['GPT-5.6 Sol','gpt-5.6-sol'],['GPT-5.5','gpt-5.5']]){
+    const {h,w,dom,state}=await liveNestedModelFixture(label,{realTriggerLabels:true});
+    try{
+      const task={id:'proof-'+key,ownerTabId:h.getTabId(),token:'intent-1',goalRevision:0,phase:'work',round:1,state:'sending',modelPreset:key,messages:[]};
+      h.data.tasks.push(task);h.setRunningForTest(true);
+      assert.equal(await h.ensureTaskModelPreset(task,null),true,label);
+      const first=state.submenuClicks;
+      assert.equal(await h.ensureTaskModelPreset(task,null),true);
+      assert.equal(state.submenuClicks,first,'same intent does not reopen '+label);
+      // Remove the explicit model label so invalidation tests must use radio proof.
+      const trigger=w.document.querySelector('[data-codex-intelligence-trigger]');
+      trigger.textContent='Medium';task.token='intent-2';
+      assert.equal(await h.ensureTaskModelPreset(task,null),true);
+      assert.ok(state.submenuClicks>first,'new token requires fresh proof');
+      let before=state.submenuClicks;trigger.textContent='Medium';task.goalRevision++;
+      assert.equal(await h.ensureTaskModelPreset(task,null),true);assert.ok(state.submenuClicks>before);
+      before=state.submenuClicks;trigger.textContent='Medium';w.history.replaceState({},'', '/?new-route=1');
+      assert.equal(await h.ensureTaskModelPreset(task,null),true);assert.ok(state.submenuClicks>before);
+      before=state.submenuClicks;trigger.textContent='Medium';task.modelPresetConfirmedKey='';
+      assert.equal(await h.ensureTaskModelPreset(task,null),true);assert.ok(state.submenuClicks>before);
+      assert.equal(state.targetClicks,0,'no selected model is reselected');
+      assert.equal(task.modelPreset,key);
+    }finally{h.pause();dom.window.close();}
+  }
+});
+
+test('model proof does not cross tasks and a changed live label requires radio reconfirmation',async()=>{
+  const {h,w,dom,state}=await liveNestedModelFixture('GPT-6',{realTriggerLabels:true});
+  try{
+    const first={id:'proof-one',ownerTabId:h.getTabId(),token:'same-token',phase:'work',round:1,state:'sending',modelPreset:'gpt-6',messages:[]};
+    const second={...first,id:'proof-two',messages:[]};h.data.tasks.push(first,second);h.setRunningForTest(true);
+    assert.equal(await h.ensureTaskModelPreset(first,null),true);
+    let before=state.submenuClicks;
+    assert.equal(await h.ensureTaskModelPreset(second,null),true);assert.ok(state.submenuClicks>before);
+    const trigger=w.document.querySelector('[data-codex-intelligence-trigger]');trigger.textContent='加载中';before=state.submenuClicks;
+    assert.equal(await h.ensureTaskModelPreset(first,null),true);assert.ok(state.submenuClicks>before);
+    trigger.click();const entry=h.modelSubmenuEntry();entry.click();before=state.triggerClicks;
+    assert.equal(await h.ensureTaskModelPreset(first,null),true);
+    assert.ok(state.triggerClicks>before,'open popup must be observed and closed, never cached away');
   }finally{h.pause();dom.window.close();}
 });
