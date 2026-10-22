@@ -364,14 +364,22 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
   }
   async function continueWithoutAuthorization(task, signal, now = Date.now()) {
     const route = currentConversationURL();
-    if (!route || route !== canonicalConversationURL(task.url) || task.attempted
+    if (!running || data.autoResume === false || signal?.aborted
+      || !route || route !== canonicalConversationURL(task.url) || task.attempted
       || !taskBelongsToTab(task) || terminal.has(task.state) || task.state === 'paused'
       || conversationURLOwner(route, task.id)
       || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))) return false;
     const pending = cards({ wide:true });
     if (pending.length || conversationAuthorizationSeen(task)) return false;
     if (blocker() || rateLimitNotice()) return false;
-    const turn = taskTurnForInspection(task);
+    let turn = taskTurnForInspection(task);
+    // The same exact-route fallback already used by ended-session detection
+    // may continue a virtualized marker. It never adopts a foreign marker or
+    // turns assistant text into a final result; it only permits this prompt.
+    const routeFallback = !turn.owned && task.authorizationRequiredContinuation
+      && !taskMarkerUser(task)
+      && !conversationRoleNodes('user').some(node => /\[Fabushi:[^\]]+\]/.test(text(node)));
+    if (routeFallback) turn = { ...latestTurn(), owned:true };
     const stop = stopButton();
     if (stop) {
       // Only an explicit product interruption permits stopping a stale Stop

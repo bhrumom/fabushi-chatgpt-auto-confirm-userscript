@@ -9,7 +9,7 @@ async function harness() {
   const w = dom.window;
   w.Element.prototype.getClientRects = () => [{width:1,height:1}];
   w.navigator.locks = { request(_n, options, callback) { return Promise.resolve((typeof options === 'function' ? options : callback)({})); } };
-  await w.eval(source.replace('  mount();', `  window.hooks = {${names},run:()=>{running=true;data.autoResume=true;}};\n  mount();`));
+  await w.eval(source.replace('  mount();', `  window.hooks = {${names},run:()=>{running=true;data.autoResume=true;},halt:()=>{running=false;}};\n  mount();`));
   const h=w.hooks;
   const task={id:'guard',ownerTabId:h.tabId,url:w.location.href,phase:'work',round:1,mode:'goal',state:'waiting',token:'guard-token',attempted:false,goal:'完成目标',attachments:[],messages:[],goalRevision:0,dispatchGoalRevision:0};
   h.data.tasks.push(task); h.run();
@@ -58,7 +58,7 @@ test('same-conversation continuation sends exact prompt once per user boundary e
     assert.equal(clicks,1);
   } finally {dom.window.close();}
 });
-for(const scenario of ['draft','paused','stop','foreign-route']) {
+for(const scenario of ['draft','paused','stop','foreign-route','aborted','runner-paused']) {
   test(`continuation respects ${scenario}`,async()=>{
     const {dom,w,h,task}=await harness();
     try {
@@ -67,8 +67,11 @@ for(const scenario of ['draft','paused','stop','foreign-route']) {
       if(scenario==='paused') task.state='paused';
       if(scenario==='stop') w.document.body.insertAdjacentHTML('beforeend','<button aria-label="停止生成"></button>');
       if(scenario==='foreign-route') w.history.replaceState({},'', '/c/other');
+      const controller=new w.AbortController();
+      if(scenario==='aborted') controller.abort();
+      if(scenario==='runner-paused') h.halt();
       let clicks=0;w.document.querySelector('[data-testid="send-button"]').onclick=()=>clicks++;
-      assert.equal(await h.continueWithoutAuthorization(task,new w.AbortController().signal),false);
+      assert.equal(await h.continueWithoutAuthorization(task,controller.signal),false);
       assert.equal(clicks,0);
     } finally {dom.window.close();}
   });
@@ -104,5 +107,21 @@ test('new current card resumes the gate but quoted authorization never qualifies
     assert.equal(clicks,0);
     w.document.querySelectorAll('[data-testid="authorization-card"]').forEach(node=>node.remove());
     assert.equal(h.requireConversationAuthorization(task),false);
+  } finally {dom.window.close();}
+});
+
+test('virtualized original marker continues only on the bound route without a competing marker',async()=>{
+  const {dom,w,h,task}=await harness();
+  try {
+    w.document.querySelector('[data-message-author-role="user"]').textContent='Original task prompt, marker virtualized';
+    h.requireConversationAuthorization(task);
+    let clicks=0;w.document.querySelector('[data-testid="send-button"]').onclick=()=>clicks++;
+    assert.equal(await h.continueWithoutAuthorization(task,new w.AbortController().signal),true);
+    assert.equal(clicks,1);
+    task.authorizationRequiredContinuation=true;
+    task.continuationSentAt=1;
+    w.document.querySelector('[data-message-author-role="user"]').textContent='Other task [Fabushi:foreign-token]';
+    assert.equal(await h.continueWithoutAuthorization(task,new w.AbortController().signal),false);
+    assert.equal(clicks,1);
   } finally {dom.window.close();}
 });
