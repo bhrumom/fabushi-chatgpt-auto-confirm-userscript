@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.64
+// @version      2.10.65
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -68,7 +68,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.64';
+  const VERSION = '2.10.65';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -4070,9 +4070,29 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     const option = modelRadioOption(target);
     return Boolean(option && enabled(option) && modelRadioSelected(option));
   }
+  const confirmedTaskModels = new WeakMap();
+  function rememberTaskModelConfirmation(task, trigger, target) {
+    task.modelPresetConfirmedAt = Date.now();
+    task.modelPresetConfirmedKey = target;
+    if (task.token) confirmedTaskModels.set(task, {
+      trigger, target, token:task.token, revision:Number(task.goalRevision || 0), href:location.href,
+    });
+  }
+  function canReuseTaskModelConfirmation(task, trigger, target) {
+    const proof = confirmedTaskModels.get(task);
+    return Boolean(proof && task.token && proof.token === task.token
+      && proof.revision === Number(task.goalRevision || 0) && proof.href === location.href
+      && proof.target === target && proof.trigger === trigger && trigger?.isConnected
+      && enabled(trigger) && trigger.getAttribute('aria-expanded') !== 'true'
+      && !modelRadioOptions().length && task.modelPresetConfirmedKey === target
+      && Number(task.modelPresetConfirmedAt || 0) > 0
+      && (modelTriggerMatches(trigger, target) || closedComposerModelHint(trigger) === target));
+  }
   async function ensureTaskModelPreset(task, signal) {
     const target = taskModelPreset(task);
     let trigger = modelPickerTrigger();
+    if (canReuseTaskModelConfirmation(task, trigger, target)) return true;
+    confirmedTaskModels.delete(task);
     if (!trigger) {
       waitForReasoningPicker(task, '未找到 ChatGPT 模型选择器');
       return false;
@@ -4086,8 +4106,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
         waitForReasoningPicker(task, 'ChatGPT 模型已选中，但模型菜单尚未关闭');
         return false;
       }
-      task.modelPresetConfirmedAt = Date.now();
-      task.modelPresetConfirmedKey = target;
+      rememberTaskModelConfirmation(task, modelPickerTrigger(), target);
       return true;
     }
 
@@ -4109,8 +4128,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
           waitForReasoningPicker(task, 'ChatGPT 模型已选中，但模型菜单尚未关闭');
           return false;
         }
-        task.modelPresetConfirmedAt = Date.now();
-        task.modelPresetConfirmedKey = target;
+        rememberTaskModelConfirmation(task, modelPickerTrigger(), target);
         return true;
       }
 
@@ -4125,8 +4143,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
           waitForReasoningPicker(task, 'ChatGPT 模型已选中，但模型菜单尚未关闭');
           return false;
         }
-        task.modelPresetConfirmedAt = Date.now();
-        task.modelPresetConfirmedKey = target;
+        rememberTaskModelConfirmation(task, modelPickerTrigger(), target);
         log(task, `发送前已切换并确认 ChatGPT 模型：${modelPresetLabel(target)}。`);
         return true;
       }
@@ -4174,8 +4191,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
           waitForReasoningPicker(task, 'ChatGPT 模型已选中，但模型菜单尚未关闭');
           return false;
         }
-        task.modelPresetConfirmedAt = Date.now();
-        task.modelPresetConfirmedKey = target;
+        rememberTaskModelConfirmation(task, modelPickerTrigger(), target);
         log(task, `发送前已确认 ChatGPT 模型：${modelPresetLabel(target)}。`);
         return true;
       }
@@ -4249,12 +4265,14 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
   function reasoningSliderState() {
     const control = nodes('[data-reasoning-slider="true"]').find(node => pickerControlVisible(node) && enabled(node));
     const thumb = control?.querySelector?.('[role="slider"]');
-    if (thumb && (!pickerControlVisible(thumb) || !enabled(thumb))) return null;
+    // The owner receives keyboard events. ChatGPT deliberately marks its
+    // semantic value thumb aria-hidden=true (and may give it no layout box).
+    // Read values from that descendant; only the owner must be active/visible.
     if (!control || !thumb) return null;
-    const current = Number(thumb.getAttribute('aria-valuenow'));
-    const min = Number(thumb.getAttribute('aria-valuemin'));
-    const max = Number(thumb.getAttribute('aria-valuemax'));
-    if (!Number.isInteger(current) || !Number.isInteger(min) || !Number.isInteger(max)) return null;
+    const values = ['aria-valuenow','aria-valuemin','aria-valuemax'].map(name => thumb.getAttribute(name));
+    if (!values.every(value => value !== null && /^-?\d+$/.test(value))) return null;
+    const [current, min, max] = values.map(Number);
+    if (![current,min,max].every(Number.isSafeInteger) || min > max || current < min || current > max) return null;
     return { control, thumb, current, min, max };
   }
   async function waitForReasoningSlider(signal) {
