@@ -324,7 +324,89 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     clearStopNoApprovalConfirmation(task);
     clearReloadStopAbsenceState(task);
   }
+  function conversationAuthorizationSeen(task) {
+    const route = canonicalConversationURL(task?.url);
+    return Boolean(route && canonicalConversationURL(task.authorizationSeenURL) === route
+      && Number(task.authorizationSeenAt || 0) > 0);
+  }
+  function recordConversationAuthorization(task, route = currentConversationURL()) {
+    const url = canonicalConversationURL(route);
+    if (!task || !url || url !== canonicalConversationURL(task.url)
+      || currentConversationURL() !== url || !taskBelongsToTab(task)
+      || conversationURLOwner(url, task.id)
+      || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))) return false;
+    if (conversationAuthorizationSeen(task)) return true;
+    task.authorizationSeenURL = url;
+    task.authorizationSeenAt = Date.now();
+    log(task, '当前会话已出现授权卡片；已记录会话级接力资格，仍需等待当前授权与回复处理完成。');
+    save();
+    return true;
+  }
+  function requireConversationAuthorization(task, reason = '当前会话已结束或中断') {
+    if (!task || !canonicalConversationURL(task.url)) return false;
+    if (currentConversationURL() === canonicalConversationURL(task.url)) cards({ wide:true });
+    if (conversationAuthorizationSeen(task)) return false;
+    if (!task.authorizationRequiredContinuation) {
+      task.authorizationRequiredContinuation = true;
+      task.state = 'waiting';
+      log(task, `${reason}；当前会话从未观察到授权卡片，保留原会话继续完成所有，闭环后按模板输入；不会结束任务或新开会话。`);
+      save();
+    }
+    return true;
+  }
+  async function continueWithoutAuthorization(task, signal, now = Date.now()) {
+    const route = currentConversationURL();
+    if (!route || route !== canonicalConversationURL(task.url) || task.attempted
+      || !taskBelongsToTab(task) || terminal.has(task.state) || task.state === 'paused'
+      || conversationURLOwner(route, task.id)
+      || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))) return false;
+    const pending = cards({ wide:true });
+    if (pending.length || conversationAuthorizationSeen(task)) return false;
+    if (stopButton() || blocker() || rateLimitNotice()) return false;
+    // A persisted click intent is never retried against the same user boundary,
+    // even if the send acknowledgment was lost during a reload.
+    const user = conversationRoleNodes('user').at(-1);
+    const boundary = recoveryUserBoundaryKey(user);
+    const turn = taskTurnForInspection(task);
+    if (!boundary || !turn.owned) return false;
+    if (task.authorizationContinuationURL === route
+      && task.authorizationContinuationBoundary === boundary) return false;
+    if (Number(task.continuationSentAt || 0)
+      && now - Number(task.continuationSentAt) < CONTINUATION_SEND_COOLDOWN_MS) return false;
+    // A newly mounted continuation without its assistant response is not an
+    // ended round. Keep waiting rather than immediately sending it again.
+    if (normalize(text(user)) === CONTINUATION_PROMPT && !turn.text) return false;
+    const input = composer();
+    if (!input) return false;
+    const draft = normalize(input.value || input.textContent);
+    if (draft && draft !== CONTINUATION_PROMPT) return false;
+    if (!draft) setInput(input, CONTINUATION_PROMPT);
+    let button = sendButtonFor(input);
+    if (!button) return false;
+    await delay(300, signal);
+    check(signal);
+    if (currentConversationURL() !== route || stopButton() || cards({ wide:true }).length
+      || blocker() || rateLimitNotice() || task.state === 'paused'
+      || normalize(input.value || input.textContent) !== CONTINUATION_PROMPT) return false;
+    button = sendButtonFor(input);
+    if (!button) return false;
+    task.authorizationContinuationURL = route;
+    task.authorizationContinuationBoundary = boundary;
+    task.authorizationRequiredContinuation = false;
+    task.continuationSentAt = now;
+    task.continuationCount = Number(task.continuationCount || 0) + 1;
+    task.state = 'waiting';
+    task.updatedAt = now;
+    observations.delete(task.id);
+    save();
+    activateControl(button);
+    log(task, '当前会话尚未出现授权卡片；已在原会话发送“继续完成所有，闭环后按模板输入”，等待执行与授权，不新开会话。');
+    return true;
+  }
   function clearDispatchIntent(task) {
+    task.authorizationRequiredContinuation = false;
+    task.authorizationContinuationURL = '';
+    task.authorizationContinuationBoundary = '';
     task.approvalRecoveryExhausted = false;
     clearApprovalSubmission(task);
     clearRecoveredFinalIdentity(task);
@@ -391,6 +473,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
   }
   function queueConversationLengthHandoff(task, turn = null, noticeText = '', now = Date.now(), { allowNoReply = false } = {}) {
     if (!task || terminal.has(task.state) || task.state === 'paused') return false;
+    if (requireConversationAuthorization(task, '对话长度达到上限')) return true;
     const sessionURL = currentConversationURL() || canonicalConversationURL(task.url);
     if (!sessionURL) return false;
     // Read the whole visible assistant response after this task's owned user
@@ -433,6 +516,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
 
   function queueBlockedFreshRetry(task, reason = '任务进入需要处理状态') {
     if (!task || ['done', 'cancelled'].includes(task.state) || task.approvalRecoveryExhausted) return '';
+    if (requireConversationAuthorization(task, reason)) return 'waiting';
     const attempt = Number(task.blockedAutoRetryCount || 0) + 1;
     const detail = String(reason || '任务进入需要处理状态').trim() || '任务进入需要处理状态';
     const retryDelayMs = attempt <= 1 ? 0 : Math.min(
@@ -642,6 +726,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const liveURL = currentConversationURL();
     const taskURL = canonicalConversationURL(task.url);
     if (!liveURL || !taskURL || liveURL !== taskURL) return false;
+    if (requireConversationAuthorization(task, reason)) return continueWithoutAuthorization(task, signal, now);
     const scanContext = createPageScanContext();
     if (blocker() || rateLimitNotice(scanContext.pageRecords)) {
       task.state = 'waiting';

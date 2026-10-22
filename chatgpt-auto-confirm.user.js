@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.65
+// @version      2.10.66
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -68,7 +68,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.65';
+  const VERSION = '2.10.66';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -186,7 +186,7 @@ async function bootstrapAttempt() {
   const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 * 1000;
   const CONVERSATION_LOAD_FAILURE_REFRESH_LIMIT = 7;
   const ROUTE_RECOVERY_RETRY_INTERVAL_MS = 60 * 1000; // legacy persisted-field compatibility; exhaustion no longer auto-retries.
-  const CONTINUATION_PROMPT = '继续完成所有';
+  const CONTINUATION_PROMPT = '继续完成所有，闭环后按模板输入';
   const MAX_SAME_SESSION_CONTINUATIONS = 3;
   const CONTINUATION_SEND_COOLDOWN_MS = 60 * 1000;
   const ENDED_NO_FINAL_STABILITY_MS = 8000;
@@ -5485,6 +5485,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
   }
   function queueInterruptedFreshRetry(task, reason = '检测到“连接已中断，正在等待完整回复”', now = Date.now(), turn = null, options = {}) {
     if (!task || terminal.has(task.state) || task.state === 'paused') return false;
+    if (requireConversationAuthorization(task, reason)) return true;
     const sessionURL = currentConversationURL() || canonicalConversationURL(task.url);
     if (sessionURL) {
       recordConversationURL(task, sessionURL);
@@ -5736,7 +5737,8 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     const previousCooldownUntil = Number(task.cooldownUntil || 0);
     const newEpisode = previousCooldownUntil <= now;
     if (newEpisode) task.rateLimitEpisodes = Number(task.rateLimitEpisodes || 0) + 1;
-    if (newEpisode && Number(task.rateLimitEpisodes || 0) > RATE_LIMIT_FRESH_RETRY_AFTER) {
+    if (newEpisode && Number(task.rateLimitEpisodes || 0) > RATE_LIMIT_FRESH_RETRY_AFTER
+      && !requireConversationAuthorization(task, '请求过于频繁')) {
       const episodes = Number(task.rateLimitEpisodes || 0);
       const carry = captureOwnedAbnormalFreshCarry(task, null, '请求过于频繁升级为 fresh-chat 恢复', '', now);
       clearDispatchIntent(task);
@@ -6445,6 +6447,11 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
         deny:actions.find(node => actionMatches(node, denyLabel)) || null,
         actionable:false,
       });
+    }
+    if (result.length) {
+      const route = currentConversationURL();
+      const owner = tabTasks().find(task => canonicalConversationURL(task.url) === route);
+      if (owner) recordConversationAuthorization(owner, route);
     }
     scanDiagnostics.cardsCalls += 1;
     scanDiagnostics.cardsMs += performance.now() - startedAt;
@@ -7227,7 +7234,89 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     clearStopNoApprovalConfirmation(task);
     clearReloadStopAbsenceState(task);
   }
+  function conversationAuthorizationSeen(task) {
+    const route = canonicalConversationURL(task?.url);
+    return Boolean(route && canonicalConversationURL(task.authorizationSeenURL) === route
+      && Number(task.authorizationSeenAt || 0) > 0);
+  }
+  function recordConversationAuthorization(task, route = currentConversationURL()) {
+    const url = canonicalConversationURL(route);
+    if (!task || !url || url !== canonicalConversationURL(task.url)
+      || currentConversationURL() !== url || !taskBelongsToTab(task)
+      || conversationURLOwner(url, task.id)
+      || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))) return false;
+    if (conversationAuthorizationSeen(task)) return true;
+    task.authorizationSeenURL = url;
+    task.authorizationSeenAt = Date.now();
+    log(task, '当前会话已出现授权卡片；已记录会话级接力资格，仍需等待当前授权与回复处理完成。');
+    save();
+    return true;
+  }
+  function requireConversationAuthorization(task, reason = '当前会话已结束或中断') {
+    if (!task || !canonicalConversationURL(task.url)) return false;
+    if (currentConversationURL() === canonicalConversationURL(task.url)) cards({ wide:true });
+    if (conversationAuthorizationSeen(task)) return false;
+    if (!task.authorizationRequiredContinuation) {
+      task.authorizationRequiredContinuation = true;
+      task.state = 'waiting';
+      log(task, `${reason}；当前会话从未观察到授权卡片，保留原会话继续完成所有，闭环后按模板输入；不会结束任务或新开会话。`);
+      save();
+    }
+    return true;
+  }
+  async function continueWithoutAuthorization(task, signal, now = Date.now()) {
+    const route = currentConversationURL();
+    if (!route || route !== canonicalConversationURL(task.url) || task.attempted
+      || !taskBelongsToTab(task) || terminal.has(task.state) || task.state === 'paused'
+      || conversationURLOwner(route, task.id)
+      || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))) return false;
+    const pending = cards({ wide:true });
+    if (pending.length || conversationAuthorizationSeen(task)) return false;
+    if (stopButton() || blocker() || rateLimitNotice()) return false;
+    // A persisted click intent is never retried against the same user boundary,
+    // even if the send acknowledgment was lost during a reload.
+    const user = conversationRoleNodes('user').at(-1);
+    const boundary = recoveryUserBoundaryKey(user);
+    const turn = taskTurnForInspection(task);
+    if (!boundary || !turn.owned) return false;
+    if (task.authorizationContinuationURL === route
+      && task.authorizationContinuationBoundary === boundary) return false;
+    if (Number(task.continuationSentAt || 0)
+      && now - Number(task.continuationSentAt) < CONTINUATION_SEND_COOLDOWN_MS) return false;
+    // A newly mounted continuation without its assistant response is not an
+    // ended round. Keep waiting rather than immediately sending it again.
+    if (normalize(text(user)) === CONTINUATION_PROMPT && !turn.text) return false;
+    const input = composer();
+    if (!input) return false;
+    const draft = normalize(input.value || input.textContent);
+    if (draft && draft !== CONTINUATION_PROMPT) return false;
+    if (!draft) setInput(input, CONTINUATION_PROMPT);
+    let button = sendButtonFor(input);
+    if (!button) return false;
+    await delay(300, signal);
+    check(signal);
+    if (currentConversationURL() !== route || stopButton() || cards({ wide:true }).length
+      || blocker() || rateLimitNotice() || task.state === 'paused'
+      || normalize(input.value || input.textContent) !== CONTINUATION_PROMPT) return false;
+    button = sendButtonFor(input);
+    if (!button) return false;
+    task.authorizationContinuationURL = route;
+    task.authorizationContinuationBoundary = boundary;
+    task.authorizationRequiredContinuation = false;
+    task.continuationSentAt = now;
+    task.continuationCount = Number(task.continuationCount || 0) + 1;
+    task.state = 'waiting';
+    task.updatedAt = now;
+    observations.delete(task.id);
+    save();
+    activateControl(button);
+    log(task, '当前会话尚未出现授权卡片；已在原会话发送“继续完成所有，闭环后按模板输入”，等待执行与授权，不新开会话。');
+    return true;
+  }
   function clearDispatchIntent(task) {
+    task.authorizationRequiredContinuation = false;
+    task.authorizationContinuationURL = '';
+    task.authorizationContinuationBoundary = '';
     task.approvalRecoveryExhausted = false;
     clearApprovalSubmission(task);
     clearRecoveredFinalIdentity(task);
@@ -7294,6 +7383,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
   }
   function queueConversationLengthHandoff(task, turn = null, noticeText = '', now = Date.now(), { allowNoReply = false } = {}) {
     if (!task || terminal.has(task.state) || task.state === 'paused') return false;
+    if (requireConversationAuthorization(task, '对话长度达到上限')) return true;
     const sessionURL = currentConversationURL() || canonicalConversationURL(task.url);
     if (!sessionURL) return false;
     // Read the whole visible assistant response after this task's owned user
@@ -7336,6 +7426,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
 
   function queueBlockedFreshRetry(task, reason = '任务进入需要处理状态') {
     if (!task || ['done', 'cancelled'].includes(task.state) || task.approvalRecoveryExhausted) return '';
+    if (requireConversationAuthorization(task, reason)) return 'waiting';
     const attempt = Number(task.blockedAutoRetryCount || 0) + 1;
     const detail = String(reason || '任务进入需要处理状态').trim() || '任务进入需要处理状态';
     const retryDelayMs = attempt <= 1 ? 0 : Math.min(
@@ -7545,6 +7636,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const liveURL = currentConversationURL();
     const taskURL = canonicalConversationURL(task.url);
     if (!liveURL || !taskURL || liveURL !== taskURL) return false;
+    if (requireConversationAuthorization(task, reason)) return continueWithoutAuthorization(task, signal, now);
     const scanContext = createPageScanContext();
     if (blocker() || rateLimitNotice(scanContext.pageRecords)) {
       task.state = 'waiting';
@@ -7992,6 +8084,7 @@ ${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carry
   }
   function queueWorkFinalReportRepair(task, reason = '工作最终报告格式无法解析') {
     if (!task || task.phase !== 'work') return '';
+    if (requireConversationAuthorization(task, reason)) return 'waiting';
     const attempts = Number(task.workFinalReportRepairAttempts || 0);
     if (attempts >= MAX_WORK_FINAL_REPORT_REPAIR_ATTEMPTS) {
       return queueBlockedFreshRetry(task, `${reason}；已达到 ${MAX_WORK_FINAL_REPORT_REPAIR_ATTEMPTS} 次当前会话修复上限`);
@@ -8004,6 +8097,7 @@ ${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carry
     return 'queued';
   }
   function finish(task, reply) {
+    if (requireConversationAuthorization(task, '当前会话已给出最终回复')) return;
     task.preview = '';
     task.previewSourceURL = '';
     task.previewPhase = '';
@@ -8134,6 +8228,15 @@ ${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carry
       observations.delete(task.id);
       state(task, 'waiting', '正在等待切换到当前任务会话；不会读取其他任务的页面内容。');
       return;
+    }
+    if (task.authorizationRequiredContinuation) {
+      cards({ wide:true });
+      if (!conversationAuthorizationSeen(task)) {
+        await continueWithoutAuthorization(task, signal);
+        return;
+      }
+      task.authorizationRequiredContinuation = false;
+      save();
     }
     if (revealCurrentCollapsedMessage(task, signal)) return;
     // Handle an in-response Work upsell before any generic modal dismissal or
@@ -9253,7 +9356,7 @@ ${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carry
       if (!signal.aborted && task && task.state !== 'paused' && task.state !== 'cancelled') {
         const reviewRecovery = error.code === 'invalid-work-final-report' ? queueWorkFinalReportRepair(task, error.message) : '';
         if (reviewRecovery === 'queued') nextScheduleMs = 100;
-        else if (reviewRecovery !== 'blocked') state(task, 'blocked', error.message);
+        else if (reviewRecovery !== 'blocked' && reviewRecovery !== 'waiting') state(task, 'blocked', error.message);
       }
     } finally {
       busy = false;
@@ -9698,6 +9801,7 @@ NaN
       : '发送确认超时，正在检查恢复';
   }
   function taskRecoveryStatusText(task, now = Date.now()) {
+    if (task?.authorizationRequiredContinuation) return '当前会话尚未出现授权卡片；留在原会话继续完成所有，闭环后按模板输入，等待授权后才允许结束或新开';
     if (task?.state === 'approval') return !data.autoApprove && !data.globalAutoApprove
       ? '自动授权已关闭，任务正在等待手动处理；授权卡可能收在“先前活动”中。点击“定位授权卡”后选择允许或拒绝；等待期间不会自动重发任务'
       : '正在等待授权卡处理；可点击“定位授权卡”查看当前请求';
