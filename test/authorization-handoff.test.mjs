@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 const source = await fs.readFile(new URL('../chatgpt-auto-confirm.user.js', import.meta.url), 'utf8');
-const names = 'data,tabId,cards,recordConversationAuthorization,conversationAuthorizationSeen,requireConversationAuthorization,continueWithoutAuthorization,finish,queueInterruptedFreshRetry,queueBlockedFreshRetry,queueConversationLengthHandoff,queueWorkFinalReportRepair,clearDispatchIntent';
+const names = 'data,tabId,cards,recordConversationAuthorization,conversationAuthorizationSeen,requireConversationAuthorization,continueWithoutAuthorization,durableTaskSnapshot,finish,queueInterruptedFreshRetry,queueBlockedFreshRetry,queueConversationLengthHandoff,queueWorkFinalReportRepair,clearDispatchIntent';
 async function harness() {
   const dom = new JSDOM('<main><article data-message-author-role="user" data-message-id="u1">[Fabushi:guard-token]</article><article data-message-author-role="assistant" data-message-id="a1">已结束的回复</article></main><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">发送</button></form>', { runScripts:'outside-only', pretendToBeVisual:true, url:'https://chatgpt.com/c/guard' });
   const w = dom.window;
@@ -20,7 +20,7 @@ for (const method of ['finish','queueInterruptedFreshRetry','queueBlockedFreshRe
     const {dom,h,task}=await harness();
     try {
       const before=JSON.stringify([task.url,task.token,task.round,task.phase,task.attachments]);
-      if(method==='finish') h.finish(task,'invalid report must stay in same chat');
+      if(method==='finish') h.finish(task,JSON.stringify({taskId:task.id,round:1,status:'complete',summary:'已完成',next:''}));
       else h[method](task);
       assert.equal(task.authorizationRequiredContinuation,true);
       assert.equal(task.state,'waiting');
@@ -34,7 +34,7 @@ test('real disabled card is persisted on its owner and never reused on another r
     w.document.querySelector('main').insertAdjacentHTML('beforeend','<section data-testid="authorization-card"><button disabled>拒绝</button><button disabled>允许一次</button><button aria-haspopup="menu" disabled>更多</button></section>');
     assert.ok(h.cards({wide:true}).length);
     assert.equal(h.conversationAuthorizationSeen(task),true);
-    const stored=JSON.stringify(task);
+    const stored=JSON.stringify(h.durableTaskSnapshot(task));
     assert.ok(JSON.parse(stored).authorizationSeenAt>0);
     assert.equal(h.conversationAuthorizationSeen(JSON.parse(stored)),true);
     task.url='https://chatgpt.com/c/next';

@@ -7292,11 +7292,12 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       }
       return false;
     }
-    // A persisted click intent is never retried against the same user boundary,
+    // A persisted click intent is never retried against the same ended turn,
     // even if the send acknowledgment was lost during a reload.
     const user = conversationRoleNodes('user').at(-1);
-    const boundary = recoveryUserBoundaryKey(user);
-    if (!boundary || !turn.owned) return false;
+    const userBoundary = recoveryUserBoundaryKey(user);
+    const boundary = JSON.stringify([userBoundary, assistantResponseBoundaryKey(turn) || recoveryUserBoundaryKey(turn.article)]);
+    if (!userBoundary || !turn.owned) return false;
     if (task.authorizationContinuationURL === route
       && task.authorizationContinuationBoundary === boundary) return false;
     if (Number(task.continuationSentAt || 0)
@@ -7473,6 +7474,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
 
   function queueNoFinalReplyRetry(task, reason = '会话已结束但没有最终回复') {
     if (!task) return '';
+    if (requireConversationAuthorization(task, reason)) return 'waiting';
     const boundURL = canonicalConversationURL(task.url);
     if (boundURL) {
       const queued = queueInterruptedFreshRetry(
