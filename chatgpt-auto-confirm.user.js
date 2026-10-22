@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.63
+// @version      2.10.64
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -68,7 +68,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.63';
+  const VERSION = '2.10.64';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -3855,6 +3855,11 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     ].join(',')).find(node => enabled(node));
     return explicit || reasoningPickerTrigger();
   }
+  function pickerControlVisible(node) {
+    // Animated picker views can remain laid out while inactive. Their radios
+    // and disabled strength controls are not the currently exposed surface.
+    return visible(node) && !node.closest('[aria-hidden="true"],[data-active="false"]');
+  }
   function modelControlStrings(node) {
     if (!node) return [];
     const raw = String(node.innerText || node.textContent || '');
@@ -3893,7 +3898,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
   function modelMenuOption(target) {
     const preset = modelPresetDefinition(target);
     const interactive = nodes('button,[role="menuitem"],[role="option"]')
-      .filter(node => visible(node) && !own(node));
+      .filter(node => pickerControlVisible(node) && !own(node));
     const scoped = interactive.filter(node => Boolean(node.closest?.(
       '[role="menu"],[role="listbox"],[data-radix-menu-content],[data-radix-popper-content-wrapper],[data-state="open"]'
     )));
@@ -3904,7 +3909,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
   }
   function modelSubmenuEntry() {
     return nodes('[role="menuitem"],button')
-      .filter(node => visible(node) && !own(node))
+      .filter(node => pickerControlVisible(node) && !own(node))
       .find(node => {
         const aria = normalize(node.getAttribute?.('aria-label') || '');
         const title = normalize(node.getAttribute?.('title') || '');
@@ -3916,7 +3921,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
   }
   function modelRadioOptions() {
     return nodes('[role="menuitemradio"]')
-      .filter(node => visible(node) && !own(node) && Boolean(node.closest?.(
+      .filter(node => pickerControlVisible(node) && !own(node) && Boolean(node.closest?.(
         '[role="menu"],[role="listbox"],[data-radix-menu-content],[data-radix-popper-content-wrapper],[data-state="open"]'
       )));
   }
@@ -3962,22 +3967,26 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
   }
   async function closeModelPickerMenu(signal) {
     const trigger = modelPickerTrigger();
-    if (!trigger) return;
+    if (!trigger) return !modelRadioOptions().length;
     trigger.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',code:'Escape',bubbles:true}));
     await delay(220, signal);
     check(signal);
     if (modelRadioOptions().length || trigger.getAttribute('aria-expanded') === 'true') {
       await pacedModelPickerClick(trigger, signal);
     }
+    if (modelRadioOptions().length || trigger.getAttribute('aria-expanded') === 'true') {
+      await dismissModelPickerOutside(trigger, signal);
+    }
+    return !modelRadioOptions().length && trigger.getAttribute('aria-expanded') !== 'true';
   }
   function safeModelPickerDismissTarget(trigger) {
     // The real ChatGPT model submenu can ignore Escape and clicks on its
     // trigger until a pointer interaction lands outside its portal.
     // Never dismiss through Send, navigation, transcript or Fabushi controls.
-    const candidates = nodes('main h1,main h2,[role="main"] h1,[role="main"] h2');
+    const candidates = nodes('main h1,main h2,[role="main"] h1,[role="main"] h2,h1,h2');
     return candidates.find(node => node.isConnected && visible(node) && !own(node)
       && node !== trigger && !node.contains(trigger)
-      && !node.closest('button,a,[role="button"],[role="menu"],[role="dialog"],form,nav,aside')
+      && !node.closest('button,a,[role="button"],[role="menu"],[role="dialog"],form,nav,aside,header,article,[data-message-author-role],[data-testid^="conversation-turn"],[data-turn]')
       && !node.closest('[contenteditable="true"]')) || null;
   }
   async function dismissModelPickerOutside(trigger, signal) {
@@ -4073,7 +4082,10 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     // trigger. Keep that safe fast path, but the current ChatGPT renderer uses
     // a two-level menu and is verified below through aria-checked radio state.
     if (modelTriggerMatches(trigger, target)) {
-      await closeModelPickerMenu(signal);
+      if (!await closeModelPickerMenu(signal)) {
+        waitForReasoningPicker(task, 'ChatGPT 模型已选中，但模型菜单尚未关闭');
+        return false;
+      }
       task.modelPresetConfirmedAt = Date.now();
       task.modelPresetConfirmedKey = target;
       return true;
@@ -4093,7 +4105,10 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
         return false;
       }
       if (modelRadioSelected(option)) {
-        await closeModelPickerMenu(signal);
+        if (!await closeModelPickerMenu(signal)) {
+          waitForReasoningPicker(task, 'ChatGPT 模型已选中，但模型菜单尚未关闭');
+          return false;
+        }
         task.modelPresetConfirmedAt = Date.now();
         task.modelPresetConfirmedKey = target;
         return true;
@@ -4106,7 +4121,10 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
       // model click. Re-enter the visible "选择模型" row (whose text becomes
       // e.g. "5.6\n中") and require the target radio's aria-checked=true.
       if (await confirmModelRadioSelection(target, signal)) {
-        await closeModelPickerMenu(signal);
+        if (!await closeModelPickerMenu(signal)) {
+          waitForReasoningPicker(task, 'ChatGPT 模型已选中，但模型菜单尚未关闭');
+          return false;
+        }
         task.modelPresetConfirmedAt = Date.now();
         task.modelPresetConfirmedKey = target;
         log(task, `发送前已切换并确认 ChatGPT 模型：${modelPresetLabel(target)}。`);
@@ -4152,7 +4170,10 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
       await delay(120, signal); check(signal);
       trigger = modelPickerTrigger();
       if (trigger && modelTriggerMatches(trigger, target)) {
-        await closeModelPickerMenu(signal);
+        if (!await closeModelPickerMenu(signal)) {
+          waitForReasoningPicker(task, 'ChatGPT 模型已选中，但模型菜单尚未关闭');
+          return false;
+        }
         task.modelPresetConfirmedAt = Date.now();
         task.modelPresetConfirmedKey = target;
         log(task, `发送前已确认 ChatGPT 模型：${modelPresetLabel(target)}。`);
@@ -4226,8 +4247,9 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     return false;
   }
   function reasoningSliderState() {
-    const control = nodes('[data-reasoning-slider="true"]').find(visible);
+    const control = nodes('[data-reasoning-slider="true"]').find(node => pickerControlVisible(node) && enabled(node));
     const thumb = control?.querySelector?.('[role="slider"]');
+    if (thumb && (!pickerControlVisible(thumb) || !enabled(thumb))) return null;
     if (!control || !thumb) return null;
     const current = Number(thumb.getAttribute('aria-valuenow'));
     const min = Number(thumb.getAttribute('aria-valuemin'));
@@ -4244,7 +4266,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
       // Keep one opening intact while React hydrates its contents. The
       // Strength item may itself be a toggle, so activate it at most once.
       if (!strengthActivated && !modelRadioOptions().length) {
-        const strength = nodes('[role="menuitem"]').find(node => enabled(node)
+        const strength = nodes('[role="menuitem"]').find(node => pickerControlVisible(node) && enabled(node)
           && /^(?:强度|Strength)$/i.test(normalize(node.getAttribute('aria-label') || label(node))));
         if (strength) { activateControl(strength); strengthActivated = true; }
       }
