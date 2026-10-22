@@ -7229,8 +7229,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2.10.68$/m);
-  assert.match(source,/const VERSION = '2.10.68'/);
+  assert.match(source,/^\/\/ @version\s+2.10.69$/m);
+  assert.match(source,/const VERSION = '2.10.69'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
@@ -7258,7 +7258,6 @@ test('the packaged userscript declares its stable remote update and download URL
   assert.match(source,/function interruptedFreshHandoffApprovalGate/);
   assert.match(source,/不再等待 5 分钟或刷新旧会话/);
   assert.match(source,/stop-disappeared-fresh-chat/);
-  assert.match(source,/setInput\(input,\s*CONTINUATION_PROMPT\)/,'a conversation without observed authorization must continue in place');
   assert.match(source,/function requireConversationAuthorization/);
   assert.match(source,/^\/\/ @updateURL\s+https:\/\/raw\.githubusercontent\.com\/bhrumom\/fabushi-chatgpt-auto-confirm-userscript\/main\/chatgpt-auto-confirm\.user\.js$/m);
   assert.match(source,/^\/\/ @downloadURL\s+https:\/\/raw\.githubusercontent\.com\/bhrumom\/fabushi-chatgpt-auto-confirm-userscript\/main\/chatgpt-auto-confirm\.user\.js$/m);
