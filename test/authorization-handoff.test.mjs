@@ -97,9 +97,12 @@ test('new current card resumes the gate but quoted authorization never qualifies
     w.document.querySelector('main').insertAdjacentHTML('beforeend','<section data-testid="authorization-card"><button>拒绝</button><button>允许一次</button><button aria-haspopup="menu">更多</button></section>');
     h.cards({wide:true});
     assert.equal(h.conversationAuthorizationSeen(task),true);
-    assert.equal(h.requireConversationAuthorization(task),false);
+    assert.equal(h.requireConversationAuthorization(task),true);
+    assert.equal(task.state,'approval');
     let clicks=0;w.document.querySelector('[data-testid="send-button"]').onclick=()=>clicks++;
     assert.equal(await h.continueWithoutAuthorization(task,new w.AbortController().signal),false);
     assert.equal(clicks,0);
+    w.document.querySelectorAll('[data-testid="authorization-card"]').forEach(node=>node.remove());
+    assert.equal(h.requireConversationAuthorization(task),false);
   } finally {dom.window.close();}
 });

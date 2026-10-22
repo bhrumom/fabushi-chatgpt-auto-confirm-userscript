@@ -344,7 +344,15 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
   }
   function requireConversationAuthorization(task, reason = '当前会话已结束或中断') {
     if (!task || !canonicalConversationURL(task.url)) return false;
-    if (currentConversationURL() === canonicalConversationURL(task.url)) cards({ wide:true });
+    const pending = currentConversationURL() === canonicalConversationURL(task.url) ? cards({ wide:true }) : [];
+    if (pending.length) {
+      // Card appearance qualifies the session only after its pending request
+      // is resolved. Never turn an observed card into permission to abandon it.
+      task.authorizationRequiredContinuation = false;
+      task.state = 'approval';
+      save();
+      return true;
+    }
     if (conversationAuthorizationSeen(task)) return false;
     if (!task.authorizationRequiredContinuation) {
       task.authorizationRequiredContinuation = true;
