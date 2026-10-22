@@ -7276,12 +7276,26 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))) return false;
     const pending = cards({ wide:true });
     if (pending.length || conversationAuthorizationSeen(task)) return false;
-    if (stopButton() || blocker() || rateLimitNotice()) return false;
+    if (blocker() || rateLimitNotice()) return false;
+    const turn = taskTurnForInspection(task);
+    const stop = stopButton();
+    if (stop) {
+      // Only an explicit product interruption permits stopping a stale Stop
+      // control. Ordinary generation remains untouched; persist before click.
+      const stopBoundary = recoveryUserBoundaryKey(conversationRoleNodes('user').at(-1));
+      if (turn.owned && connectionInterruptedNotice(turn) && stopBoundary
+        && task.authorizationContinuationStopBoundary !== `${route}|${stopBoundary}`) {
+        task.authorizationContinuationStopBoundary = `${route}|${stopBoundary}`;
+        save();
+        check(signal);
+        activateControl(stop);
+      }
+      return false;
+    }
     // A persisted click intent is never retried against the same user boundary,
     // even if the send acknowledgment was lost during a reload.
     const user = conversationRoleNodes('user').at(-1);
     const boundary = recoveryUserBoundaryKey(user);
-    const turn = taskTurnForInspection(task);
     if (!boundary || !turn.owned) return false;
     if (task.authorizationContinuationURL === route
       && task.authorizationContinuationBoundary === boundary) return false;
@@ -7300,7 +7314,9 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     await delay(300, signal);
     check(signal);
     if (currentConversationURL() !== route || stopButton() || cards({ wide:true }).length
-      || blocker() || rateLimitNotice() || task.state === 'paused'
+      || blocker() || rateLimitNotice() || terminal.has(task.state) || task.state === 'paused'
+      || !taskBelongsToTab(task) || conversationURLOwner(route, task.id)
+      || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))
       || normalize(input.value || input.textContent) !== CONTINUATION_PROMPT) return false;
     button = sendButtonFor(input);
     if (!button) return false;

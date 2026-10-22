@@ -85,3 +85,21 @@ test('observed authorization permits next-round handoff and initial unbound disp
     assert.equal(h.requireConversationAuthorization(task),false);
   } finally {dom.window.close();}
 });
+
+test('new current card resumes the gate but quoted authorization never qualifies',async()=>{
+  const {dom,w,h,task}=await harness();
+  try {
+    w.document.querySelector('main').insertAdjacentHTML('beforeend','<blockquote><section data-testid="authorization-card"><button>拒绝</button><button>允许一次</button><button aria-haspopup="menu">更多</button></section></blockquote>');
+    h.cards({wide:true});
+    assert.equal(h.conversationAuthorizationSeen(task),false);
+    h.requireConversationAuthorization(task);
+    assert.equal(task.authorizationRequiredContinuation,true);
+    w.document.querySelector('main').insertAdjacentHTML('beforeend','<section data-testid="authorization-card"><button>拒绝</button><button>允许一次</button><button aria-haspopup="menu">更多</button></section>');
+    h.cards({wide:true});
+    assert.equal(h.conversationAuthorizationSeen(task),true);
+    assert.equal(h.requireConversationAuthorization(task),false);
+    let clicks=0;w.document.querySelector('[data-testid="send-button"]').onclick=()=>clicks++;
+    assert.equal(await h.continueWithoutAuthorization(task,new w.AbortController().signal),false);
+    assert.equal(clicks,0);
+  } finally {dom.window.close();}
+});
