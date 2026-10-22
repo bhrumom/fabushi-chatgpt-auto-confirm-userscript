@@ -3,13 +3,15 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { JSDOM } from 'jsdom';
 
+// Legacy handoff fixtures below explicitly carry a prior observed card on their URL.
+// No-card and cross-route isolation behavior lives in authorization-handoff.test.mjs.
 const source = readFileSync(new URL('../chatgpt-auto-confirm.user.js', import.meta.url), 'utf8');
 test('persistent loading refresh waits initially and persists a five-minute same-tab interval',async()=>{
   const {h,w,dom}=await fixture('<main><div class="animate-spin"></div></main>');
   try {
     w.history.replaceState({},'', '/c/slow-loading');
     let now=Date.now(); w.Date.now=()=>now;
-    const task={id:'slow-loading',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:2,token:'same-send',attempted:true,state:'loading',url:w.location.href,messages:[],rendererRecoveryExhausted:true};
+    const task={id:'slow-loading',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:2,token:'same-send',attempted:true,state:'loading',authorizationSeenAt:1, authorizationSeenURL:w.location.href, url:w.location.href,messages:[],rendererRecoveryExhausted:true};
     h.data.tasks.push(task); h.setRunningForTest(true);
     const requests=[]; w.postMessage=message=>{if(message.payload?.reason==='persistent-loading-refresh')requests.push(message);};
     h.holdForChatGPTLoading(task);
@@ -35,7 +37,7 @@ test('persistent loading refresh respects pause, drafts and foreign route owners
   try {
     w.history.replaceState({},'', '/c/protected-loading');
     let now=Date.now(); w.Date.now=()=>now;
-    const task={id:'protected-loading',ownerTabId:h.getTabId(),goal:'goal',phase:'work',round:1,token:'keep',state:'loading',url:w.location.href,messages:[]};
+    const task={id:'protected-loading',ownerTabId:h.getTabId(),goal:'goal',phase:'work',round:1,token:'keep',state:'loading',authorizationSeenAt:1, authorizationSeenURL:w.location.href, url:w.location.href,messages:[]};
     h.data.tasks.push(task); h.setRunningForTest(true);
     const requests=[]; w.postMessage=message=>requests.push(message);
     h.holdForChatGPTLoading(task); now+=600000; h.holdForChatGPTLoading(task);
@@ -83,7 +85,7 @@ test('recent activity restores the last two hours after reload without putting h
   const {h,w,dom}=await fixture();
   try {
     const now=Date.now();
-    const task={id:'recent-two-hours',ownerTabId:h.getTabId(),goal:'keep recent activity',mode:'goal',state:'waiting',phase:'work',round:4,url:'https://chatgpt.com/c/recent-two-hours',token:'recent-token',messages:[],updatedAt:now};
+    const task={id:'recent-two-hours',ownerTabId:h.getTabId(),goal:'keep recent activity',mode:'goal',state:'waiting',phase:'work',round:4,authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/recent-two-hours', url:'https://chatgpt.com/c/recent-two-hours',token:'recent-token',messages:[],updatedAt:now};
     h.data.tasks.push(task);
     h.writeRecentActivitySession([
       {taskId:task.id,ownerTabId:task.ownerTabId,at:now-3*60*60*1000,role:'status',text:'too old'},
@@ -131,7 +133,7 @@ test('canonical workbench persists only latest recovery state and never diagnost
       state:'waiting',
       phase:'work',
       round:7,
-      url:'https://chatgpt.com/c/latest-active',
+      authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/latest-active', url:'https://chatgpt.com/c/latest-active',
       token:'latest-token',
       attempted:false,
       result:'latest result',
@@ -141,13 +143,13 @@ test('canonical workbench persists only latest recovery state and never diagnost
       prompt:'duplicate prompt should not persist',
       sessionUrl:'https://chatgpt.com/c/latest-active',
       sessionUrls:['https://chatgpt.com/c/old','https://chatgpt.com/c/latest-active'],
-      history:[{url:'https://chatgpt.com/c/old'}],
+      history:[{authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/old', url:'https://chatgpt.com/c/old'}],
       attachments:[{id:'quota-file',name:'proof.pdf',type:'application/pdf',size:42,lastModified:1}],
       messages:Array.from({length:100},(_,index)=>({at:index+1,role:'status',text:'history-'+index+'-'+ 'x'.repeat(2000)})),
       updatedAt:Date.now(),
     };
-    const done={id:'done-history',ownerTabId:h.getTabId(),goal:'completed history',mode:'once',state:'done',phase:'work',round:1,url:'https://chatgpt.com/c/done-history',messages:[{at:1,role:'status',text:'done'}],updatedAt:Date.now()-1000};
-    const cancelled={id:'cancelled-resumable',ownerTabId:h.getTabId(),goal:'can still resume',mode:'once',state:'cancelled',phase:'work',round:2,url:'https://chatgpt.com/c/cancelled-resumable',token:'cancel-token',attachments:[],messages:[{at:1,role:'status',text:'cancelled'}],updatedAt:Date.now()-500};
+    const done={id:'done-history',ownerTabId:h.getTabId(),goal:'completed history',mode:'once',state:'done',phase:'work',round:1,authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/done-history', url:'https://chatgpt.com/c/done-history',messages:[{at:1,role:'status',text:'done'}],updatedAt:Date.now()-1000};
+    const cancelled={id:'cancelled-resumable',ownerTabId:h.getTabId(),goal:'can still resume',mode:'once',state:'cancelled',phase:'work',round:2,authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/cancelled-resumable', url:'https://chatgpt.com/c/cancelled-resumable',token:'cancel-token',attachments:[],messages:[{at:1,role:'status',text:'cancelled'}],updatedAt:Date.now()-500};
     h.data.tasks.push(active,done,cancelled);
     h.data.selectedByTab[h.getTabId()]=active.id;
 
@@ -175,7 +177,7 @@ test('prepared send intent keeps its exact latest prompt while ordinary tasks do
   const {h,w,dom}=await fixture();
   try {
     const prepared='P'.repeat(64000);
-    const task={id:'prepared-intent',ownerTabId:h.getTabId(),goal:'send intent',mode:'once',state:'sending',phase:'work',round:1,url:'',token:'prepared-token',attempted:true,sendPrepared:true,preparedPrompt:prepared,preparedAt:Date.now(),attachments:[],messages:[]};
+    const task={id:'prepared-intent',ownerTabId:h.getTabId(),goal:'send intent',mode:'once',state:'sending',phase:'work',round:1,authorizationSeenAt:1, authorizationSeenURL:'', url:'',token:'prepared-token',attempted:true,sendPrepared:true,preparedPrompt:prepared,preparedAt:Date.now(),attachments:[],messages:[]};
     h.data.tasks.push(task);
     h.data.selectedByTab[h.getTabId()]=task.id;
     assert.equal(h.persistWorkbenchState(h.data),true);
@@ -193,7 +195,7 @@ test('prepared send intent keeps its exact latest prompt while ordinary tasks do
 test('adding status history does not grow canonical localStorage',async()=>{
   const {h,w,dom}=await fixture();
   try {
-    const task={id:'history-free',ownerTabId:h.getTabId(),goal:'stable durable size',mode:'once',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/history-free',token:'stable',attachments:[],messages:[],updatedAt:1};
+    const task={id:'history-free',ownerTabId:h.getTabId(),goal:'stable durable size',mode:'once',state:'waiting',phase:'work',round:1,authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/history-free', url:'https://chatgpt.com/c/history-free',token:'stable',attachments:[],messages:[],updatedAt:1};
     h.data.tasks.push(task);
     h.data.selectedByTab[h.getTabId()]=task.id;
     assert.equal(h.persistWorkbenchState(h.data),true);
@@ -221,7 +223,7 @@ test('oversized latest state keeps a lean canonical snapshot and full same-tab o
         state:'waiting',
         phase:'work',
         round:index+1,
-        url:'https://chatgpt.com/c/oversized-'+index,
+        authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/oversized-', url:'https://chatgpt.com/c/oversized-'+index,
         token:'token-'+index,
         result:'R'.repeat(24000),
         next:'N'.repeat(16000),
@@ -293,7 +295,7 @@ test('permanently exhausted workbench storage fails closed without deleting task
   const proto=Object.getPrototypeOf(w.localStorage);
   const originalSetItem=proto.setItem;
   try {
-    const task={id:'quota-blocked',ownerTabId:h.getTabId(),goal:'keep me',mode:'once',state:'cancelled',phase:'work',round:2,url:'https://chatgpt.com/c/quota-blocked',token:'blocked-token',result:'prior result',next:'next step',attachments:[{id:'blocked-file',name:'a.txt',type:'text/plain',size:1,lastModified:1}],messages:[{at:1,role:'status',text:'keep status'}]};
+    const task={id:'quota-blocked',ownerTabId:h.getTabId(),goal:'keep me',mode:'once',state:'cancelled',phase:'work',round:2,authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/quota-blocked', url:'https://chatgpt.com/c/quota-blocked',token:'blocked-token',result:'prior result',next:'next step',attachments:[{id:'blocked-file',name:'a.txt',type:'text/plain',size:1,lastModified:1}],messages:[{at:1,role:'status',text:'keep status'}]};
     h.data.tasks.push(task);
     proto.setItem=function(key,value){
       if(key==='fabushi-workbench-v2') throw new w.DOMException('quota full','QuotaExceededError');
@@ -322,7 +324,7 @@ test('heartbeat quota rejection is non-fatal and preserves the runnable task',as
   const proto=Object.getPrototypeOf(w.localStorage);
   const originalSetItem=proto.setItem;
   try {
-    const task={id:'heartbeat-quota',ownerTabId:h.getTabId(),goal:'keep running',mode:'once',state:'waiting',phase:'work',round:4,url:'https://chatgpt.com/c/heartbeat-quota',token:'heartbeat-token',attempted:false,attachments:[],messages:[]};
+    const task={id:'heartbeat-quota',ownerTabId:h.getTabId(),goal:'keep running',mode:'once',state:'waiting',phase:'work',round:4,authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/heartbeat-quota', url:'https://chatgpt.com/c/heartbeat-quota',token:'heartbeat-token',attempted:false,attachments:[],messages:[]};
     h.data.tasks.push(task);
     proto.setItem=function(key,value){
       if(String(key).startsWith('fabushi-workspace-heartbeat-v1:')) throw new w.DOMException('quota full','QuotaExceededError');
@@ -346,7 +348,7 @@ test('heartbeat scheduler rearms after storage rejection instead of silently sto
   const proto=Object.getPrototypeOf(w.localStorage);
   const originalSetItem=proto.setItem;
   try {
-    const task={id:'heartbeat-rearm',ownerTabId:h.getTabId(),goal:'rearm',mode:'once',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/heartbeat-rearm',token:'rearm-token',attachments:[],messages:[]};
+    const task={id:'heartbeat-rearm',ownerTabId:h.getTabId(),goal:'rearm',mode:'once',state:'waiting',phase:'work',round:1,authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/heartbeat-rearm', url:'https://chatgpt.com/c/heartbeat-rearm',token:'rearm-token',attachments:[],messages:[]};
     h.data.tasks.push(task);
     proto.setItem=function(key,value){
       if(String(key).startsWith('fabushi-workspace-heartbeat-v1:')) throw new w.DOMException('quota full','QuotaExceededError');
@@ -367,7 +369,7 @@ test('canonical quota exhaustion falls back to same-tab session state and curren
   const proto=Object.getPrototypeOf(w.localStorage);
   const originalSetItem=proto.setItem;
   try {
-    const task={id:'session-overflow',ownerTabId:h.getTabId(),goal:'latest goal',mode:'once',state:'waiting',phase:'work',round:9,url:'https://chatgpt.com/c/session-overflow',token:'latest-token',attachments:[],messages:[{at:1,role:'status',text:'latest'}]};
+    const task={id:'session-overflow',ownerTabId:h.getTabId(),goal:'latest goal',mode:'once',state:'waiting',phase:'work',round:9,authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/session-overflow', url:'https://chatgpt.com/c/session-overflow',token:'latest-token',attachments:[],messages:[{at:1,role:'status',text:'latest'}]};
     h.data.tasks.push(task);
     proto.setItem=function(key,value){
       if(key==='fabushi-workbench-v2') throw new w.DOMException('quota full','QuotaExceededError');
@@ -395,7 +397,7 @@ test('successful later canonical persistence clears quota overflow fallback',asy
   const proto=Object.getPrototypeOf(w.localStorage);
   const originalSetItem=proto.setItem;
   try {
-    const task={id:'overflow-recover',ownerTabId:h.getTabId(),goal:'recover persistence',mode:'once',state:'waiting',phase:'work',round:2,url:'',token:'',attachments:[],messages:[]};
+    const task={id:'overflow-recover',ownerTabId:h.getTabId(),goal:'recover persistence',mode:'once',state:'waiting',phase:'work',round:2,authorizationSeenAt:1, authorizationSeenURL:'', url:'',token:'',attachments:[],messages:[]};
     h.data.tasks.push(task);
     let reject=true;
     proto.setItem=function(key,value){
@@ -420,7 +422,7 @@ test('critical recovery ticket refuses volatile-only persistence',async()=>{
   const proto=Object.getPrototypeOf(w.localStorage);
   const originalSetItem=proto.setItem;
   try {
-    const task={id:'critical-ticket',ownerTabId:h.getTabId(),goal:'ticket',mode:'once',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/critical-ticket',token:'critical-token',attachments:[],messages:[]};
+    const task={id:'critical-ticket',ownerTabId:h.getTabId(),goal:'ticket',mode:'once',state:'waiting',phase:'work',round:1,authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/critical-ticket', url:'https://chatgpt.com/c/critical-ticket',token:'critical-token',attachments:[],messages:[]};
     h.data.tasks.push(task);
     proto.setItem=function(key,value){
       if(String(key).startsWith('fabushi-workspace-recovery-v1:') || String(key).startsWith('fabushi-workspace-auto-recovery-v1:')) throw new w.DOMException('quota full','QuotaExceededError');
@@ -863,7 +865,7 @@ test('reasoning preset enforcement moves the live slider before send and verifie
     });
   });
   try {
-    const task={id:'reasoning-extra-high',ownerTabId:h.getTabId(),goal:'reasoning',mode:'once',phase:'work',round:1,state:'blocked',url:'',reasoningPreset:3,messages:[]};
+    const task={id:'reasoning-extra-high',ownerTabId:h.getTabId(),goal:'reasoning',mode:'once',phase:'work',round:1,state:'blocked',authorizationSeenAt:1, authorizationSeenURL:'', url:'',reasoningPreset:3,messages:[]};
     h.data.tasks.push(task);
     h.setRunningForTest(true);
     const ok=await h.ensureTaskReasoningPreset(task,null);
@@ -904,7 +906,7 @@ test('Pro preset is selected by slider index rather than medium effort alias',as
     });
   });
   try {
-    const task={id:'reasoning-pro',ownerTabId:h.getTabId(),goal:'pro',mode:'once',phase:'work',round:1,state:'blocked',url:'',reasoningPreset:4,messages:[]};
+    const task={id:'reasoning-pro',ownerTabId:h.getTabId(),goal:'pro',mode:'once',phase:'work',round:1,state:'blocked',authorizationSeenAt:1, authorizationSeenURL:'', url:'',reasoningPreset:4,messages:[]};
     h.data.tasks.push(task);
     h.setRunningForTest(true);
     assert.equal(await h.ensureTaskReasoningPreset(task,null),true);
@@ -1042,7 +1044,7 @@ test('Send never clicks while Work remains selected after Chat activation',async
   </main>`);
   let sends=0;
   w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>sends++);
-  const task={id:'work-stuck-send-guard',ownerTabId:h.getTabId(),goal:'never send in Work',mode:'once',phase:'work',round:1,state:'queued',url:'',token:'',messages:[]};
+  const task={id:'work-stuck-send-guard',ownerTabId:h.getTabId(),goal:'never send in Work',mode:'once',phase:'work',round:1,state:'queued',authorizationSeenAt:1, authorizationSeenURL:'', url:'',token:'',messages:[]};
   h.data.tasks.push(task);
   h.setRunningForTest(true);
   try {
@@ -1064,7 +1066,7 @@ test('Stop disappears for the live Chinese Work offer: choose 留在聊天模式
   </main>`);
   try{
     w.history.pushState({},'', '/c/stay-chat');
-    const task={id:'stay-chat',ownerTabId:h.getTabId(),goal:'修复生产系统',mode:'goal',phase:'work',round:2,goalRevision:0,state:'waiting',url:'https://chatgpt.com/c/stay-chat',token:'stay-chat-token',attempted:false,messages:[]};
+    const task={id:'stay-chat',ownerTabId:h.getTabId(),goal:'修复生产系统',mode:'goal',phase:'work',round:2,goalRevision:0,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/stay-chat', url:'https://chatgpt.com/c/stay-chat',token:'stay-chat-token',attempted:false,messages:[]};
     h.data.tasks.push(task);
     h.setRunningForTest(true);
     await h.inspect(task,null);
@@ -1116,7 +1118,7 @@ test('English Work offer countdown is recognized and retries Stay in chat only a
   </section><form><textarea id="prompt-textarea"></textarea></form></main>`);
   try{
     w.history.pushState({},'', '/c/stay-english');
-    const task={id:'stay-english',ownerTabId:h.getTabId(),goal:'current ongoing goal',mode:'goal',phase:'work',round:4,state:'waiting',url:'https://chatgpt.com/c/stay-english',token:'stay-english-token',messages:[]};
+    const task={id:'stay-english',ownerTabId:h.getTabId(),goal:'current ongoing goal',mode:'goal',phase:'work',round:4,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/stay-english', url:'https://chatgpt.com/c/stay-english',token:'stay-english-token',messages:[]};
     h.data.tasks.push(task);h.setRunningForTest(true);
     let stayClicks=0,workClicks=0;
     w.document.querySelector('#stay').addEventListener('click',()=>stayClicks++);
@@ -1169,7 +1171,7 @@ test('disabled Chat-stay button and connector approval never authorize a Work sw
   </section><form><textarea id="prompt-textarea"></textarea></form></main>`);
   try{
     w.history.pushState({},'', '/c/stay-disabled');
-    const task={id:'stay-disabled',ownerTabId:h.getTabId(),goal:'goal',mode:'goal',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/stay-disabled',token:'stay-disabled-token',messages:[]};
+    const task={id:'stay-disabled',ownerTabId:h.getTabId(),goal:'goal',mode:'goal',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/stay-disabled', url:'https://chatgpt.com/c/stay-disabled',token:'stay-disabled-token',messages:[]};
     h.data.tasks.push(task);h.setRunningForTest(true);
     let chats=0,works=0;
     const stay=w.document.querySelector('#stay');
@@ -1202,8 +1204,8 @@ test('foreign task identity and paused runner never click the ChatGPT Work conti
     <form><textarea id="prompt-textarea"></textarea></form></main>`);
   try{
     w.history.pushState({},'', '/c/stay-foreign');
-    const task={id:'stay-foreign',ownerTabId:h.getTabId(),goal:'our goal',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/stay-foreign',token:'our-token',messages:[]};
-    const other={id:'other-task',ownerTabId:h.getTabId(),goal:'different',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/another',token:'other-token',messages:[]};
+    const task={id:'stay-foreign',ownerTabId:h.getTabId(),goal:'our goal',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/stay-foreign', url:'https://chatgpt.com/c/stay-foreign',token:'our-token',messages:[]};
+    const other={id:'other-task',ownerTabId:h.getTabId(),goal:'different',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/another', url:'https://chatgpt.com/c/another',token:'other-token',messages:[]};
     h.data.tasks.push(task,other);h.setRunningForTest(true);
     let clicks=0;
     w.document.querySelector('#stay').addEventListener('click',()=>clicks++);
@@ -1222,7 +1224,7 @@ test('post-Work-offer grace is bounded and clears without disabling genuine late
   </section><form><textarea id="prompt-textarea"></textarea></form></main>`);
   try{
     w.history.pushState({},'', '/c/stay-expiry');
-    const task={id:'stay-expiry',ownerTabId:h.getTabId(),goal:'continue goal',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/stay-expiry',token:'stay-expiry-token',messages:[]};
+    const task={id:'stay-expiry',ownerTabId:h.getTabId(),goal:'continue goal',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/stay-expiry', url:'https://chatgpt.com/c/stay-expiry',token:'stay-expiry-token',messages:[]};
     h.data.tasks.push(task);h.setRunningForTest(true);
     w.document.querySelector('#stay').addEventListener('click',()=>w.document.querySelector('#offer')?.remove());
     assert.equal(h.handleChatWorkContinueOffer(task,null),true);
@@ -1236,7 +1238,7 @@ test('post-Work-offer grace is bounded and clears without disabling genuine late
 
 test('runtime blocked transition immediately becomes a fresh queued resend',async()=>{
   const {h,w,dom}=await fixture();
-  const task={id:'runtime-blocked',ownerTabId:h.getTabId(),goal:'continue forever',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/stuck',token:'dispatch-token',attempted:true,messages:[]};
+  const task={id:'runtime-blocked',ownerTabId:h.getTabId(),goal:'continue forever',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/stuck', url:'https://chatgpt.com/c/stuck',token:'dispatch-token',attempted:true,messages:[]};
   h.data.tasks.push(task);
   h.queueNavigation(new w.URL('https://chatgpt.com/c/WEB:missing'),task,'当前会话无法恢复');
   assert.equal(task.state,'queued');
@@ -1253,7 +1255,7 @@ test('active long assistant streams use bounded tail reads and skip completion-t
     w.history.pushState({},'', '/c/stream-tail');
     const markdown=w.document.querySelector('.markdown');
     markdown.textContent='old work '.repeat(60_000)+'LATEST-STREAM-TAIL';
-    const task={id:'stream-tail',ownerTabId:h.getTabId(),goal:'task',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/stream-tail',token:'stream-tail-token',attempted:false,messages:[]};
+    const task={id:'stream-tail',ownerTabId:h.getTabId(),goal:'task',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/stream-tail', url:'https://chatgpt.com/c/stream-tail',token:'stream-tail-token',attempted:false,messages:[]};
     h.data.tasks.push(task);
 
     const turn=h.latestTurn(task);
@@ -1272,7 +1274,7 @@ test('slow-scan diagnostics report stage timings and counts without transcript c
     w.history.pushState({},'', '/c/slow-diag');
     let clock=0;
     Object.defineProperty(w.performance,'now',{configurable:true,value:()=>{clock+=250;return clock;}});
-    const task={id:'slow-diag',ownerTabId:h.getTabId(),goal:'private task prompt',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/slow-diag',token:'diag-token',attempted:false,messages:[]};
+    const task={id:'slow-diag',ownerTabId:h.getTabId(),goal:'private task prompt',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/slow-diag', url:'https://chatgpt.com/c/slow-diag',token:'diag-token',attempted:false,messages:[]};
     h.data.tasks.push(task);
 
     await h.start();
@@ -1297,7 +1299,7 @@ test('resuming a large persisted workspace keeps workbench rendering bounded',as
   });
   try {
     const seededAt=Date.now()-60*60*1000;
-    const task={id:'resume-large',ownerTabId:h.getTabId(),goal:'resume without freezing',mode:'goal',phase:'work',round:3,state:'paused',pausedState:'waiting',url:'https://chatgpt.com/c/resume-large',token:'resume-token',attempted:false,messages:Array.from({length:80},(_,index)=>({at:seededAt+index*1000,role:'status',text:`status-${index}`})),messageVersion:80};
+    const task={id:'resume-large',ownerTabId:h.getTabId(),goal:'resume without freezing',mode:'goal',phase:'work',round:3,state:'paused',pausedState:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/resume-large', url:'https://chatgpt.com/c/resume-large',token:'resume-token',attempted:false,messages:Array.from({length:80},(_,index)=>({at:seededAt+index*1000,role:'status',text:`status-${index}`})),messageVersion:80};
     h.data.tasks.push(task);
     for(let index=0;index<72;index++)h.data.tasks.push({id:`archived-${index}`,ownerTabId:`archived-owner-${index%9}`,goal:`archived task ${index}`,mode:'once',phase:'work',round:1,state:'done',messages:[],messageVersion:0});
 
@@ -1337,7 +1339,7 @@ test('a visible conversation spinner is loading, not an abnormal end',async()=>{
   const sample={owned:true,final:false,text:'',sentAt:1,cards:0,stop:false,loading:true,blocker:'',rateLimit:''};
   const previous={text:'',since:1_000,idleSince:1_000,endedAt:1_000,clear:true};
   assert.equal(h.classify(sample,previous,301_000).state,'loading');
-  const task={id:'loading-page',goal:'wait for page',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/loading-page',token:'owner-token',attempted:false,messages:[]};
+  const task={id:'loading-page',goal:'wait for page',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/loading-page', url:'https://chatgpt.com/c/loading-page',token:'owner-token',attempted:false,messages:[]};
   h.data.tasks.push(task);
   await h.start();
   await h.inspect(task,null);
@@ -1432,7 +1434,7 @@ test('loading detection ignores transcript, composer, sidebar and workbench indi
 test('task reassignment changes only ownership and preserves paused execution identity',async()=>{
   const {h,w,dom}=await fixture();
   const task=h.enqueue('move me','goal');
-  Object.assign(task,{state:'paused',pausedState:'waiting',phase:'work',round:4,url:'https://chatgpt.com/c/kept',token:'kept-token',attempted:true,next:'keep next',attachments:[{id:'file-1',name:'keep.png'}]});
+  Object.assign(task,{state:'paused',pausedState:'waiting',phase:'work',round:4,authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/kept', url:'https://chatgpt.com/c/kept',token:'kept-token',attempted:true,next:'keep next',attachments:[{id:'file-1',name:'keep.png'}]});
   const sibling={id:'sibling',ownerTabId:'target-workspace',goal:'already there',state:'waiting',updatedAt:1,messages:[]};
   h.data.tasks.push(sibling);
   w.localStorage.setItem('fabushi-workspace-heartbeat-v1:target-workspace',JSON.stringify({ownerTabId:'target-workspace',at:Date.now(),autoResume:true,running:true}));
@@ -1485,7 +1487,7 @@ test('new-tab assignment opens a short-lived task-only transfer ticket',async()=
 });
 test('new tab claims the transfer workspace and adopts only the ticketed task',async()=>{
   const owner='new-tab-owner', sourceOwner='source-tab', token='ticket-token';
-  const task={id:'assigned-only',ownerTabId:sourceOwner,goal:'task goal',state:'waiting',phase:'work',round:3,url:'https://chatgpt.com/c/existing-chat',token:'dispatch-token',attempted:true,attachments:[{id:'attachment-1',name:'doc.pdf'}],messages:[]};
+  const task={id:'assigned-only',ownerTabId:sourceOwner,goal:'task goal',state:'waiting',phase:'work',round:3,authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/existing-chat', url:'https://chatgpt.com/c/existing-chat',token:'dispatch-token',attempted:true,attachments:[{id:'attachment-1',name:'doc.pdf'}],messages:[]};
   const ticket={version:1,token,taskId:task.id,sourceOwnerTabId:sourceOwner,targetOwnerTabId:owner,at:Date.now()};
   const {h,w,dom}=await fixture('',window=>{
     window.localStorage.setItem('fabushi-workbench-v2',JSON.stringify({tasks:[task],selectedByTab:{},tabControls:{[sourceOwner]:{autoResume:true,controlRevision:0}}}));
@@ -1556,7 +1558,7 @@ test('attachment picker falls back to a page-level input outside the composer fo
 test('old attachment upload timeout records return to a safe queued retry',async()=>{
   const {h,dom}=await fixture();
   const task=h.enqueue('retry attachment','once',[{id:'clip',name:'clip.mp4',type:'video/mp4',size:12,lastModified:1}]);
-  Object.assign(task,{state:'blocked',url:'',attempted:false,sendPrepared:true,token:'old-token',messages:[{text:'附件上传未确认，已停止发送纯文字目标。等待 ChatGPT 显示附件已超过 45 秒。'}]});
+  Object.assign(task,{state:'blocked',authorizationSeenAt:1, authorizationSeenURL:'', url:'',attempted:false,sendPrepared:true,token:'old-token',messages:[{text:'附件上传未确认，已停止发送纯文字目标。等待 ChatGPT 显示附件已超过 45 秒。'}]});
   assert.equal(h.recoverLegacyAttachmentUploadTimeouts(),task.id);
   assert.equal(task.state,'queued');
   assert.equal(task.token,'');
@@ -1569,7 +1571,7 @@ test('latest owned reply is final when Copy is the only response action',async()
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish [Fabushi:copy-only-final]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">已经完成全部工作。</div></div><button aria-label="复制回复"></button></article><form><textarea id="prompt-textarea"></textarea></form></main>');
   try {
     w.history.pushState({},'', '/c/copy-only-final');
-    const task={id:'copy-only-final',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/copy-only-final',token:'copy-only-final',attempted:false,messages:[]};
+    const task={id:'copy-only-final',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/copy-only-final', url:'https://chatgpt.com/c/copy-only-final',token:'copy-only-final',attempted:false,messages:[]};
     h.data.tasks.push(task);
     const turn=h.latestTurn(task);
     assert.equal(turn.owned,true);
@@ -1584,7 +1586,7 @@ test('Copy-only sibling response lane completes the latest owned reply',async()=
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish [Fabushi:copy-lane-final]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">最终结果。</div></div></article><div id="response-actions"><button aria-label="Copy response"></button></div><form><textarea id="prompt-textarea"></textarea></form></main>');
   try {
     w.history.pushState({},'', '/c/copy-lane-final');
-    const task={id:'copy-lane-final',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/copy-lane-final',token:'copy-lane-final',attempted:false,messages:[]};
+    const task={id:'copy-lane-final',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/copy-lane-final', url:'https://chatgpt.com/c/copy-lane-final',token:'copy-lane-final',attempted:false,messages:[]};
     h.data.tasks.push(task);
     const turn=h.latestTurn(task);
     assert.equal(turn.final,true);
@@ -1597,7 +1599,7 @@ test('an older Copy-only toolbar cannot complete a newer assistant reply',async(
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish [Fabushi:old-copy-token]</div></article><article data-testid="conversation-turn-assistant-old"><div data-message-author-role="assistant"><div class="markdown">旧回复</div></div><button aria-label="复制回复"></button></article><article data-testid="conversation-turn-assistant-new"><div data-message-author-role="assistant"><div class="markdown">当前回复没有动作栏</div></div></article><form><textarea id="prompt-textarea"></textarea></form></main>');
   try {
     w.history.pushState({},'', '/c/old-copy-token');
-    const task={id:'old-copy-token',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/old-copy-token',token:'old-copy-token',attempted:false,messages:[]};
+    const task={id:'old-copy-token',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/old-copy-token', url:'https://chatgpt.com/c/old-copy-token',token:'old-copy-token',attempted:false,messages:[]};
     h.data.tasks.push(task);
     const turn=h.latestTurn(task);
     assert.equal(turn.text,'当前回复没有动作栏');
@@ -1610,7 +1612,7 @@ test('thinking-only response with final toolbar is ended without a final Work re
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish [Fabushi:thought-only]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="thinking">思考了 3m 2s</div></div><button aria-label="复制回复"></button><button aria-label="分享回复"></button></article><div role="status" class="loading">loading</div><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">发送</button></form></main>');
   try {
     w.history.pushState({},'', '/c/thought-only');
-    const task={id:'thought-only',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/thought-only',token:'thought-only',attempted:false,messages:[]};
+    const task={id:'thought-only',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/thought-only', url:'https://chatgpt.com/c/thought-only',token:'thought-only',attempted:false,messages:[]};
     h.data.tasks.push(task);
     const turn=h.latestTurn(task);
     assert.equal(turn.terminalEmptyReply,true);
@@ -1639,7 +1641,7 @@ test('thinking-only termination needs a complete current toolbar and exact owner
   const {h,w,dom}=await fixture(body);
   try {
     w.history.pushState({},'', '/c/thought-guards');
-    const task={id:'thought-guards',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/thought-guards',token:'thought-guards',attempted:false,messages:[]};
+    const task={id:'thought-guards',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/thought-guards', url:'https://chatgpt.com/c/thought-guards',token:'thought-guards',attempted:false,messages:[]};
     h.data.tasks.push(task);
     assert.equal(h.latestTurn(task).terminalEmptyReply,true);
     w.document.querySelector('[aria-label="分享回复"]').remove();
@@ -1660,7 +1662,7 @@ test('old response toolbar cannot declare newer thinking-only turn terminated',a
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish [Fabushi:thought-new]</div></article><article data-testid="conversation-turn-assistant-old"><div data-message-author-role="assistant"><div class="markdown">旧回复</div></div><button aria-label="复制回复"></button><button aria-label="分享回复"></button></article><article data-testid="conversation-turn-assistant-new"><div data-message-author-role="assistant"><div class="thinking">思考了 3m 2s</div></div></article><form><textarea id="prompt-textarea"></textarea></form></main>');
   try {
     w.history.pushState({},'', '/c/thought-new');
-    const task={id:'thought-new',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/thought-new',token:'thought-new',attempted:false,messages:[]};
+    const task={id:'thought-new',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/thought-new', url:'https://chatgpt.com/c/thought-new',token:'thought-new',attempted:false,messages:[]};
     h.data.tasks.push(task);
     const turn=h.latestTurn(task);
     assert.equal(turn.final,false);
@@ -1672,7 +1674,7 @@ test('stable owned Work final report completes after eight seconds when renderer
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish [Fabushi:natural-final]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">{"taskId":"natural-final","round":1,"status":"complete","summary":"这是已经完成的最终自然语言回复。","next":""}</div></div></article><form><textarea id="prompt-textarea"></textarea></form></main>');
   try {
     w.history.pushState({},'', '/c/natural-final');
-    const task={id:'natural-final',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/natural-final',token:'natural-final',attempted:false,messages:[]};
+    const task={id:'natural-final',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/natural-final', url:'https://chatgpt.com/c/natural-final',token:'natural-final',attempted:false,messages:[]};
     h.data.tasks.push(task);
     await h.start(false);
     await h.inspect(task,null);
@@ -1693,7 +1695,7 @@ test('natural final fallback stability resets when reply text changes',async()=>
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish [Fabushi:natural-changing]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">第一版回复。</div></div></article><form><textarea id="prompt-textarea"></textarea></form></main>');
   try {
     w.history.pushState({},'', '/c/natural-changing');
-    const task={id:'natural-changing',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/natural-changing',token:'natural-changing',attempted:false,messages:[]};
+    const task={id:'natural-changing',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/natural-changing', url:'https://chatgpt.com/c/natural-changing',token:'natural-changing',attempted:false,messages:[]};
     h.data.tasks.push(task);
     await h.start(false);
     await h.inspect(task,null);
@@ -1712,7 +1714,7 @@ test('route-only ownership cannot finish through natural final fallback',async()
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">ordinary unmarked user turn</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">Looks final but has no task marker.</div></div></article><form><textarea id="prompt-textarea"></textarea></form></main>');
   try {
     w.history.pushState({},'', '/c/route-only-natural');
-    const task={id:'route-only-natural',ownerTabId:h.getTabId(),goal:'target',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/route-only-natural',token:'missing-marker',attempted:false,messages:[]};
+    const task={id:'route-only-natural',ownerTabId:h.getTabId(),goal:'target',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/route-only-natural', url:'https://chatgpt.com/c/route-only-natural',token:'missing-marker',attempted:false,messages:[]};
     h.data.tasks.push(task);
     await h.start(false);
     await h.inspect(task,null);
@@ -1737,7 +1739,7 @@ test('a stale assistant busy marker cannot block abnormal-end recovery after rep
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish all [Fabushi:stop-transition-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant" aria-busy="true">normal reply is still active even though Stop is temporarily absent</div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   try {
     w.history.pushState({},'', '/c/stop-transition');
-    const task={id:'stop-transition',ownerTabId:h.getTabId(),goal:'finish all',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/stop-transition',token:'stop-transition-token',attempted:false,messages:[],stopMissingSince:Date.now()-60_000,stopMissingSignature:'legacy-v2.9.54-state'};
+    const task={id:'stop-transition',ownerTabId:h.getTabId(),goal:'finish all',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/stop-transition', url:'https://chatgpt.com/c/stop-transition',token:'stop-transition-token',attempted:false,messages:[],stopMissingSince:Date.now()-60_000,stopMissingSignature:'legacy-v2.9.54-state'};
     h.data.tasks.push(task);
     let clicks=0;
     w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>clicks++);
@@ -1769,7 +1771,7 @@ test('marker-virtualized exact-route waiting task queues a fresh session after s
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user" data-message-id="older-visible-user">更早的普通用户消息</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div data-testid="tool-call-result">已调用工具</div></div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   try {
     w.history.pushState({},'', '/c/route-ended-without-marker');
-    const task={id:'route-ended-without-marker',ownerTabId:h.getTabId(),goal:'继续完成任务',goalRevision:4,mode:'once',phase:'work',round:3,state:'waiting',url:'https://chatgpt.com/c/route-ended-without-marker',token:'virtualized-marker-token',attempted:false,messages:[]};
+    const task={id:'route-ended-without-marker',ownerTabId:h.getTabId(),goal:'继续完成任务',goalRevision:4,mode:'once',phase:'work',round:3,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/route-ended-without-marker', url:'https://chatgpt.com/c/route-ended-without-marker',token:'virtualized-marker-token',attempted:false,messages:[]};
     h.data.tasks.push(task);
     let clicks=0;
     w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>clicks++);
@@ -1801,7 +1803,7 @@ test('route-owned abnormal-end detection clears a blocking composer draft before
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">older visible user</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div data-testid="tool-call-result">已调用工具</div></div></article><form><textarea id="prompt-textarea">用户正在输入的草稿</textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   try {
     w.history.pushState({},'', '/c/route-ended-draft');
-    const task={id:'route-ended-draft',ownerTabId:h.getTabId(),goal:'继续完成任务',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/route-ended-draft',token:'virtualized-draft-token',attempted:false,messages:[]};
+    const task={id:'route-ended-draft',ownerTabId:h.getTabId(),goal:'继续完成任务',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/route-ended-draft', url:'https://chatgpt.com/c/route-ended-draft',token:'virtualized-draft-token',attempted:false,messages:[]};
     h.data.tasks.push(task);
     let clicks=0;
     w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>clicks++);
@@ -1827,7 +1829,7 @@ test('route-owned ended detection refuses a still-mounted task marker followed b
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">task prompt [Fabushi:mounted-task-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">partial task result</div></article><article data-testid="conversation-turn-user"><div data-message-author-role="user">用户后来手动发送的新消息</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div data-testid="tool-call-result">已调用工具</div></div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   try {
     w.history.pushState({},'', '/c/mounted-marker-newer-user');
-    const task={id:'mounted-marker-newer-user',ownerTabId:h.getTabId(),goal:'原任务',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/mounted-marker-newer-user',token:'mounted-task-token',attempted:false,messages:[]};
+    const task={id:'mounted-marker-newer-user',ownerTabId:h.getTabId(),goal:'原任务',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/mounted-marker-newer-user', url:'https://chatgpt.com/c/mounted-marker-newer-user',token:'mounted-task-token',attempted:false,messages:[]};
     h.data.tasks.push(task);
     let clicks=0;
     w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>clicks++);
@@ -1850,7 +1852,7 @@ test('waiting response queues a fresh session after eight stable seconds despite
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish all [Fabushi:ended-waiting-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div data-testid="tool-call-result">已调用工具</div></div></article><div role="status" class="loading"><svg></svg>Loading history</div><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   try {
     w.history.pushState({},'', '/c/ended-waiting');
-    const task={id:'ended-waiting',ownerTabId:h.getTabId(),goal:'finish all',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/ended-waiting',token:'ended-waiting-token',attempted:false,messages:[]};
+    const task={id:'ended-waiting',ownerTabId:h.getTabId(),goal:'finish all',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/ended-waiting', url:'https://chatgpt.com/c/ended-waiting',token:'ended-waiting-token',attempted:false,messages:[]};
     h.data.tasks.push(task);
     let clicks=0;
     w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>clicks++);
@@ -1884,7 +1886,7 @@ test('manual recovered marker-virtualized tool-only conversation also continues 
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user" data-message-id="older-user">更早的普通用户消息</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div data-testid="tool-call-result">已调用工具</div></div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   try {
     w.history.pushState({},'', '/c/recovered-ended-tool-only');
-    const task={id:'recovered-ended-tool-only',ownerTabId:h.getTabId(),goal:'继续完成任务',goalRevision:3,mode:'once',phase:'work',round:2,state:'blocked',url:'https://chatgpt.com/c/recovered-ended-tool-only',token:'virtualized-task-token',attempted:false,messages:[]};
+    const task={id:'recovered-ended-tool-only',ownerTabId:h.getTabId(),goal:'继续完成任务',goalRevision:3,mode:'once',phase:'work',round:2,state:'blocked',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/recovered-ended-tool-only', url:'https://chatgpt.com/c/recovered-ended-tool-only',token:'virtualized-task-token',attempted:false,messages:[]};
     h.data.tasks.push(task);
     assert.equal(h.prepareTaskForRecovery(task),true);
     assert.equal(task.state,'waiting');
@@ -1915,7 +1917,7 @@ test('a late sibling final toolbar completes normally without injecting continua
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish all [Fabushi:late-toolbar-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">{"taskId":"late-toolbar","round":1,"status":"complete","summary":"当前结论与下一步。PR 仍保持 Draft，不能合并。","next":""}</div></div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   try {
     w.history.pushState({},'', '/c/late-toolbar');
-    const task={id:'late-toolbar',ownerTabId:h.getTabId(),goal:'finish all',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/late-toolbar',token:'late-toolbar-token',attempted:false,messages:[]};
+    const task={id:'late-toolbar',ownerTabId:h.getTabId(),goal:'finish all',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/late-toolbar', url:'https://chatgpt.com/c/late-toolbar',token:'late-toolbar-token',attempted:false,messages:[]};
     h.data.tasks.push(task);
     let clicks=0;
     w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>clicks++);
@@ -1958,7 +1960,7 @@ test('an older unassociated toolbar cannot complete the latest assistant turn',a
   const {h,w,dom}=await fixture('<main><div id="old-response-actions"><button aria-label="复制回复"></button><button aria-label="来源"></button><button aria-label="更多操作"></button></div><article data-testid="conversation-turn-user"><div data-message-author-role="user">new task [Fabushi:old-toolbar-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">latest reply without its own toolbar yet</div></div></article><form><textarea id="prompt-textarea"></textarea></form></main>');
   try {
     w.history.pushState({},'', '/c/old-toolbar');
-    const task={id:'old-toolbar',ownerTabId:h.getTabId(),goal:'new task',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/old-toolbar',token:'old-toolbar-token',attempted:false,messages:[]};
+    const task={id:'old-toolbar',ownerTabId:h.getTabId(),goal:'new task',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/old-toolbar', url:'https://chatgpt.com/c/old-toolbar',token:'old-toolbar-token',attempted:false,messages:[]};
     h.data.tasks.push(task);
     const turn=h.latestTurn(task);
     assert.equal(turn.owned,true);
@@ -1985,7 +1987,7 @@ test('an authorization-card transition cannot become a duplicate fresh-session s
 test('conversation length-limit detection is scoped to the current response and ignores quotes/logs',async()=>{
   const zh=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">do work [Fabushi:length-zh]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><p>已完成前半段工作。</p><p>你已达到此对话的长度上限，你可以开始新聊天以继续对话。</p></div></article></main>');
   zh.w.history.pushState({},'', '/c/length-zh');
-  const task={id:'length-zh',ownerTabId:zh.h.getTabId(),goal:'do work',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/length-zh',token:'length-zh',messages:[]};
+  const task={id:'length-zh',ownerTabId:zh.h.getTabId(),goal:'do work',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/length-zh', url:'https://chatgpt.com/c/length-zh',token:'length-zh',messages:[]};
   zh.h.data.tasks.push(task);
   const turn=zh.h.latestTurn(task);
   assert.match(zh.h.conversationLengthLimitNotice(turn),/长度上限/);
@@ -2017,7 +2019,7 @@ test('conversation length-limit handoff copies the complete current assistant re
     <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">你已达到此对话的长度上限，你可以开始新聊天以继续对话。</div></div></article>
   </main>`);
   const attachments=[{id:'proof',name:'proof.png',type:'image/png',size:12}];
-  const task={id:'length-hop',ownerTabId:h.getTabId(),goal:'finish everything',mode:'goal',phase:'work',round:2,state:'waiting',url:'https://chatgpt.com/c/length-one',token:'length-hop',attempted:false,attachments,messages:[]};
+  const task={id:'length-hop',ownerTabId:h.getTabId(),goal:'finish everything',mode:'goal',phase:'work',round:2,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/length-one', url:'https://chatgpt.com/c/length-one',token:'length-hop',attempted:false,attachments,messages:[]};
   h.data.tasks.push(task);
   w.history.pushState({},'', '/c/length-one');
   assert.equal(h.queueConversationLengthHandoff(task,{owned:true,text:'STALE_TURN_TEXT'},'你已达到此对话的长度上限，你可以开始新聊天以继续对话。',1_000),true);
@@ -2040,6 +2042,7 @@ test('conversation length-limit handoff copies the complete current assistant re
     <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">第二会话又完成 C/D。</div></div></article>
     <article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">你已达到此对话的长度上限，你可以开始新聊天以继续对话。</div></div></article>`;
   task.url='https://chatgpt.com/c/length-two';
+  task.authorizationSeenURL=task.url; task.authorizationSeenAt=1; // This second handoff fixture also observed its own card.
   task.token='second-token';
   task.state='waiting';
   w.history.pushState({},'', '/c/length-two');
@@ -2057,7 +2060,7 @@ test('a length-limit notice without safe current assistant work does not queue a
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish [Fabushi:length-no-carry]</div></article><div role="status">你已达到此对话的长度上限，你可以开始新聊天以继续对话。</div></main>');
   try {
     w.history.pushState({},'', '/c/length-no-carry');
-    const task={id:'length-no-carry',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/length-no-carry',token:'length-no-carry',attempted:false,messages:[]};
+    const task={id:'length-no-carry',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/length-no-carry', url:'https://chatgpt.com/c/length-no-carry',token:'length-no-carry',attempted:false,messages:[]};
     h.data.tasks.push(task);
     await h.start();
     await h.inspect(task,null);
@@ -2073,7 +2076,7 @@ test('terminal length CTA with stopped thinking and no reply continues the curre
     const {h,w,dom}=await fixture(`<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish [Fabushi:terminal-empty]</div></article><button>已停止思考</button><div role="status">你已达到此对话的长度上限，你可以开始新聊天以继续对话。</div><button>开始新聊天</button></main>`);
     try {
       w.history.pushState({},'', '/c/terminal-empty');
-      const task={id:'terminal-empty',ownerTabId:h.getTabId(),goal:'original goal',next:'current instruction',mode:'once',phase,round:3,state:'waiting',url:w.location.href,token:'terminal-empty',attempted:false,lengthLimitCarry:'earlier verified progress',attachments:[{id:'proof',name:'proof.txt'}],messages:[]};
+      const task={id:'terminal-empty',ownerTabId:h.getTabId(),goal:'original goal',next:'current instruction',mode:'once',phase,round:3,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:w.location.href, url:w.location.href,token:'terminal-empty',attempted:false,lengthLimitCarry:'earlier verified progress',attachments:[{id:'proof',name:'proof.txt'}],messages:[]};
       h.data.tasks.push(task); await h.start(); await h.inspect(task,null);
       assert.equal(task.state,'queued'); assert.equal(task.phase,phase); assert.equal(task.round,3);
       assert.equal(task.lengthLimitHopCount,1); assert.equal(task.lengthLimitNoReply,true);
@@ -2094,7 +2097,7 @@ test('shared renderer stopped-thinking activity is not fabricated Work reply pro
   const {h,w,dom}=await fixture(`<main><div data-content-search-turn-key="terminal-shared"><div data-content-search-unit-key="terminal:user"><div data-markdown-text-tone="user-message">finish [Fabushi:shared-empty]</div></div><div data-markdown-text-style="assistant-message" data-markdown-text-tone="tertiary">已停止思考</div><div role="alert">你已达到此对话的长度上限，你可以开始新聊天以继续对话。</div><button>开始新聊天</button></div></main>`);
   try {
     w.history.pushState({},'', '/c/shared-empty');
-    const task={id:'shared-empty',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:w.location.href,token:'shared-empty',attempted:false,messages:[]};
+    const task={id:'shared-empty',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:w.location.href, url:w.location.href,token:'shared-empty',attempted:false,messages:[]};
     h.data.tasks.push(task); await h.start(); await h.inspect(task,null);
     assert.equal(task.state,'queued'); assert.equal(task.lengthLimitNoReply,true);
     assert.equal(task.lengthLimitCarry||'',''); const prompt=h.workPrompt(task); assert.match(prompt,/MAHAYANA_TASK_REPORT_V1/); assert.match(prompt,/上一会话未生成可提取的新回复/);
@@ -2122,7 +2125,7 @@ test('a length-limit handoff waits for the active response and then carries its 
   </main>`);
   try {
     w.history.pushState({},'', '/c/length-streaming');
-    const task={id:'length-streaming',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/length-streaming',token:'length-streaming',attempted:false,messages:[]};
+    const task={id:'length-streaming',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/length-streaming', url:'https://chatgpt.com/c/length-streaming',token:'length-streaming',attempted:false,messages:[]};
     h.data.tasks.push(task);
     await h.start();
     await h.inspect(task,null);
@@ -2164,7 +2167,7 @@ test('fresh Work prompts include the previous length-limited reply without chang
 test('a length-limit notice wins over a final-looking toolbar and queues a fresh continuation chat',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">finish [Fabushi:length-final]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><p>已经完成一部分。</p><p>你已达到此对话的长度上限，你可以开始新聊天以继续对话。</p></div><button aria-label="复制回复"></button><button aria-label="评价回复"></button></article><form><textarea id="prompt-textarea"></textarea></form></main>');
   w.history.pushState({},'', '/c/length-final');
-  const task={id:'length-final',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/length-final',token:'length-final',attempted:false,messages:[]};
+  const task={id:'length-final',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/length-final', url:'https://chatgpt.com/c/length-final',token:'length-final',attempted:false,messages:[]};
   h.data.tasks.push(task);
   const turn=h.latestTurn(task);
   assert.equal(turn.final,true,'the UI can expose a normal-looking final toolbar on the length-limit turn');
@@ -2188,7 +2191,7 @@ test('a stale page-chrome length notice cannot suppress a valid completed Work f
   </main>`);
   try {
     w.history.pushState({},'', '/c/stale-chrome-final');
-    const task={id:'stale-chrome-final',ownerTabId:h.getTabId(),goal:'complete everything',mode:'goal',phase:'work',round:3,state:'waiting',url:'https://chatgpt.com/c/stale-chrome-final',token:'stale-chrome-final',goalRevision:0,dispatchGoalRevision:0,attempted:false,messages:[]};
+    const task={id:'stale-chrome-final',ownerTabId:h.getTabId(),goal:'complete everything',mode:'goal',phase:'work',round:3,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/stale-chrome-final', url:'https://chatgpt.com/c/stale-chrome-final',token:'stale-chrome-final',goalRevision:0,dispatchGoalRevision:0,attempted:false,messages:[]};
     h.data.tasks.push(task);
     await h.start(false);
     assert.equal(h.latestTurn(task).final,true,'the current answer owns a committed Copy control');
@@ -2234,7 +2237,7 @@ test('model picker trigger clicks retain the single-click quiet interval',async(
 
 test('a true Work final report clears temporary length-limit carry state',async()=>{
   const {h,dom}=await fixture();
-  const task={id:'length-done',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/final',token:'final-token',lengthLimitCarry:'old partial reply',lengthLimitCarrySourceURL:'https://chatgpt.com/c/old',lengthLimitHopCount:3,lengthLimitLastAt:123,abnormalFreshCarry:'old abnormal partial',abnormalFreshCarrySourceURL:'https://chatgpt.com/c/abnormal',abnormalFreshCarryReason:'connection interrupted',abnormalFreshCarryPhase:'work',abnormalFreshCarryRound:1,abnormalFreshCarryAt:456,messages:[]};
+  const task={id:'length-done',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/final', url:'https://chatgpt.com/c/final',token:'final-token',lengthLimitCarry:'old partial reply',lengthLimitCarrySourceURL:'https://chatgpt.com/c/old',lengthLimitHopCount:3,lengthLimitLastAt:123,abnormalFreshCarry:'old abnormal partial',abnormalFreshCarrySourceURL:'https://chatgpt.com/c/abnormal',abnormalFreshCarryReason:'connection interrupted',abnormalFreshCarryPhase:'work',abnormalFreshCarryRound:1,abnormalFreshCarryAt:456,messages:[]};
   h.data.tasks.push(task);
   h.finish(task,JSON.stringify({taskId:task.id,round:1,status:'complete',summary:'真正最终回复',next:''}));
   assert.equal(task.state,'done');
@@ -2262,7 +2265,7 @@ test('connection interruption recovery recognizes current live assistant status 
 
   const live=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:interrupt-live]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant" aria-busy="true">连接已中断，正在等待完整答复</div></article></main>');
   live.w.history.pushState({},'', '/c/interrupt-live');
-  const liveTask={id:'interrupt-live',ownerTabId:live.h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/interrupt-live',token:'interrupt-live',messages:[]};
+  const liveTask={id:'interrupt-live',ownerTabId:live.h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/interrupt-live', url:'https://chatgpt.com/c/interrupt-live',token:'interrupt-live',messages:[]};
   live.h.data.tasks.push(liveTask);
   const liveTurn=live.h.latestTurn(liveTask);
   assert.equal(liveTurn.owned,true);
@@ -2286,7 +2289,7 @@ test.skip('connection interruption route fallback carries visible assistant work
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">旧的普通用户消息，任务 marker 已被虚拟化</div></article><article data-testid="conversation-turn-assistant-a"><div data-message-author-role="assistant"><div class="markdown">已经完成 architecture checker 的第一轮修复，并把 legacy adapter 的 Agent 依赖移出。</div></div></article><article data-testid="conversation-turn-assistant-b"><div data-message-author-role="assistant"><div data-message-content>下一步正在修 packaged acceptance 的 TypeScript 错误。</div></div></article><article data-testid="conversation-turn-assistant-status"><div data-message-author-role="assistant">连接已中断。正在等待完整回复。</div></article><div role="status">连接已中断。正在等待完整回复。</div><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   try {
     w.history.pushState({},'', '/c/virtualized-marker');
-    const task={id:'virtualized-marker',ownerTabId:h.getTabId(),goal:'original architecture goal',next:'continue exact refactor',mode:'goal',phase:'work',round:2,state:'waiting',url:'https://chatgpt.com/c/virtualized-marker',token:'marker-no-longer-mounted',attempted:false,attachments:[],messages:[]};
+    const task={id:'virtualized-marker',ownerTabId:h.getTabId(),goal:'original architecture goal',next:'continue exact refactor',mode:'goal',phase:'work',round:2,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/virtualized-marker', url:'https://chatgpt.com/c/virtualized-marker',token:'marker-no-longer-mounted',attempted:false,attachments:[],messages:[]};
     h.data.tasks.push(task);
     const scoped=h.latestTurn(task);
     assert.equal(scoped.owned,false,'the task marker is intentionally absent to model ChatGPT turn virtualization');
@@ -2316,8 +2319,8 @@ test('connection interruption route fallback refuses a foreign task marker on th
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">other task [Fabushi:foreign-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">foreign assistant work</div></article><div role="status">连接已中断。正在等待完整回复。</div></main>');
   try {
     w.history.pushState({},'', '/c/route-owned-but-foreign-marker');
-    const task={id:'target-task',ownerTabId:h.getTabId(),goal:'target',mode:'goal',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/route-owned-but-foreign-marker',token:'missing-target-token',attempted:false,attachments:[],messages:[]};
-    const foreign={id:'foreign-task',ownerTabId:h.getTabId(),goal:'foreign',mode:'goal',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/foreign',token:'foreign-token',attempted:false,attachments:[],messages:[]};
+    const task={id:'target-task',ownerTabId:h.getTabId(),goal:'target',mode:'goal',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/route-owned-but-foreign-marker', url:'https://chatgpt.com/c/route-owned-but-foreign-marker',token:'missing-target-token',attempted:false,attachments:[],messages:[]};
+    const foreign={id:'foreign-task',ownerTabId:h.getTabId(),goal:'foreign',mode:'goal',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/foreign', url:'https://chatgpt.com/c/foreign',token:'foreign-token',attempted:false,attachments:[],messages:[]};
     h.data.tasks.push(task,foreign);
     await h.start();
     await h.inspect(task,null);
@@ -2333,7 +2336,7 @@ test('connection interruption route fallback refuses a foreign task marker on th
 test('a stale earlier network error cannot override a newer final reply',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">goal [Fabushi:stale-error-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div>A network error occurred. Please check your connection and try again.</div><button aria-label="Retry"></button></div></article><article data-testid="conversation-turn-user"><div data-message-author-role="user">继续完成所有</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">final result</div><button aria-label="复制回复"></button><button aria-label="评价回复"></button></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   w.history.pushState({},'', '/c/stale-error-final');
-  const task={id:'stale-error-final',ownerTabId:h.getTabId(),goal:'goal',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/stale-error-final',token:'stale-error-token',continuationCount:1,messages:[]};
+  const task={id:'stale-error-final',ownerTabId:h.getTabId(),goal:'goal',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/stale-error-final', url:'https://chatgpt.com/c/stale-error-final',token:'stale-error-token',continuationCount:1,messages:[]};
   h.data.tasks.push(task);
   const turn=h.latestTurn(task);
   assert.equal(turn.final,true);
@@ -2348,7 +2351,7 @@ test.skip('obsolete: connection interruption requeues a fresh chat instead of co
     phase:'work',
     round:4,
     next:'continue the exact current work',
-    url:'https://chatgpt.com/c/interrupted-old',
+    authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/interrupted-old', url:'https://chatgpt.com/c/interrupted-old',
     token:'old-interruption-token',
     attempted:false,
     pendingContinuationReason:'legacy interrupted',
@@ -2388,7 +2391,7 @@ test.skip('connection interruption carries all substantive assistant segments wh
   </main>`);
   try {
     w.history.pushState({},'', '/c/split-interrupt');
-    const task={id:'split-interrupt',ownerTabId:h.getTabId(),goal:'original architecture goal',next:'continue architecture parity work',mode:'goal',phase:'work',round:4,state:'waiting',url:'https://chatgpt.com/c/split-interrupt',token:'split-interrupt',attempted:false,attachments:[],messages:[]};
+    const task={id:'split-interrupt',ownerTabId:h.getTabId(),goal:'original architecture goal',next:'continue architecture parity work',mode:'goal',phase:'work',round:4,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/split-interrupt', url:'https://chatgpt.com/c/split-interrupt',token:'split-interrupt',attempted:false,attachments:[],messages:[]};
     h.data.tasks.push(task);
     const latest=h.latestTurn(task);
     assert.equal(latest.owned,true);
@@ -2436,7 +2439,7 @@ test.skip('connection interruption carries visible semantic work from zero-rect 
   });
   try {
     w.history.pushState({},'', '/c/zero-rect-interrupt');
-    const task={id:'zero-rect-interrupt',ownerTabId:h.getTabId(),goal:'original architecture goal',next:'continue exact architecture parity work',mode:'goal',phase:'work',round:5,state:'waiting',url:'https://chatgpt.com/c/zero-rect-interrupt',token:'zero-rect-interrupt',attempted:false,attachments:[],messages:[]};
+    const task={id:'zero-rect-interrupt',ownerTabId:h.getTabId(),goal:'original architecture goal',next:'continue exact architecture parity work',mode:'goal',phase:'work',round:5,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/zero-rect-interrupt', url:'https://chatgpt.com/c/zero-rect-interrupt',token:'zero-rect-interrupt',attempted:false,attachments:[],messages:[]};
     h.data.tasks.push(task);
 
     const assistantHosts=[...w.document.querySelectorAll('[data-message-author-role="assistant"]')];
@@ -2486,7 +2489,7 @@ test.skip('connection interruption never carries hidden or inert assistant conte
   });
   try {
     w.history.pushState({},'', '/c/hidden-zero-rect');
-    const task={id:'hidden-zero-rect',ownerTabId:h.getTabId(),goal:'safe goal',next:'safe next',mode:'goal',phase:'work',round:2,state:'waiting',url:'https://chatgpt.com/c/hidden-zero-rect',token:'hidden-zero-rect',attempted:false,attachments:[],messages:[]};
+    const task={id:'hidden-zero-rect',ownerTabId:h.getTabId(),goal:'safe goal',next:'safe next',mode:'goal',phase:'work',round:2,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/hidden-zero-rect', url:'https://chatgpt.com/c/hidden-zero-rect',token:'hidden-zero-rect',attempted:false,attachments:[],messages:[]};
     h.data.tasks.push(task);
 
     await h.start();
@@ -2506,7 +2509,7 @@ test.skip('connection interruption never carries hidden or inert assistant conte
 test.skip('scheduler carries the interrupted live assistant work into the fresh-chat three-part Work prompt',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue current work [Fabushi:interrupt-live-send]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><p>已完成 legacy shell 拆分，并正在修复 packaged acceptance TypeScript 错误。</p><p>连接已中断。正在等待完整回复。</p></div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   w.history.pushState({},'', '/c/interrupt-live-send');
-  const task={id:'interrupt-live-send',ownerTabId:h.getTabId(),goal:'original goal',next:'continue current work',mode:'goal',phase:'work',round:3,state:'waiting',url:'https://chatgpt.com/c/interrupt-live-send',token:'interrupt-live-send',attempted:false,attachments:[],messages:[]};
+  const task={id:'interrupt-live-send',ownerTabId:h.getTabId(),goal:'original goal',next:'continue current work',mode:'goal',phase:'work',round:3,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/interrupt-live-send', url:'https://chatgpt.com/c/interrupt-live-send',token:'interrupt-live-send',attempted:false,attachments:[],messages:[]};
   h.data.tasks.push(task);
   let oldConversationSends=0;
   w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>oldConversationSends++);
@@ -2573,7 +2576,7 @@ test.skip('scheduler carries the interrupted live assistant work into the fresh-
 test.skip('legacy pending interruption state is migrated to fresh-chat recovery instead of same-chat continuation',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:legacy-pending]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">partial stopped response</div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   w.history.pushState({},'', '/c/legacy-pending');
-  const task={id:'legacy-pending',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/legacy-pending',token:'legacy-pending',pendingContinuationReason:'旧版连接中断待续发',pendingContinuationURL:'https://chatgpt.com/c/legacy-pending',pendingContinuationSince:1,messages:[]};
+  const task={id:'legacy-pending',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/legacy-pending', url:'https://chatgpt.com/c/legacy-pending',token:'legacy-pending',pendingContinuationReason:'旧版连接中断待续发',pendingContinuationURL:'https://chatgpt.com/c/legacy-pending',pendingContinuationSince:1,messages:[]};
   h.data.tasks.push(task);
   let sends=0;
   w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>sends++);
@@ -2593,7 +2596,7 @@ test.skip('legacy pending interruption state is migrated to fresh-chat recovery 
 
 test('dispatch reset and true Work final completion clear stale pending interruption continuation',async()=>{
   const {h,dom}=await fixture();
-  const task={id:'pending-final',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/pending-final',token:'pending-final',pendingContinuationReason:'interrupted',pendingContinuationURL:'https://chatgpt.com/c/pending-final',pendingContinuationSince:1,pendingContinuationStopClickedAt:2,messages:[]};
+  const task={id:'pending-final',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/pending-final', url:'https://chatgpt.com/c/pending-final',token:'pending-final',pendingContinuationReason:'interrupted',pendingContinuationURL:'https://chatgpt.com/c/pending-final',pendingContinuationSince:1,pendingContinuationStopClickedAt:2,messages:[]};
   h.data.tasks.push(task);
   h.finish(task,JSON.stringify({taskId:task.id,round:1,status:'complete',summary:'真正最终回复',next:''}));
   assert.equal(task.state,'done');
@@ -2606,7 +2609,7 @@ test('dispatch reset and true Work final completion clear stale pending interrup
 test('verified continuation user turn remains owned by the original task until final toolbar',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">goal [Fabushi:continuation-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">partial</div></article><article data-testid="conversation-turn-user"><div data-message-author-role="user">继续完成所有</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">final result</div><button aria-label="复制回复"></button><button aria-label="评价回复"></button></article></main>');
   w.history.pushState({},'', '/c/continuation-owned');
-  const task={id:'continuation-owned',ownerTabId:h.getTabId(),goal:'goal',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/continuation-owned',token:'continuation-token',continuationCount:1,messages:[]};
+  const task={id:'continuation-owned',ownerTabId:h.getTabId(),goal:'goal',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/continuation-owned', url:'https://chatgpt.com/c/continuation-owned',token:'continuation-token',continuationCount:1,messages:[]};
   h.data.tasks.push(task);
   const turn=h.latestTurn(task);
   assert.equal(turn.owned,true);
@@ -2617,7 +2620,7 @@ test('verified continuation user turn remains owned by the original task until f
 test('virtualized task marker uses the latest visible reply toolbar without accepting an older toolbar',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">继续完成所有</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">final result</div></div><button aria-label="复制回复"></button><button aria-label="评价回复"></button></article><form><textarea id="prompt-textarea"></textarea></form></main>');
   w.history.pushState({},'', '/c/virtualized-final-toolbar');
-  const task={id:'virtualized-final-toolbar',ownerTabId:h.getTabId(),goal:'goal',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/virtualized-final-toolbar',token:'unmounted-task-marker',attempted:true,continuationCount:1,messages:[]};
+  const task={id:'virtualized-final-toolbar',ownerTabId:h.getTabId(),goal:'goal',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/virtualized-final-toolbar', url:'https://chatgpt.com/c/virtualized-final-toolbar',token:'unmounted-task-marker',attempted:true,continuationCount:1,messages:[]};
   h.data.tasks.push(task);
   const completed=h.latestTurn(task);
   assert.equal(completed.owned,true,'the exact, uniquely owned route recovers the visible boundary after marker virtualization');
@@ -2666,7 +2669,7 @@ test('send timeout recovery recognizes a retryable assistant error card without 
 });
 test('inspect opens a fresh session after a stable virtualized-task network error',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">继续完成所有</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div>A network error occurred. Please check your connection and try again.</div><button aria-label="Retry"></button></div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">Send</button></form></main>');
-  const task={id:'network-error-inspect',ownerTabId:h.getTabId(),goal:'finish implementation',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/network-error-inspect',token:'virtualized-network-token',attempted:false,continuationCount:1,noFinalReplyAttempts:0,messages:[]};
+  const task={id:'network-error-inspect',ownerTabId:h.getTabId(),goal:'finish implementation',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/network-error-inspect', url:'https://chatgpt.com/c/network-error-inspect',token:'virtualized-network-token',attempted:false,continuationCount:1,noFinalReplyAttempts:0,messages:[]};
   h.data.tasks.push(task);
   w.history.pushState({},'', '/c/network-error-inspect');
   let clicks=0;
@@ -2694,7 +2697,7 @@ test('inspect opens a fresh session after a stable virtualized-task network erro
 });
 test('a stable retryable Work error overrides stale stream and loading markers after Stop disappears',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue task [Fabushi:stale-network-token]</div></article><article data-testid="conversation-turn-assistant" data-is-streaming="true" aria-busy="true"><div data-message-author-role="assistant"><div>A network error occurred. Please check your connection and try again.</div><button aria-label="Retry"></button></div></article><div role="status" class="loading"><svg></svg>Loading</div><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">Send</button></form></main>');
-  const task={id:'network-error-stale-stream',ownerTabId:h.getTabId(),goal:'continue task',mode:'once',phase:'work',round:1,state:'loading',url:'https://chatgpt.com/c/network-error-stale-stream',token:'stale-network-token',attempted:false,continuationCount:0,noFinalReplyAttempts:0,messages:[]};
+  const task={id:'network-error-stale-stream',ownerTabId:h.getTabId(),goal:'continue task',mode:'once',phase:'work',round:1,state:'loading',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/network-error-stale-stream', url:'https://chatgpt.com/c/network-error-stale-stream',token:'stale-network-token',attempted:false,continuationCount:0,noFinalReplyAttempts:0,messages:[]};
   h.data.tasks.push(task);
   w.history.pushState({},'', '/c/network-error-stale-stream');
   try {
@@ -2717,7 +2720,7 @@ test('a stable retryable Work error overrides stale stream and loading markers a
 });
 test('an active Stop control still blocks retryable network-error recovery',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue task [Fabushi:active-stop-token]</div></article><article data-testid="conversation-turn-assistant" data-is-streaming="true"><div data-message-author-role="assistant"><div>A network error occurred. Please check your connection and try again.</div><button aria-label="Retry"></button></div></article><button data-testid="stop-button" aria-label="Stop generating">Stop</button><form><textarea id="prompt-textarea"></textarea></form></main>');
-  const task={id:'network-error-active-stop',ownerTabId:h.getTabId(),goal:'continue task',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/network-error-active-stop',token:'active-stop-token',attempted:false,messages:[]};
+  const task={id:'network-error-active-stop',ownerTabId:h.getTabId(),goal:'continue task',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/network-error-active-stop', url:'https://chatgpt.com/c/network-error-active-stop',token:'active-stop-token',attempted:false,messages:[]};
   h.data.tasks.push(task);
   w.history.pushState({},'', '/c/network-error-active-stop');
   try {
@@ -2734,7 +2737,7 @@ test('an active Stop control still blocks retryable network-error recovery',asyn
 });
 test('inspect opens a fresh Work session after a stable retryable message error',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">recover timeout [Fabushi:old-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div>消息错误，请重试。</div><button aria-label="重试"></button></div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
-  const task={id:'timeout-inspect',ownerTabId:h.getTabId(),goal:'recover timeout',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/timeout-inspect',token:'old-token',attempted:false,noFinalReplyAttempts:0,messages:[]};
+  const task={id:'timeout-inspect',ownerTabId:h.getTabId(),goal:'recover timeout',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/timeout-inspect', url:'https://chatgpt.com/c/timeout-inspect',token:'old-token',attempted:false,noFinalReplyAttempts:0,messages:[]};
   h.data.tasks.push(task);
   w.history.pushState({},'', '/c/timeout-inspect');
   let clicks=0;
@@ -2759,7 +2762,7 @@ test('inspect opens a fresh Work session after a stable retryable message error'
 });
 test('stream recovery polling timeout carries visible Work into a fresh chat',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue implementation [Fabushi:stream-timeout]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">已检查 exact HEAD，修复了 Arc 移动问题；接下来补自动化运行时依赖并验证 CI。</div><div role="alert">ChatGPT stream recovery polling timed out <button aria-label="Retry">Retry</button></div></div></article><form><textarea id="prompt-textarea"></textarea></form></main>');
-  const task={id:'stream-timeout',ownerTabId:h.getTabId(),goal:'continue implementation',next:'implement current slice',mode:'once',phase:'work',round:3,state:'waiting',url:'https://chatgpt.com/c/stream-timeout',token:'stream-timeout',attempted:false,attachments:[{name:'design.png',type:'image/png',size:12}],messages:[]};
+  const task={id:'stream-timeout',ownerTabId:h.getTabId(),goal:'continue implementation',next:'implement current slice',mode:'once',phase:'work',round:3,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/stream-timeout', url:'https://chatgpt.com/c/stream-timeout',token:'stream-timeout',attempted:false,attachments:[{name:'design.png',type:'image/png',size:12}],messages:[]};
   h.data.tasks.push(task);
   w.history.pushState({},'', '/c/stream-timeout');
   await h.start();
@@ -2809,7 +2812,7 @@ test('stream recovery timeout is ignored when quoted, stale, final, or missing R
 test('legacy continuation with Stop absent queues a fresh session without touching the old composer',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">recover [Fabushi:dynamic-send-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">已完成当前修复的一半，下一步继续测试。</div></div></article><form id="composer-form"><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   try {
-    const task={id:'dynamic-send',ownerTabId:h.getTabId(),goal:'recover',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/dynamic-send',token:'dynamic-send-token',attempted:false,messages:[]};
+    const task={id:'dynamic-send',ownerTabId:h.getTabId(),goal:'recover',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/dynamic-send', url:'https://chatgpt.com/c/dynamic-send',token:'dynamic-send-token',attempted:false,messages:[]};
     h.data.tasks.push(task);
     w.history.pushState({},'', '/c/dynamic-send');
     const input=w.document.querySelector('#prompt-textarea');
@@ -2833,7 +2836,7 @@ test('legacy continuation queues one fresh handoff and clears the old dispatch i
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue implementation [Fabushi:continuation-three]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">partial work</div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   try {
     w.history.pushState({},'', '/c/continuation-three');
-    const task={id:'continuation-three',ownerTabId:h.getTabId(),goal:'continue implementation',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/continuation-three',token:'continuation-three',attempted:false,messages:[]};
+    const task={id:'continuation-three',ownerTabId:h.getTabId(),goal:'continue implementation',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/continuation-three', url:'https://chatgpt.com/c/continuation-three',token:'continuation-three',attempted:false,messages:[]};
     h.data.tasks.push(task);
     let sends=0;
     w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>sends++);
@@ -2853,7 +2856,7 @@ test('legacy continuation preserves visible work in a fresh handoff regardless o
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue implementation [Fabushi:continuation-cap]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">已完成运行时修复；下一步补充集成测试并验证。</div><div role="alert">ChatGPT stream recovery polling timed out</div></div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   try {
     w.history.pushState({},'', '/c/continuation-cap');
-    const task={id:'continuation-cap',ownerTabId:h.getTabId(),goal:'continue implementation',next:'finish integration tests',mode:'once',phase:'work',round:2,state:'waiting',url:'https://chatgpt.com/c/continuation-cap',token:'continuation-cap',attempted:false,continuationCount:3,attachments:[{name:'evidence.txt',type:'text/plain',size:12}],messages:[]};
+    const task={id:'continuation-cap',ownerTabId:h.getTabId(),goal:'continue implementation',next:'finish integration tests',mode:'once',phase:'work',round:2,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/continuation-cap', url:'https://chatgpt.com/c/continuation-cap',token:'continuation-cap',attempted:false,continuationCount:3,attachments:[{name:'evidence.txt',type:'text/plain',size:12}],messages:[]};
     h.data.tasks.push(task);
     let sends=0;
     w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>sends++);
@@ -2877,7 +2880,7 @@ test('legacy continuation preserves visible work in a fresh handoff regardless o
 test('legacy continuation never clicks the old blue-arrow Send control',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">recover [Fabushi:zh-send-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">tool output only</div></article><form><textarea id="prompt-textarea"></textarea><button type="button" aria-label="发送"><svg></svg></button></form></main>');
   try {
-    const task={id:'zh-send',ownerTabId:h.getTabId(),goal:'recover',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/zh-send',token:'zh-send-token',attempted:false,messages:[]};
+    const task={id:'zh-send',ownerTabId:h.getTabId(),goal:'recover',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/zh-send', url:'https://chatgpt.com/c/zh-send',token:'zh-send-token',attempted:false,messages:[]};
     h.data.tasks.push(task);
     w.history.pushState({},'', '/c/zh-send');
     let clicks=0;
@@ -2894,7 +2897,7 @@ test('legacy continuation never clicks the old blue-arrow Send control',async()=
 test('connection interruption hands off with Stop still visible after authorization-safe confirmation',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">recover [Fabushi:stop-before-send]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">已完成 A，正在做 B。</div><div>连接已中断，正在等待完整回复</div></div></article><form id="composer-form"><textarea id="prompt-textarea"></textarea><button data-testid="stop-button" type="button">Stop</button><button data-testid="send-button" type="button">发送</button></form></main>');
   try {
-    const task={id:'stop-before-send',ownerTabId:h.getTabId(),goal:'recover',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/stop-before-send',token:'stop-before-send',attempted:false,messages:[]};
+    const task={id:'stop-before-send',ownerTabId:h.getTabId(),goal:'recover',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/stop-before-send', url:'https://chatgpt.com/c/stop-before-send',token:'stop-before-send',attempted:false,messages:[]};
     h.data.tasks.push(task);
     w.history.pushState({},'', '/c/stop-before-send');
     let stops=0,sends=0;
@@ -2922,7 +2925,7 @@ test('ordinary legacy recovery entrypoint never clicks a visible Stop control',a
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">recover [Fabushi:no-stop-click]</div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="stop-button" type="button">Stop</button></form></main>');
   try {
     w.history.pushState({},'', '/c/no-stop-click');
-    const task={id:'no-stop-click',ownerTabId:h.getTabId(),goal:'recover',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/no-stop-click',token:'no-stop-click',attempted:false,messages:[]};
+    const task={id:'no-stop-click',ownerTabId:h.getTabId(),goal:'recover',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/no-stop-click', url:'https://chatgpt.com/c/no-stop-click',token:'no-stop-click',attempted:false,messages:[]};
     h.data.tasks.push(task);
     let stops=0;
     w.document.querySelector('[data-testid="stop-button"]').addEventListener('click',()=>stops++);
@@ -2939,7 +2942,7 @@ test('interrupted legacy continuation fresh-handoffs without clicking Stop or Se
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">recover [Fabushi:stop-stuck]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant">连接已中断。正在等待完整回复。</div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="stop-button" type="button">Stop</button><button data-testid="send-button" type="button">发送</button></form></main>');
   try {
     w.history.pushState({},'', '/c/stop-stuck');
-    const task={id:'stop-stuck',ownerTabId:h.getTabId(),goal:'recover',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/stop-stuck',token:'stop-stuck',attempted:false,messages:[]};
+    const task={id:'stop-stuck',ownerTabId:h.getTabId(),goal:'recover',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/stop-stuck', url:'https://chatgpt.com/c/stop-stuck',token:'stop-stuck',attempted:false,messages:[]};
     h.data.tasks.push(task);
     let stops=0,sends=0;
     w.document.querySelector('[data-testid="stop-button"]').addEventListener('click',()=>stops++);
@@ -2962,7 +2965,7 @@ test('interrupted legacy continuation fresh-handoffs without clicking Stop or Se
 test('unbound exhausted abnormal retries still enter persisted backoff and reset after success',async()=>{
   const {h,dom}=await fixture();
   const task=h.enqueue('keep recovering','once');
-  Object.assign(task,{state:'waiting',phase:'work',url:'',token:'',attempted:false,noFinalReplyAttempts:4});
+  Object.assign(task,{state:'waiting',phase:'work',authorizationSeenAt:1, authorizationSeenURL:'', url:'',token:'',attempted:false,noFinalReplyAttempts:4});
   assert.equal(h.noFinalReplyBackoffMs(1),5*60*1000);
   assert.equal(h.noFinalReplyBackoffMs(2),10*60*1000);
   assert.equal(h.noFinalReplyBackoffMs(5),30*60*1000);
@@ -2981,7 +2984,7 @@ test('unbound exhausted abnormal retries still enter persisted backoff and reset
 test('a bound abnormal retry switches to a fresh session instead of same-chat continuation',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">retry once [Fabushi:old-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">当前会话已经完成一部分。</div></div></article></main>');
   const task=h.enqueue('retry once','once');
-  Object.assign(task,{state:'waiting',phase:'work',url:'https://chatgpt.com/c/ended',token:'old-token',attempted:false,noFinalReplyAttempts:0});
+  Object.assign(task,{state:'waiting',phase:'work',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/ended', url:'https://chatgpt.com/c/ended',token:'old-token',attempted:false,noFinalReplyAttempts:0});
   w.history.pushState({},'', '/c/ended');
   assert.equal(h.queueNoFinalReplyRetry(task),'queued');
   assert.equal(task.state,'queued');
@@ -2994,7 +2997,7 @@ test('a bound abnormal retry switches to a fresh session instead of same-chat co
 });
 test('legacy exhausted abnormal records are revived after upgrading',async()=>{
   const {h,dom}=await fixture();
-  const task={id:'legacy-exhausted',goal:'revive me',mode:'goal',phase:'work',round:1,state:'paused',pausedState:'blocked',url:'https://chatgpt.com/c/legacy-exhausted',token:'old-token',messages:[{text:'会话已结束但没有最终回复，自动重发次数已用尽。'}]};
+  const task={id:'legacy-exhausted',goal:'revive me',mode:'goal',phase:'work',round:1,state:'paused',pausedState:'blocked',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/legacy-exhausted', url:'https://chatgpt.com/c/legacy-exhausted',token:'old-token',messages:[{text:'会话已结束但没有最终回复，自动重发次数已用尽。'}]};
   h.data.tasks.push(task);
   assert.equal(h.recoverLegacyExhaustedNoFinalReplies(),task.id);
   assert.equal(task.state,'waiting');
@@ -3006,7 +3009,7 @@ test('legacy exhausted abnormal records are revived after upgrading',async()=>{
 });
 test('persisted needs-processing task automatically opens a fresh retry instead of stopping',async()=>{
   const {h,dom}=await fixture();
-  const task={id:'old-error',ownerTabId:h.getTabId(),goal:'keep running',mode:'goal',phase:'work',round:1,state:'blocked',url:'https://chatgpt.com/c/old-error',token:'old-token',attempted:true,messages:[]};
+  const task={id:'old-error',ownerTabId:h.getTabId(),goal:'keep running',mode:'goal',phase:'work',round:1,state:'blocked',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/old-error', url:'https://chatgpt.com/c/old-error',token:'old-token',attempted:true,messages:[]};
   h.data.tasks.push(task);
   assert.equal(h.recoverPersistedBlockedTasks(),task.id);
   assert.equal(task.state,'queued');
@@ -3022,7 +3025,7 @@ test('persisted needs-processing task automatically opens a fresh retry instead 
 test('repeated connection interruptions create fresh dispatches while preserving task identity and phase',async()=>{
   const {h,w,dom}=await fixture();
   const task=h.enqueue('keep this exact task','goal');
-  Object.assign(task,{state:'waiting',phase:'work',round:5,next:'resume exact step',url:'https://chatgpt.com/c/disconnected-1',token:'owner-token-1',attempted:false});
+  Object.assign(task,{state:'waiting',phase:'work',round:5,next:'resume exact step',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/disconnected-1', url:'https://chatgpt.com/c/disconnected-1',token:'owner-token-1',attempted:false});
   w.history.pushState({},'', '/c/disconnected-1');
   assert.equal(h.queueInterruptedFreshRetry(task,'first interruption',20_000,{owned:true,text:'第一异常会话已经完成 A，并开始 B。'}),true);
   assert.equal(task.id,h.data.tasks[0].id);
@@ -3034,7 +3037,7 @@ test('repeated connection interruptions create fresh dispatches while preserving
   assert.match(task.abnormalFreshCarry,/已经完成 A/);
 
   // Simulate a successfully bound fresh chat that later gets interrupted too.
-  Object.assign(task,{state:'waiting',url:'https://chatgpt.com/c/disconnected-2',token:'owner-token-2',attempted:false,connectionInterruptedFreshDispatch:false});
+  Object.assign(task,{state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/disconnected-2', url:'https://chatgpt.com/c/disconnected-2',token:'owner-token-2',attempted:false,connectionInterruptedFreshDispatch:false});
   w.history.pushState({},'', '/c/disconnected-2');
   assert.equal(h.queueInterruptedFreshRetry(task,'second interruption',30_000,{owned:true,text:'第二异常会话已经完成 B，并正在处理 C。'}),true);
   assert.equal(task.state,'queued');
@@ -3056,7 +3059,7 @@ test('later DOM-loss interruption never reuses a snapshot from an older conversa
   try {
     w.history.pushState({},'', '/c/6aba1ad0-50c0-83e8-9b76-ade67716c202');
     const task={id:'latest-hop-empty',ownerTabId:h.getTabId(),goal:'finish the task',mode:'goal',phase:'work',round:5,state:'waiting',
-      url:'https://chatgpt.com/c/6aba1ad0-50c0-83e8-9b76-ade67716c202',token:'c2-token',attempted:false,next:'continue exact step',goalRevision:0,messages:[],
+      authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/6aba1ad0-50c0-83e8-9b76-ade67716c202', url:'https://chatgpt.com/c/6aba1ad0-50c0-83e8-9b76-ade67716c202',token:'c2-token',attempted:false,next:'continue exact step',goalRevision:0,messages:[],
       abnormalFreshCarry:'',abnormalFreshCarryPhase:'',abnormalFreshCarryRound:0,
       handoffReplySnapshot:'C1 FIRST INTERRUPTION SNAPSHOT MUST NOT REAPPEAR',
       handoffReplySnapshotSourceURL:'https://chatgpt.com/c/6aba1ad0-50c0-83e8-9b76-ade67716c101',
@@ -3079,7 +3082,7 @@ test('later interruption falls back only to a durable snapshot from that same la
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">replacement [Fabushi:c2-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">C2 LATEST WORK: 已完成 B，正在处理 C。</div></div></article><form><textarea id="prompt-textarea"></textarea></form></main>');
   try {
     w.history.pushState({},'', '/c/c2-latest');
-    const task={id:'latest-hop-snapshot',ownerTabId:h.getTabId(),goal:'finish',mode:'goal',phase:'work',round:7,state:'waiting',url:'https://chatgpt.com/c/c2-latest',token:'c2-token',attempted:false,next:'continue C',goalRevision:0,messages:[],
+    const task={id:'latest-hop-snapshot',ownerTabId:h.getTabId(),goal:'finish',mode:'goal',phase:'work',round:7,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/c2-latest', url:'https://chatgpt.com/c/c2-latest',token:'c2-token',attempted:false,next:'continue C',goalRevision:0,messages:[],
       abnormalFreshCarry:'C1 OLD WORK MUST NOT REAPPEAR',
       abnormalFreshCarrySourceURL:'https://chatgpt.com/c/c1-old',
       abnormalFreshCarryPhase:'work',
@@ -3262,7 +3265,7 @@ test('critical Stop handoff performs a fresh wide authorization scan instead of 
   try {
     w.history.pushState({},'', '/c/critical-wide-approval');
     h.data.autoApprove=false;
-    const task={id:'critical-wide-approval',ownerTabId:h.getTabId(),goal:'task',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/critical-wide-approval',token:'critical-wide-approval',attempted:false,messages:[]};
+    const task={id:'critical-wide-approval',ownerTabId:h.getTabId(),goal:'task',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/critical-wide-approval', url:'https://chatgpt.com/c/critical-wide-approval',token:'critical-wide-approval',attempted:false,messages:[]};
     h.data.tasks.push(task);
     await h.start(false);
     await h.inspect(task,null);
@@ -3282,7 +3285,7 @@ test('disabled approval card blocks Stop-disappearance fresh handoff',async()=>{
   try {
     w.history.pushState({},'', '/c/approval-disabled-race');
     h.data.autoApprove=false;
-    const task={id:'approval-disabled-race',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/approval-disabled-race',token:'approval-disabled-race',attempted:false,messages:[]};
+    const task={id:'approval-disabled-race',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/approval-disabled-race', url:'https://chatgpt.com/c/approval-disabled-race',token:'approval-disabled-race',attempted:false,messages:[]};
     h.data.tasks.push(task);
     await h.start();
     await h.inspect(task,null);
@@ -3307,7 +3310,7 @@ test('disabled automatic approval refreshes the same conversation after one minu
   try {
     w.history.pushState({},'', '/c/approval-refresh');
     h.data.autoApprove=true;
-    const task={id:'approval-refresh',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/approval-refresh',token:'approval-refresh',attempted:false,messages:[]};
+    const task={id:'approval-refresh',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/approval-refresh', url:'https://chatgpt.com/c/approval-refresh',token:'approval-refresh',attempted:false,messages:[]};
     h.data.tasks.push(task);
     const card=h.cards()[0];
     assert.equal(card.actionable,false);
@@ -3339,7 +3342,7 @@ test('approval settlement suppresses unavailable-card refresh and successful gra
   try {
     w.history.pushState({},'', '/c/approval-settlement-refresh');
     h.data.autoApprove=true;
-    const task={id:'approval-settlement-refresh',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:2,state:'approval',url:'https://chatgpt.com/c/approval-settlement-refresh',token:'approval-settlement-refresh',attempted:false,messages:[]};
+    const task={id:'approval-settlement-refresh',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:2,state:'approval',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/approval-settlement-refresh', url:'https://chatgpt.com/c/approval-settlement-refresh',token:'approval-settlement-refresh',attempted:false,messages:[]};
     h.data.tasks.push(task);
     h.markApprovalUnavailable(task,task.url,1_000_000);
     task.approvalUnavailableRefreshAt=0;
@@ -3362,7 +3365,7 @@ test('a submitted authorization card is never clicked again while settlement is 
   const {w,h,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:authorization-stuck-submit]</div></article><div id="approval"><button type="button">拒绝</button><div><button type="button" id="allow-once">允许一次</button><button type="button" aria-haspopup="menu" aria-label="审批选项">⌄</button></div></div><form><textarea id="prompt-textarea"></textarea></form></main>');
   try {
     w.history.pushState({},'', '/c/authorization-stuck-submit');
-    const task={id:'authorization-stuck-submit',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'approval',url:'https://chatgpt.com/c/authorization-stuck-submit',token:'authorization-stuck-submit',attempted:true,messages:[]};
+    const task={id:'authorization-stuck-submit',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'approval',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/authorization-stuck-submit', url:'https://chatgpt.com/c/authorization-stuck-submit',token:'authorization-stuck-submit',attempted:true,messages:[]};
     h.data.tasks.push(task);
     h.data.autoApprove=true;
     let clicks=0;
@@ -3385,7 +3388,7 @@ test('primary Allow once completes an authorization card without a conversation-
   const {w,h,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue [Fabushi:approval-menu-hydration]</div></article><div id="approval"><button type="button">拒绝</button><div><button type="button" id="allow-once">允许一次</button><button type="button" aria-haspopup="menu" aria-label="审批选项">⌄</button></div></div><form><textarea id="prompt-textarea"></textarea></form></main>');
   try {
     w.history.pushState({},'', '/c/approval-menu-hydration');
-    const task={id:'approval-menu-hydration',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:3,state:'approval',url:'https://chatgpt.com/c/approval-menu-hydration',token:'approval-menu-hydration',attempted:false,messages:[]};
+    const task={id:'approval-menu-hydration',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:3,state:'approval',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/approval-menu-hydration', url:'https://chatgpt.com/c/approval-menu-hydration',token:'approval-menu-hydration',attempted:false,messages:[]};
     h.data.tasks.push(task);
     h.data.autoApprove=true;
     let clicks=0;w.document.querySelector('#allow-once').onclick=()=>clicks++;
@@ -3401,7 +3404,7 @@ test('approval submission latch survives a transient card DOM gap and expires sa
   try {
     w.history.pushState({},'', '/c/approval-gap-race');
     h.data.autoApprove=false;
-    const task={id:'approval-gap-race',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/approval-gap-race',token:'approval-gap-race',attempted:false,messages:[]};
+    const task={id:'approval-gap-race',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/approval-gap-race', url:'https://chatgpt.com/c/approval-gap-race',token:'approval-gap-race',attempted:false,messages:[]};
     h.data.tasks.push(task);
     await h.start();
     await h.inspect(task,null);
@@ -3558,13 +3561,13 @@ test('startup is paused and UI submission remains local until one explicit sched
 test('existing conversation inspection does not wait for a missing composer',async()=>{
   const {h,w,dom}=await fixture('<main><div data-message-author-role="user">[Fabushi:owner]</div><article><div data-message-author-role="assistant">partial</div></article></main>');
   w.history.pushState({},'', '/c/existing');
-  const task={id:'existing',goal:'inspect',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/existing',token:'owner',messages:[]};
+  const task={id:'existing',goal:'inspect',state:'waiting',phase:'work',round:1,authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/existing', url:'https://chatgpt.com/c/existing',token:'owner',messages:[]};
   assert.equal(await h.navigate(task.url,null,task,false),true);
   dom.window.close();
 });
 test('missing send controls keep one prepared intent instead of blocking or duplicating',async()=>{
   const {h,dom}=await fixture('<main><form><textarea id="prompt-textarea"></textarea></form></main>');
-  const task={id:'prepared',goal:'send once',mode:'goal',phase:'work',round:1,state:'queued',url:'',token:'',messages:[]};
+  const task={id:'prepared',goal:'send once',mode:'goal',phase:'work',round:1,state:'queued',authorizationSeenAt:1, authorizationSeenURL:'', url:'',token:'',messages:[]};
   h.data.tasks.push(task);
   await h.start();
   try {
@@ -3643,7 +3646,7 @@ test('a stale route during SPA send handoff is not recorded before the task mark
   const button=w.document.querySelector('[data-testid="send-button"]');
   button.type='button';
   button.onclick=()=>w.history.pushState({},'', '/c/old-route-left-on-screen');
-  const task={id:'route-guard',goal:'send with route guard',mode:'once',phase:'work',round:1,state:'queued',url:'',token:'',messages:[]};
+  const task={id:'route-guard',goal:'send with route guard',mode:'once',phase:'work',round:1,state:'queued',authorizationSeenAt:1, authorizationSeenURL:'', url:'',token:'',messages:[]};
   h.data.tasks.push(task);
   await h.start();
   const controller=new w.AbortController();
@@ -3672,7 +3675,7 @@ test('post-Send local-chatgpt route is ignored until the durable server route ap
       w.history.replaceState({},'', '/c/6aba1ad0-50c0-83e8-9b76-ade67716f47a');
     },500);
   };
-  const task={id:'local-route-guard',goal:'capture only durable route',mode:'once',phase:'work',round:1,state:'queued',url:'',token:'',messages:[]};
+  const task={id:'local-route-guard',goal:'capture only durable route',mode:'once',phase:'work',round:1,state:'queued',authorizationSeenAt:1, authorizationSeenURL:'', url:'',token:'',messages:[]};
   h.data.tasks.push(task);
   await h.start();
   const deadline=Date.now()+5000;
@@ -3700,7 +3703,7 @@ test('the new route is the only link captured once this task marker appears',asy
       w.document.querySelector('main').append(user);
     },350);
   };
-  const task={id:'route-capture',goal:'capture only owned route',mode:'once',phase:'work',round:1,state:'queued',url:'',token:'',messages:[],
+  const task={id:'route-capture',goal:'capture only owned route',mode:'once',phase:'work',round:1,state:'queued',authorizationSeenAt:1, authorizationSeenURL:'', url:'',token:'',messages:[],
     connectionInterruptedFreshDispatch:true,
     abnormalFreshCarry:'C1 CONSUMED CARRY',abnormalFreshCarrySourceURL:'https://chatgpt.com/c/6aba1ad0-50c0-83e8-9b76-ade67716c101',
     abnormalFreshCarryReason:'first interruption',abnormalFreshCarryPhase:'work',abnormalFreshCarryRound:1,abnormalFreshCarryAt:10,
@@ -3721,7 +3724,7 @@ test('the new route is the only link captured once this task marker appears',asy
 });
 test('new goals become the next scheduler target instead of waiting behind stale tasks',async()=>{
   const {h,dom}=await fixture();
-  h.data.tasks.push({id:'stale',goal:'stale',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/WEB:stale',token:'old',messages:[]});
+  h.data.tasks.push({id:'stale',goal:'stale',state:'waiting',phase:'work',round:1,authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/WEB:stale', url:'https://chatgpt.com/c/WEB:stale',token:'old',messages:[]});
   const task=h.enqueue('new goal','goal');
   assert.equal(h.getCurrent(),task.id);
   assert.equal(h.data.selected,task.id);
@@ -3733,7 +3736,7 @@ test('scheduler keeps sends and approvals exclusive while rotating inspections',
     assert.equal(h.taskHoldsScheduler({state}),true,`holds ${state}`);
   }
   for (const state of ['waiting','generating','reviewing']) {
-    assert.equal(h.taskHoldsScheduler({state,url:'https://chatgpt.com/c/live'}),false,`rotates ${state}`);
+    assert.equal(h.taskHoldsScheduler({state,authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/live', url:'https://chatgpt.com/c/live'}),false,`rotates ${state}`);
   }
   for (const state of ['done','blocked','cancelled','paused']) {
     assert.equal(h.taskHoldsScheduler({state}),false,`releases ${state}`);
@@ -3743,8 +3746,8 @@ test('scheduler keeps sends and approvals exclusive while rotating inspections',
 test('supervision rotates durable conversation URLs while keeping sends exclusive',async()=>{
   const {h,dom}=await fixture();
   const first=h.enqueue('first','goal');
-  Object.assign(first,{state:'waiting',url:'https://chatgpt.com/c/first',token:'first-token'});
-  const second={id:'second',goal:'second',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/second',token:'second-token',messages:[]};
+  Object.assign(first,{state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/first', url:'https://chatgpt.com/c/first',token:'first-token'});
+  const second={id:'second',goal:'second',state:'waiting',phase:'work',round:1,authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/second', url:'https://chatgpt.com/c/second',token:'second-token',messages:[]};
   h.data.tasks.push(second);
   assert.equal(h.nextSupervisionTask([first,second],Date.now()),first);
   assert.equal(h.nextSupervisionTask([first,second],Date.now()+16000),second);
@@ -3756,9 +3759,9 @@ test('a deferred task never head-of-line blocks another runnable task',async()=>
   const {h,dom}=await fixture();
   const now=Date.now();
   const deferred=h.enqueue('deferred','goal');
-  Object.assign(deferred,{state:'waiting',url:'https://chatgpt.com/c/deferred',token:'deferred',navigationGuardRetryAt:now+30000});
+  Object.assign(deferred,{state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/deferred', url:'https://chatgpt.com/c/deferred',token:'deferred',navigationGuardRetryAt:now+30000});
   const runnable=h.enqueue('runnable','goal');
-  Object.assign(runnable,{state:'waiting',url:'https://chatgpt.com/c/runnable',token:'runnable'});
+  Object.assign(runnable,{state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/runnable', url:'https://chatgpt.com/c/runnable',token:'runnable'});
   assert.equal(h.nextSupervisionTask([deferred,runnable],now),runnable);
   assert.ok(h.taskDeferredUntil(deferred,now)>=now+29000);
   dom.window.close();
@@ -3768,7 +3771,7 @@ test('queued dispatch throttling delays only unsent tasks while existing convers
   const now=Date.now();
   h.data.lastDispatchAt=now;
   const queued=h.enqueue('queued','goal');
-  const waiting={id:'waiting',ownerTabId:h.getTabId(),goal:'waiting',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/waiting',token:'waiting',messages:[]};
+  const waiting={id:'waiting',ownerTabId:h.getTabId(),goal:'waiting',state:'waiting',phase:'work',round:1,authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/waiting', url:'https://chatgpt.com/c/waiting',token:'waiting',messages:[]};
   h.data.tasks.push(waiting);
   assert.equal(h.nextSupervisionTask([queued,waiting],now),waiting);
   assert.ok(h.nextTaskWakeDelay([queued],now)>=59000);
@@ -3777,10 +3780,10 @@ test('queued dispatch throttling delays only unsent tasks while existing convers
 test('each browser tab owns an isolated task workspace while local tasks can rotate',async()=>{
   const {h,w,dom}=await fixture();
   const localFirst=h.enqueue('local first','goal');
-  Object.assign(localFirst,{state:'waiting',url:'https://chatgpt.com/c/local-first',token:'first'});
+  Object.assign(localFirst,{state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/local-first', url:'https://chatgpt.com/c/local-first',token:'first'});
   const localSecond=h.enqueue('local second','goal');
-  Object.assign(localSecond,{state:'waiting',url:'https://chatgpt.com/c/local-second',token:'second'});
-  const foreign={id:'foreign',ownerTabId:'another-tab',goal:'foreign task',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/foreign',token:'foreign',messages:[]};
+  Object.assign(localSecond,{state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/local-second', url:'https://chatgpt.com/c/local-second',token:'second'});
+  const foreign={id:'foreign',ownerTabId:'another-tab',goal:'foreign task',state:'waiting',phase:'work',round:1,authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/foreign', url:'https://chatgpt.com/c/foreign',token:'foreign',messages:[]};
   h.data.tasks.push(foreign);
   h.log(localFirst,'refresh grouped sidebar');
   assert.equal(localFirst.ownerTabId,h.getTabId());
@@ -3803,7 +3806,7 @@ test('each browser tab owns an isolated task workspace while local tasks can rot
 test('a single task already on its exact route never creates a navigation or refresh ticket',async()=>{
   const {h,w,dom}=await fixture();
   const task=h.enqueue('stay here','goal');
-  Object.assign(task,{state:'waiting',url:'https://chatgpt.com/c/stay-here',token:'owner'});
+  Object.assign(task,{state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/stay-here', url:'https://chatgpt.com/c/stay-here',token:'owner'});
   w.history.pushState({},'', '/c/stay-here');
   w.sessionStorage.setItem('fabushi-workbench-navigation-v2',JSON.stringify({task:task.id,href:task.url,path:'/c/stay-here',resume:true,direct:true,at:Date.now()}));
   assert.equal(h.directNavigate(new w.URL(task.url),task,false),true);
@@ -3814,9 +3817,9 @@ test('a single task already on its exact route never creates a navigation or ref
 });
 test('pause marks active tasks and resume restores their runnable states',async()=>{
   const {h,dom}=await fixture();
-  const waiting={id:'waiting',goal:'watch',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/live',token:'owner',messages:[]};
-  const queued={id:'queued',goal:'send',state:'queued',phase:'work',round:1,url:'',token:'',messages:[]};
-  const blocked={id:'blocked',goal:'keep evidence',state:'blocked',phase:'work',round:1,url:'https://chatgpt.com/c/evidence',token:'evidence',messages:[]};
+  const waiting={id:'waiting',goal:'watch',state:'waiting',phase:'work',round:1,authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/live', url:'https://chatgpt.com/c/live',token:'owner',messages:[]};
+  const queued={id:'queued',goal:'send',state:'queued',phase:'work',round:1,authorizationSeenAt:1, authorizationSeenURL:'', url:'',token:'',messages:[]};
+  const blocked={id:'blocked',goal:'keep evidence',state:'blocked',phase:'work',round:1,authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/evidence', url:'https://chatgpt.com/c/evidence',token:'evidence',messages:[]};
   h.data.tasks.push(waiting,queued,blocked);
   h.pause(true);
   assert.equal(h.data.autoResume,false);
@@ -3845,7 +3848,7 @@ test('manual resume clears stale supervision observations before rechecking the 
     phase:'work',
     round:2,
     goalRevision:3,
-    url:'https://chatgpt.com/c/resume-reset-observation',
+    authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/resume-reset-observation', url:'https://chatgpt.com/c/resume-reset-observation',
     token:'resume-reset-token',
     attempted:false,
     abnormalNoFinalSince:Date.now()-30*60*1000,
@@ -3870,7 +3873,7 @@ test('manual resume clears stale supervision observations before rechecking the 
 test('continue button starts a paused task instead of restoring a terminal blocked state',async()=>{
   const {w,h,dom}=await fixture();
   const paused=h.enqueue('continue','goal');
-  Object.assign(paused,{state:'paused',pausedState:'blocked',phase:'work',round:1,url:'https://chatgpt.com/c/continue',token:'owner'});
+  Object.assign(paused,{state:'paused',pausedState:'blocked',phase:'work',round:1,authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/continue', url:'https://chatgpt.com/c/continue',token:'owner'});
   h.data.autoResume=false;
   h.log(paused,'已暂停');
   const button=[...w.document.querySelectorAll('header button')].find(node=>node.textContent.includes('继续'));
@@ -3896,7 +3899,7 @@ test('upgrade quarantines a persisted local-chatgpt binding without redispatchin
     phase:'work',
     round:1,
     state:'waiting',
-    url:'https://chatgpt.com/c/local-chatgpt%3A9d4bb335-4fb8-4588-bafd-1403a1a719a6',
+    authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/local-chatgpt%3A9d4bb335-4fb8-4588-bafd-1403a1a719a6', url:'https://chatgpt.com/c/local-chatgpt%3A9d4bb335-4fb8-4588-bafd-1403a1a719a6',
     sessionUrl:'https://chatgpt.com/c/local-chatgpt%3A9d4bb335-4fb8-4588-bafd-1403a1a719a6',
     sessionUrls:[
       'https://chatgpt.com/c/older-durable-round',
@@ -3935,7 +3938,7 @@ test('paused transient binding stays paused and starts its send-confirmation clo
     round:1,
     state:'paused',
     pausedState:'loading',
-    url:'https://chatgpt.com/c/local-chatgpt%3Atemporary',
+    authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/local-chatgpt%3Atemporary', url:'https://chatgpt.com/c/local-chatgpt%3Atemporary',
     sessionUrl:'https://chatgpt.com/c/local-chatgpt%3Atemporary',
     sessionUrls:['https://chatgpt.com/c/old-round','https://chatgpt.com/c/local-chatgpt%3Atemporary'],
     token:'paused-send-token',
@@ -3961,7 +3964,7 @@ test('paused transient binding stays paused and starts its send-confirmation clo
 
 test('a paused task without a real URL resumes as a fresh queued dispatch and keeps attachments',async()=>{
   const {h,dom}=await fixture();
-  const task={id:'paused-no-url',goal:'send again safely',state:'paused',pausedState:'blocked',phase:'work',round:1,url:'',token:'stale-token',attempted:true,sendPrepared:true,preparedPrompt:'old prompt',dispatchOriginURL:'https://chatgpt.com/c/old',messages:[],attachments:[{id:'paused-file',name:'paused.png',type:'image/png',size:4,lastModified:1}]};
+  const task={id:'paused-no-url',goal:'send again safely',state:'paused',pausedState:'blocked',phase:'work',round:1,authorizationSeenAt:1, authorizationSeenURL:'', url:'',token:'stale-token',attempted:true,sendPrepared:true,preparedPrompt:'old prompt',dispatchOriginURL:'https://chatgpt.com/c/old',messages:[],attachments:[{id:'paused-file',name:'paused.png',type:'image/png',size:4,lastModified:1}]};
   h.data.tasks.push(task);
   assert.equal(h.restorePausedTasks(7),true);
   assert.equal(task.state,'queued');
@@ -3974,7 +3977,7 @@ test('a paused task without a real URL resumes as a fresh queued dispatch and ke
 });
 test('an idle ChatGPT tab cannot pause a queue owned by another tab',async()=>{
   const {w,h,dom}=await fixture();
-  const waiting={id:'idle-page',goal:'keep running',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/live',token:'owner',messages:[]};
+  const waiting={id:'idle-page',goal:'keep running',state:'waiting',phase:'work',round:1,authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/live', url:'https://chatgpt.com/c/live',token:'owner',messages:[]};
   h.data.tasks.push(waiting);
   w.dispatchEvent(new w.Event('pagehide'));
   assert.equal(waiting.state,'waiting');
@@ -3983,7 +3986,7 @@ test('an idle ChatGPT tab cannot pause a queue owned by another tab',async()=>{
 });
 test('runner pagehide suspends locally without converting the queue to manual pause',async()=>{
   const {w,h,dom}=await fixture();
-  const waiting={id:'runner-page',goal:'keep running',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/live',token:'owner',messages:[]};
+  const waiting={id:'runner-page',goal:'keep running',state:'waiting',phase:'work',round:1,authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/live', url:'https://chatgpt.com/c/live',token:'owner',messages:[]};
   h.data.tasks.push(waiting);
   await h.start();
   w.dispatchEvent(new w.Event('pagehide'));
@@ -4010,7 +4013,7 @@ test('workbench entry repairs detached UI with the same instance, task, draft an
     picker.dispatchEvent(new w.Event('change'));
     const preview=root.querySelector('.attachment-list');
     const previewText=preview.textContent;
-    const task={id:'mount-owner',ownerTabId:h.getTabId(),goal:'keep working',mode:'goal',phase:'work',round:5,state:'waiting',url:'https://chatgpt.com/c/mount-owner',token:'mount-token',attempted:false,messages:[]};
+    const task={id:'mount-owner',ownerTabId:h.getTabId(),goal:'keep working',mode:'goal',phase:'work',round:5,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/mount-owner', url:'https://chatgpt.com/c/mount-owner',token:'mount-token',attempted:false,messages:[]};
     h.data.tasks.push(task); h.setRunningForTest(true);
     const before=JSON.stringify(task), instance=w.__FABUSHI_AUTO_CONFIRM_INSTANCE__;
     root.remove(); style.remove();
@@ -4059,7 +4062,7 @@ test('body and document element replacement retain the workbench and shutdown do
 
 test('replacing an idle script instance does not pause persisted tasks',async()=>{
   const {w,h,dom}=await fixture();
-  const waiting={id:'idle-replace',goal:'keep running',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/live',token:'owner',messages:[]};
+  const waiting={id:'idle-replace',goal:'keep running',state:'waiting',phase:'work',round:1,authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/live', url:'https://chatgpt.com/c/live',token:'owner',messages:[]};
   h.data.tasks.push(waiting);
   w.__FABUSHI_AUTO_CONFIRM_INSTANCE__.shutdown();
   assert.equal(waiting.state,'waiting');
@@ -4069,7 +4072,7 @@ test('replacing an idle script instance does not pause persisted tasks',async()=
 test('same-document hot replacement keeps the workspace and continuous Work transition',async()=>{
   const {w,h,dom}=await fixture();
   const task=h.enqueue('continue through validation','goal');
-  Object.assign(task,{state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/hot-reload',token:'owner-token'});
+  Object.assign(task,{state:'waiting',phase:'work',round:1,authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/hot-reload', url:'https://chatgpt.com/c/hot-reload',token:'owner-token'});
   w.history.pushState({},'', '/c/hot-reload');
   h.log(task,'persist before hot replacement');
   const originalTabId=h.getTabId();
@@ -4134,7 +4137,7 @@ test('runner start waits for a retiring document lock and then self-heals',async
   }
 });
 test('concurrent script injection mounts one workbench instance',async()=>{
-  const dom=new JSDOM('<body></body>',{url:'https://chatgpt.com/',runScripts:'outside-only'});
+  const dom=new JSDOM('<body></body>',{authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/', url:'https://chatgpt.com/',runScripts:'outside-only'});
   const w=dom.window;
   w.HTMLElement.prototype.getClientRects=function(){return this.hidden?[]:[{}];};
   const held=new Set();
@@ -4172,7 +4175,7 @@ test('bootstrap retries a failed workspace claim without losing the fabushi-resu
 });
 test('a persisted manual pause is made visible after script reload',async()=>{
   const {h,dom}=await fixture();
-  const task={id:'reload-paused',goal:'keep paused',state:'generating',phase:'work',round:1,url:'https://chatgpt.com/c/live',token:'owner',messages:[]};
+  const task={id:'reload-paused',goal:'keep paused',state:'generating',phase:'work',round:1,authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/live', url:'https://chatgpt.com/c/live',token:'owner',messages:[]};
   h.data.tasks.push(task);
   h.data.autoResume=false;
   assert.equal(h.migratePersistedPause(),true);
@@ -4182,7 +4185,7 @@ test('a persisted manual pause is made visible after script reload',async()=>{
 });
 test('a newer manual pause from another tab wins over a stale runner write',async()=>{
   const {h,w,dom}=await fixture();
-  const task={id:'remote-pause',goal:'keep stopped',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/live',token:'owner',messages:[]};
+  const task={id:'remote-pause',goal:'keep stopped',state:'waiting',phase:'work',round:1,authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/live', url:'https://chatgpt.com/c/live',token:'owner',messages:[]};
   h.data.tasks.push(task);
   h.data.controlRevision=3;
   h.data.autoResume=true;
@@ -4240,7 +4243,7 @@ test('GitHub authorization ignores an unrelated pre-existing scope menu',async()
 });
 test('resumed exact-route task recognizes an approval card after its user marker is virtualized',async()=>{
   const {w,h,dom}=await fixture('<main><article data-message-author-role="user">Earlier task prompt</article><article data-message-author-role="assistant" aria-busy="true">Continuing work</article><div id="approval"><button>拒绝</button><button>允许一次</button><button aria-haspopup="menu" aria-label="审批选项">⌄</button></div><form><textarea id="prompt-textarea"></textarea></form></main>',()=>{},'https://chatgpt.com/c/resumed-approval');
-  const task={id:'resumed-approval-task',ownerTabId:h.getTabId(),goal:'resume task',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/resumed-approval',token:'virtualized-marker',attempted:true,messages:[]};
+  const task={id:'resumed-approval-task',ownerTabId:h.getTabId(),goal:'resume task',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/resumed-approval', url:'https://chatgpt.com/c/resumed-approval',token:'virtualized-marker',attempted:true,messages:[]};
   h.data.tasks.push(task);
   assert.equal(h.cards().length,1,'fixture must expose a detectable authorization card');
   const result=h.classify({routeOwned:true,owned:false,approvalRouteEligible:true,cards:h.cards().length,stop:false,streaming:true,loading:true,blocker:'',rateLimit:''},null,Date.now());
@@ -4304,7 +4307,7 @@ test('partial structural authorization card with arbitrary title is detected fro
 test('resume recognizes an explicit authorization card even when its content and controls are unknown',async()=>{
   const {h,dom}=await fixture('<main><section id="resume-generic" data-testid="permission-card"><h3>需要继续前的确认</h3></section><form><textarea id="prompt-textarea"></textarea></form></main>',()=>{},'https://chatgpt.com/c/resume-generic-approval');
   try {
-    const task={id:'resume-generic-approval',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:3,state:'paused',pausedState:'waiting',url:'https://chatgpt.com/c/resume-generic-approval',token:'resume-generic-token',attempted:false,messages:[]};
+    const task={id:'resume-generic-approval',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:3,state:'paused',pausedState:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/resume-generic-approval', url:'https://chatgpt.com/c/resume-generic-approval',token:'resume-generic-token',attempted:false,messages:[]};
     h.data.tasks.push(task);
     assert.equal(h.cards({wide:true}).length,1);
     assert.equal(h.restorePausedTasks(),true);
@@ -4316,7 +4319,7 @@ test('resume recognizes an explicit authorization card even when its content and
 test('pre-Send blocks an explicit authorization card even when no known authorization button has hydrated',async()=>{
   const {w,h,dom}=await fixture('<main><section data-testid="approval-card"><h3>完全未知的授权内容</h3><button type="button">继续</button></section><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">Send</button></form></main>');
   try {
-    const task={id:'send-generic-approval',ownerTabId:h.getTabId(),goal:'must not send',mode:'once',phase:'work',round:1,state:'queued',url:'',token:'',attempted:false,messages:[],attachments:[]};
+    const task={id:'send-generic-approval',ownerTabId:h.getTabId(),goal:'must not send',mode:'once',phase:'work',round:1,state:'queued',authorizationSeenAt:1, authorizationSeenURL:'', url:'',token:'',attempted:false,messages:[],attachments:[]};
     h.data.tasks.push(task);
     h.setRunningForTest(true);
     let sends=0;
@@ -4339,7 +4342,7 @@ test('quoted authorization wording inside assistant transcript cannot synthesize
 test('restoring a paused exact-route task immediately classifies an already-visible partial authorization surface',async()=>{
   const {w,h,dom}=await fixture('<main><section><h3>允许 ChatGPT 使用 GitHub？</h3><button>允许一次</button></section><form><textarea id="prompt-textarea"></textarea></form></main>',()=>{},'https://chatgpt.com/c/resume-partial-approval');
   try {
-    const task={id:'resume-partial-approval',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:2,state:'paused',pausedState:'waiting',url:'https://chatgpt.com/c/resume-partial-approval',token:'resume-partial-token',attempted:false,messages:[]};
+    const task={id:'resume-partial-approval',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:2,state:'paused',pausedState:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/resume-partial-approval', url:'https://chatgpt.com/c/resume-partial-approval',token:'resume-partial-token',attempted:false,messages:[]};
     h.data.tasks.push(task);
     assert.equal(h.cards({wide:true}).length,1,'fixture exposes the pending semantic grant');
     assert.equal(h.restorePausedTasks(),true);
@@ -4352,7 +4355,7 @@ test('restoring a paused exact-route task immediately classifies an already-visi
 test('pre-Send wide authorization presence blocks a partial connector grant before send-button recovery',async()=>{
   const {w,h,dom}=await fixture('<main><section><h3>Allow ChatGPT to use GitHub?</h3><button>Allow once</button></section><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">Send</button></form></main>');
   try {
-    const task={id:'send-partial-approval',ownerTabId:h.getTabId(),goal:'must not send',mode:'once',phase:'work',round:1,state:'queued',url:'',token:'',attempted:false,messages:[],attachments:[]};
+    const task={id:'send-partial-approval',ownerTabId:h.getTabId(),goal:'must not send',mode:'once',phase:'work',round:1,state:'queued',authorizationSeenAt:1, authorizationSeenURL:'', url:'',token:'',attempted:false,messages:[],attachments:[]};
     h.data.tasks.push(task);
     h.setRunningForTest(true);
     let sends=0;
@@ -4366,8 +4369,8 @@ test('pre-Send wide authorization presence blocks a partial connector grant befo
 
 test('resumed approval card stays unassigned when a foreign task marker owns the visible turn',async()=>{
   const {h,dom}=await fixture('<main><article data-message-author-role="user">[Fabushi:foreign-token] Other task</article><article data-message-author-role="assistant" aria-busy="true">Other task in progress</article><div><button>拒绝</button><button>允许一次</button><button aria-haspopup="menu">⌄</button></div><form><textarea id="prompt-textarea"></textarea></form></main>',()=>{},'https://chatgpt.com/c/resumed-approval-foreign');
-  const task={id:'resumed-approval-task',ownerTabId:h.getTabId(),goal:'resume task',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/resumed-approval-foreign',token:'virtualized-marker',attempted:true,messages:[]};
-  const foreign={id:'foreign-task',ownerTabId:h.getTabId(),goal:'other task',state:'waiting',url:'https://chatgpt.com/c/resumed-approval-foreign',token:'foreign-token',attempted:true,messages:[]};
+  const task={id:'resumed-approval-task',ownerTabId:h.getTabId(),goal:'resume task',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/resumed-approval-foreign', url:'https://chatgpt.com/c/resumed-approval-foreign',token:'virtualized-marker',attempted:true,messages:[]};
+  const foreign={id:'foreign-task',ownerTabId:h.getTabId(),goal:'other task',state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/resumed-approval-foreign', url:'https://chatgpt.com/c/resumed-approval-foreign',token:'foreign-token',attempted:true,messages:[]};
   h.data.tasks.push(task,foreign);
   const result=h.classify({routeOwned:true,owned:false,approvalRouteEligible:false,foreignTaskId:foreign.id,cards:0,stop:false,streaming:true,loading:true,blocker:'',rateLimit:''},null,Date.now());
   assert.notEqual(result.state,'approval','a visible marker for a different task must retain the fail-closed boundary');
@@ -4385,7 +4388,7 @@ test('authorization card opens its Radix scope trigger before primary fallback',
 });
 test('cancelled tasks resume the exact persisted conversation when possible',async()=>{
   const {h,dom}=await fixture();
-  const task={id:'cancelled',goal:'continue me',mode:'goal',phase:'work',round:3,state:'cancelled',url:'https://chatgpt.com/c/existing',token:'owner',attempted:false,messages:[]};
+  const task={id:'cancelled',goal:'continue me',mode:'goal',phase:'work',round:3,state:'cancelled',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/existing', url:'https://chatgpt.com/c/existing',token:'owner',attempted:false,messages:[]};
   h.data.tasks.push(task);
   assert.equal(h.restoreCancelledTask(task),true);
   assert.equal(task.state,'waiting');
@@ -4396,7 +4399,7 @@ test('cancelled tasks resume the exact persisted conversation when possible',asy
 });
 test('cancelled unsent tasks return to the dispatch queue and keep attachments',async()=>{
   const {h,dom}=await fixture();
-  const task={id:'cancelled-unsent',goal:'continue me',mode:'goal',phase:'work',round:1,state:'cancelled',url:'',token:'stale',attempted:false,messages:[],attachments:[{id:'cancelled-file',name:'cancelled.pdf',type:'application/pdf',size:4,lastModified:1}]};
+  const task={id:'cancelled-unsent',goal:'continue me',mode:'goal',phase:'work',round:1,state:'cancelled',authorizationSeenAt:1, authorizationSeenURL:'', url:'',token:'stale',attempted:false,messages:[],attachments:[{id:'cancelled-file',name:'cancelled.pdf',type:'application/pdf',size:4,lastModified:1}]};
   h.data.tasks.push(task);
   assert.equal(h.restoreCancelledTask(task),true);
   assert.equal(task.state,'queued');
@@ -4406,7 +4409,7 @@ test('cancelled unsent tasks return to the dispatch queue and keep attachments',
 });
 test('cancelled queued Work task does not reopen the previous Work URL',async()=>{
   const {h,dom}=await fixture();
-  const task={id:'cancelled-planner',goal:'continue me',next:'verify the new round',mode:'goal',phase:'work',round:2,state:'cancelled',url:'',sessionUrl:'https://chatgpt.com/c/previous-work',sessionUrls:['https://chatgpt.com/c/previous-work'],token:'',attempted:false,messages:[]};
+  const task={id:'cancelled-planner',goal:'continue me',next:'verify the new round',mode:'goal',phase:'work',round:2,state:'cancelled',authorizationSeenAt:1, authorizationSeenURL:'', url:'',sessionUrl:'https://chatgpt.com/c/previous-work',sessionUrls:['https://chatgpt.com/c/previous-work'],token:'',attempted:false,messages:[]};
   h.data.tasks.push(task);
   assert.equal(h.restoreCancelledTask(task),true);
   assert.equal(task.state,'queued');
@@ -4476,9 +4479,9 @@ test('ordinary labels and oversized containers do not trigger conversation-limit
 test('reload recovery preserves healthy and rate-limited in-flight sessions',async()=>{
   const {h,dom}=await fixture();
   const base={goal:'test task',mode:'goal',phase:'work',round:1};
-  const healthy={...base,id:'healthy',state:'waiting',url:'https://chatgpt.com/c/healthy',token:'keep',messages:[{text:'正在生成'}]};
-  const limited={...base,id:'limited',state:'waiting',url:'https://chatgpt.com/c/limited',token:'keep-too',messages:[{text:'检测到 ChatGPT 请求过于频繁'}]};
-  const legacy={...base,id:'legacy',state:'blocked',url:'https://chatgpt.com/c/old',token:'old',messages:[{text:'侧栏会话切换未确认'}]};
+  const healthy={...base,id:'healthy',state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/healthy', url:'https://chatgpt.com/c/healthy',token:'keep',messages:[{text:'正在生成'}]};
+  const limited={...base,id:'limited',state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/limited', url:'https://chatgpt.com/c/limited',token:'keep-too',messages:[{text:'检测到 ChatGPT 请求过于频繁'}]};
+  const legacy={...base,id:'legacy',state:'blocked',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/old', url:'https://chatgpt.com/c/old',token:'old',messages:[{text:'侧栏会话切换未确认'}]};
   h.data.tasks.push(healthy,limited,legacy);
   assert.equal(h.recoverLegacyNavigationFailures(),'legacy');
   assert.equal(healthy.url,'https://chatgpt.com/c/healthy');
@@ -4492,7 +4495,7 @@ test('reload recovery preserves healthy and rate-limited in-flight sessions',asy
 });
 test('paused legacy sidebar waits resume directly from their recorded URL',async()=>{
   const {h,dom}=await fixture();
-  const task={id:'paused-legacy',goal:'keep this chat',mode:'goal',phase:'work',round:1,state:'paused',pausedState:'blocked',url:'https://chatgpt.com/c/legacy-url',token:'legacy-token',attempted:true,messages:[{text:'目标会话链接尚未出现在侧栏；保持当前页面等待，不会刷新或重复派发（第 4/4 次）。'}]};
+  const task={id:'paused-legacy',goal:'keep this chat',mode:'goal',phase:'work',round:1,state:'paused',pausedState:'blocked',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/legacy-url', url:'https://chatgpt.com/c/legacy-url',token:'legacy-token',attempted:true,messages:[{text:'目标会话链接尚未出现在侧栏；保持当前页面等待，不会刷新或重复派发（第 4/4 次）。'}]};
   h.data.tasks.push(task);
   assert.equal(h.restorePausedTasks(9),true);
   assert.equal(task.state,'waiting');
@@ -4503,7 +4506,7 @@ test('paused legacy sidebar waits resume directly from their recorded URL',async
 });
 test('resuming a queued Work round never reopens a historical Work URL',async()=>{
   const {h,dom}=await fixture();
-  const task={id:'queued-next-round',goal:'continue with the new round',mode:'goal',phase:'work',round:2,state:'paused',pausedState:'queued',url:'',sessionUrl:'https://chatgpt.com/c/previous-work',sessionUrls:['https://chatgpt.com/c/previous-work'],token:'',attempted:false,messages:[]};
+  const task={id:'queued-next-round',goal:'continue with the new round',mode:'goal',phase:'work',round:2,state:'paused',pausedState:'queued',authorizationSeenAt:1, authorizationSeenURL:'', url:'',sessionUrl:'https://chatgpt.com/c/previous-work',sessionUrls:['https://chatgpt.com/c/previous-work'],token:'',attempted:false,messages:[]};
   h.data.tasks.push(task);
   assert.equal(h.restorePausedTasks(12),true);
   assert.equal(task.state,'queued');
@@ -4515,7 +4518,7 @@ test('transient navigation warning cannot redispatch an already generating conve
   const {h,dom}=await fixture();
   const task={
     id:'generating',goal:'keep this chat',mode:'goal',phase:'planner',round:1,
-    state:'generating',url:'https://chatgpt.com/c/current',token:'live-owner',attempted:true,
+    state:'generating',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/current', url:'https://chatgpt.com/c/current',token:'live-owner',attempted:true,
     messages:[{text:'会话切换未确认，插件正在自动切换到新会话'}]
   };
   h.data.tasks.push(task);
@@ -4545,7 +4548,7 @@ test('missing sidebar links automatically requeue in a fresh conversation',async
 });
 test('live owned conversation canonicalizes a stale URL without navigation',async()=>{
   const {h,w,dom}=await fixture('<main><div data-message-author-role="user">[Fabushi:live-token]</div><article><div data-message-author-role="assistant">正在生成</div></article>');
-  const task={id:'canonical',goal:'keep',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/WEB:stale',token:'live-token',attempted:false,messages:[]};
+  const task={id:'canonical',goal:'keep',state:'waiting',phase:'work',round:1,authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/WEB:stale', url:'https://chatgpt.com/c/WEB:stale',token:'live-token',attempted:false,messages:[]};
   h.data.tasks.push(task);
   w.history.pushState({},'', '/c/real-conversation');
   assert.equal(await h.navigate(task.url,undefined,task),true);
@@ -4555,7 +4558,7 @@ test('live owned conversation canonicalizes a stale URL without navigation',asyn
 });
 test('recorded conversation links are canonical identities and direct recovery is one-shot',async()=>{
   const {h,w,dom}=await fixture();
-  const task={id:'direct',goal:'recover',state:'waiting',phase:'work',round:1,url:'',token:'owner',attempted:false,messages:[]};
+  const task={id:'direct',goal:'recover',state:'waiting',phase:'work',round:1,authorizationSeenAt:1, authorizationSeenURL:'', url:'',token:'owner',attempted:false,messages:[]};
   h.data.tasks.push(task);
   assert.equal(h.canonicalConversationURL('https://chatgpt.com/c/6aa0132a-c708-83e8-812c-818dcfc31876?messageId=ignored'),'https://chatgpt.com/c/6aa0132a-c708-83e8-812c-818dcfc31876');
   assert.equal(h.canonicalConversationURL('https://chatgpt.com/c/WEB:synthetic'),'');
@@ -4618,8 +4621,8 @@ test('open control rejects a task URL that changed after the panel rendered',asy
 });
 test('a conversation URL cannot be adopted by two active tasks',async()=>{
   const {h,dom}=await fixture();
-  const first={id:'owner',url:'https://chatgpt.com/c/unique',messages:[]};
-  const second={id:'new-task',url:'',messages:[]};
+  const first={id:'owner',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/unique', url:'https://chatgpt.com/c/unique',messages:[]};
+  const second={id:'new-task',authorizationSeenAt:1, authorizationSeenURL:'', url:'',messages:[]};
   h.data.tasks.push(first,second);
   assert.equal(h.captureConversationURL(second,first.url),'');
   assert.equal(second.url,'');
@@ -4628,7 +4631,7 @@ test('a conversation URL cannot be adopted by two active tasks',async()=>{
 });
 test('synthetic conversation URL automatically becomes a fresh resend',async()=>{
   const {h,w,dom}=await fixture();
-  const task={id:'unverified',ownerTabId:h.getTabId(),goal:'wait',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/WEB:not-in-sidebar',token:'owner',attempted:false,messages:[]};
+  const task={id:'unverified',ownerTabId:h.getTabId(),goal:'wait',state:'waiting',phase:'work',round:1,authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/WEB:not-in-sidebar', url:'https://chatgpt.com/c/WEB:not-in-sidebar',token:'owner',attempted:false,messages:[]};
   h.data.tasks.push(task);
   assert.equal(h.queueNavigation(new w.URL(task.url),task,'会话地址无效'),false);
   assert.equal(w.location.pathname,'/');
@@ -4645,7 +4648,7 @@ test('synthetic conversation URL automatically becomes a fresh resend',async()=>
 test('ambiguous send timeout prioritizes the current-round Work conversation before any resend',async()=>{
   const {h,w,dom}=await fixture();
   w.history.pushState({},'', '/c/other-conversation');
-  const task={id:'sent-bound',goal:'continue once',mode:'goal',round:1,state:'sending',phase:'work',url:'https://chatgpt.com/c/bound-conversation',token:'one-dispatch',attempted:true,sentAt:Date.now(),messages:[]};
+  const task={id:'sent-bound',goal:'continue once',mode:'goal',round:1,state:'sending',phase:'work',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/bound-conversation', url:'https://chatgpt.com/c/bound-conversation',token:'one-dispatch',attempted:true,sentAt:Date.now(),messages:[]};
   h.data.tasks.push(task);
   h.stopAmbiguousSend(task,false,1_000_000);
   assert.equal(task.state,'waiting');
@@ -4659,7 +4662,7 @@ test('ambiguous send timeout prioritizes the current-round Work conversation bef
 test('loading recovery never refreshes an owned Work conversation after its final reply is already visible',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">验收 [Fabushi:final-no-refresh-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown" data-is-streaming="false">验收最终回复已经完成。</div></div><button aria-label="复制回复"></button><button aria-label="评价回复"></button></article><form><textarea id="prompt-textarea"></textarea></form></main>');
   w.history.pushState({},'', '/c/final-no-refresh');
-  const task={id:'final-no-refresh',ownerTabId:h.getTabId(),goal:'继续完成',mode:'goal',phase:'work',round:4,state:'waiting',url:'https://chatgpt.com/c/final-no-refresh',token:'final-no-refresh-token',attempted:false,messages:[],routeRecoveryAttempts:0,workspaceDocumentRecoveryAttempts:0};
+  const task={id:'final-no-refresh',ownerTabId:h.getTabId(),goal:'继续完成',mode:'goal',phase:'work',round:4,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/final-no-refresh', url:'https://chatgpt.com/c/final-no-refresh',token:'final-no-refresh-token',attempted:false,messages:[],routeRecoveryAttempts:0,workspaceDocumentRecoveryAttempts:0};
   h.data.tasks.push(task);
   assert.equal(h.latestTurn(task).final,true);
   assert.equal(h.recoverStalledRoute(new URL(task.url),task),false);
@@ -4672,7 +4675,7 @@ test('loading recovery never refreshes an owned Work conversation after its fina
 test('generic stalled conversation refresh cooldown is five minutes while ambiguous-send recovery stays separate',async()=>{
   const {h,w,dom}=await fixture();
   w.history.pushState({},'', '/c/stall-five');
-  const task={id:'stall-five',ownerTabId:h.getTabId(),goal:'wait',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/stall-five',token:'stall-five',attempted:false,messages:[]};
+  const task={id:'stall-five',ownerTabId:h.getTabId(),goal:'wait',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/stall-five', url:'https://chatgpt.com/c/stall-five',token:'stall-five',attempted:false,messages:[]};
   h.data.tasks.push(task);
   assert.equal(h.refreshStalledConversation(task,false,1_000_000),true);
   assert.equal(task.stalledRefreshAttempts,1);
@@ -4688,7 +4691,7 @@ test('generic stalled conversation refresh cooldown is five minutes while ambigu
 test('active assistant turn with no page changes refreshes after five minutes',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue work [Fabushi:active-stall]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">Checking the latest CI status.</div><div aria-busy="true" class="loading-shimmer">Working</div></div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="stop-button" aria-label="停止回答">Stop</button></form></main>');
   w.history.pushState({},'', '/c/active-stall');
-  const task={id:'active-stall',ownerTabId:h.getTabId(),goal:'continue work',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/active-stall',token:'active-stall',attempted:false,messages:[]};
+  const task={id:'active-stall',ownerTabId:h.getTabId(),goal:'continue work',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/active-stall', url:'https://chatgpt.com/c/active-stall',token:'active-stall',attempted:false,messages:[]};
   h.data.tasks.push(task);
   try {
     await h.start(false);
@@ -4709,7 +4712,7 @@ test('active assistant turn with no page changes refreshes after five minutes',a
 test('active assistant generation suppresses route recovery during temporary marker mismatch',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue work without mounted task marker</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">Checking the latest CI status.</div><div aria-busy="true">Working</div></div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="stop-button" aria-label="停止回答">Stop</button></form></main>');
   w.history.pushState({},'', '/c/active-route-mismatch');
-  const task={id:'active-route-mismatch',ownerTabId:h.getTabId(),goal:'continue work',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/active-route-mismatch',token:'temporarily-virtualized-marker',attempted:false,messages:[],routeRecoveryAttempts:1};
+  const task={id:'active-route-mismatch',ownerTabId:h.getTabId(),goal:'continue work',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/active-route-mismatch', url:'https://chatgpt.com/c/active-route-mismatch',token:'temporarily-virtualized-marker',attempted:false,messages:[],routeRecoveryAttempts:1};
   h.data.tasks.push(task);
   try {
     await h.start(false);
@@ -4730,7 +4733,7 @@ test('active assistant generation suppresses route recovery during temporary mar
 test('active assistant generation does not clear persisted route recovery counters',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">goal [Fabushi:active-counter]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant" aria-busy="true">Working</div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="stop-button" aria-label="停止回答">Stop</button></form></main>');
   w.history.pushState({},'', '/c/active-counter');
-  const task={id:'active-counter',ownerTabId:h.getTabId(),goal:'goal',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/active-counter',token:'active-counter',attempted:false,messages:[],routeRecoveryAttempts:1,workspaceDocumentRecoveryAttempts:1,rendererRecoveryExhausted:true};
+  const task={id:'active-counter',ownerTabId:h.getTabId(),goal:'goal',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/active-counter', url:'https://chatgpt.com/c/active-counter',token:'active-counter',attempted:false,messages:[],routeRecoveryAttempts:1,workspaceDocumentRecoveryAttempts:1,rendererRecoveryExhausted:true};
   h.data.tasks.push(task);
   try {
     assert.equal(await h.navigate(task.url,null,task,false),true);
@@ -4746,7 +4749,7 @@ test('active assistant generation does not clear persisted route recovery counte
 test('a newly rendered page reply restarts the idle refresh clock even during task-marker mismatch',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">later non-task user turn</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant" data-message-id="assistant-before"><div class="markdown">Earlier page reply.</div></div></article><form><textarea id="prompt-textarea"></textarea></form></main>');
   w.history.pushState({},'', '/c/page-progress');
-  const task={id:'page-progress',ownerTabId:h.getTabId(),goal:'work',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/page-progress',token:'virtualized-task-marker',attempted:false,messages:[]};
+  const task={id:'page-progress',ownerTabId:h.getTabId(),goal:'work',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/page-progress', url:'https://chatgpt.com/c/page-progress',token:'virtualized-task-marker',attempted:false,messages:[]};
   h.data.tasks.push(task);
   try {
     await h.start(false);
@@ -4783,7 +4786,7 @@ test('a tertiary-only work-step change restarts the generic page no-change clock
     <form><textarea id="prompt-textarea"></textarea><button data-testid="stop-button" aria-label="停止回答">Stop</button></form>
   </main>`);
   w.history.pushState({},'', '/c/work-step-progress');
-  const task={id:'work-step-progress',ownerTabId:h.getTabId(),goal:'continue work',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/work-step-progress',token:'work-step-progress',attempted:false,messages:[]};
+  const task={id:'work-step-progress',ownerTabId:h.getTabId(),goal:'continue work',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/work-step-progress', url:'https://chatgpt.com/c/work-step-progress',token:'work-step-progress',attempted:false,messages:[]};
   h.data.tasks.push(task);
   try {
     await h.start(false);
@@ -4816,7 +4819,7 @@ test('a tertiary-only work-step change restarts the generic page no-change clock
 
 test('exact retained composer text is cleared at timeout before existing ambiguous retry',async()=>{
   const {h,w,dom}=await fixture('<main><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">Send</button></form></main>');
-  const task={id:'retained-draft',ownerTabId:h.getTabId(),goal:'finish work',next:'',mode:'goal',round:2,state:'sending',phase:'work',url:'',token:'retained-token',preparedPrompt:'complete the requested task [Fabushi:retained-token]',attempted:true,sentAt:1,messages:[]};
+  const task={id:'retained-draft',ownerTabId:h.getTabId(),goal:'finish work',next:'',mode:'goal',round:2,state:'sending',phase:'work',authorizationSeenAt:1, authorizationSeenURL:'', url:'',token:'retained-token',preparedPrompt:'complete the requested task [Fabushi:retained-token]',attempted:true,sentAt:1,messages:[]};
   h.data.tasks.push(task);
   const input=w.document.querySelector('#prompt-textarea');
   input.value=task.preparedPrompt;
@@ -4834,7 +4837,7 @@ test('exact retained composer text is cleared at timeout before existing ambiguo
 });
 test('exact retained composer text is cleared before adopting the marked conversation',async()=>{
   const {h,w,dom}=await fixture('<main><form><textarea id="prompt-textarea"></textarea></form></main>');
-  const task={id:'retained-route',ownerTabId:h.getTabId(),goal:'finish work',mode:'goal',round:2,state:'sending',phase:'work',url:'',token:'retained-route-token',preparedPrompt:'complete the task [Fabushi:retained-route-token]',attempted:true,sentAt:1,messages:[]};
+  const task={id:'retained-route',ownerTabId:h.getTabId(),goal:'finish work',mode:'goal',round:2,state:'sending',phase:'work',authorizationSeenAt:1, authorizationSeenURL:'', url:'',token:'retained-route-token',preparedPrompt:'complete the task [Fabushi:retained-route-token]',attempted:true,sentAt:1,messages:[]};
   h.data.tasks.push(task);
   const input=w.document.querySelector('#prompt-textarea');
   input.value=task.preparedPrompt;
@@ -4854,7 +4857,7 @@ test('exact retained composer text is cleared before adopting the marked convers
 });
 test('a modified or unrelated composer draft is preserved by retained-prompt cleanup',async()=>{
   const {h,w,dom}=await fixture('<main><form><textarea id="prompt-textarea"></textarea></form></main>');
-  const task={id:'modified-draft',state:'sending',phase:'work',round:1,url:'',token:'modified-token',preparedPrompt:'original task [Fabushi:modified-token]',attempted:true,sentAt:1,messages:[]};
+  const task={id:'modified-draft',state:'sending',phase:'work',round:1,authorizationSeenAt:1, authorizationSeenURL:'', url:'',token:'modified-token',preparedPrompt:'original task [Fabushi:modified-token]',attempted:true,sentAt:1,messages:[]};
   h.data.tasks.push(task);
   const input=w.document.querySelector('#prompt-textarea');
   input.value='original task [Fabushi:modified-token] plus user edit';
@@ -4877,7 +4880,7 @@ test('unbound ambiguous Work send older than 90 seconds immediately queues a fre
   const {h,w,dom}=await fixture();
   w.history.pushState({},'', '/c/old-conversation');
   const attachments=[{id:'proof',name:'proof.png',type:'image/png',size:12,lastModified:1}];
-  const task={id:'sent-unbound',ownerTabId:h.getTabId(),goal:'continue once',next:'keep the same next step',mode:'goal',round:3,state:'sending',phase:'work',url:'',token:'one-dispatch',attempted:true,dispatchOriginURL:'https://chatgpt.com/c/old-conversation',sentAt:1,attachments,messages:[]};
+  const task={id:'sent-unbound',ownerTabId:h.getTabId(),goal:'continue once',next:'keep the same next step',mode:'goal',round:3,state:'sending',phase:'work',authorizationSeenAt:1, authorizationSeenURL:'', url:'',token:'one-dispatch',attempted:true,dispatchOriginURL:'https://chatgpt.com/c/old-conversation',sentAt:1,attachments,messages:[]};
   h.data.tasks.push(task);
   h.data.lastDispatchAt=999_999;
   h.stopAmbiguousSend(task,false,1_000_000);
@@ -4913,7 +4916,7 @@ test('edited goal is persisted and replaces stale next-round instructions',async
 });
 test('goal edits during Work discard stale final report next and start a new Work round',async()=>{
   const {h,dom}=await fixture();
-  const task={id:'review-edit',goal:'旧目标',next:'',mode:'goal',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/review',token:'review-token',messages:[],goalRevision:0,dispatchGoalRevision:0,result:'旧结果'};
+  const task={id:'review-edit',goal:'旧目标',next:'',mode:'goal',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/review', url:'https://chatgpt.com/c/review',token:'review-token',messages:[],goalRevision:0,dispatchGoalRevision:0,result:'旧结果'};
   h.data.tasks.push(task);
   h.editGoal(task,'新目标');
   h.finish(task,'{"taskId":"review-edit","round":1,"status":"next","summary":"旧 Work 结果","next":"继续旧目标"}');
@@ -4926,7 +4929,7 @@ test('goal edits during Work discard stale final report next and start a new Wor
 });
 test('editing a queued Work skips the unsent stale final report immediately',async()=>{
   const {h,dom}=await fixture();
-  const task={id:'queued-review-edit',goal:'旧目标',next:'旧工作安排',mode:'goal',phase:'work',round:1,state:'queued',url:'',token:'old-token',messages:[],goalRevision:0,result:'旧结果'};
+  const task={id:'queued-review-edit',goal:'旧目标',next:'旧工作安排',mode:'goal',phase:'work',round:1,state:'queued',authorizationSeenAt:1, authorizationSeenURL:'', url:'',token:'old-token',messages:[],goalRevision:0,result:'旧结果'};
   h.data.tasks.push(task);
   assert.equal(h.editGoal(task,'新目标'),true);
   assert.equal(task.phase,'work');
@@ -4953,7 +4956,7 @@ test('completed, cancelled, and paused tasks can be deleted while live tasks are
   completed.state='done';
   const cancelled={id:'old-cancelled',goal:'old cancelled',mode:'once',phase:'work',round:1,state:'cancelled',messages:[]};
   const paused={id:'old-paused',goal:'old paused',mode:'goal',phase:'work',round:1,state:'paused',messages:[]};
-  const live={id:'live',goal:'keep running',mode:'goal',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/live',token:'live',messages:[]};
+  const live={id:'live',goal:'keep running',mode:'goal',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/live', url:'https://chatgpt.com/c/live',token:'live',messages:[]};
   h.data.tasks.push(cancelled,paused,live);
   h.paint?.();
   assert.equal(h.deleteTask(live),false);
@@ -5009,7 +5012,7 @@ test('continuing one paused task does not restore another paused task',async()=>
   const first=h.enqueue('resume only this task','goal');
   const second=h.enqueue('keep this task paused','goal');
   Object.assign(first,{state:'paused',pausedState:'queued'});
-  Object.assign(second,{state:'paused',pausedState:'waiting',url:'https://chatgpt.com/c/keep-paused',token:'keep-paused'});
+  Object.assign(second,{state:'paused',pausedState:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/keep-paused', url:'https://chatgpt.com/c/keep-paused',token:'keep-paused'});
   h.log(second,'第二个任务保持暂停');
   const rowFor=task=>w.document.querySelector(`[data-task-id="${task.id}"]`);
   const action=(row,label)=>[...row.querySelectorAll('.task-action')].find(button=>button.textContent===label);
@@ -5055,7 +5058,7 @@ test('same-route recovery is a committed reload path and watchdog re-arms a sche
   const {h,w,dom}=await fixture('<main><article data-message-author-role="user">goal [Fabushi:deadlock-recovery]</article><div class="animate-spin"></div></main>');
   try {
     w.history.replaceState({},'', '/c/deadlock-recovery');
-    const task={id:'deadlock-recovery',ownerTabId:h.getTabId(),goal:'goal',mode:'once',phase:'work',round:1,goalRevision:0,state:'loading',url:'https://chatgpt.com/c/deadlock-recovery',token:'deadlock-recovery',messages:[],routeRecoveryAttempts:1};
+    const task={id:'deadlock-recovery',ownerTabId:h.getTabId(),goal:'goal',mode:'once',phase:'work',round:1,goalRevision:0,state:'loading',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/deadlock-recovery', url:'https://chatgpt.com/c/deadlock-recovery',token:'deadlock-recovery',messages:[],routeRecoveryAttempts:1};
     h.data.tasks.push(task);
     w.sessionStorage.setItem('fabushi-workbench-navigation-v2',JSON.stringify({
       path:'/c/deadlock-recovery',
@@ -5092,7 +5095,7 @@ test('same-tab recovery exhaustion retains the runner and workspace lock without
   try {
     w.history.replaceState({},'', '/c/document-recovery-yield');
     const owner=h.getTabId();
-    const task={id:'document-recovery-yield',ownerTabId:owner,goal:'goal',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/document-recovery-yield',token:'stable-token',attempted:true,messages:[],routeRecoveryAttempts:2};
+    const task={id:'document-recovery-yield',ownerTabId:owner,goal:'goal',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/document-recovery-yield', url:'https://chatgpt.com/c/document-recovery-yield',token:'stable-token',attempted:true,messages:[],routeRecoveryAttempts:2};
     h.data.tasks.push(task);
     await h.start(false);
     h.recoverStalledRoute(new w.URL(task.url),task);
@@ -5116,7 +5119,7 @@ test('ordinary same-route navigation remains a no-op but asynchronous cancellati
   const {h,w,dom}=await fixture();
   try {
     w.history.replaceState({},'', '/c/same-route-noop');
-    const task={id:'same-route-noop',ownerTabId:h.getTabId(),goal:'goal',mode:'once',phase:'work',round:1,goalRevision:0,state:'waiting',url:'https://chatgpt.com/c/same-route-noop',token:'same-route-noop',messages:[]};
+    const task={id:'same-route-noop',ownerTabId:h.getTabId(),goal:'goal',mode:'once',phase:'work',round:1,goalRevision:0,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/same-route-noop', url:'https://chatgpt.com/c/same-route-noop',token:'same-route-noop',messages:[]};
     h.data.tasks.push(task);
     w.sessionStorage.setItem('fabushi-workbench-navigation-v2',JSON.stringify({
       path:'/c/same-route-noop',href:task.url,at:Date.now(),task:task.id,attempts:1,assigned:true,direct:true,purpose:'inspect',phase:'work',round:1,goalRevision:0,resume:true,
@@ -5136,7 +5139,7 @@ test('owned route inspection preserves loading recovery counters until loading t
   const {h,w,dom}=await fixture('<main><article data-message-author-role="user">goal [Fabushi:loading-counter]</article><div id="loader" class="animate-spin"></div></main>');
   try {
     w.history.replaceState({},'', '/c/loading-counter');
-    const task={id:'loading-counter',ownerTabId:h.getTabId(),goal:'goal',mode:'once',phase:'work',round:1,state:'loading',url:'https://chatgpt.com/c/loading-counter',token:'loading-counter',messages:[],routeRecoveryAttempts:1,workspaceDocumentRecoveryAttempts:1,rendererRecoveryExhausted:true,sendUiWaitSince:123};
+    const task={id:'loading-counter',ownerTabId:h.getTabId(),goal:'goal',mode:'once',phase:'work',round:1,state:'loading',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/loading-counter', url:'https://chatgpt.com/c/loading-counter',token:'loading-counter',messages:[],routeRecoveryAttempts:1,workspaceDocumentRecoveryAttempts:1,rendererRecoveryExhausted:true,sendUiWaitSince:123};
     h.data.tasks.push(task);
     assert.equal(await h.navigate(task.url,null,task,false),true);
     assert.equal(task.routeRecoveryAttempts,1,'loading route must keep the recovery count');
@@ -5157,7 +5160,7 @@ test('owned route inspection preserves loading recovery counters until loading t
 test('loading recovery reaches a durable same-route limit and never restarts by time alone',async()=>{
   const {h,w,dom}=await fixture();
   try {
-    const task={id:'loading-budget',ownerTabId:h.getTabId(),goal:'goal',mode:'once',phase:'work',round:1,goalRevision:0,state:'loading',url:'https://chatgpt.com/c/loading-budget',token:'loading-budget',messages:[],routeRecoveryAttempts:1,workspaceDocumentRecoveryAttempts:0,rendererRecoveryExhausted:false};
+    const task={id:'loading-budget',ownerTabId:h.getTabId(),goal:'goal',mode:'once',phase:'work',round:1,goalRevision:0,state:'loading',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/loading-budget', url:'https://chatgpt.com/c/loading-budget',token:'loading-budget',messages:[],routeRecoveryAttempts:1,workspaceDocumentRecoveryAttempts:0,rendererRecoveryExhausted:false};
     h.data.tasks.push(task);
     h.recoverStalledRoute(new w.URL(task.url),task);
     assert.equal(task.routeRecoveryAttempts,2);
@@ -5209,7 +5212,7 @@ test('dispatches keep a full cooldown between Chat sessions',async()=>{
 test('the fourth distinct rate-limit episode abandons the old Work conversation and queues a fresh resend',async()=>{
   const {h,dom}=await fixture();
   const attachments=[{id:'proof',name:'proof.png',type:'image/png',size:12}];
-  const task={id:'rate-limit-4',ownerTabId:h.getTabId(),goal:'finish it',mode:'goal',phase:'work',round:3,state:'waiting',url:'https://chatgpt.com/c/rate-limit-old',token:'rate-token',attempted:false,attachments,messages:[]};
+  const task={id:'rate-limit-4',ownerTabId:h.getTabId(),goal:'finish it',mode:'goal',phase:'work',round:3,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/rate-limit-old', url:'https://chatgpt.com/c/rate-limit-old',token:'rate-token',attempted:false,attachments,messages:[]};
   h.data.tasks.push(task);
   assert.ok(h.restForRateLimit(task,1_000)>0);
   assert.equal(task.rateLimitEpisodes,1);
@@ -5232,7 +5235,7 @@ test('the fourth distinct rate-limit episode abandons the old Work conversation 
 });
 test('a new round rejects historical routes even when its new marker is already rendered',async()=>{
   const {h,dom}=await fixture();
-  const task={id:'new-round',attempted:true,url:'',sessionUrls:['https://chatgpt.com/c/old-round']};
+  const task={id:'new-round',attempted:true,authorizationSeenAt:1, authorizationSeenURL:'', url:'',sessionUrls:['https://chatgpt.com/c/old-round']};
   assert.equal(h.captureConversationURL(task,'https://chatgpt.com/c/old-round'),'');
   assert.equal(task.url,'');
   assert.equal(h.captureConversationURL(task,'https://chatgpt.com/c/new-round'),'https://chatgpt.com/c/new-round');
@@ -5387,7 +5390,7 @@ test('completed task records are not persisted as recoverable workspace history'
 
 test('a fresh ChatGPT document does not adopt a stale workspace after its original tab closes',async()=>{
   const owner='closed-tab-owner';
-  const task={id:'closed-tab-task',ownerTabId:owner,goal:'不要自动恢复',mode:'goal',phase:'work',round:2,state:'waiting',url:'https://chatgpt.com/c/closed-tab-conversation',token:'closed-tab-token',attempted:false,attachments:[{id:'closed-file',name:'证据.png',type:'image/png',size:12,lastModified:1}],messages:[]};
+  const task={id:'closed-tab-task',ownerTabId:owner,goal:'不要自动恢复',mode:'goal',phase:'work',round:2,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/closed-tab-conversation', url:'https://chatgpt.com/c/closed-tab-conversation',token:'closed-tab-token',attempted:false,attachments:[{id:'closed-file',name:'证据.png',type:'image/png',size:12,lastModified:1}],messages:[]};
   const stored={tasks:[task],selectedByTab:{[owner]:task.id},tabControls:{[owner]:{autoResume:true,autoApprove:true,controlRevision:4}}};
   const heartbeat={ownerTabId:owner,at:Date.now()-180000,autoResume:true,running:true,taskId:task.id,taskState:task.state,taskURL:task.url,recoveryURL:'https://chatgpt.com/c/closed-tab-conversation#fabushi-resume=closed'};
   const {h,dom}=await fixture('',window=>{
@@ -5416,7 +5419,7 @@ test('startup auto-resume arms recovered-final identity for the exact persisted 
     phase:'work',
     round:5,
     state:'waiting',
-    url:'https://chatgpt.com/c/startup-recovered-final',
+    authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/startup-recovered-final', url:'https://chatgpt.com/c/startup-recovered-final',
     token:'startup-recovered-token',
     attempted:false,
     messages:[],
@@ -5459,7 +5462,7 @@ test('startup re-arm preserves explicit manual recovery across a document reload
     phase:'work',
     round:6,
     state:'waiting',
-    url:'https://chatgpt.com/c/startup-explicit-recovery',
+    authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/startup-explicit-recovery', url:'https://chatgpt.com/c/startup-explicit-recovery',
     token:'startup-explicit-token',
     attempted:false,
     explicitRecoveryActive:true,
@@ -5494,7 +5497,7 @@ test('startup re-arm preserves explicit manual recovery across a document reload
 });
 
 test('automatic recovery ignores healthy, paused and ambiguous workspaces',async()=>{
-  const makeTask=(owner,id,state='waiting')=>({id,ownerTabId:owner,goal:id,mode:'once',phase:'work',round:1,state,url:'https://chatgpt.com/c/'+id,token:id+'-token',attempted:false,attachments:[],messages:[]});
+  const makeTask=(owner,id,state='waiting')=>({id,ownerTabId:owner,goal:id,mode:'once',phase:'work',round:1,state,authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/', url:'https://chatgpt.com/c/'+id,token:id+'-token',attempted:false,attachments:[],messages:[]});
   const healthyOwner='healthy-owner';
   const healthyTask=makeTask(healthyOwner,'healthy-task');
   const healthy=await fixture('',window=>{
@@ -5531,7 +5534,7 @@ test('stalled route exhaustion preserves the task and cannot restart the refresh
   const originalNow=w.Date.now;
   let fakeNow=originalNow();
   w.Date.now=()=>fakeNow;
-  const task={id:'stalled-route',ownerTabId:h.getTabId(),goal:'恢复卡住页面',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/stalled-route',token:'stable-token',attempted:true,attachments:[{id:'clip',name:'卡住证据.png',type:'image/png',size:10,lastModified:1}],messages:[],routeRecoveryAttempts:2,rendererRecoveryExhausted:false};
+  const task={id:'stalled-route',ownerTabId:h.getTabId(),goal:'恢复卡住页面',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/stalled-route', url:'https://chatgpt.com/c/stalled-route',token:'stable-token',attempted:true,attachments:[{id:'clip',name:'卡住证据.png',type:'image/png',size:10,lastModified:1}],messages:[],routeRecoveryAttempts:2,rendererRecoveryExhausted:false};
   h.data.tasks.push(task);
   h.recoverStalledRoute(new w.URL(task.url),task);
   assert.equal(task.workspaceDocumentRecoveryAttempts||0,0);
@@ -5574,7 +5577,7 @@ test('active work does not arm the host stale-tab recovery capability',async()=>
 
 test('blocked ambiguous send can adopt the only new conversation and resume without a duplicate send',async()=>{
   const {h,w,dom}=await fixture('',window=>window.history.replaceState({},'', '/c/recovered-after-timeout'));
-  const task={id:'blocked-ambiguous',ownerTabId:h.getTabId(),goal:'继续执行',mode:'once',phase:'work',round:1,state:'blocked',url:'',token:'same-send-token',attempted:true,sentAt:Date.now()-120000,attachments:[{id:'proof',name:'证据.png',type:'image/png',size:12,lastModified:1}],messages:[{text:'原消息发送结果超过 90 秒仍无法确认'}]};
+  const task={id:'blocked-ambiguous',ownerTabId:h.getTabId(),goal:'继续执行',mode:'once',phase:'work',round:1,state:'blocked',authorizationSeenAt:1, authorizationSeenURL:'', url:'',token:'same-send-token',attempted:true,sentAt:Date.now()-120000,attachments:[{id:'proof',name:'证据.png',type:'image/png',size:12,lastModified:1}],messages:[{text:'原消息发送结果超过 90 秒仍无法确认'}]};
   h.data.tasks.push(task);
   await h.resumeTask(task);
   assert.equal(task.state,'waiting');
@@ -5589,7 +5592,7 @@ test('blocked ambiguous send can adopt the only new conversation and resume with
 test('explicit recovery can bind the current unique route even when it was the dispatch origin',async()=>{
   const route='https://chatgpt.com/c/current-recovery-route';
   const {h,w,dom}=await fixture('',window=>window.history.replaceState({},'', '/c/current-recovery-route'));
-  const task={id:'blocked-current-route',ownerTabId:h.getTabId(),goal:'继续当前会话',mode:'once',phase:'work',round:1,state:'blocked',url:'',token:'same-send-token',attempted:true,sentAt:Date.now()-120000,dispatchOriginURL:route,attachments:[],messages:[{text:'原消息发送结果超过 90 秒仍无法确认'}]};
+  const task={id:'blocked-current-route',ownerTabId:h.getTabId(),goal:'继续当前会话',mode:'once',phase:'work',round:1,state:'blocked',authorizationSeenAt:1, authorizationSeenURL:'', url:'',token:'same-send-token',attempted:true,sentAt:Date.now()-120000,dispatchOriginURL:route,attachments:[],messages:[{text:'原消息发送结果超过 90 秒仍无法确认'}]};
   h.data.tasks.push(task);
   await h.resumeTask(task);
   assert.equal(task.state,'waiting');
@@ -5626,7 +5629,7 @@ async function memoryFixture(body='') {
   const heap={usedJSHeapSize:2.4*1024**3,totalJSHeapSize:2.7*1024**3,jsHeapSizeLimit:4*1024**3};
   Object.defineProperty(w.performance,'memory',{configurable:true,value:heap});
   w.history.replaceState({},'', '/c/memory-recovery');
-  const task={id:'memory-recovery',ownerTabId:h.getTabId(),goal:'private goal',mode:'goal',phase:'work',round:4,state:'generating',url:w.location.href,token:'same-send',attempted:false,attachments:[],messages:[]};
+  const task={id:'memory-recovery',ownerTabId:h.getTabId(),goal:'private goal',mode:'goal',phase:'work',round:4,state:'generating',authorizationSeenAt:1, authorizationSeenURL:w.location.href, url:w.location.href,token:'same-send',attempted:false,attachments:[],messages:[]};
   h.data.tasks.push(task); h.setRunningForTest(true);
   const requests=[]; let response={ok:true,discarded:false,reason:'active-tab'};
   w.postMessage=message=>{
@@ -5766,7 +5769,7 @@ test('manual memory cleanup asks the host with redacted bounded diagnostics',asy
 
 test('blocked ambiguous send remains resumable when no route is visible and keeps its recovery ticket',async()=>{
   const {h,w,dom}=await fixture();
-  const task={id:'blocked-no-route',ownerTabId:h.getTabId(),goal:'等待页面恢复',mode:'once',phase:'work',round:1,state:'blocked',url:'',token:'same-send-token',attempted:true,sentAt:Date.now()-120000,attachments:[{id:'proof',name:'证据.png',type:'image/png',size:12,lastModified:1}],messages:[{text:'原消息发送结果超过 90 秒仍无法确认'}]};
+  const task={id:'blocked-no-route',ownerTabId:h.getTabId(),goal:'等待页面恢复',mode:'once',phase:'work',round:1,state:'blocked',authorizationSeenAt:1, authorizationSeenURL:'', url:'',token:'same-send-token',attempted:true,sentAt:Date.now()-120000,attachments:[{id:'proof',name:'证据.png',type:'image/png',size:12,lastModified:1}],messages:[{text:'原消息发送结果超过 90 秒仍无法确认'}]};
   h.data.tasks.push(task);
   await h.resumeTask(task);
   assert.equal(task.state,'sending');
@@ -5805,7 +5808,7 @@ test('a Work navigation permit consumes no local budget until the route change i
     try { Object.defineProperty(window,'postMessage',{configurable:true,writable:true,value:bridge}); }
     catch { window.postMessage=bridge; }
   });
-  const task={id:'guard-task',phase:'work',round:2,goalRevision:7,state:'waiting',url:'https://chatgpt.com/c/work-route',messages:[]};
+  const task={id:'guard-task',phase:'work',round:2,goalRevision:7,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/work-route', url:'https://chatgpt.com/c/work-route',messages:[]};
   try {
     const pending=h.requestHostNavigationPermit('https://chatgpt.com/c/next-route',task,{reason:'route-switch'});
     await new Promise(resolve=>w.setTimeout(resolve,0));
@@ -5861,7 +5864,7 @@ test('stale navigation leases are cancelled with the canonical plugin identity',
 
 test('root dispatch navigation tickets are bound to the current Work generation',async()=>{
   const {h,dom}=await fixture();
-  const task={id:'work-dispatch',ownerTabId:h.getTabId(),phase:'work',round:3,goalRevision:9,state:'queued',url:'',attempted:false,result:'',next:'',attachments:[],messages:[]};
+  const task={id:'work-dispatch',ownerTabId:h.getTabId(),phase:'work',round:3,goalRevision:9,state:'queued',authorizationSeenAt:1, authorizationSeenURL:'', url:'',attempted:false,result:'',next:'',attachments:[],messages:[]};
   h.data.tasks.push(task);
   const ticket={task:task.id,path:'/',href:'https://chatgpt.com/',resume:true,direct:true,purpose:'dispatch',phase:'work',round:3,goalRevision:9};
   assert.equal(h.validNavigationTicket(ticket),true);
@@ -5896,7 +5899,7 @@ test('observed Stop disappearance keeps a strong final toolbar in the same conve
   </main>`);
   try {
     w.history.pushState({},'', '/c/stop-handoff');
-    const task={id:'stop-handoff',ownerTabId:h.getTabId(),goal:'finish architecture',next:'complete B and CI',mode:'goal',phase:'work',round:6,state:'waiting',url:'https://chatgpt.com/c/stop-handoff',token:'stop-handoff',attempted:false,attachments:[{name:'spec.txt',type:'text/plain',size:10}],messages:[]};
+    const task={id:'stop-handoff',ownerTabId:h.getTabId(),goal:'finish architecture',next:'complete B and CI',mode:'goal',phase:'work',round:6,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/stop-handoff', url:'https://chatgpt.com/c/stop-handoff',token:'stop-handoff',attempted:false,attachments:[{name:'spec.txt',type:'text/plain',size:10}],messages:[]};
     h.data.tasks.push(task);
     let sends=0;
     w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>sends++);
@@ -5936,7 +5939,7 @@ test('authorization card blocks Stop-disappearance handoff until the card is gon
   </main>`);
   try {
     w.history.pushState({},'', '/c/approval-stop');
-    const task={id:'approval-stop',ownerTabId:h.getTabId(),goal:'approve then continue',mode:'goal',phase:'work',round:2,state:'waiting',url:'https://chatgpt.com/c/approval-stop',token:'approval-stop',attempted:false,messages:[]};
+    const task={id:'approval-stop',ownerTabId:h.getTabId(),goal:'approve then continue',mode:'goal',phase:'work',round:2,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/approval-stop', url:'https://chatgpt.com/c/approval-stop',token:'approval-stop',attempted:false,messages:[]};
     h.data.tasks.push(task);
     h.data.autoApprove=false;
     await h.start(false);
@@ -5974,7 +5977,7 @@ test('reload inherited Stop observation waits for hydration but keeps a strong f
   });
   try {
     w.history.pushState({},'', '/c/reload-hydration');
-    const task={id:'reload-hydration',ownerTabId:h.getTabId(),goal:'continue architecture',mode:'goal',phase:'work',round:8,state:'waiting',url:'https://chatgpt.com/c/reload-hydration',token:'reload-hydration',attempted:false,goalRevision:0,messages:[]};
+    const task={id:'reload-hydration',ownerTabId:h.getTabId(),goal:'continue architecture',mode:'goal',phase:'work',round:8,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/reload-hydration', url:'https://chatgpt.com/c/reload-hydration',token:'reload-hydration',attempted:false,goalRevision:0,messages:[]};
     h.data.tasks.push(task);
     task.stopObservedGenerationIdentity=h.stopObservedGenerationIdentity(task);
     task.stopObservedDocumentId='previous-document';
@@ -6047,7 +6050,7 @@ test('live fallback-turn renderer is mounted and binds the assistant Copy outsid
   </main>`);
   try {
     w.history.pushState({},'', '/c/fallback-live');
-    const task={id:'fallback-live',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/fallback-live',token:'fallback-live',attempted:false,messages:[]};
+    const task={id:'fallback-live',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/fallback-live', url:'https://chatgpt.com/c/fallback-live',token:'fallback-live',attempted:false,messages:[]};
     h.data.tasks.push(task);
     assert.equal(h.visibleConversationHasMessages(),true,'content-search message units are mounted transcript');
     assert.equal(h.pageLoadingState(),'','rendered fallback transcript is not a shell-only page');
@@ -6079,7 +6082,7 @@ test('live fallback transient primary assistant ignores tertiary activity summar
   </main>`);
   try {
     w.history.pushState({},'', '/c/fallback-transient');
-    const task={id:'fallback-transient',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/fallback-transient',token:'fallback-transient',attempted:false,messages:[]};
+    const task={id:'fallback-transient',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/fallback-transient', url:'https://chatgpt.com/c/fallback-transient',token:'fallback-transient',attempted:false,messages:[]};
     h.data.tasks.push(task);
     const turn=h.latestTurn(task);
     assert.equal(turn.owned,true);
@@ -6113,7 +6116,7 @@ test('abnormal work trace carries current fallback-turn prose and tertiary activ
   </main>`);
   try {
     w.history.pushState({},'', '/c/trace-current');
-    const task={id:'trace-current',ownerTabId:h.getTabId(),goal:'original architecture goal',next:'continue exact HEAD work',mode:'goal',phase:'work',round:7,state:'waiting',url:'https://chatgpt.com/c/trace-current',token:'trace-current',attempted:false,result:'上一轮已经完成 inference 基线核对。',messages:[]};
+    const task={id:'trace-current',ownerTabId:h.getTabId(),goal:'original architecture goal',next:'continue exact HEAD work',mode:'goal',phase:'work',round:7,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/trace-current', url:'https://chatgpt.com/c/trace-current',token:'trace-current',attempted:false,result:'上一轮已经完成 inference 基线核对。',messages:[]};
     h.data.tasks.push(task);
 
     const latest=h.latestTurn(task);
@@ -6180,7 +6183,7 @@ test('abnormal work trace scopes tertiary activity to the current content-search
   </main>`);
   try {
     w.history.pushState({},'', '/c/trace-scope');
-    const task={id:'trace-scope',ownerTabId:h.getTabId(),goal:'scope',mode:'goal',phase:'work',round:2,state:'waiting',url:'https://chatgpt.com/c/trace-scope',token:'trace-scope',attempted:false,messages:[]};
+    const task={id:'trace-scope',ownerTabId:h.getTabId(),goal:'scope',mode:'goal',phase:'work',round:2,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/trace-scope', url:'https://chatgpt.com/c/trace-scope',token:'trace-scope',attempted:false,messages:[]};
     h.data.tasks.push(task);
     const trace=h.visibleAssistantWorkTranscript(task);
     assert.match(trace.text,/CURRENT_REPLY/);
@@ -6204,7 +6207,7 @@ test('marker-virtualized exact-route work trace uses only the latest response tu
   </main>`);
   try {
     w.history.pushState({},'', '/c/trace-virtualized');
-    const task={id:'trace-virtualized',ownerTabId:h.getTabId(),goal:'virtualized carry',mode:'goal',phase:'work',round:8,state:'waiting',url:'https://chatgpt.com/c/trace-virtualized',token:'marker-not-mounted',attempted:false,messages:[]};
+    const task={id:'trace-virtualized',ownerTabId:h.getTabId(),goal:'virtualized carry',mode:'goal',phase:'work',round:8,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/trace-virtualized', url:'https://chatgpt.com/c/trace-virtualized',token:'marker-not-mounted',attempted:false,messages:[]};
     h.data.tasks.push(task);
     assert.equal(h.latestTurn(task).owned,false);
     const trace=h.visibleAssistantWorkTranscript(task,{allowExactRouteFallback:true});
@@ -6228,7 +6231,7 @@ test('legacy assistant container does not duplicate a tertiary activity already 
   </main>`);
   try {
     w.history.pushState({},'', '/c/trace-dedupe');
-    const task={id:'trace-dedupe',ownerTabId:h.getTabId(),goal:'dedupe',mode:'goal',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/trace-dedupe',token:'trace-dedupe',attempted:false,messages:[]};
+    const task={id:'trace-dedupe',ownerTabId:h.getTabId(),goal:'dedupe',mode:'goal',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/trace-dedupe', url:'https://chatgpt.com/c/trace-dedupe',token:'trace-dedupe',attempted:false,messages:[]};
     h.data.tasks.push(task);
     const trace=h.visibleAssistantWorkTranscript(task);
     assert.match(trace.text,/开始检查 CI/);
@@ -6255,7 +6258,7 @@ test('fallback user Copy cannot complete an assistant reply when assistant actio
   </main>`);
   try {
     w.history.pushState({},'', '/c/fallback-user-copy-only');
-    const task={id:'fallback-user-copy-only',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/fallback-user-copy-only',token:'fallback-user-copy-only',attempted:false,messages:[]};
+    const task={id:'fallback-user-copy-only',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/fallback-user-copy-only', url:'https://chatgpt.com/c/fallback-user-copy-only',token:'fallback-user-copy-only',attempted:false,messages:[]};
     h.data.tasks.push(task);
     const turn=h.latestTurn(task);
     assert.equal(turn.owned,true);
@@ -6285,7 +6288,7 @@ test('fallback rich user Markdown never leaks into assistant reply extraction',a
   </main>`);
   try {
     w.history.pushState({},'', '/c/fallback-rich-user');
-    const task={id:'fallback-rich-user',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/fallback-rich-user',token:'fallback-rich-user',attempted:false,messages:[]};
+    const task={id:'fallback-rich-user',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/fallback-rich-user', url:'https://chatgpt.com/c/fallback-rich-user',token:'fallback-rich-user',attempted:false,messages:[]};
     h.data.tasks.push(task);
     const turn=h.latestTurn(task);
     assert.equal(turn.text,'ASSISTANT-ONLY-TEXT');
@@ -6304,7 +6307,7 @@ test('turn-level data-turn roles are mounted messages and support final reply ow
   </main>`);
   try {
     w.history.pushState({},'', '/c/turn-level-role');
-    const task={id:'turn-level-role',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/turn-level-role',token:'turn-level-role',attempted:false,messages:[]};
+    const task={id:'turn-level-role',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/turn-level-role', url:'https://chatgpt.com/c/turn-level-role',token:'turn-level-role',attempted:false,messages:[]};
     h.data.tasks.push(task);
     assert.equal(h.visibleConversationHasMessages(),true,'turn-level role hosts count as mounted transcript');
     assert.equal(h.pageLoadingState(),'','a mounted turn-level transcript is not shell loading');
@@ -6323,7 +6326,7 @@ test('nested data-turn and legacy role hosts are de-duplicated to one user and o
   </main>`);
   try {
     w.history.pushState({},'', '/c/nested-role');
-    const task={id:'nested-role',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/nested-role',token:'nested-role',attempted:false,messages:[]};
+    const task={id:'nested-role',ownerTabId:h.getTabId(),goal:'finish',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/nested-role', url:'https://chatgpt.com/c/nested-role',token:'nested-role',attempted:false,messages:[]};
     h.data.tasks.push(task);
     const turn=h.latestTurn(task);
     assert.equal(turn.diagnostic.userNodes,1);
@@ -6346,7 +6349,7 @@ test('inherited Stop treats zero-rect rendered transcript as hydrated instead of
   });
   try {
     w.history.pushState({},'', '/c/reload-zero-rect');
-    const task={id:'reload-zero-rect',ownerTabId:h.getTabId(),goal:'continue architecture',mode:'goal',phase:'work',round:11,state:'waiting',url:'https://chatgpt.com/c/reload-zero-rect',token:'reload-zero-rect',attempted:false,goalRevision:0,messages:[]};
+    const task={id:'reload-zero-rect',ownerTabId:h.getTabId(),goal:'continue architecture',mode:'goal',phase:'work',round:11,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/reload-zero-rect', url:'https://chatgpt.com/c/reload-zero-rect',token:'reload-zero-rect',attempted:false,goalRevision:0,messages:[]};
     h.data.tasks.push(task);
     task.stopObservedGenerationIdentity=h.stopObservedGenerationIdentity(task);
     task.stopObservedDocumentId='previous-document';
@@ -6367,7 +6370,7 @@ test('inherited Stop shell-only route recovers the same conversation after the h
   </main>`);
   try {
     w.history.pushState({},'', '/c/reload-shell-only');
-    const task={id:'reload-shell-only',ownerTabId:h.getTabId(),goal:'continue architecture',mode:'goal',phase:'work',round:9,state:'waiting',url:'https://chatgpt.com/c/reload-shell-only',token:'reload-shell-only',attempted:false,goalRevision:0,messages:[]};
+    const task={id:'reload-shell-only',ownerTabId:h.getTabId(),goal:'continue architecture',mode:'goal',phase:'work',round:9,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/reload-shell-only', url:'https://chatgpt.com/c/reload-shell-only',token:'reload-shell-only',attempted:false,goalRevision:0,messages:[]};
     h.data.tasks.push(task);
     task.stopObservedGenerationIdentity=h.stopObservedGenerationIdentity(task);
     task.stopObservedDocumentId='previous-document';
@@ -6399,7 +6402,7 @@ test('shell-only inherited Stop timer clears when conversation messages hydrate'
   </main>`);
   try {
     w.history.pushState({},'', '/c/reload-shell-hydrates');
-    const task={id:'reload-shell-hydrates',ownerTabId:h.getTabId(),goal:'continue architecture',mode:'goal',phase:'work',round:10,state:'waiting',url:'https://chatgpt.com/c/reload-shell-hydrates',token:'reload-shell-hydrates',attempted:false,goalRevision:0,messages:[]};
+    const task={id:'reload-shell-hydrates',ownerTabId:h.getTabId(),goal:'continue architecture',mode:'goal',phase:'work',round:10,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/reload-shell-hydrates', url:'https://chatgpt.com/c/reload-shell-hydrates',token:'reload-shell-hydrates',attempted:false,goalRevision:0,messages:[]};
     h.data.tasks.push(task);
     task.stopObservedGenerationIdentity=h.stopObservedGenerationIdentity(task);
     task.stopObservedDocumentId='previous-document';
@@ -6436,7 +6439,7 @@ test('resumed recovered final reply is inspected before an inherited Stop gate',
   </main>`);
   try {
     w.history.pushState({},'', '/c/resumed-recovered-final');
-    const task={id:'resumed-recovered-final',ownerTabId:h.getTabId(),goal:'complete the architecture work',mode:'once',phase:'work',round:1,state:'paused',pausedState:'waiting',url:'https://chatgpt.com/c/resumed-recovered-final',token:'virtualized-resume-token',attempted:false,goalRevision:0,messages:[]};
+    const task={id:'resumed-recovered-final',ownerTabId:h.getTabId(),goal:'complete the architecture work',mode:'once',phase:'work',round:1,state:'paused',pausedState:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/resumed-recovered-final', url:'https://chatgpt.com/c/resumed-recovered-final',token:'virtualized-resume-token',attempted:false,goalRevision:0,messages:[]};
     h.data.tasks.push(task);
     task.stopObservedGenerationIdentity=h.stopObservedGenerationIdentity(task);
     task.stopObservedDocumentId='previous-document';
@@ -6462,8 +6465,8 @@ test('inherited Stop recovery cannot consume a final toolbar owned by another ta
   </main>`);
   try {
     w.history.pushState({},'', '/c/shared-recovery-route');
-    const task={id:'target-recovery-task',ownerTabId:h.getTabId(),goal:'target',mode:'once',phase:'work',round:1,state:'paused',pausedState:'waiting',url:'https://chatgpt.com/c/shared-recovery-route',token:'target-token',attempted:false,goalRevision:0,messages:[]};
-    const competing={id:'competing-record',ownerTabId:h.getTabId(),goal:'other',mode:'once',phase:'work',round:1,state:'paused',pausedState:'waiting',url:'https://chatgpt.com/c/shared-recovery-route',token:'other-token',attempted:false,goalRevision:0,messages:[]};
+    const task={id:'target-recovery-task',ownerTabId:h.getTabId(),goal:'target',mode:'once',phase:'work',round:1,state:'paused',pausedState:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/shared-recovery-route', url:'https://chatgpt.com/c/shared-recovery-route',token:'target-token',attempted:false,goalRevision:0,messages:[]};
+    const competing={id:'competing-record',ownerTabId:h.getTabId(),goal:'other',mode:'once',phase:'work',round:1,state:'paused',pausedState:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/shared-recovery-route', url:'https://chatgpt.com/c/shared-recovery-route',token:'other-token',attempted:false,goalRevision:0,messages:[]};
     h.data.tasks.push(task,competing);
     task.stopObservedGenerationIdentity=h.stopObservedGenerationIdentity(task);
     task.stopObservedDocumentId='previous-document';
@@ -6484,7 +6487,7 @@ test('Stop reappearing after reload binds the current document and cancels inher
   </main>`);
   try {
     w.history.pushState({},'', '/c/reload-stop-return');
-    const task={id:'reload-stop-return',ownerTabId:h.getTabId(),goal:'continue',mode:'goal',phase:'work',round:3,state:'waiting',url:'https://chatgpt.com/c/reload-stop-return',token:'reload-stop-return',attempted:false,goalRevision:0,messages:[]};
+    const task={id:'reload-stop-return',ownerTabId:h.getTabId(),goal:'continue',mode:'goal',phase:'work',round:3,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/reload-stop-return', url:'https://chatgpt.com/c/reload-stop-return',token:'reload-stop-return',attempted:false,goalRevision:0,messages:[]};
     h.data.tasks.push(task);
     task.stopObservedGenerationIdentity=h.stopObservedGenerationIdentity(task);
     task.stopObservedDocumentId='old-document';
@@ -6525,7 +6528,7 @@ test('pagehide persists the current assistant reply and fresh prompt falls back 
   try {
     w.history.pushState({},'', '/c/pagehide-carry');
     const task=h.enqueue('finish all remaining work','goal');
-    Object.assign(task,{phase:'work',round:5,state:'generating',url:'https://chatgpt.com/c/pagehide-carry',token:'pagehide-carry',attempted:false,goalRevision:0,next:'继续完成模块 C 并跑完整 CI'});
+    Object.assign(task,{phase:'work',round:5,state:'generating',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/pagehide-carry', url:'https://chatgpt.com/c/pagehide-carry',token:'pagehide-carry',attempted:false,goalRevision:0,next:'继续完成模块 C 并跑完整 CI'});
     await h.start(false);
     w.dispatchEvent(new w.Event('pagehide'));
     assert.match(task.handoffReplySnapshot||'',/已完成模块 A 和 B/);
@@ -6555,7 +6558,7 @@ test('durable Work handoff snapshot is phase round and goal-revision bound and c
   </main>`);
   try {
     w.history.pushState({},'', '/c/snapshot-scope');
-    const task={id:'snapshot-scope',ownerTabId:h.getTabId(),goal:'goal',result:'work result',mode:'goal',phase:'work',round:4,state:'waiting',url:'https://chatgpt.com/c/snapshot-scope',token:'snapshot-scope',attempted:false,goalRevision:2,messages:[]};
+    const task={id:'snapshot-scope',ownerTabId:h.getTabId(),goal:'goal',result:'work result',mode:'goal',phase:'work',round:4,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/snapshot-scope', url:'https://chatgpt.com/c/snapshot-scope',token:'snapshot-scope',attempted:false,goalRevision:2,messages:[]};
     h.data.tasks.push(task);
     assert.equal(h.persistHandoffReplySnapshot(task),true);
     assert.match(h.handoffReplySnapshotForCurrentPhase(task),/已检查证据/);
@@ -6586,7 +6589,7 @@ test('live interruption preempts inherited Stop hydration and becomes a fresh-ch
   </main>`);
   try {
     w.history.pushState({},'', '/c/interrupt-preempts-hydration');
-    const task={id:'interrupt-preempts-hydration',ownerTabId:h.getTabId(),goal:'continue recovery',mode:'once',phase:'work',round:3,state:'waiting',url:'https://chatgpt.com/c/interrupt-preempts-hydration',token:'interrupt-preempts-hydration',attempted:false,messages:[]};
+    const task={id:'interrupt-preempts-hydration',ownerTabId:h.getTabId(),goal:'continue recovery',mode:'once',phase:'work',round:3,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/interrupt-preempts-hydration', url:'https://chatgpt.com/c/interrupt-preempts-hydration',token:'interrupt-preempts-hydration',attempted:false,messages:[]};
     h.data.tasks.push(task);
     task.stopObservedGenerationIdentity=h.stopObservedGenerationIdentity(task);
     task.stopObservedDocumentId='previous-document';
@@ -6621,7 +6624,7 @@ test('connection interruption with Stop still visible hands off after the approv
   </main>`);
   try {
     w.history.pushState({},'', '/c/interrupt-stop-visible');
-    const task={id:'interrupt-stop-visible',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/interrupt-stop-visible',token:'interrupt-stop-visible',attempted:false,messages:[]};
+    const task={id:'interrupt-stop-visible',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/interrupt-stop-visible', url:'https://chatgpt.com/c/interrupt-stop-visible',token:'interrupt-stop-visible',attempted:false,messages:[]};
     h.data.tasks.push(task);
     let sends=0;
     w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>sends++);
@@ -6642,7 +6645,7 @@ test('authorization card appearing during interruption confirmation cancels fres
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">continue safely [Fabushi:interrupt-auth-race]</div></article><div role="status">Connection interrupted. Waiting for the complete answer</div><form><textarea id="prompt-textarea"></textarea></form></main>');
   try {
     w.history.pushState({},'', '/c/interrupt-auth-race');
-    const task={id:'interrupt-auth-race',ownerTabId:h.getTabId(),goal:'continue safely',mode:'once',phase:'work',round:2,state:'waiting',url:'https://chatgpt.com/c/interrupt-auth-race',token:'interrupt-auth-race',attempted:false,messages:[]};
+    const task={id:'interrupt-auth-race',ownerTabId:h.getTabId(),goal:'continue safely',mode:'once',phase:'work',round:2,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/interrupt-auth-race', url:'https://chatgpt.com/c/interrupt-auth-race',token:'interrupt-auth-race',attempted:false,messages:[]};
     h.data.tasks.push(task);
     const started=Date.now();
     const first=h.interruptedFreshHandoffApprovalGate(task,task.url,started);
@@ -6666,7 +6669,7 @@ test('live authorization appearance resets the interruption confirmation before 
   try {
     w.history.pushState({},'', '/c/interrupt-live-auth');
     h.data.autoApprove=false;
-    const task={id:'interrupt-live-auth',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/interrupt-live-auth',token:'interrupt-live-auth',attempted:false,messages:[]};
+    const task={id:'interrupt-live-auth',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/interrupt-live-auth', url:'https://chatgpt.com/c/interrupt-live-auth',token:'interrupt-live-auth',attempted:false,messages:[]};
     h.data.tasks.push(task);
     await h.start(false);
     await h.inspect(task,null);
@@ -6689,7 +6692,7 @@ test('legacy interruption probe deadline cannot defer fresh-handoff migration',a
   const {h,dom}=await fixture();
   try {
     const now=Date.now();
-    const task={id:'legacy-probe',goal:'continue',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/legacy-probe',token:'legacy-probe',attempted:false,pendingContinuationReason:'legacy interruption',pendingContinuationProbeAt:now+60_000,messages:[]};
+    const task={id:'legacy-probe',goal:'continue',state:'waiting',phase:'work',round:1,authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/legacy-probe', url:'https://chatgpt.com/c/legacy-probe',token:'legacy-probe',attempted:false,pendingContinuationReason:'legacy interruption',pendingContinuationProbeAt:now+60_000,messages:[]};
     assert.equal(h.taskDeferredUntil(task,now),now,'obsolete interruption probe deadlines must not keep a legacy interrupted task asleep');
   } finally {dom.window.close();}
 });
@@ -6704,7 +6707,7 @@ test('explicit ChatGPT conversation-load failure waits 30 seconds and refreshes 
   const {h,w,dom}=await fixture('<main><section><h2>无法加载此 ChatGPT 对话</h2><button type="button">重试</button><div>正在加载聊天</div></section></main>');
   try {
     w.history.pushState({},'', '/c/load-failure-seven');
-    const task={id:'load-failure-seven',ownerTabId:h.getTabId(),goal:'continue task',mode:'once',phase:'work',round:5,state:'waiting',url:'https://chatgpt.com/c/load-failure-seven',token:'load-failure-seven',attempted:false,messages:[]};
+    const task={id:'load-failure-seven',ownerTabId:h.getTabId(),goal:'continue task',mode:'once',phase:'work',round:5,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/load-failure-seven', url:'https://chatgpt.com/c/load-failure-seven',token:'load-failure-seven',attempted:false,messages:[]};
     h.data.tasks.push(task);
     assert.match(h.conversationLoadFailure(),/无法加载/);
 
@@ -6749,7 +6752,7 @@ test('conversation-load failure detector ignores transcript quotations and clear
   </main>`);
   try {
     w.history.pushState({},'', '/c/load-recovered');
-    const task={id:'load-recovered',ownerTabId:h.getTabId(),goal:'analyze',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/load-recovered',token:'load-recovered',attempted:false,messages:[],conversationLoadFailureURL:'https://chatgpt.com/c/load-recovered',conversationLoadFailureAttempts:4,conversationLoadFailureAt:Date.now()-31_000};
+    const task={id:'load-recovered',ownerTabId:h.getTabId(),goal:'analyze',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/load-recovered', url:'https://chatgpt.com/c/load-recovered',token:'load-recovered',attempted:false,messages:[],conversationLoadFailureURL:'https://chatgpt.com/c/load-recovered',conversationLoadFailureAttempts:4,conversationLoadFailureAt:Date.now()-31_000};
     h.data.tasks.push(task);
     assert.equal(h.conversationLoadFailure(),'');
     await h.start(false);
@@ -6771,7 +6774,7 @@ test('current content-search final reply with plain Chinese Copy wins over prior
   </main>`);
   try {
     w.history.pushState({},'', '/c/live-copy-final');
-    const task={id:'live-copy-final',ownerTabId:h.getTabId(),goal:'finish current task',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/live-copy-final',token:'live-copy-final',attempted:false,messages:[]};
+    const task={id:'live-copy-final',ownerTabId:h.getTabId(),goal:'finish current task',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/live-copy-final', url:'https://chatgpt.com/c/live-copy-final',token:'live-copy-final',attempted:false,messages:[]};
     h.data.tasks.push(task);
     await h.start(false);
     await h.inspect(task,null);
@@ -6816,7 +6819,7 @@ test('prior Stop disappearance without strong latest-owned final evidence still 
   </main>`);
   try {
     w.history.pushState({},'', '/c/stop-no-final');
-    const task={id:'stop-no-final',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:2,state:'waiting',url:'https://chatgpt.com/c/stop-no-final',token:'stop-no-final',attempted:false,messages:[]};
+    const task={id:'stop-no-final',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:2,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/stop-no-final', url:'https://chatgpt.com/c/stop-no-final',token:'stop-no-final',attempted:false,messages:[]};
     h.data.tasks.push(task);
     await h.start(false);
     await h.inspect(task,null);
@@ -6850,7 +6853,7 @@ test('live Work fallback-turn shape recognizes the settled JSON response and out
   const {h,w,dom}=await fixture(html);
   try {
     w.history.pushState({},'', '/c/live-review-shape');
-    const task={id:taskId,ownerTabId:h.getTabId(),goal:'验收所有架构迁移',mode:'goal',phase:'work',round:2,state:'waiting',url:'https://chatgpt.com/c/live-review-shape',token:'live-review-shape-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
+    const task={id:taskId,ownerTabId:h.getTabId(),goal:'验收所有架构迁移',mode:'goal',phase:'work',round:2,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/live-review-shape', url:'https://chatgpt.com/c/live-review-shape',token:'live-review-shape-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
     h.data.tasks.push(task);
     const turn=h.latestTurn(task);
     assert.equal(turn.owned,true);
@@ -6866,7 +6869,7 @@ test('Work Stop disappearance requires the short authorization confirmation befo
   const {h,w,dom}=await fixture('<main><div id="review-turn" data-content-search-turn-key="fallback-turn-review-race"><div data-message-author-role="user" data-content-search-unit-key="fallback-turn-review-race:0:user"><div data-user-message-bubble="true">继续 Work [Fabushi:review-settlement-race-token]</div></div><div id="review-assistant" data-content-search-unit-key="fallback-turn-review-race:2:assistant"><div data-testid="tool-call-result">已调用工具</div></div></div><button id="stop" data-testid="stop-button" aria-label="停止生成">停止</button><form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form></main>');
   try {
     w.history.pushState({},'', '/c/review-settlement-race');
-    const task={id:taskId,ownerTabId:h.getTabId(),goal:'继续完成架构迁移',mode:'goal',phase:'work',round:5,state:'waiting',url:'https://chatgpt.com/c/review-settlement-race',token:'review-settlement-race-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
+    const task={id:taskId,ownerTabId:h.getTabId(),goal:'继续完成架构迁移',mode:'goal',phase:'work',round:5,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/review-settlement-race', url:'https://chatgpt.com/c/review-settlement-race',token:'review-settlement-race-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
     h.data.tasks.push(task);
     await h.start(false);
     await h.inspect(task,null);
@@ -6894,7 +6897,7 @@ test('marker-virtualized Work final JSON on the same Stop-observed response sett
   const {h,w,dom}=await fixture('<main><div id="review-turn" data-content-search-turn-key="review-structured-same-response"><div id="review-user" data-content-search-unit-key="review-structured-same-response:0:user"><div data-user-message-bubble="true">独立验收 [Fabushi:review-structured-token]</div></div><div id="review-assistant" data-content-search-unit-key="review-structured-same-response:2:assistant"><div data-message-content>正在核验。</div></div></div><button id="stop" data-testid="stop-button" aria-label="停止生成">停止</button><form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form></main>');
   try {
     w.history.pushState({},'', '/c/review-structured-virtualized');
-    const task={id:taskId,ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'work',round:7,state:'waiting',url:'https://chatgpt.com/c/review-structured-virtualized',token:'review-structured-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
+    const task={id:taskId,ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'work',round:7,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/review-structured-virtualized', url:'https://chatgpt.com/c/review-structured-virtualized',token:'review-structured-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
     h.data.tasks.push(task);
     await h.start(false);
     await h.inspect(task,null);
@@ -6929,7 +6932,7 @@ test('Work no-final recovery remains bounded after the eight-second window',asyn
   const {h,w,dom}=await fixture('<main><div data-content-search-turn-key="review-expiry-turn"><div data-content-search-unit-key="review-expiry-turn:0:user"><div data-user-message-bubble="true">继续 Work [Fabushi:review-expiry-token]</div></div><div data-content-search-unit-key="review-expiry-turn:2:assistant"><div data-testid="tool-call-result">已调用工具</div></div></div><form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form></main>');
   try {
     w.history.pushState({},'', '/c/review-expiry');
-    const task={id:'review-expiry',ownerTabId:h.getTabId(),goal:'继续完成',mode:'goal',phase:'work',round:3,state:'waiting',url:'https://chatgpt.com/c/review-expiry',token:'review-expiry-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
+    const task={id:'review-expiry',ownerTabId:h.getTabId(),goal:'继续完成',mode:'goal',phase:'work',round:3,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/review-expiry', url:'https://chatgpt.com/c/review-expiry',token:'review-expiry-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
     h.data.tasks.push(task);
     await h.start(false);
     await h.inspect(task,null);
@@ -6956,7 +6959,7 @@ test('marker-virtualized Work final accepts the exact current report even when t
   </main>`);
   try {
     w.history.pushState({},'', '/c/review-result-no-boundary');
-    const task={id:taskId,ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'work',round:12,state:'waiting',url:'https://chatgpt.com/c/review-result-no-boundary',token:'review-result-no-boundary-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
+    const task={id:taskId,ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'work',round:12,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/review-result-no-boundary', url:'https://chatgpt.com/c/review-result-no-boundary',token:'review-result-no-boundary-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
     h.data.tasks.push(task);
     await h.start(false);
     await h.inspect(task,null);
@@ -7002,7 +7005,7 @@ test('marker-virtualized Work final accepts the exact current report after the r
   </main>`);
   try {
     w.history.pushState({},'', '/c/review-result-remounted');
-    const task={id:taskId,ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'work',round:6,state:'waiting',url:'https://chatgpt.com/c/review-result-remounted',token:'review-result-remounted-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
+    const task={id:taskId,ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'work',round:6,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/review-result-remounted', url:'https://chatgpt.com/c/review-result-remounted',token:'review-result-remounted-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
     h.data.tasks.push(task);
     await h.start(false);
     await h.inspect(task,null);
@@ -7040,7 +7043,7 @@ test('Work result fallback rejects a report for a different task or round even a
   const {h,w,dom}=await fixture(`<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">继续 Work [Fabushi:review-result-wrong-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown" id="wrong-report">正在核验。</div></div></article><button id="stop" data-testid="stop-button" aria-label="停止生成">停止</button><form><div contenteditable="true" role="textbox" aria-label="询问 ChatGPT"></div></form></main>`);
   try {
     w.history.pushState({},'', '/c/review-result-wrong-identity');
-    const task={id:taskId,ownerTabId:h.getTabId(),goal:'继续完成',mode:'goal',phase:'work',round:4,state:'waiting',url:'https://chatgpt.com/c/review-result-wrong-identity',token:'review-result-wrong-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
+    const task={id:taskId,ownerTabId:h.getTabId(),goal:'继续完成',mode:'goal',phase:'work',round:4,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/review-result-wrong-identity', url:'https://chatgpt.com/c/review-result-wrong-identity',token:'review-result-wrong-token',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work result',messages:[]};
     h.data.tasks.push(task);
     await h.start(false);
     await h.inspect(task,null);
@@ -7070,7 +7073,7 @@ test('marker-virtualized Work final on the same Stop-observed response parses ne
   </main>`);
   try {
     w.history.pushState({},'', '/c/review-virtualized-next');
-    const task={id:taskId,ownerTabId:h.getTabId(),goal:'完成所有架构 parity',mode:'goal',phase:'work',round:9,state:'waiting',url:'https://chatgpt.com/c/review-virtualized-next',token:'review-vnext',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'上一轮 Work 结果',messages:[]};
+    const task={id:taskId,ownerTabId:h.getTabId(),goal:'完成所有架构 parity',mode:'goal',phase:'work',round:9,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/review-virtualized-next', url:'https://chatgpt.com/c/review-virtualized-next',token:'review-vnext',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'上一轮 Work 结果',messages:[]};
     h.data.tasks.push(task);
     await h.start(false);
 
@@ -7128,7 +7131,7 @@ test('marker-virtualized Work final complete on the same Stop-observed response 
   </main>`);
   try {
     w.history.pushState({},'', '/c/review-virtualized-complete');
-    const task={id:taskId,ownerTabId:h.getTabId(),goal:'完成所有要求',mode:'goal',phase:'work',round:4,state:'waiting',url:'https://chatgpt.com/c/review-virtualized-complete',token:'review-vcomplete',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work 已完成',messages:[]};
+    const task={id:taskId,ownerTabId:h.getTabId(),goal:'完成所有要求',mode:'goal',phase:'work',round:4,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/review-virtualized-complete', url:'https://chatgpt.com/c/review-virtualized-complete',token:'review-vcomplete',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'Work 已完成',messages:[]};
     h.data.tasks.push(task);
     await h.start(false);
     await h.inspect(task,null);
@@ -7159,7 +7162,7 @@ test('marker virtualization cannot consume a different final assistant response 
   </main>`);
   try {
     w.history.pushState({},'', '/c/review-boundary-mismatch');
-    const task={id:'review-boundary-mismatch',ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'work',round:3,state:'waiting',url:'https://chatgpt.com/c/review-boundary-mismatch',token:'review-boundary-mismatch',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'work',messages:[]};
+    const task={id:'review-boundary-mismatch',ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'work',round:3,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/review-boundary-mismatch', url:'https://chatgpt.com/c/review-boundary-mismatch',token:'review-boundary-mismatch',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'work',messages:[]};
     h.data.tasks.push(task);
     await h.start(false);
     await h.inspect(task,null);
@@ -7203,7 +7206,7 @@ test('marker-virtualized final without a structural response key stays fail-clos
   </main>`);
   try {
     w.history.pushState({},'', '/c/review-no-boundary');
-    const task={id:'review-no-boundary',ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'work',round:2,state:'waiting',url:'https://chatgpt.com/c/review-no-boundary',token:'review-no-boundary',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'work',messages:[]};
+    const task={id:'review-no-boundary',ownerTabId:h.getTabId(),goal:'验收',mode:'goal',phase:'work',round:2,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/review-no-boundary', url:'https://chatgpt.com/c/review-no-boundary',token:'review-no-boundary',attempted:false,goalRevision:0,dispatchGoalRevision:0,result:'work',messages:[]};
     h.data.tasks.push(task);
     await h.start(false);
     await h.inspect(task,null);
@@ -7226,8 +7229,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2.10.65$/m);
-  assert.match(source,/const VERSION = '2.10.65'/);
+  assert.match(source,/^\/\/ @version\s+2.10.66$/m);
+  assert.match(source,/const VERSION = '2.10.66'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
@@ -7255,7 +7258,8 @@ test('the packaged userscript declares its stable remote update and download URL
   assert.match(source,/function interruptedFreshHandoffApprovalGate/);
   assert.match(source,/不再等待 5 分钟或刷新旧会话/);
   assert.match(source,/stop-disappeared-fresh-chat/);
-  assert.doesNotMatch(source,/setInput\(input,\s*CONTINUATION_PROMPT\)/,'runtime must not fill the old conversation with the legacy phrase');
+  assert.match(source,/setInput\(input,\s*CONTINUATION_PROMPT\)/,'a conversation without observed authorization must continue in place');
+  assert.match(source,/function requireConversationAuthorization/);
   assert.match(source,/^\/\/ @updateURL\s+https:\/\/raw\.githubusercontent\.com\/bhrumom\/fabushi-chatgpt-auto-confirm-userscript\/main\/chatgpt-auto-confirm\.user\.js$/m);
   assert.match(source,/^\/\/ @downloadURL\s+https:\/\/raw\.githubusercontent\.com\/bhrumom\/fabushi-chatgpt-auto-confirm-userscript\/main\/chatgpt-auto-confirm\.user\.js$/m);
 });
@@ -7284,7 +7288,7 @@ test('live assistant interruption carries sibling Markdown into the fresh recove
   </main>`);
   try {
     w.history.pushState({},'', '/c/live-shape');
-    const task={id:'live-shape',ownerTabId:h.getTabId(),goal:'goal',mode:'goal',phase:'work',round:40,state:'waiting',url:'https://chatgpt.com/c/live-shape',token:'live-shape',attempted:false,messages:[]};
+    const task={id:'live-shape',ownerTabId:h.getTabId(),goal:'goal',mode:'goal',phase:'work',round:40,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/live-shape', url:'https://chatgpt.com/c/live-shape',token:'live-shape',attempted:false,messages:[]};
     h.data.tasks.push(task);
     const transcript=h.visibleAssistantWorkTranscript(task);
     assert.match(transcript.text,/PR #3 已前移/);
@@ -7319,7 +7323,7 @@ test('connection interruption without Stop fresh-handoffs and never sends the le
   </main>`);
   try {
     w.history.pushState({},'', '/c/repeat-interrupt');
-    const task={id:'repeat-interrupt',ownerTabId:h.getTabId(),goal:'goal',mode:'goal',phase:'work',round:3,state:'waiting',url:'https://chatgpt.com/c/repeat-interrupt',token:'repeat-interrupt',attempted:false,messages:[]};
+    const task={id:'repeat-interrupt',ownerTabId:h.getTabId(),goal:'goal',mode:'goal',phase:'work',round:3,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/repeat-interrupt', url:'https://chatgpt.com/c/repeat-interrupt',token:'repeat-interrupt',attempted:false,messages:[]};
     h.data.tasks.push(task);
     let sends=0;
     w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>sends++);
@@ -7351,7 +7355,7 @@ test('current Chinese connection interruption fresh-handoffs and strips the loca
   </main>`);
   try {
     w.history.pushState({},'', '/c/zh-interrupt-answer');
-    const task={id:'zh-interrupt-answer',ownerTabId:h.getTabId(),goal:'goal',mode:'goal',phase:'work',round:4,state:'waiting',url:'https://chatgpt.com/c/zh-interrupt-answer',token:'zh-interrupt-answer',attempted:false,messages:[]};
+    const task={id:'zh-interrupt-answer',ownerTabId:h.getTabId(),goal:'goal',mode:'goal',phase:'work',round:4,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/zh-interrupt-answer', url:'https://chatgpt.com/c/zh-interrupt-answer',token:'zh-interrupt-answer',attempted:false,messages:[]};
     h.data.tasks.push(task);
     let sends=0;
     w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>sends++);
@@ -7380,7 +7384,7 @@ test('turn-sibling extraction excludes hidden content and foreign user turns',as
   </main>`);
   try {
     w.history.pushState({},'', '/c/scope-check');
-    const task={id:'scope-check',ownerTabId:h.getTabId(),goal:'goal',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/scope-check',token:'scope-check',messages:[]};
+    const task={id:'scope-check',ownerTabId:h.getTabId(),goal:'goal',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/scope-check', url:'https://chatgpt.com/c/scope-check',token:'scope-check',messages:[]};
     h.data.tasks.push(task);
     assert.match(h.visibleAssistantWorkTranscript(task).text,/SAFE_WORK/);
     assert.doesNotMatch(h.visibleAssistantWorkTranscript(task).text,/HIDDEN_SECRET/);
@@ -7395,7 +7399,7 @@ test('resumed ended conversation clears a recovery composer draft and restarts t
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">resume task [Fabushi:recovery-draft]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div data-testid="tool-call-result">已调用工具</div></div></article><form><textarea id="prompt-textarea">继续完成所有</textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   try {
     w.history.pushState({},'', '/c/recovery-draft');
-    const task={id:'recovery-draft',ownerTabId:h.getTabId(),goal:'resume task',mode:'once',phase:'work',round:4,state:'waiting',url:'https://chatgpt.com/c/recovery-draft',token:'recovery-draft',attempted:false,messages:[]};
+    const task={id:'recovery-draft',ownerTabId:h.getTabId(),goal:'resume task',mode:'once',phase:'work',round:4,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/recovery-draft', url:'https://chatgpt.com/c/recovery-draft',token:'recovery-draft',attempted:false,messages:[]};
     h.data.tasks.push(task);
     let clicks=0;
     w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>clicks++);
@@ -7418,7 +7422,7 @@ test('legacy continuation preserves an unrelated old-chat draft while switching 
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">recover [Fabushi:pending-intent]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown">partial</div></div></article><form><textarea id="prompt-textarea"></textarea></form></main>');
   try {
     w.history.pushState({},'', '/c/pending-intent');
-    const task={id:'pending-intent',ownerTabId:h.getTabId(),goal:'recover',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/pending-intent',token:'pending-intent',attempted:false,messages:[]};
+    const task={id:'pending-intent',ownerTabId:h.getTabId(),goal:'recover',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/pending-intent', url:'https://chatgpt.com/c/pending-intent',token:'pending-intent',attempted:false,messages:[]};
     h.data.tasks.push(task);
     const input=w.document.querySelector('#prompt-textarea');
     input.value='leave my draft';
@@ -7443,7 +7447,7 @@ test('interrupted recovery with a virtualized task article fresh-handoffs withou
   </main>`);
   try {
     w.history.pushState({},'', '/c/null-article-recovery');
-    const task={id:'null-article-recovery',ownerTabId:h.getTabId(),goal:'continue work',mode:'goal',phase:'work',round:7,state:'waiting',url:'https://chatgpt.com/c/null-article-recovery',token:'expected-owner',attempted:true,messages:[]};
+    const task={id:'null-article-recovery',ownerTabId:h.getTabId(),goal:'continue work',mode:'goal',phase:'work',round:7,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/null-article-recovery', url:'https://chatgpt.com/c/null-article-recovery',token:'expected-owner',attempted:true,messages:[]};
     h.data.tasks.push(task);
     assert.equal(h.latestTurn(task).article,null,'a mismatched visible task marker intentionally has no owned article');
     let sends=0;
@@ -7488,7 +7492,7 @@ test('recovered static Work reply with stale page loader takes abnormal-end reco
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user" data-message-id="stable-visible-user">继续完成架构重构</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown" data-message-content>当前 HEAD 已自动推进，manifest 已同步；仍有剩余项目需要继续完成。</div></div></article><div role="status" class="loading"><svg></svg>Loading history</div><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form></main>');
   try {
     w.history.pushState({},'', '/c/recovered-static-stale-loader');
-    const task={id:'recovered-static-stale-loader',ownerTabId:h.getTabId(),goal:'完成所有架构重构',mode:'goal',phase:'work',round:6,state:'blocked',url:'https://chatgpt.com/c/recovered-static-stale-loader',token:'virtualized-recovered-token',attempted:false,messages:[],attachments:[],next:'继续完成所有'};
+    const task={id:'recovered-static-stale-loader',ownerTabId:h.getTabId(),goal:'完成所有架构重构',mode:'goal',phase:'work',round:6,state:'blocked',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/recovered-static-stale-loader', url:'https://chatgpt.com/c/recovered-static-stale-loader',token:'virtualized-recovered-token',attempted:false,messages:[],attachments:[],next:'继续完成所有'};
     h.data.tasks.push(task);
     assert.equal(h.prepareTaskForRecovery(task),true);
     assert.equal(task.recoveredFinalIdentity.allowStaticFinal,true);
@@ -7518,7 +7522,7 @@ test('recovered static reply without stale loading keeps the bounded static-fina
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user" data-message-id="stable-visible-user-2">继续完成架构重构</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown" data-message-content>{"taskId":"recovered-static-final-no-loader","round":1,"status":"complete","summary":"这是恢复后的静态最终回复。","next":""}</div></div></article><form><textarea id="prompt-textarea"></textarea></form></main>');
   try {
     w.history.pushState({},'', '/c/recovered-static-final-no-loader');
-    const task={id:'recovered-static-final-no-loader',ownerTabId:h.getTabId(),goal:'完成所有架构重构',mode:'once',phase:'work',round:1,state:'blocked',url:'https://chatgpt.com/c/recovered-static-final-no-loader',token:'virtualized-static-token',attempted:false,messages:[]};
+    const task={id:'recovered-static-final-no-loader',ownerTabId:h.getTabId(),goal:'完成所有架构重构',mode:'once',phase:'work',round:1,state:'blocked',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/recovered-static-final-no-loader', url:'https://chatgpt.com/c/recovered-static-final-no-loader',token:'virtualized-static-token',attempted:false,messages:[]};
     h.data.tasks.push(task);
     assert.equal(h.prepareTaskForRecovery(task),true);
     await h.start(false);
@@ -7537,7 +7541,7 @@ for (const variant of ['owned','virtualized','inside','sibling','stop','quote','
     const error=`<div class="cache-error"><span>Stream cache expired</span><button ${variant==='disabled'?'disabled':''}>重试</button></div>`;
     const current=variant==='quote'?`<blockquote>${error}</blockquote>`:variant==='history'?'':variant==='unrelated'?'<div><span>Stream cache expired</span></div>':error;
     const {h,w,dom}=await fixture(`<main>${variant==='history'?`<article><div data-message-author-role="assistant">${error}</div></article>`:''}<article><div data-message-author-role="user">continue ${['virtualized','ambiguous'].includes(variant)?'':'[Fabushi:cache-token]'}</div></article><article data-testid="conversation-turn-assistant" data-is-streaming="${variant==='final'?'false':'true'}"><div data-message-author-role="assistant">Partial useful work${variant==='inside'?current:''}</div>${['inside','sibling'].includes(variant)?'':current}${variant==='final'?'<button aria-label="Copy response"></button><button aria-label="Share response"></button>':''}</article>${variant==='sibling'?current:''}${variant==='approval'?'<div><button>拒绝</button><button>允许一次</button><button aria-haspopup="menu" aria-label="审批选项">⌄</button></div>':''}<div role="status" class="loading">Loading</div>${variant==='stop'?'<button data-testid="stop-button">Stop</button>':''}<form><textarea id="prompt-textarea"></textarea></form>${variant==='unrelated'?'<aside><button>重试</button></aside>':''}</main>`);
-    const task={id:'cache-task',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:2,state:'loading',url:'https://chatgpt.com/c/cache',token:'cache-token',attempted:false,messages:[]};
+    const task={id:'cache-task',ownerTabId:h.getTabId(),goal:'continue',mode:'once',phase:'work',round:2,state:'loading',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/cache', url:'https://chatgpt.com/c/cache',token:'cache-token',attempted:false,messages:[]};
     if(variant==='ambiguous')task.attempted=true;
     h.data.tasks.push(task);w.history.pushState({},'',variant==='foreign'?'/c/foreign':'/c/cache');
     let clicks=0;for(const b of w.document.querySelectorAll('.cache-error button,aside button'))b.onclick=()=>clicks++;
@@ -7613,7 +7617,7 @@ for (const kind of ['complete','next','truncated','foreign','newer-user','approv
   </main>`);
   try {
     w.history.replaceState({},'', '/c/interrupted-work-contract');
-    const task={id:'interrupted-work-contract',ownerTabId:h.getTabId(),goal:'goal',mode:'goal',phase:'work',round:4,state:'waiting',url:w.location.href,token:'work-contract',attempted:false,result:'Preserve Work result',messages:[]};
+    const task={id:'interrupted-work-contract',ownerTabId:h.getTabId(),goal:'goal',mode:'goal',phase:'work',round:4,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:w.location.href, url:w.location.href,token:'work-contract',attempted:false,result:'Preserve Work result',messages:[]};
     h.data.tasks.push(task);h.setRunningForTest(true);
     if(kind==='newer-user')w.document.querySelector('main').insertAdjacentHTML('beforeend','<article><div data-message-author-role="user">Unrelated new request</div></article>');
     if(kind==='approval')w.document.querySelector('main').insertAdjacentHTML('beforeend','<div data-testid="approval-card"><button>允许一次</button><button>拒绝</button></div>');
@@ -7673,7 +7677,7 @@ for(const kind of ['valid','pause-before-grant','changed-round','draft-before-gr
  const {h,w,dom}=await fixture('<main><div class="animate-spin"></div><form><textarea id="prompt-textarea"></textarea></form></main>');
  try{
   w.history.replaceState({},'', '/c/host-fallback');
-  const task={id:'host-fallback',ownerTabId:h.getTabId(),goal:'keep',mode:'goal',phase:'work',round:3,state:'loading',url:w.location.href,token:'keep-token',attempted:false,messages:[],attachments:[],rendererRecoveryExhausted:true};
+  const task={id:'host-fallback',ownerTabId:h.getTabId(),goal:'keep',mode:'goal',phase:'work',round:3,state:'loading',authorizationSeenAt:1, authorizationSeenURL:w.location.href, url:w.location.href,token:'keep-token',attempted:false,messages:[],attachments:[],rendererRecoveryExhausted:true};
   h.data.tasks.push(task);h.setRunningForTest(true);const requests=[],commits=[];
   w.postMessage=message=>{
    if(message.type==='navigation-guard.request')requests.push(message);
@@ -7703,9 +7707,10 @@ for(const scenario of ['final','newer-user'])test(`adopted markerless Work final
  const {h,w,dom}=await fixture('<main><article><div data-message-author-role="user" data-message-id="original-user">Original submitted Work goal</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant" data-message-id="work-final"><div class="markdown">{"taskId":"adopted-work-final","round":2,"status":"complete","summary":"Work completed; production evidence is verified.","next":""}</div></div><button aria-label="复制">复制</button><button aria-label="评价回复">评价回复</button></article><form><textarea id="prompt-textarea"></textarea></form></main>');
  try{
   w.history.replaceState({},'', '/c/adopted-work-final');
-  const task={id:'adopted-work-final',ownerTabId:h.getTabId(),goal:'goal',mode:'goal',phase:'work',round:2,state:'sending',url:'',token:'original-click',attempted:true,sentAt:Date.now()-100000,dispatchOriginURL:'',messages:[],sessionUrls:[]};
+  const task={id:'adopted-work-final',ownerTabId:h.getTabId(),goal:'goal',mode:'goal',phase:'work',round:2,state:'sending',authorizationSeenAt:1, authorizationSeenURL:'', url:'',token:'original-click',attempted:true,sentAt:Date.now()-100000,dispatchOriginURL:'',messages:[],sessionUrls:[]};
   h.data.tasks.push(task);h.setRunningForTest(true);
   assert.equal(h.adoptUnboundAttemptedConversation(task),w.location.href);
+  task.authorizationSeenURL=task.url; task.authorizationSeenAt=1; // Observed after the new route was bound.
   assert.ok(task.recoveredFinalIdentity);task.attempted=false;task.state='waiting';
   assert.equal(h.taskTurnForInspection(task).owned,true);assert.equal(h.taskTurnForInspection(task).final,true);
   if(scenario==='newer-user')w.document.querySelector('main').insertAdjacentHTML('beforeend','<article><div data-message-author-role="user" data-message-id="foreign-new">Other request</div></article>');
@@ -7731,7 +7736,7 @@ test('resumed bound pending send with a valid Work final report is inspected wit
  const {h,w,dom}=await fixture('<main><article><div data-message-author-role="user" data-message-id="owned-user">Submitted goal [Fabushi:click]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant" data-message-id="owned-final"><div class="markdown">{"taskId":"resumed-bound-final","round":3,"status":"complete","summary":"The current Work response is complete and verified.","next":""}</div></div><button aria-label="复制">复制</button><button aria-label="评价回复">评价回复</button></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">发送</button></form></main>');
  try{
   w.history.replaceState({},'', '/c/resumed-bound-final');
-  const task={id:'resumed-bound-final',ownerTabId:h.getTabId(),goal:'goal',mode:'goal',phase:'work',round:3,state:'paused',pausedState:'sending',url:w.location.href,token:'click',attempted:true,sentAt:Date.now(),messages:[]};h.data.tasks.push(task);let sends=0;w.document.querySelector('[data-testid="send-button"]').onclick=()=>sends++;
+  const task={id:'resumed-bound-final',ownerTabId:h.getTabId(),goal:'goal',mode:'goal',phase:'work',round:3,state:'paused',pausedState:'sending',authorizationSeenAt:1, authorizationSeenURL:w.location.href, url:w.location.href,token:'click',attempted:true,sentAt:Date.now(),messages:[]};h.data.tasks.push(task);let sends=0;w.document.querySelector('[data-testid="send-button"]').onclick=()=>sends++;
   await h.resumeTask(task);await h.tick();assert.equal(task.attempted,false);assert.equal(sends,0);assert.equal(task.url,w.location.href);assert.equal(task.state,'waiting');
   const observation=h.observations.get(task.id);assert.ok(observation?.final,'the valid Work final report is observed after resume');
   observation.finalSince=Date.now()-5_000;observation.since=Date.now()-5_000;observation.idleSince=Date.now()-5_000;
@@ -7761,7 +7766,7 @@ test('resume unbound attempted send displays confirmation deadline and keeps sch
  try{
   let now=Date.now();w.Date.now=()=>now;
   const task=h.enqueue('original goal','goal');
-  Object.assign(task,{state:'paused',pausedState:'sending',attempted:true,token:'original-click',sentAt:now-600000,phase:'work',round:5,url:'',attachments:[]});
+  Object.assign(task,{state:'paused',pausedState:'sending',attempted:true,token:'original-click',sentAt:now-600000,phase:'work',round:5,authorizationSeenAt:1, authorizationSeenURL:'', url:'',attachments:[]});
   let sends=0;w.document.querySelector('[data-testid="send-button"]').onclick=()=>sends++;
   await h.resumeTask(task);await h.tick();
   assert.equal(task.recoveryConfirmationStartedAt,now);
@@ -7890,7 +7895,7 @@ test('remounted authorization controls cannot repeat a submitted grant inside se
   const {w,h,dom}=await fixture('<main><div id="approval"><button type="button">拒绝</button><div><button type="button" id="allow-once">允许一次</button><button type="button" aria-haspopup="menu" aria-label="审批选项">⌄</button></div></div></main>');
   try {
     w.history.pushState({},'', '/c/remounted-grant');
-    const task={id:'remounted-grant',ownerTabId:h.getTabId(),goal:'continue',phase:'work',round:1,state:'approval',url:'https://chatgpt.com/c/remounted-grant',token:'remounted-grant',attempted:true,messages:[]};
+    const task={id:'remounted-grant',ownerTabId:h.getTabId(),goal:'continue',phase:'work',round:1,state:'approval',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/remounted-grant', url:'https://chatgpt.com/c/remounted-grant',token:'remounted-grant',attempted:true,messages:[]};
     h.data.tasks.push(task);h.data.autoApprove=true;
     let clicks=0;
     w.document.querySelector('#approval').addEventListener('click',event=>{if(event.target.id==='allow-once')clicks++;});
@@ -7916,11 +7921,11 @@ test('attempted authorization recovery rejects every mismatched identity and ina
   try {
     w.history.pushState({},'', '/c/attempted-identity');
     h.data.autoApprove=true;
-    const base={id:'attempted-identity',ownerTabId:h.getTabId(),goal:'continue',phase:'work',round:2,state:'approval',url:'https://chatgpt.com/c/attempted-identity',token:'attempted-identity',attempted:true,messages:[],approvalSubmissionAt:1_000_000,approvalSubmissionURL:'https://chatgpt.com/c/attempted-identity',approvalSubmissionToken:'attempted-identity',approvalSubmissionPhase:'work',approvalSubmissionRound:2};
+    const base={id:'attempted-identity',ownerTabId:h.getTabId(),goal:'continue',phase:'work',round:2,state:'approval',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/attempted-identity', url:'https://chatgpt.com/c/attempted-identity',token:'attempted-identity',attempted:true,messages:[],approvalSubmissionAt:1_000_000,approvalSubmissionURL:'https://chatgpt.com/c/attempted-identity',approvalSubmissionToken:'attempted-identity',approvalSubmissionPhase:'work',approvalSubmissionRound:2};
     const cases=[
       ['missing submission',{approvalSubmissionAt:0}],
       ['submission route',{approvalSubmissionURL:'https://chatgpt.com/c/another-route'}],
-      ['task route',{url:'https://chatgpt.com/c/another-route'}],
+      ['task route',{authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/another-route', url:'https://chatgpt.com/c/another-route'}],
       ['token',{approvalSubmissionToken:'another-token'}],
       ['phase',{approvalSubmissionPhase:'review'}],
       ['round',{approvalSubmissionRound:1}],
@@ -7945,7 +7950,7 @@ test('attempted grant recovery exhausts without replaying or losing task and att
   const {w,h,dom}=await fixture('<main></main>');
   try {
     w.history.pushState({},'', '/c/attempted-exhaustion');h.data.autoApprove=true;
-    const task={id:'attempted-exhaustion',ownerTabId:h.getTabId(),goal:'preserve goal',phase:'work',round:3,state:'approval',url:'https://chatgpt.com/c/attempted-exhaustion',token:'attempted-exhaustion',attempted:true,messages:[],attachments:[{id:'attachment-1',name:'evidence.png'}],approvalSubmissionAt:1_000_000,approvalSubmissionURL:'https://chatgpt.com/c/attempted-exhaustion',approvalSubmissionToken:'attempted-exhaustion',approvalSubmissionPhase:'work',approvalSubmissionRound:3};
+    const task={id:'attempted-exhaustion',ownerTabId:h.getTabId(),goal:'preserve goal',phase:'work',round:3,state:'approval',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/attempted-exhaustion', url:'https://chatgpt.com/c/attempted-exhaustion',token:'attempted-exhaustion',attempted:true,messages:[],attachments:[{id:'attachment-1',name:'evidence.png'}],approvalSubmissionAt:1_000_000,approvalSubmissionURL:'https://chatgpt.com/c/attempted-exhaustion',approvalSubmissionToken:'attempted-exhaustion',approvalSubmissionPhase:'work',approvalSubmissionRound:3};
     h.data.tasks.push(task);h.markApprovalUnavailable(task,task.url,1_000_000);
     const retained=JSON.stringify([task.url,task.token,task.attempted,task.goal,task.phase,task.round,task.attachments]);
     for(let attempt=1;attempt<=3;attempt++){
@@ -7982,7 +7987,7 @@ test('attempted grant recovery exhausts without replaying or losing task and att
 });
 
 test('persisted manual approval explains its wait and exposes locate without enabling grants',async()=>{
-  const task={id:'manual-locate',goal:'keep goal',mode:'goal',state:'approval',phase:'work',round:38,url:'https://chatgpt.com/c/manual-locate',token:'keep-token',messages:[]};
+  const task={id:'manual-locate',goal:'keep goal',mode:'goal',state:'approval',phase:'work',round:38,authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/manual-locate', url:'https://chatgpt.com/c/manual-locate',token:'keep-token',messages:[]};
   const {h,w,dom}=await fixture('',w=>{
     w.localStorage.setItem('fabushi-workbench-v2',JSON.stringify({tasks:[task],autoApprove:false,globalAutoApprove:false}));
   });
@@ -8011,7 +8016,7 @@ test('locate reveals only the disclosure owning the card and never grants or cha
   const {h,w,dom}=await fixture('<main><button id="other" aria-expanded="false" aria-controls="unrelated">Previous activity</button><div id="unrelated"></div><button id="activity" aria-expanded="false" aria-controls="activity-body">先前活动</button><div id="activity-body"><details><summary>tool</summary><section class="approval-card"><button id="deny">拒绝</button><button id="allow" aria-expanded="false" aria-controls="activity-body">允许一次</button></section></details></div></main>');
   try {
     w.history.replaceState({},'', '/c/locate-card');
-    const task={id:'locate-card',ownerTabId:h.getTabId(),state:'approval',url:w.location.href,token:'token-38',phase:'work',round:38,attempted:true,attachments:[{id:'file'}]};
+    const task={id:'locate-card',ownerTabId:h.getTabId(),state:'approval',authorizationSeenAt:1, authorizationSeenURL:w.location.href, url:w.location.href,token:'token-38',phase:'work',round:38,attempted:true,attachments:[{id:'file'}]};
     h.data.tasks.push(task); h.data.autoApprove=false;
     const before=JSON.stringify(task);let grants=0,other=0,expanded=0,scrolled=0;
     w.document.querySelector('#activity').onclick=()=>{expanded++;};
@@ -8028,7 +8033,7 @@ test('locate fails closed for absent card, foreign route, competing owner or pau
   const {h,w,dom}=await fixture('<main><section class="approval-card"><button>允许一次</button></section></main>');
   try {
     w.history.replaceState({},'', '/c/locate-guard');
-    const task={id:'locate-guard',ownerTabId:h.getTabId(),state:'approval',url:w.location.href,token:'keep',phase:'work',round:1};h.data.tasks.push(task);
+    const task={id:'locate-guard',ownerTabId:h.getTabId(),state:'approval',authorizationSeenAt:1, authorizationSeenURL:w.location.href, url:w.location.href,token:'keep',phase:'work',round:1};h.data.tasks.push(task);
     let clicks=0;w.document.querySelector('button').onclick=()=>clicks++;
     task.state='paused';assert.equal(h.locatePendingAuthorization(task),false);task.state='approval';
     task.url='https://chatgpt.com/c/foreign';assert.equal(h.locatePendingAuthorization(task),false);task.url=w.location.href;
@@ -8045,7 +8050,7 @@ test('same-document host fallback refuses recovery when its durable ticket canno
  const proto=Object.getPrototypeOf(w.localStorage),original=proto.setItem;
  try{
   w.history.replaceState({},'', '/c/ticket-storage-full');
-  const task={id:'full',ownerTabId:h.getTabId(),goal:'keep',phase:'work',round:4,state:'loading',url:w.location.href,token:'original',messages:[],attachments:[]};
+  const task={id:'full',ownerTabId:h.getTabId(),goal:'keep',phase:'work',round:4,state:'loading',authorizationSeenAt:1, authorizationSeenURL:w.location.href, url:w.location.href,token:'original',messages:[],attachments:[]};
   h.data.tasks.push(task);h.setRunningForTest(true);const messages=[];w.postMessage=m=>messages.push(m);
   proto.setItem=function(k,v){if(String(k).startsWith('fabushi-workspace-recovery-v1:'))throw new w.DOMException('full','QuotaExceededError');return original.call(this,k,v);};
   assert.equal(await h.requestSameDocumentHostReload(task),false);
@@ -8063,7 +8068,7 @@ function collapsedGrantMarkup({details=false,historical=false}={}) {
 async function collapsedGrantFixture(options={}) {
  const f=await fixture(collapsedGrantMarkup(options));const {h,w}=f;
  w.history.replaceState({},'', '/c/collapsed-current');
- const task={id:'collapsed-current',ownerTabId:h.getTabId(),state:'approval',url:w.location.href,token:'original-send',phase:'work',round:126,attempted:true,attachments:[{id:'original-file'}],messages:[]};
+ const task={id:'collapsed-current',ownerTabId:h.getTabId(),state:'approval',authorizationSeenAt:1, authorizationSeenURL:w.location.href, url:w.location.href,token:'original-send',phase:'work',round:126,attempted:true,attachments:[{id:'original-file'}],messages:[]};
  h.data.tasks.push(task);h.data.autoApprove=true;h.setRunningForTest(true);
  return {...f,task};
 }

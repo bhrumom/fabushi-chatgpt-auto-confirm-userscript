@@ -167,7 +167,7 @@
     if (!user || !renderedConversationMessage(user)) return false;
     const marker = taskMarkerUser(task);
     if (marker && marker !== user && !(Number(task.continuationCount || 0) > 0
-      && normalize(text(user)) === CONTINUATION_PROMPT)) return false;
+      && isContinuationPrompt(text(user)))) return false;
     const assistant = conversationRoleNodes('assistant').filter(node =>
       Boolean(user.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING)).at(-1);
     const targets = [user, assistant].filter(Boolean);

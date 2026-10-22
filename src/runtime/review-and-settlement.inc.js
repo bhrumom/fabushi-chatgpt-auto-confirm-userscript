@@ -137,6 +137,7 @@
   }
   function queueWorkFinalReportRepair(task, reason = '工作最终报告格式无法解析') {
     if (!task || task.phase !== 'work') return '';
+    if (requireConversationAuthorization(task, reason)) return 'waiting';
     const attempts = Number(task.workFinalReportRepairAttempts || 0);
     if (attempts >= MAX_WORK_FINAL_REPORT_REPAIR_ATTEMPTS) {
       return queueBlockedFreshRetry(task, `${reason}；已达到 ${MAX_WORK_FINAL_REPORT_REPAIR_ATTEMPTS} 次当前会话修复上限`);
@@ -149,6 +150,7 @@
     return 'queued';
   }
   function finish(task, reply) {
+    if (requireConversationAuthorization(task, '当前会话已给出最终回复')) return;
     task.preview = '';
     task.previewSourceURL = '';
     task.previewPhase = '';
@@ -279,6 +281,15 @@
       observations.delete(task.id);
       state(task, 'waiting', '正在等待切换到当前任务会话；不会读取其他任务的页面内容。');
       return;
+    }
+    if (task.authorizationRequiredContinuation) {
+      cards({ wide:true });
+      if (!conversationAuthorizationSeen(task)) {
+        await continueWithoutAuthorization(task, signal);
+        return;
+      }
+      task.authorizationRequiredContinuation = false;
+      save();
     }
     if (revealCurrentCollapsedMessage(task, signal)) return;
     // Handle an in-response Work upsell before any generic modal dismissal or
@@ -863,7 +874,7 @@
     const composerReady = Boolean(composerNode);
     let composerDraft = normalize(composerNode?.value || composerNode?.textContent);
     let composerEmpty = Boolean(composerReady && !composerDraft);
-    let composerHasRecoveryDraft = Boolean(composerReady && composerDraft === CONTINUATION_PROMPT);
+    let composerHasRecoveryDraft = Boolean(composerReady && isContinuationPrompt(composerDraft));
     const latestMountedUser = conversationRoleNodes('user').at(-1) || null;
     const userBoundaryKey = recoveryUserBoundaryKey(latestMountedUser);
     const cacheRetry = routeOwned && (turn.owned || routeEndedOwned) && !foreignTask && !otherRouteOwner

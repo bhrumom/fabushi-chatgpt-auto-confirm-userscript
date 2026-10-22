@@ -37,7 +37,7 @@
       && latestUser
       && latestUser !== markedUser
       && Number(task.continuationCount || 0) > 0
-      && normalize(text(latestUser)) === CONTINUATION_PROMPT
+      && isContinuationPrompt(text(latestUser))
       && Boolean(markedUser.compareDocumentPosition(latestUser) & Node.DOCUMENT_POSITION_FOLLOWING)
         ? latestUser
         : null;
@@ -258,6 +258,7 @@
   }
   function queueInterruptedFreshRetry(task, reason = '检测到“连接已中断，正在等待完整回复”', now = Date.now(), turn = null, options = {}) {
     if (!task || terminal.has(task.state) || task.state === 'paused') return false;
+    if (requireConversationAuthorization(task, reason)) return true;
     const sessionURL = currentConversationURL() || canonicalConversationURL(task.url);
     if (sessionURL) {
       recordConversationURL(task, sessionURL);
@@ -509,7 +510,8 @@
     const previousCooldownUntil = Number(task.cooldownUntil || 0);
     const newEpisode = previousCooldownUntil <= now;
     if (newEpisode) task.rateLimitEpisodes = Number(task.rateLimitEpisodes || 0) + 1;
-    if (newEpisode && Number(task.rateLimitEpisodes || 0) > RATE_LIMIT_FRESH_RETRY_AFTER) {
+    if (newEpisode && Number(task.rateLimitEpisodes || 0) > RATE_LIMIT_FRESH_RETRY_AFTER
+      && !requireConversationAuthorization(task, '请求过于频繁')) {
       const episodes = Number(task.rateLimitEpisodes || 0);
       const carry = captureOwnedAbnormalFreshCarry(task, null, '请求过于频繁升级为 fresh-chat 恢复', '', now);
       clearDispatchIntent(task);
@@ -554,7 +556,7 @@
       && task.token
       && latestUser
       && Number(task.continuationCount || 0) > 0
-      && normalize(text(latestUser)) === CONTINUATION_PROMPT
+      && isContinuationPrompt(text(latestUser))
       && liveURL
       && canonicalConversationURL(task.url) === liveURL
       && !conversationURLOwner(liveURL, task.id)
@@ -569,7 +571,7 @@
       && latestUser
       && latestUser !== markedUser
       && Number(task.continuationCount || 0) > 0
-      && normalize(text(latestUser)) === CONTINUATION_PROMPT
+      && isContinuationPrompt(text(latestUser))
       && Boolean(markedUser.compareDocumentPosition(latestUser) & Node.DOCUMENT_POSITION_FOLLOWING)
         ? latestUser
         : null;
@@ -907,7 +909,7 @@
     const recoveredContinuation = Boolean(
       latestMountedUser
       && Number(task.continuationCount || 0) > 0
-      && normalize(text(latestMountedUser)) === CONTINUATION_PROMPT,
+      && isContinuationPrompt(text(latestMountedUser)),
     );
     // A persisted continuation send plus its exact prompt is a verifiable
     // current-turn boundary even after ChatGPT virtualizes the original task
@@ -1139,6 +1141,7 @@
     scanDiagnostics.cardsButtons += allButtons.length;
     scanDiagnostics.cardsCandidates += allowCandidates.length;
     for (const button of allowCandidates) {
+      if (button.closest('blockquote,pre,code,[data-message-author-role="user"],textarea,[contenteditable="true"],nav,aside')) continue;
       if (!actionMatches(button, allowLabel) || button.hasAttribute('aria-haspopup')) continue;
       let completeContainer = null;
       let completeDeny = null;
@@ -1218,6 +1221,11 @@
         deny:actions.find(node => actionMatches(node, denyLabel)) || null,
         actionable:false,
       });
+    }
+    if (result.length) {
+      const route = currentConversationURL();
+      const owner = tabTasks().find(task => canonicalConversationURL(task.url) === route);
+      if (owner) recordConversationAuthorization(owner, route);
     }
     scanDiagnostics.cardsCalls += 1;
     scanDiagnostics.cardsMs += performance.now() - startedAt;

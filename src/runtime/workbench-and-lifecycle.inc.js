@@ -198,6 +198,7 @@
       : '发送确认超时，正在检查恢复';
   }
   function taskRecoveryStatusText(task, now = Date.now()) {
+    if (task?.authorizationRequiredContinuation) return '当前会话尚未出现授权卡片；留在原会话继续完成所有，闭环后按模板输入，等待授权后才允许结束或新开';
     if (task?.state === 'approval') return !data.autoApprove && !data.globalAutoApprove
       ? '自动授权已关闭，任务正在等待手动处理；授权卡可能收在“先前活动”中。点击“定位授权卡”后选择允许或拒绝；等待期间不会自动重发任务'
       : '正在等待授权卡处理；可点击“定位授权卡”查看当前请求';

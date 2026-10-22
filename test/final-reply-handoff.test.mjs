@@ -3,6 +3,8 @@ import fs from 'node:fs/promises';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 
+// Legacy handoff fixtures below explicitly carry a prior observed card on their URL.
+// No-card and cross-route isolation behavior lives in authorization-handoff.test.mjs.
 const source = await fs.readFile(new URL('../chatgpt-auto-confirm.user.js', import.meta.url), 'utf8');
 const instrumentedSource = source.replace(
   '  mount();',
@@ -14,7 +16,7 @@ async function createHarness(body) {
   const dom = new JSDOM(`<!doctype html><html><head></head><body>${body}</body></html>`, {
     runScripts: 'outside-only',
     pretendToBeVisual: true,
-    url: 'https://chatgpt.com/',
+    authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/', url: 'https://chatgpt.com/',
   });
   const { window } = dom;
   window.Element.prototype.getClientRects = () => [{ width: 1, height: 1 }];
@@ -318,7 +320,7 @@ test('a stalled conversation refresh preserves the task twice then queues a fres
       phase: 'work',
       round: 1,
       state: 'generating',
-      url: 'https://chatgpt.com/c/stalled-conversation',
+      authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/stalled-conversation', url: 'https://chatgpt.com/c/stalled-conversation',
       token: 'stalled-token',
       attempted: false,
       attachments: [{ id:'image-1', name:'画稿.png' }],
@@ -363,7 +365,7 @@ test('a legacy stalled-refresh count at two migrates directly to the bounded fre
       phase: 'work',
       round: 1,
       state: 'waiting',
-      url: 'https://chatgpt.com/c/legacy-stalled-conversation',
+      authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/legacy-stalled-conversation', url: 'https://chatgpt.com/c/legacy-stalled-conversation',
       token: 'legacy-stalled-token',
       attempted: false,
       stalledRefreshURL: 'https://chatgpt.com/c/legacy-stalled-conversation',
@@ -450,7 +452,7 @@ test('malformed Work final reports requeue only the Work final-report repair and
       phase:'work',
       round:1,
       state:'waiting',
-      url:'https://chatgpt.com/c/review-repair',
+      authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/review-repair', url:'https://chatgpt.com/c/review-repair',
       token:'review-token',
       result:'Work 已完成，不能重复执行。',
       attachments:[{ id:'clip', name:'clip.mp4' }],
@@ -494,7 +496,7 @@ test('malformed Work final reply is durably carried into a report-only repair pr
       phase:'work',
       round:2,
       state:'waiting',
-      url:'https://chatgpt.com/c/report-repair-carry',
+      authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/report-repair-carry', url:'https://chatgpt.com/c/report-repair-carry',
       token:'report-repair-carry-token',
       attempted:false,
       goalRevision:4,
@@ -726,7 +728,7 @@ test('parallel inspection never completes task A from task B response', async ()
     window.history.pushState({}, '', '/c/task-a');
     const taskA = {
       id: 'task-a', goal: 'A', mode: 'once', phase: 'work', round: 1,
-      state: 'waiting', url: 'https://chatgpt.com/c/task-a', token: 'token-a', messages: [],
+      state: 'waiting', authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/task-a', url: 'https://chatgpt.com/c/task-a', token: 'token-a', messages: [],
     };
     hooks.data.tasks.push(taskA);
     await hooks.start();
@@ -765,7 +767,7 @@ test('recovered exact-route final reply survives marker virtualization and suppr
       phase:'work',
       round:3,
       state:'waiting',
-      url:'https://chatgpt.com/c/recovered-final',
+      authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/recovered-final', url:'https://chatgpt.com/c/recovered-final',
       token:'recovered-final-token',
       attempted:false,
       messages:[],
@@ -829,7 +831,7 @@ test('recorded continuation owns the final reply after the original marker is vi
       phase:'work',
       round:4,
       state:'waiting',
-      url:'https://chatgpt.com/c/markerless-continuation-final',
+      authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/markerless-continuation-final', url:'https://chatgpt.com/c/markerless-continuation-final',
       token:'markerless-continuation-token',
       attempted:false,
       continuationCount:1,
@@ -873,7 +875,7 @@ test('a prior final toolbar cannot satisfy a later recorded continuation', async
       phase:'work',
       round:1,
       state:'waiting',
-      url:'https://chatgpt.com/c/prior-toolbar-before-continuation',
+      authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/prior-toolbar-before-continuation', url:'https://chatgpt.com/c/prior-toolbar-before-continuation',
       token:'prior-toolbar-token',
       attempted:false,
       continuationCount:1,
@@ -915,7 +917,7 @@ test('manual pause and resume re-arms recovered-final identity for a completed e
       round:6,
       state:'paused',
       pausedState:'waiting',
-      url:'https://chatgpt.com/c/paused-resume-final',
+      authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/paused-resume-final', url:'https://chatgpt.com/c/paused-resume-final',
       token:'paused-resume-token',
       attempted:false,
       messages:[],
@@ -971,7 +973,7 @@ test('manual resume accepts a marker-virtualized static reply after the recovery
       round:7,
       state:'paused',
       pausedState:'waiting',
-      url:'https://chatgpt.com/c/manual-static-recovered',
+      authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/manual-static-recovered', url:'https://chatgpt.com/c/manual-static-recovered',
       token:'virtualized-current-task-token',
       attempted:false,
       messages:[],
@@ -1053,7 +1055,7 @@ test('automatic recovery accepts a strong final toolbar across stale page loadin
       phase:'work',
       round:1,
       state:'waiting',
-      url:'https://chatgpt.com/c/automatic-recovered-final',
+      authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/automatic-recovered-final', url:'https://chatgpt.com/c/automatic-recovered-final',
       token:'virtualized-automatic-token',
       attempted:false,
       messages:[],
@@ -1101,7 +1103,7 @@ test('automatic recovered final ownership is invalidated by a newer user boundar
   `);
   try {
     window.history.pushState({}, '', '/c/recovered-boundary-change');
-    const task={id:'recovered-boundary-change',ownerTabId:hooks.tabId,goal:'原任务',mode:'once',phase:'work',round:1,state:'waiting',url:'https://chatgpt.com/c/recovered-boundary-change',token:'missing-marker-token',attempted:false,messages:[]};
+    const task={id:'recovered-boundary-change',ownerTabId:hooks.tabId,goal:'原任务',mode:'once',phase:'work',round:1,state:'waiting',authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/recovered-boundary-change', url:'https://chatgpt.com/c/recovered-boundary-change',token:'missing-marker-token',attempted:false,messages:[]};
     hooks.data.tasks.push(task);
     assert.equal(hooks.armRecoveredFinalIdentity(task), true);
     const newer=window.document.createElement('article');
@@ -1139,7 +1141,7 @@ test('manual recovery rejects a user boundary that changes after recovery was ar
       round:2,
       state:'paused',
       pausedState:'waiting',
-      url:'https://chatgpt.com/c/manual-boundary-change',
+      authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/manual-boundary-change', url:'https://chatgpt.com/c/manual-boundary-change',
       token:'manual-boundary-token',
       attempted:false,
       messages:[],
@@ -1179,7 +1181,7 @@ test('manual task recovery arms the final-reply fallback identity for the exact 
       phase:'work',
       round:2,
       state:'blocked',
-      url:'https://chatgpt.com/c/manual-recovery',
+      authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/manual-recovery', url:'https://chatgpt.com/c/manual-recovery',
       token:'manual-recovery-token',
       attempted:false,
       messages:[],
@@ -1226,7 +1228,7 @@ test('restoring a waiting workspace into the current tab arms recovered-final id
       phase:'work',
       round:4,
       state:'waiting',
-      url:'https://chatgpt.com/c/current-tab-workspace-recovery',
+      authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/current-tab-workspace-recovery', url:'https://chatgpt.com/c/current-tab-workspace-recovery',
       token:'current-tab-workspace-token',
       attempted:false,
       messages:[],
@@ -1300,7 +1302,7 @@ test('recovered final fallback refuses a foreign task marker on the same route',
       phase:'work',
       round:1,
       state:'waiting',
-      url:'https://chatgpt.com/c/recovered-foreign-marker',
+      authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/recovered-foreign-marker', url:'https://chatgpt.com/c/recovered-foreign-marker',
       token:'missing-target-token',
       attempted:false,
       messages:[],
@@ -1313,7 +1315,7 @@ test('recovered final fallback refuses a foreign task marker on the same route',
       phase:'work',
       round:1,
       state:'waiting',
-      url:'https://chatgpt.com/c/elsewhere',
+      authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/elsewhere', url:'https://chatgpt.com/c/elsewhere',
       token:'foreign-final-token',
       attempted:false,
       messages:[],
@@ -1351,7 +1353,7 @@ test('automatic recovery still refuses a bare static reply without final toolbar
       phase:'work',
       round:1,
       state:'waiting',
-      url:'https://chatgpt.com/c/recovered-manual-turn',
+      authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/recovered-manual-turn', url:'https://chatgpt.com/c/recovered-manual-turn',
       token:'virtualized-auto-token',
       attempted:false,
       messages:[],
@@ -1378,7 +1380,7 @@ test('a confirmed Work final report directly queues the next Work round', async 
     const task = {
       id:'TFI-USERSCRIPT-RECOVERY-009-test', mode:'continuous', phase:'work', round:1,
       goal:'修复最终回复识别', goalRevision:3, dispatchGoalRevision:3,
-      url:'https://chatgpt.com/c/work-turn-1', token:'work-turn-token', state:'waiting',
+      authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/work-turn-1', url:'https://chatgpt.com/c/work-turn-1', token:'work-turn-token', state:'waiting',
       attempted:true, messages:[], history:[],
       attachments:[{id:'evidence-image',name:'evidence.png',type:'image/png',size:4,lastModified:1}],
     };
@@ -1405,7 +1407,7 @@ test('a review result that requests more work keeps the same attachments for the
       goal: '继续验证附件驱动的任务',
       goalRevision: 1,
       dispatchGoalRevision: 1,
-      url: 'https://chatgpt.com/c/review-round-2',
+      authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/review-round-2', url: 'https://chatgpt.com/c/review-round-2',
       token: 'review-round-token',
       state: 'waiting',
       attempted: true,
@@ -1463,7 +1465,7 @@ test('marker-virtualized Work final report consumes an exact visible next report
       phase:'work',
       round:8,
       state:'waiting',
-      url:'https://chatgpt.com/c/visible-review-next',
+      authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/visible-review-next', url:'https://chatgpt.com/c/visible-review-next',
       token:'visible-review-token',
       attempted:false,
       result:'上一轮 Work 已完成。',
@@ -1518,7 +1520,7 @@ test('marker-virtualized Work final report does not promote a visible report for
       phase:'work',
       round:8,
       state:'waiting',
-      url:'https://chatgpt.com/c/visible-review-mismatch',
+      authorizationSeenAt:1, authorizationSeenURL:'https://chatgpt.com/c/visible-review-mismatch', url:'https://chatgpt.com/c/visible-review-mismatch',
       token:'visible-review-mismatch-token',
       attempted:false,
       result:'上一轮 Work 已完成。',
@@ -1546,7 +1548,7 @@ test('observed owned user boundary survives thinking-to-final message replacemen
     <textarea id="prompt-textarea"></textarea><button aria-label="停止生成">Stop</button>`);
   try {
     window.history.pushState({}, '', '/c/boundary-replacement');
-    const task = {id:'boundary-replacement',ownerTabId:hooks.tabId,goal:'目标',mode:'once',phase:'work',round:2,state:'generating',url:window.location.href,token:'boundary-token',attempted:false,messages:[]};
+    const task = {id:'boundary-replacement',ownerTabId:hooks.tabId,goal:'目标',mode:'once',phase:'work',round:2,state:'generating',authorizationSeenAt:1, authorizationSeenURL:window.location.href, url:window.location.href,token:'boundary-token',attempted:false,messages:[]};
     hooks.data.tasks.push(task);
     hooks.setRunningForTest();
     await hooks.inspect(task, 0);

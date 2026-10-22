@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.65
+// @version      2.10.66
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -68,7 +68,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.65';
+  const VERSION = '2.10.66';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -186,7 +186,11 @@ async function bootstrapAttempt() {
   const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 * 1000;
   const CONVERSATION_LOAD_FAILURE_REFRESH_LIMIT = 7;
   const ROUTE_RECOVERY_RETRY_INTERVAL_MS = 60 * 1000; // legacy persisted-field compatibility; exhaustion no longer auto-retries.
-  const CONTINUATION_PROMPT = '继续完成所有';
+  const CONTINUATION_PROMPT = '继续完成所有，闭环后按模板输入';
+  function isContinuationPrompt(value) {
+    const prompt = normalize(value);
+    return prompt === CONTINUATION_PROMPT || prompt === '继续完成所有';
+  }
   const MAX_SAME_SESSION_CONTINUATIONS = 3;
   const CONTINUATION_SEND_COOLDOWN_MS = 60 * 1000;
   const ENDED_NO_FINAL_STABILITY_MS = 8000;

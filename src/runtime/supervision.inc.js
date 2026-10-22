@@ -141,7 +141,7 @@
       if (!signal.aborted && task && task.state !== 'paused' && task.state !== 'cancelled') {
         const reviewRecovery = error.code === 'invalid-work-final-report' ? queueWorkFinalReportRepair(task, error.message) : '';
         if (reviewRecovery === 'queued') nextScheduleMs = 100;
-        else if (reviewRecovery !== 'blocked') state(task, 'blocked', error.message);
+        else if (reviewRecovery !== 'blocked' && reviewRecovery !== 'waiting') state(task, 'blocked', error.message);
       }
     } finally {
       busy = false;
