@@ -7258,7 +7258,8 @@ test('the packaged userscript declares its stable remote update and download URL
   assert.match(source,/function interruptedFreshHandoffApprovalGate/);
   assert.match(source,/不再等待 5 分钟或刷新旧会话/);
   assert.match(source,/stop-disappeared-fresh-chat/);
-  assert.doesNotMatch(source,/setInput\(input,\s*CONTINUATION_PROMPT\)/,'runtime must not fill the old conversation with the legacy phrase');
+  assert.match(source,/setInput\(input,\s*CONTINUATION_PROMPT\)/,'a conversation without observed authorization must continue in place');
+  assert.match(source,/function requireConversationAuthorization/);
   assert.match(source,/^\/\/ @updateURL\s+https:\/\/raw\.githubusercontent\.com\/bhrumom\/fabushi-chatgpt-auto-confirm-userscript\/main\/chatgpt-auto-confirm\.user\.js$/m);
   assert.match(source,/^\/\/ @downloadURL\s+https:\/\/raw\.githubusercontent\.com\/bhrumom\/fabushi-chatgpt-auto-confirm-userscript\/main\/chatgpt-auto-confirm\.user\.js$/m);
 });

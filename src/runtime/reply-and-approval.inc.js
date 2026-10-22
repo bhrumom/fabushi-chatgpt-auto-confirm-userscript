@@ -1141,6 +1141,7 @@
     scanDiagnostics.cardsButtons += allButtons.length;
     scanDiagnostics.cardsCandidates += allowCandidates.length;
     for (const button of allowCandidates) {
+      if (button.closest('blockquote,pre,code,[data-message-author-role="user"],textarea,[contenteditable="true"],nav,aside')) continue;
       if (!actionMatches(button, allowLabel) || button.hasAttribute('aria-haspopup')) continue;
       let completeContainer = null;
       let completeDeny = null;
