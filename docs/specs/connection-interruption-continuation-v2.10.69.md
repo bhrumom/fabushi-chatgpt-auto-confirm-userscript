@@ -1,6 +1,6 @@
 # Connection interruption without prior authorization — v2.10.69
 
-Status: implemented; installed runtime accepted; versioned release awaiting workflow completion
+Status: completed
 Owner: Fabushi userscript
 Last updated: 2026-10-22
 Related: structural-stop-absence-recovery-v2.10.68.md; optional-authorization-concurrent-recovery-v2.10.67.md
@@ -31,7 +31,7 @@ Cover switch off/on, connection prompt, repeated inspection/reload dedupe, three
 | R2 / AC2 | passed | New route-scoped intent is durable and reset by clearDispatchIntent. Existing shared counter caps at 3, including earlier continuation attempts. Boundary/reload, route reset, third/fourth-send regressions pass. |
 | R3 / AC3 | passed | Existing expansion/confirmation retained. Explicit interruption alone can stop a stale Stop once; draft, pause, foreign route, current card, observed authorization and settlement regressions pass. |
 | R4 / AC4 | passed | Checkbox default remains off; installed workbench help directly shows the connection-interruption exception. Other no-card recovery retains ordinary checkbox semantics. |
-| R5 / AC5 | blocked for versioned Release only | Exact PR head c07970a557f24cfb2747c7fadc0ed83084449567, Test 39794067084/job 119876916222; main source 65189a2c3b2ffa5c6a777e9c505e5d2fa05c68b0, Test 39794459802/job 119878202954: full logs show 553 total, 546 pass, 0 fail, 7 skip; main job completed/success at 2026-10-22T14:20:06Z, but parent run remains in_progress and has not emitted its Release workflow event. No test/release gate is bypassed. This docs acceptance push allows the existing idempotent release workflow to use the same tested source after a fresh successful main Test. |
+| R5 / AC5 | passed | Exact PR head c07970a557f24cfb2747c7fadc0ed83084449567, Test 39794067084/job 119876916222; main source 65189a2c3b2ffa5c6a777e9c505e5d2fa05c68b0, Test 39794459802/job 119878202954: 553 total, 546 pass, 0 fail, 7 skip, bundle parity/syntax passed; canonical-main run completed/success. Guarded Release 39795974134 published v2.10.69 at the source SHA; asset 666111314 uploaded 2026-10-22T14:28:43Z. Asset digest and downloaded bytes match source/output SHA256 451a9364c03e48c655202e33c4c1d014e8c263f033615083f44aeae53e21a765. Release job 119883226970 logs reached terminal cleanup at 14:28:44Z without errors; its API status projection still reported queued at final readback, so publication is proven by the actual release/asset rather than that stale status. |
 
 ## Installed acceptance
 Official raw-main SHA256 matches source: 451a9364c03e48c655202e33c4c1d014e8c263f033615083f44aeae53e21a765. Chrome Fabushi installed list shows enabled 2.10.69. Both current task tabs were reloaded in place after checking empty composers and absence of pending authorization; runtime DOM version confirms 2.10.69:
@@ -40,3 +40,5 @@ Official raw-main SHA256 matches source: 451a9364c03e48c655202e33c4c1d014e8c263f
 Workbench checkbox unchecked; help explicitly states the connection exception. No new natural connection failure was observed after installation: same-route continuation behavior is deterministic-regression evidence, while actual runtime version, help/default, task identity and supervision were directly observed.
 
 PR: https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/pull/188
+
+Release: https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/releases/tag/v2.10.69
