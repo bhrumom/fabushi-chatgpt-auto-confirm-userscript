@@ -256,7 +256,8 @@
   if (!data.tabControls[tabId]) data.tabControls[tabId] = legacyOwner === tabId ? legacyControl : { autoResume:true, lastDispatchAt:0, controlRevision:0, pausedAt:0 };
   data.tabControls[tabId].globalAutoApprove ??= legacyOwner === tabId && data.globalAutoApprove;
   data.tabControls[tabId].autoApprove ??= data.autoApprove !== false;
-  for (const field of ['autoResume','lastDispatchAt','controlRevision','pausedAt','globalAutoApprove','autoApprove']) {
+  data.tabControls[tabId].requireAuthorizationBeforeNewChat ??= false;
+  for (const field of ['autoResume','lastDispatchAt','controlRevision','pausedAt','globalAutoApprove','autoApprove','requireAuthorizationBeforeNewChat']) {
     delete data[field];
     Object.defineProperty(data, field, {
       configurable:true,

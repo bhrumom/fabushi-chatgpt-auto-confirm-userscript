@@ -1116,7 +1116,7 @@
   }
   function rateLimitNotice(getPageRecords = pageUiTextRecords) {
     const startedAt = performance.now();
-    const pattern = /请求过于频繁|你的请求过于频繁|请稍等几分钟后再重试|访问频率受限|too many requests|rate limit/i;
+    const pattern = /请求过于频繁|你的请求过于频繁|请稍等几分钟后再重试|访问频率受限|too many concurrent requests|并发请求过多|too many requests|rate limit/i;
     // Inspect actual page notices, never the task transcript or this panel.
     // A separate ChatGPT popup can say requests are frequent while only
     // restricting access to older conversation/history records. That popup
@@ -1212,6 +1212,72 @@
       }
     }
     return null;
+  }
+  function concurrentRequestRetry(turn) {
+    const article = turn?.article;
+    if (!article) return null;
+    for (const record of responseTextNodes(turn)) {
+      const parent = record.parent;
+      if (!parent || !article.contains(parent) || !visible(parent)
+        || !/^(?:too many concurrent requests|并发请求过多|同时请求过多)[.!。！]?$/i.test(record.direct)) continue;
+      for (let scope = parent, depth = 0; scope && depth < 6; scope = scope.parentElement, depth++) {
+        if (scope.matches('main,[role="main"],body') || own(scope)) break;
+        const retry = nodes('button,[role="button"]', scope).find(control =>
+          enabled(control) && /^(?:重试|再次尝试|再试一次|retry|try again)$/i.test(label(control)));
+        if (retry) return retry;
+        if (scope === article) break;
+      }
+    }
+    return null;
+  }
+  async function recoverConcurrentRequest(task, signal, now = Date.now()) {
+    const route = currentConversationURL();
+    if (!running || data.autoResume === false || signal?.aborted || !task
+      || terminal.has(task.state) || task.state === 'paused' || task.attempted
+      || !route || route !== canonicalConversationURL(task.url) || !taskBelongsToTab(task)
+      || conversationURLOwner(route, task.id)
+      || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))) return false;
+    let turn = taskTurnForInspection(task);
+    if (!turn.owned && !taskMarkerUser(task)
+      && !conversationRoleNodes('user').some(node => /\[Fabushi:[^\]]+\]/.test(text(node)))) {
+      turn = { ...latestTurn(), owned:true };
+    }
+    if (!turn.owned) return false;
+    const retry = concurrentRequestRetry(turn);
+    if (!retry) return false;
+    // An unresolved grant and genuine generation always keep their normal
+    // inspector path. Never click Retry through an active approval surface.
+    if (stopButton() || cards({ wide:true }).length || approvalSettlementActive(task, route) || blocker()) return false;
+    const input = composer();
+    if (!input || normalize(input.value || input.textContent)) return true;
+    const key = JSON.stringify([route, recoveryUserBoundaryKey(conversationRoleNodes('user').at(-1)) || task.token,
+      String(task.phase || ''), Number(task.round || 0)]);
+    if (task.concurrentRequestIdentity !== key) {
+      task.concurrentRequestIdentity = key;
+      task.concurrentRequestRetryCount = 0;
+      task.concurrentRequestRetryAt = now + 30_000;
+      task.state = 'waiting';
+      log(task, '检测到当前回复 Too many concurrent requests（并发请求过多）；等待 30 秒后在原会话重试，不把错误当作完成。');
+      save();
+      return true;
+    }
+    if (now < Number(task.concurrentRequestRetryAt || 0)) return true;
+    if (!Number(task.concurrentRequestRetryCount || 0)) {
+      check(signal);
+      task.concurrentRequestRetryCount = 1;
+      task.concurrentRequestRetryAt = now + 60_000;
+      task.state = 'waiting';
+      save(); // Durable intent before Retry: reload must not replay it.
+      activateControl(retry);
+      log(task, '已在原会话重试并发请求错误；保留任务，等待最多 60 秒观察恢复，持续失败将按当前授权检查开关接力。');
+      return true;
+    }
+    if (requireConversationAuthorization(task, '并发请求过多，原会话重试后仍未恢复')) {
+      await continueWithoutAuthorization(task, signal, now);
+      return true;
+    }
+    return queueInterruptedFreshRetry(task, '并发请求过多，等待并重试后仍未恢复', now, turn,
+      { allowExactRouteFallback:true, recoveryLabel:'并发请求错误恢复', historyReason:'concurrent-request-error' });
   }
   function sendTimeoutNotice(turn = null, getPageRecords = pageUiTextRecords) {
     const pattern = /消息(?:发送)?(?:超时|错误|失败)\s*[，,。.!]?\s*请重试|message (?:send|sending) timed out|message (?:error|failed)[\s,:-]*(?:please )?(?:retry|try again)|failed to send|(?:a\s+)?network (?:connection )?(?:error|failure)(?: occurred)?|connection (?:error|failed|failure)|(?:check|verify) (?:your )?(?:internet|network|connection)|网络(?:连接)?(?:错误|失败)|连接(?:错误|失败)|(?:请)?检查(?:一下)?(?:你的|您的)?(?:互联网|网络|连接)/i;

@@ -198,7 +198,8 @@
       : '发送确认超时，正在检查恢复';
   }
   function taskRecoveryStatusText(task, now = Date.now()) {
-    if (task?.authorizationRequiredContinuation) return '当前会话尚未出现授权卡片；留在原会话继续完成所有，闭环后按模板输入，等待授权后才允许结束或新开';
+    if (task?.concurrentRequestRetryAt) return '已识别并发请求过多；等待后重试，持续失败会自动接力';
+    if (data.requireAuthorizationBeforeNewChat && task?.authorizationRequiredContinuation) return `当前会话尚未出现授权卡片；已继续 ${authorizationContinuationAttempts(task)}/3 次，最多继续 3 次后新开会话`;
     if (task?.state === 'approval') return !data.autoApprove && !data.globalAutoApprove
       ? '自动授权已关闭，任务正在等待手动处理；授权卡可能收在“先前活动”中。点击“定位授权卡”后选择允许或拒绝；等待期间不会自动重发任务'
       : '正在等待授权卡处理；可点击“定位授权卡”查看当前请求';
@@ -408,9 +409,13 @@
     };
     const auto = element('input'); auto.type='checkbox'; auto.checked=data.autoApprove !== false;
     const autoLabel=element('label'); autoLabel.append(auto,document.createTextNode('本次会话自动授权'));
+    const authGate = element('input'); authGate.type='checkbox'; authGate.checked=data.requireAuthorizationBeforeNewChat === true;
+    authGate.setAttribute('aria-label','新开会话前检查授权（最多继续3次）');
+    const authGateLabel=element('label'); authGateLabel.append(authGate,document.createTextNode('新开会话前检查授权（最多继续3次）'));
+    authGateLabel.title='开启后，无授权卡片时在原会话最多发送 3 次继续指令，仍无授权再新开；关闭则按普通结束/中断规则接力。';
     const submit = element('button','↑','send'); submit.type='submit'; submit.setAttribute('aria-label','发送任务');
     const modelScopeHint = element('small','','model-scope-hint');
-    controls.append(select,modelSelect,reasoningSelect,autoLabel,submit); compose.append(input,attachmentBox,controls,modelScopeHint); chat.append(settings,feed,notice,compose); desk.append(sidebar,chat);
+    controls.append(select,modelSelect,reasoningSelect,autoLabel,authGateLabel,submit); compose.append(input,attachmentBox,controls,modelScopeHint); chat.append(settings,feed,notice,compose); desk.append(sidebar,chat);
     const launch=element('button','⚡ Fabushi 脚本','launch'); root.append(desk,launch); document.documentElement.append(style); (document.body || document.documentElement).append(root);
     let signature='', sidebarSignature='';
     paint = () => {
@@ -431,6 +436,7 @@
       editGoalButton.disabled=!task || task.state==='done';
       locateApprovalButton.hidden=task?.state!=='approval';
       auto.checked=Boolean(data.autoApprove);
+      authGate.checked=data.requireAuthorizationBeforeNewChat === true;
       globalApproval.checked=Boolean(data.globalAutoApprove);
       memoryStatusNode.textContent=[memoryStatusText(), storageStatusText(), `宿主唤醒 ${backgroundClock.status().lastWakeAt ? new Date(backgroundClock.status().lastWakeAt).toLocaleTimeString() : '等待'}，时钟响应 ${backgroundClock.status().hostReplies}`].filter(Boolean).join(' · ');
       memoryCleanupButton.disabled=memoryMonitorBusy || hostMemoryPending.size > 0;
@@ -622,6 +628,14 @@
     globalPauseButton.onclick=()=>{if(running)pause(true);else start(true).catch(showError);};
     memoryCleanupButton.onclick=()=>requestHostMemoryCleanup({reason:'manual',userInitiated:true}).catch(showError);
     globalApproval.onchange=()=>setGlobalAutoApprove(globalApproval.checked);
+    authGate.onchange=()=>{
+      data.requireAuthorizationBeforeNewChat=authGate.checked;
+      for (const task of tabTasks()) {
+        if (!authGate.checked) task.authorizationRequiredContinuation=false;
+      }
+      save();
+      if (running) schedule(100);
+    };
     auto.onchange=()=>{data.autoApprove=auto.checked;save();}; select.onchange=()=>{mode=select.value;};
     let submitting=false;
     compose.onsubmit=async event=>{
