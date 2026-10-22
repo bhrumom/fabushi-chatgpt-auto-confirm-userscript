@@ -295,10 +295,10 @@
     if (await recoverStoppedConversation(task, signal)) return;
     if (task.authorizationRequiredContinuation) {
       cards({ wide:true });
-      if (data.requireAuthorizationBeforeNewChat === true && !conversationAuthorizationSeen(task)
+      if (authorizationContinuationEnabled(task) && !conversationAuthorizationSeen(task)
         && !authorizationGateExhausted(task)) {
         const pendingTurn = taskTurnForInspection(task);
-        if (pendingTurn.final || currentWorkFinalReport(pendingTurn.text,task)) {
+        if (connectionInterruptionContinuationPending(task) || pendingTurn.final || currentWorkFinalReport(pendingTurn.text,task)) {
           await continueWithoutAuthorization(task, signal);
           return;
         }
@@ -495,7 +495,7 @@
         task.state = 'waiting';
         task.updatedAt = now;
         if (handoffGate.started) {
-          log(task, `已识别 ChatGPT 连接中断，并归类为异常中断；不再等待 5 分钟或刷新旧会话。先进行至少 ${Math.ceil(STOP_NO_APPROVAL_CONFIRM_MS / 1000)} 秒的二次实时授权复核，确认没有授权卡后直接新开会话接力。`);
+          log(task, `已识别 ChatGPT 连接中断，并归类为异常中断；不再等待 5 分钟或刷新旧会话。先进行至少 ${Math.ceil(STOP_NO_APPROVAL_CONFIRM_MS / 1000)} 秒的二次实时授权复核，确认没有授权卡后，未曾出现授权的会话先续发，最多 3 次；否则新开会话接力。`);
         } else {
           save();
         }
@@ -507,7 +507,7 @@
         '检测到 ChatGPT 连接中断，按异常中断处理',
         now,
         interruptionTurn,
-        { allowExactRouteFallback:true, recoveryLabel:'异常中断接力', historyReason:'connection-interrupted-fresh-chat' },
+        { allowExactRouteFallback:true, recoveryLabel:'异常中断接力', historyReason:'connection-interrupted-fresh-chat', connectionInterruption:true },
       )) return;
       task.state = 'waiting';
       task.updatedAt = now;
@@ -862,7 +862,7 @@
         task.state = 'waiting';
         task.updatedAt = now;
         if (handoffGate.started) {
-          log(task, `旧连接中断状态已升级为异常中断接力；进行至少 ${Math.ceil(STOP_NO_APPROVAL_CONFIRM_MS / 1000)} 秒授权复核后直接新开会话，不再刷新旧会话。`);
+          log(task, `旧连接中断状态已升级为异常中断接力；进行至少 ${Math.ceil(STOP_NO_APPROVAL_CONFIRM_MS / 1000)} 秒授权复核后，未曾出现授权的会话先续发，最多 3 次；否则新开会话，不再刷新旧会话。`);
         } else {
           save();
         }
@@ -874,7 +874,7 @@
         reason,
         now,
         interruptionTurn,
-        { allowExactRouteFallback:true, recoveryLabel:'异常中断接力', historyReason:'connection-interrupted-fresh-chat' },
+        { allowExactRouteFallback:true, recoveryLabel:'异常中断接力', historyReason:'connection-interrupted-fresh-chat', connectionInterruption:true },
       )) return;
       task.state = 'waiting';
       task.updatedAt = now;

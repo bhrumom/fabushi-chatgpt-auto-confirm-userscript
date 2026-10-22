@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.68
+// @version      2.10.69
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -68,7 +68,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.68';
+  const VERSION = '2.10.69';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -187,9 +187,10 @@ async function bootstrapAttempt() {
   const CONVERSATION_LOAD_FAILURE_REFRESH_LIMIT = 7;
   const ROUTE_RECOVERY_RETRY_INTERVAL_MS = 60 * 1000; // legacy persisted-field compatibility; exhaustion no longer auto-retries.
   const CONTINUATION_PROMPT = '继续完成所有，闭环后按模板输入';
+  const CONNECTION_CONTINUATION_PROMPT = '继续完成所有，按模板回复';
   function isContinuationPrompt(value) {
     const prompt = normalize(value);
-    return prompt === CONTINUATION_PROMPT || prompt === '继续完成所有';
+    return prompt === CONTINUATION_PROMPT || prompt === CONNECTION_CONTINUATION_PROMPT || prompt === '继续完成所有';
   }
   const MAX_SAME_SESSION_CONTINUATIONS = 3;
   const CONTINUATION_SEND_COOLDOWN_MS = 60 * 1000;
@@ -5596,7 +5597,9 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
   }
   function queueInterruptedFreshRetry(task, reason = '检测到“连接已中断，正在等待完整回复”', now = Date.now(), turn = null, options = {}) {
     if (!task || terminal.has(task.state) || task.state === 'paused') return false;
-    if (requireConversationAuthorization(task, reason)) return true;
+    const interruption = options.connectionInterruption === true || Boolean(task.pendingContinuationReason)
+      || connectionInterruptedNotice(turn?.owned ? turn : taskTurnForInspection(task));
+    if (requireConversationAuthorization(task, reason, {connectionInterruption:interruption})) return true;
     const sessionURL = currentConversationURL() || canonicalConversationURL(task.url);
     if (sessionURL) {
       recordConversationURL(task, sessionURL);
@@ -7369,11 +7372,18 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     if (!route || canonicalConversationURL(task.authorizationContinuationURL) !== route) return 0;
     return Math.max(0, Number(task.authorizationContinuationAttempts ?? task.continuationCount) || 0);
   }
+  function connectionInterruptionContinuationPending(task) {
+    const route = canonicalConversationURL(task?.url);
+    return Boolean(route && canonicalConversationURL(task.connectionInterruptionContinuationURL) === route);
+  }
+  function authorizationContinuationEnabled(task) {
+    return data.requireAuthorizationBeforeNewChat === true || connectionInterruptionContinuationPending(task);
+  }
   function authorizationGateExhausted(task) {
-    return data.requireAuthorizationBeforeNewChat === true && !conversationAuthorizationSeen(task)
+    return authorizationContinuationEnabled(task) && !conversationAuthorizationSeen(task)
       && authorizationContinuationAttempts(task) >= 3;
   }
-  function requireConversationAuthorization(task, reason = '当前会话已结束或中断') {
+  function requireConversationAuthorization(task, reason = '当前会话已结束或中断', options = {}) {
     if (!task || !canonicalConversationURL(task.url)) return false;
     const pending = currentConversationURL() === canonicalConversationURL(task.url) ? cards({ wide:true }) : [];
     if (pending.length) {
@@ -7384,19 +7394,28 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       save();
       return true;
     }
-    if (data.requireAuthorizationBeforeNewChat !== true || conversationAuthorizationSeen(task)
+    if (options.connectionInterruption && !conversationAuthorizationSeen(task)
+      && currentConversationURL() === canonicalConversationURL(task.url) && taskBelongsToTab(task)
+      && !task.attempted && !conversationURLOwner(task.url, task.id)
+      && !tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))) {
+      if (task.connectionInterruptionContinuationURL !== canonicalConversationURL(task.url)) {
+        task.connectionInterruptionContinuationURL = canonicalConversationURL(task.url);
+        save(); // Durable recovery intent even if send controls are not ready yet.
+      }
+    }
+    if (!authorizationContinuationEnabled(task) || conversationAuthorizationSeen(task)
       || authorizationGateExhausted(task)) return false;
     if (!task.authorizationRequiredContinuation) {
       task.authorizationRequiredContinuation = true;
       task.state = 'waiting';
-      log(task, `${reason}；当前会话尚未观察到授权卡片，留在原会话继续完成所有，闭环后按模板输入（已继续 ${authorizationContinuationAttempts(task)}/3 次）；最多继续 3 次后新开会话。`);
+      log(task, `${reason}；当前会话尚未观察到授权卡片，留在原会话发送“${connectionInterruptionContinuationPending(task) ? CONNECTION_CONTINUATION_PROMPT : CONTINUATION_PROMPT}”（已继续 ${authorizationContinuationAttempts(task)}/3 次）；最多继续 3 次后新开会话。`);
       save();
     }
     return true;
   }
   async function continueWithoutAuthorization(task, signal, now = Date.now(), options = {}) {
     const route = currentConversationURL();
-    if (data.requireAuthorizationBeforeNewChat !== true || authorizationGateExhausted(task)) return false;
+    if (!authorizationContinuationEnabled(task) || authorizationGateExhausted(task)) return false;
     if (!running || data.autoResume === false || signal?.aborted
       || !route || route !== canonicalConversationURL(task.url) || task.attempted
       || !taskBelongsToTab(task) || terminal.has(task.state) || task.state === 'paused'
@@ -7404,7 +7423,8 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))) return false;
     const pending = cards({ wide:true });
     if (pending.length || conversationAuthorizationSeen(task)) return false;
-    if (blocker() || rateLimitNotice()) return false;
+    if (blocker() || rateLimitNotice() || approvalSettlementActive(task,route,now)) return false;
+    const prompt = connectionInterruptionContinuationPending(task) ? CONNECTION_CONTINUATION_PROMPT : CONTINUATION_PROMPT;
     let turn = taskTurnForInspection(task);
     // The same exact-route fallback already used by ended-session detection
     // may continue a virtualized marker. It never adopts a foreign marker or
@@ -7444,18 +7464,18 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const input = composer();
     if (!input) return false;
     const draft = normalize(input.value || input.textContent);
-    if (draft && draft !== CONTINUATION_PROMPT) return false;
-    if (!draft) setInput(input, CONTINUATION_PROMPT);
+    if (draft && draft !== prompt) return false;
+    if (!draft) setInput(input, prompt);
     let button = sendButtonFor(input);
     if (!button) return false;
     await delay(300, signal);
     check(signal);
     if (currentConversationURL() !== route || stopButton() || cards({ wide:true }).length
-      || blocker() || rateLimitNotice() || terminal.has(task.state) || task.state === 'paused'
+      || blocker() || rateLimitNotice() || approvalSettlementActive(task,route,now) || terminal.has(task.state) || task.state === 'paused'
       || !taskBelongsToTab(task) || conversationURLOwner(route, task.id)
       || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))
-      || data.requireAuthorizationBeforeNewChat !== true || authorizationGateExhausted(task)
-      || normalize(input.value || input.textContent) !== CONTINUATION_PROMPT) return false;
+      || !authorizationContinuationEnabled(task) || authorizationGateExhausted(task)
+      || normalize(input.value || input.textContent) !== prompt) return false;
     button = sendButtonFor(input);
     if (!button) return false;
     const attempts = authorizationContinuationAttempts(task);
@@ -7471,12 +7491,13 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     observations.delete(task.id);
     save();
     activateControl(button);
-    log(task, `当前会话尚未出现授权卡片；已在原会话发送“继续完成所有，闭环后按模板输入”（第 ${task.authorizationContinuationAttempts}/3 次），等待执行与授权；本次结束仍无授权且已满 3 次时新开会话。`);
+    log(task, `当前会话尚未出现授权卡片；已在原会话发送“${prompt}”（第 ${task.authorizationContinuationAttempts}/3 次），等待执行与授权；本次结束仍无授权且已满 3 次时新开会话。`);
     return true;
   }
   function clearDispatchIntent(task) {
     task.authorizationRequiredContinuation = false;
     task.authorizationContinuationURL = '';
+    task.connectionInterruptionContinuationURL = '';
     task.authorizationContinuationAttempts = 0;
     task.authorizationContinuationBoundary = '';
     clearStoppedConversationInspection(task);
@@ -8405,10 +8426,10 @@ ${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carry
     if (await recoverStoppedConversation(task, signal)) return;
     if (task.authorizationRequiredContinuation) {
       cards({ wide:true });
-      if (data.requireAuthorizationBeforeNewChat === true && !conversationAuthorizationSeen(task)
+      if (authorizationContinuationEnabled(task) && !conversationAuthorizationSeen(task)
         && !authorizationGateExhausted(task)) {
         const pendingTurn = taskTurnForInspection(task);
-        if (pendingTurn.final || currentWorkFinalReport(pendingTurn.text,task)) {
+        if (connectionInterruptionContinuationPending(task) || pendingTurn.final || currentWorkFinalReport(pendingTurn.text,task)) {
           await continueWithoutAuthorization(task, signal);
           return;
         }
@@ -8605,7 +8626,7 @@ ${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carry
         task.state = 'waiting';
         task.updatedAt = now;
         if (handoffGate.started) {
-          log(task, `已识别 ChatGPT 连接中断，并归类为异常中断；不再等待 5 分钟或刷新旧会话。先进行至少 ${Math.ceil(STOP_NO_APPROVAL_CONFIRM_MS / 1000)} 秒的二次实时授权复核，确认没有授权卡后直接新开会话接力。`);
+          log(task, `已识别 ChatGPT 连接中断，并归类为异常中断；不再等待 5 分钟或刷新旧会话。先进行至少 ${Math.ceil(STOP_NO_APPROVAL_CONFIRM_MS / 1000)} 秒的二次实时授权复核，确认没有授权卡后，未曾出现授权的会话先续发，最多 3 次；否则新开会话接力。`);
         } else {
           save();
         }
@@ -8617,7 +8638,7 @@ ${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carry
         '检测到 ChatGPT 连接中断，按异常中断处理',
         now,
         interruptionTurn,
-        { allowExactRouteFallback:true, recoveryLabel:'异常中断接力', historyReason:'connection-interrupted-fresh-chat' },
+        { allowExactRouteFallback:true, recoveryLabel:'异常中断接力', historyReason:'connection-interrupted-fresh-chat', connectionInterruption:true },
       )) return;
       task.state = 'waiting';
       task.updatedAt = now;
@@ -8972,7 +8993,7 @@ ${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carry
         task.state = 'waiting';
         task.updatedAt = now;
         if (handoffGate.started) {
-          log(task, `旧连接中断状态已升级为异常中断接力；进行至少 ${Math.ceil(STOP_NO_APPROVAL_CONFIRM_MS / 1000)} 秒授权复核后直接新开会话，不再刷新旧会话。`);
+          log(task, `旧连接中断状态已升级为异常中断接力；进行至少 ${Math.ceil(STOP_NO_APPROVAL_CONFIRM_MS / 1000)} 秒授权复核后，未曾出现授权的会话先续发，最多 3 次；否则新开会话，不再刷新旧会话。`);
         } else {
           save();
         }
@@ -8984,7 +9005,7 @@ ${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carry
         reason,
         now,
         interruptionTurn,
-        { allowExactRouteFallback:true, recoveryLabel:'异常中断接力', historyReason:'connection-interrupted-fresh-chat' },
+        { allowExactRouteFallback:true, recoveryLabel:'异常中断接力', historyReason:'connection-interrupted-fresh-chat', connectionInterruption:true },
       )) return;
       task.state = 'waiting';
       task.updatedAt = now;
@@ -9983,7 +10004,7 @@ NaN
   }
   function taskRecoveryStatusText(task, now = Date.now()) {
     if (task?.stoppedConversationSince) return '停止按钮已消失；正在展开当前消息并复核整页授权卡片，确认异常中断后自动接力';
-    if (data.requireAuthorizationBeforeNewChat && task?.authorizationRequiredContinuation) return `当前会话尚未出现授权卡片；已继续 ${authorizationContinuationAttempts(task)}/3 次，最多继续 3 次后新开会话`;
+    if (authorizationContinuationEnabled(task) && task?.authorizationRequiredContinuation) return `当前会话尚未出现授权卡片；已继续 ${authorizationContinuationAttempts(task)}/3 次，最多继续 3 次后新开会话`;
     if (task?.state === 'approval') return !data.autoApprove && !data.globalAutoApprove
       ? '自动授权已关闭，任务正在等待手动处理；授权卡可能收在“先前活动”中。点击“定位授权卡”后选择允许或拒绝；等待期间不会自动重发任务'
       : '正在等待授权卡处理；可点击“定位授权卡”查看当前请求';
@@ -10196,7 +10217,7 @@ NaN
     const authGate = element('input'); authGate.type='checkbox'; authGate.checked=data.requireAuthorizationBeforeNewChat === true;
     authGate.setAttribute('aria-label','新开会话前检查授权（最多继续3次）');
     const authGateLabel=element('label'); authGateLabel.append(authGate,document.createTextNode('新开会话前检查授权（最多继续3次）'));
-    authGateLabel.title='开启后，无授权卡片时在原会话最多发送 3 次继续指令，仍无授权再新开；关闭则按普通结束/中断规则接力。';
+    authGateLabel.title='开启后，无授权卡片时在原会话最多发送 3 次继续指令，仍无授权再新开；关闭则普通结束/中断直接接力；连接中断且从未出现授权时，仍先在原会话最多续发 3 次。';
     const submit = element('button','↑','send'); submit.type='submit'; submit.setAttribute('aria-label','发送任务');
     const modelScopeHint = element('small','','model-scope-hint');
     controls.append(select,modelSelect,reasoningSelect,autoLabel,authGateLabel,submit); compose.append(input,attachmentBox,controls,modelScopeHint); chat.append(settings,feed,notice,compose); desk.append(sidebar,chat);
@@ -10415,7 +10436,7 @@ NaN
     authGate.onchange=()=>{
       data.requireAuthorizationBeforeNewChat=authGate.checked;
       for (const task of tabTasks()) {
-        if (!authGate.checked) task.authorizationRequiredContinuation=false;
+        if (!authGate.checked && !connectionInterruptionContinuationPending(task)) task.authorizationRequiredContinuation=false;
       }
       save();
       if (running) schedule(100);

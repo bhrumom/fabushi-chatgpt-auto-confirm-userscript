@@ -199,7 +199,7 @@
   }
   function taskRecoveryStatusText(task, now = Date.now()) {
     if (task?.stoppedConversationSince) return '停止按钮已消失；正在展开当前消息并复核整页授权卡片，确认异常中断后自动接力';
-    if (data.requireAuthorizationBeforeNewChat && task?.authorizationRequiredContinuation) return `当前会话尚未出现授权卡片；已继续 ${authorizationContinuationAttempts(task)}/3 次，最多继续 3 次后新开会话`;
+    if (authorizationContinuationEnabled(task) && task?.authorizationRequiredContinuation) return `当前会话尚未出现授权卡片；已继续 ${authorizationContinuationAttempts(task)}/3 次，最多继续 3 次后新开会话`;
     if (task?.state === 'approval') return !data.autoApprove && !data.globalAutoApprove
       ? '自动授权已关闭，任务正在等待手动处理；授权卡可能收在“先前活动”中。点击“定位授权卡”后选择允许或拒绝；等待期间不会自动重发任务'
       : '正在等待授权卡处理；可点击“定位授权卡”查看当前请求';
@@ -412,7 +412,7 @@
     const authGate = element('input'); authGate.type='checkbox'; authGate.checked=data.requireAuthorizationBeforeNewChat === true;
     authGate.setAttribute('aria-label','新开会话前检查授权（最多继续3次）');
     const authGateLabel=element('label'); authGateLabel.append(authGate,document.createTextNode('新开会话前检查授权（最多继续3次）'));
-    authGateLabel.title='开启后，无授权卡片时在原会话最多发送 3 次继续指令，仍无授权再新开；关闭则按普通结束/中断规则接力。';
+    authGateLabel.title='开启后，无授权卡片时在原会话最多发送 3 次继续指令，仍无授权再新开；关闭则普通结束/中断直接接力；连接中断且从未出现授权时，仍先在原会话最多续发 3 次。';
     const submit = element('button','↑','send'); submit.type='submit'; submit.setAttribute('aria-label','发送任务');
     const modelScopeHint = element('small','','model-scope-hint');
     controls.append(select,modelSelect,reasoningSelect,autoLabel,authGateLabel,submit); compose.append(input,attachmentBox,controls,modelScopeHint); chat.append(settings,feed,notice,compose); desk.append(sidebar,chat);
@@ -631,7 +631,7 @@
     authGate.onchange=()=>{
       data.requireAuthorizationBeforeNewChat=authGate.checked;
       for (const task of tabTasks()) {
-        if (!authGate.checked) task.authorizationRequiredContinuation=false;
+        if (!authGate.checked && !connectionInterruptionContinuationPending(task)) task.authorizationRequiredContinuation=false;
       }
       save();
       if (running) schedule(100);
