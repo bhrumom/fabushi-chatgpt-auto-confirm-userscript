@@ -1,6 +1,6 @@
 # Optional bounded authorization gate and concurrent-request recovery — v2.10.67
 
-Status: active
+Status: delivered; error-specific recovery superseded by v2.10.68
 Owner: Fabushi userscript
 Last updated: 2026-10-22
 
@@ -30,4 +30,6 @@ User request and screenshot 2026-10-22; AGENTS.md; conversation-authorization-re
 ## Compliance
 | Requirement | Status | Evidence |
 | --- | --- | --- |
-| R1-R6 / AC1-AC6 | pending | Implementation and verification pending. |
+| R1-R3 / AC1-AC3 | passed | PR #186 implements persisted default-off checkbox, route-scoped durable cap, no fourth send and carried final-report handoff. PR Test 39784939463: 535 tests, 528 pass, 0 fail, 7 skip. Retained and reverified in PR #187 and canonical main Test 39788417083; installed 2.10.68 checkbox visible and unchecked. |
+| R4-R5 / AC4-AC5 | passed for v2.10.67; superseded | Exact-error matcher and bounded Retry shipped in PR #186, merge e7e4e6d092ec14f9a4e7bbfd3c37ad2fabc8a0ef. Latest explicit user clarification replaces this with structural no-Stop expansion and whole-page card inspection in v2.10.68; its observer does not depend on Retry or known error copy. Ownership, pause, draft and pending-card protections remain covered. |
+| R6 / AC6 | passed | v2.10.67 main Test 39785371223 and Release 39785670192 succeeded; asset/source SHA256 47ea113cd17ced531306a9161ff5339aa8c33e11ec0dd708b6fbe593b0ac308d. Browser installation advanced directly from 2.10.66 to 2.10.68 to satisfy the latest requirement. Exact runtime/UI acceptance and live-evidence limits are recorded in structural-stop-absence-recovery-v2.10.68.md. |
