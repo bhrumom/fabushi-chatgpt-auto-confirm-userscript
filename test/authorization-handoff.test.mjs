@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 const source = await fs.readFile(new URL('../chatgpt-auto-confirm.user.js', import.meta.url), 'utf8');
-const names = 'data,tabId,cards,concurrentRequestRetry,recoverConcurrentRequest,authorizationContinuationAttempts,authorizationGateExhausted,durableWorkbenchSnapshot,recordConversationAuthorization,conversationAuthorizationSeen,requireConversationAuthorization,continueWithoutAuthorization,durableTaskSnapshot,finish,queueInterruptedFreshRetry,queueBlockedFreshRetry,queueConversationLengthHandoff,queueWorkFinalReportRepair,clearDispatchIntent';
+const names = 'data,tabId,cards,inspect,concurrentRequestRetry,recoverConcurrentRequest,authorizationContinuationAttempts,authorizationGateExhausted,durableWorkbenchSnapshot,recordConversationAuthorization,conversationAuthorizationSeen,requireConversationAuthorization,continueWithoutAuthorization,durableTaskSnapshot,finish,queueInterruptedFreshRetry,queueBlockedFreshRetry,queueConversationLengthHandoff,queueWorkFinalReportRepair,clearDispatchIntent';
 async function harness({authorizationGate=true}={}) {
   const dom = new JSDOM('<main><article data-message-author-role="user" data-message-id="u1">[Fabushi:guard-token]</article><article data-message-author-role="assistant" data-message-id="a1">已结束的回复</article></main><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">发送</button></form>', { runScripts:'outside-only', pretendToBeVisual:true, url:'https://chatgpt.com/c/guard' });
   const w = dom.window;
@@ -238,3 +238,25 @@ for(const condition of ['quote','foreign-route','paused','draft','approval','sto
     }finally{dom.window.close();}
   });
 }
+
+test('shared-renderer sibling error is handled before a persisted no-card continuation wait',async()=>{
+  const {dom,w,h,task}=await harness();
+  try {
+    w.document.querySelector('main').innerHTML='<div data-content-search-turn-key="shared-concurrent"><div data-content-search-unit-key="shared-concurrent:0:user"><div data-user-message-bubble="true">执行 [Fabushi:guard-token]</div></div><div data-content-search-unit-key="shared-concurrent:2:assistant"><div data-testid="tool-call-result">已有工作记录</div></div><div class="error"><span>Too many concurrent requests</span><button id="retry">重试</button></div></div>';
+    task.authorizationRequiredContinuation=true;
+    let retries=0;w.document.querySelector('#retry').onclick=()=>retries++;
+    await h.inspect(task,null);
+    assert.ok(task.concurrentRequestRetryAt>Date.now());
+    assert.equal(task.state,'waiting');assert.equal(retries,0);
+    assert.equal(task.url,'https://chatgpt.com/c/guard');
+  }finally{dom.window.close();}
+});
+test('a settled final reply is not overridden by an earlier concurrent error in the same response',async()=>{
+  const {dom,w,h,task}=await harness({authorizationGate:false});
+  try {
+    w.document.querySelector('[data-message-author-role="assistant"]').innerHTML='<div>Too many concurrent requests</div><button id="retry">重试</button><div class="markdown">'+JSON.stringify({taskId:task.id,round:1,status:'complete',summary:'新的成功结果',next:''})+'</div><button aria-label="复制"></button><button aria-label="赞"></button>';
+    let retries=0;w.document.querySelector('#retry').onclick=()=>retries++;
+    assert.equal(await h.recoverConcurrentRequest(task,null),false);
+    assert.equal(retries,0);assert.equal(task.concurrentRequestRetryAt,undefined);
+  }finally{dom.window.close();}
+});

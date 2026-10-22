@@ -4850,7 +4850,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
   }
   function rateLimitNotice(getPageRecords = pageUiTextRecords) {
     const startedAt = performance.now();
-    const pattern = /请求过于频繁|你的请求过于频繁|请稍等几分钟后再重试|访问频率受限|too many concurrent requests|并发请求过多|too many requests|rate limit/i;
+    const pattern = /请求过于频繁|你的请求过于频繁|请稍等几分钟后再重试|访问频率受限|too many requests|rate limit/i;
     // Inspect actual page notices, never the task transcript or this panel.
     // A separate ChatGPT popup can say requests are frequent while only
     // restricting access to older conversation/history records. That popup
@@ -4947,12 +4947,17 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     }
     return null;
   }
-  function concurrentRequestRetry(turn) {
+  function concurrentRequestRetry(turn, getPageRecords = pageUiTextRecords) {
     const article = turn?.article;
     if (!article) return null;
-    for (const record of responseTextNodes(turn)) {
+    const follows = (a,b) => Boolean(a && b && (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING));
+    const user = conversationRoleNodes('user').at(-1);
+    for (const record of [...responseTextNodes(turn), ...getPageRecords()]) {
       const parent = record.parent;
-      if (!parent || !article.contains(parent) || !visible(parent)
+      if (!parent || !visible(parent) || own(parent) || parent.closest('blockquote,pre,code')
+        || conversationRole(parent.closest?.(conversationRoleSelector)) === 'user'
+        || (!article.contains(parent) && !follows(article,parent))
+        || (user && !follows(user,parent))
         || !/^(?:too many concurrent requests|并发请求过多|同时请求过多)[.!。！]?$/i.test(record.direct)) continue;
       for (let scope = parent, depth = 0; scope && depth < 6; scope = scope.parentElement, depth++) {
         if (scope.matches('main,[role="main"],body') || own(scope)) break;
@@ -4976,7 +4981,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
       && !conversationRoleNodes('user').some(node => /\[Fabushi:[^\]]+\]/.test(text(node)))) {
       turn = { ...latestTurn(), owned:true };
     }
-    if (!turn.owned) return false;
+    if (!turn.owned || turn.final) return false;
     const retry = concurrentRequestRetry(turn);
     if (!retry) return false;
     // An unresolved grant and genuine generation always keep their normal
