@@ -187,6 +187,10 @@ async function bootstrapAttempt() {
   const CONVERSATION_LOAD_FAILURE_REFRESH_LIMIT = 7;
   const ROUTE_RECOVERY_RETRY_INTERVAL_MS = 60 * 1000; // legacy persisted-field compatibility; exhaustion no longer auto-retries.
   const CONTINUATION_PROMPT = '继续完成所有，闭环后按模板输入';
+  function isContinuationPrompt(value) {
+    const prompt = normalize(value);
+    return prompt === CONTINUATION_PROMPT || prompt === '继续完成所有';
+  }
   const MAX_SAME_SESSION_CONTINUATIONS = 3;
   const CONTINUATION_SEND_COOLDOWN_MS = 60 * 1000;
   const ENDED_NO_FINAL_STABILITY_MS = 8000;
@@ -2847,7 +2851,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     if (!user || !renderedConversationMessage(user)) return false;
     const marker = taskMarkerUser(task);
     if (marker && marker !== user && !(Number(task.continuationCount || 0) > 0
-      && normalize(text(user)) === CONTINUATION_PROMPT)) return false;
+      && isContinuationPrompt(text(user)))) return false;
     const assistant = conversationRoleNodes('assistant').filter(node =>
       Boolean(user.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING)).at(-1);
     const targets = [user, assistant].filter(Boolean);
@@ -5264,7 +5268,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
       && latestUser
       && latestUser !== markedUser
       && Number(task.continuationCount || 0) > 0
-      && normalize(text(latestUser)) === CONTINUATION_PROMPT
+      && isContinuationPrompt(text(latestUser))
       && Boolean(markedUser.compareDocumentPosition(latestUser) & Node.DOCUMENT_POSITION_FOLLOWING)
         ? latestUser
         : null;
@@ -5783,7 +5787,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
       && task.token
       && latestUser
       && Number(task.continuationCount || 0) > 0
-      && normalize(text(latestUser)) === CONTINUATION_PROMPT
+      && isContinuationPrompt(text(latestUser))
       && liveURL
       && canonicalConversationURL(task.url) === liveURL
       && !conversationURLOwner(liveURL, task.id)
@@ -5798,7 +5802,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
       && latestUser
       && latestUser !== markedUser
       && Number(task.continuationCount || 0) > 0
-      && normalize(text(latestUser)) === CONTINUATION_PROMPT
+      && isContinuationPrompt(text(latestUser))
       && Boolean(markedUser.compareDocumentPosition(latestUser) & Node.DOCUMENT_POSITION_FOLLOWING)
         ? latestUser
         : null;
@@ -6136,7 +6140,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     const recoveredContinuation = Boolean(
       latestMountedUser
       && Number(task.continuationCount || 0) > 0
-      && normalize(text(latestMountedUser)) === CONTINUATION_PROMPT,
+      && isContinuationPrompt(text(latestMountedUser)),
     );
     // A persisted continuation send plus its exact prompt is a verifiable
     // current-turn boundary even after ChatGPT virtualizes the original task
@@ -7285,7 +7289,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && now - Number(task.continuationSentAt) < CONTINUATION_SEND_COOLDOWN_MS) return false;
     // A newly mounted continuation without its assistant response is not an
     // ended round. Keep waiting rather than immediately sending it again.
-    if (normalize(text(user)) === CONTINUATION_PROMPT && !turn.text) return false;
+    if (isContinuationPrompt(text(user)) && !turn.text) return false;
     const input = composer();
     if (!input) return false;
     const draft = normalize(input.value || input.textContent);
@@ -7626,12 +7630,8 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.pendingContinuationProbeAt = 0;
   }
   async function sendContinuation(task, signal, reason = '当前会话异常中断', now = Date.now(), options = {}) {
-    // Compatibility entry point for abnormal/legacy interruption recovery.
-    // Never type or send “继续完成所有” in the broken conversation. Stop may
-    // remain visible after the product declares an interruption; that notice is
-    // now treated as terminal abnormal evidence for this dispatch. Preserve the
-    // visible work, complete the no-approval safety confirmation, then continue
-    // in a fresh conversation.
+    // Bound conversations without a prior card continue in place. Qualified
+    // conversations retain the existing guarded fresh-handoff behavior.
     if (!task || terminal.has(task.state) || task.state === 'paused') return false;
     const liveURL = currentConversationURL();
     const taskURL = canonicalConversationURL(task.url);
@@ -8821,7 +8821,7 @@ ${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carry
     const composerReady = Boolean(composerNode);
     let composerDraft = normalize(composerNode?.value || composerNode?.textContent);
     let composerEmpty = Boolean(composerReady && !composerDraft);
-    let composerHasRecoveryDraft = Boolean(composerReady && composerDraft === CONTINUATION_PROMPT);
+    let composerHasRecoveryDraft = Boolean(composerReady && isContinuationPrompt(composerDraft));
     const latestMountedUser = conversationRoleNodes('user').at(-1) || null;
     const userBoundaryKey = recoveryUserBoundaryKey(latestMountedUser);
     const cacheRetry = routeOwned && (turn.owned || routeEndedOwned) && !foreignTask && !otherRouteOwner

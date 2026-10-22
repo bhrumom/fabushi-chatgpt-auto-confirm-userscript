@@ -187,6 +187,10 @@ async function bootstrapAttempt() {
   const CONVERSATION_LOAD_FAILURE_REFRESH_LIMIT = 7;
   const ROUTE_RECOVERY_RETRY_INTERVAL_MS = 60 * 1000; // legacy persisted-field compatibility; exhaustion no longer auto-retries.
   const CONTINUATION_PROMPT = '继续完成所有，闭环后按模板输入';
+  function isContinuationPrompt(value) {
+    const prompt = normalize(value);
+    return prompt === CONTINUATION_PROMPT || prompt === '继续完成所有';
+  }
   const MAX_SAME_SESSION_CONTINUATIONS = 3;
   const CONTINUATION_SEND_COOLDOWN_MS = 60 * 1000;
   const ENDED_NO_FINAL_STABILITY_MS = 8000;

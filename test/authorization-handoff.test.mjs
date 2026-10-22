@@ -9,7 +9,7 @@ async function harness() {
   const w = dom.window;
   w.Element.prototype.getClientRects = () => [{width:1,height:1}];
   w.navigator.locks = { request(_n, options, callback) { return Promise.resolve((typeof options === 'function' ? options : callback)({})); } };
-  w.eval(source.replace('  mount();', `  window.hooks = {${names},run:()=>{running=true;data.autoResume=true;}};\n  mount();`));
+  await w.eval(source.replace('  mount();', `  window.hooks = {${names},run:()=>{running=true;data.autoResume=true;}};\n  mount();`));
   const h=w.hooks;
   const task={id:'guard',ownerTabId:h.tabId,url:w.location.href,phase:'work',round:1,mode:'goal',state:'waiting',token:'guard-token',attempted:false,goal:'完成目标',attachments:[],messages:[],goalRevision:0,dispatchGoalRevision:0};
   h.data.tasks.push(task); h.run();

@@ -874,7 +874,7 @@
     const composerReady = Boolean(composerNode);
     let composerDraft = normalize(composerNode?.value || composerNode?.textContent);
     let composerEmpty = Boolean(composerReady && !composerDraft);
-    let composerHasRecoveryDraft = Boolean(composerReady && composerDraft === CONTINUATION_PROMPT);
+    let composerHasRecoveryDraft = Boolean(composerReady && isContinuationPrompt(composerDraft));
     const latestMountedUser = conversationRoleNodes('user').at(-1) || null;
     const userBoundaryKey = recoveryUserBoundaryKey(latestMountedUser);
     const cacheRetry = routeOwned && (turn.owned || routeEndedOwned) && !foreignTask && !otherRouteOwner

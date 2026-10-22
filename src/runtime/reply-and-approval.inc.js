@@ -37,7 +37,7 @@
       && latestUser
       && latestUser !== markedUser
       && Number(task.continuationCount || 0) > 0
-      && normalize(text(latestUser)) === CONTINUATION_PROMPT
+      && isContinuationPrompt(text(latestUser))
       && Boolean(markedUser.compareDocumentPosition(latestUser) & Node.DOCUMENT_POSITION_FOLLOWING)
         ? latestUser
         : null;
@@ -556,7 +556,7 @@
       && task.token
       && latestUser
       && Number(task.continuationCount || 0) > 0
-      && normalize(text(latestUser)) === CONTINUATION_PROMPT
+      && isContinuationPrompt(text(latestUser))
       && liveURL
       && canonicalConversationURL(task.url) === liveURL
       && !conversationURLOwner(liveURL, task.id)
@@ -571,7 +571,7 @@
       && latestUser
       && latestUser !== markedUser
       && Number(task.continuationCount || 0) > 0
-      && normalize(text(latestUser)) === CONTINUATION_PROMPT
+      && isContinuationPrompt(text(latestUser))
       && Boolean(markedUser.compareDocumentPosition(latestUser) & Node.DOCUMENT_POSITION_FOLLOWING)
         ? latestUser
         : null;
@@ -909,7 +909,7 @@
     const recoveredContinuation = Boolean(
       latestMountedUser
       && Number(task.continuationCount || 0) > 0
-      && normalize(text(latestMountedUser)) === CONTINUATION_PROMPT,
+      && isContinuationPrompt(text(latestMountedUser)),
     );
     // A persisted continuation send plus its exact prompt is a verifiable
     // current-turn boundary even after ChatGPT virtualizes the original task

@@ -375,7 +375,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && now - Number(task.continuationSentAt) < CONTINUATION_SEND_COOLDOWN_MS) return false;
     // A newly mounted continuation without its assistant response is not an
     // ended round. Keep waiting rather than immediately sending it again.
-    if (normalize(text(user)) === CONTINUATION_PROMPT && !turn.text) return false;
+    if (isContinuationPrompt(text(user)) && !turn.text) return false;
     const input = composer();
     if (!input) return false;
     const draft = normalize(input.value || input.textContent);
@@ -716,12 +716,8 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.pendingContinuationProbeAt = 0;
   }
   async function sendContinuation(task, signal, reason = '当前会话异常中断', now = Date.now(), options = {}) {
-    // Compatibility entry point for abnormal/legacy interruption recovery.
-    // Never type or send “继续完成所有” in the broken conversation. Stop may
-    // remain visible after the product declares an interruption; that notice is
-    // now treated as terminal abnormal evidence for this dispatch. Preserve the
-    // visible work, complete the no-approval safety confirmation, then continue
-    // in a fresh conversation.
+    // Bound conversations without a prior card continue in place. Qualified
+    // conversations retain the existing guarded fresh-handoff behavior.
     if (!task || terminal.has(task.state) || task.state === 'paused') return false;
     const liveURL = currentConversationURL();
     const taskURL = canonicalConversationURL(task.url);
