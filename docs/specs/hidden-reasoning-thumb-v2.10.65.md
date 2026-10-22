@@ -1,6 +1,6 @@
 # Read reasoning value from hidden semantic thumb — Specification
 
-Status: active
+Status: completed
 Owner: standalone ChatGPT auto-confirm userscript
 Last updated: 2026-10-22
 
@@ -44,4 +44,11 @@ DOM role/aria/data-active observations, CI results, release digest, runtime vers
 ## 16. References / provenance
 AGENTS.md; model-picker-close-v2.10.64.md; per-task-model-selector-v2.10.31.md; live Chrome DOM and synthetic owner keyboard events, 2026-10-22.
 ## 17. Spec compliance record
-Pending verification.
+| Requirement / AC | Status | Evidence / reason |
+| --- | --- | --- |
+| R1, R2 / AC-1 | passed | Live outer menuitem keyboard events changed hidden semantic thumb 1 -> 2 -> 3. Regression includes thumb aria-hidden=true and zero layout boxes, owner-only key delivery, inactive/hidden/disabled owner rejection and malformed/out-of-range numeric rejection. |
+| R3, R4 / AC-2 | passed | All GPT-6/GPT-5.6 Sol/GPT-5.5 fixtures reuse same-token proof without reopening. Changed token, revision, route, cleared confirmation, task identity, ambiguous label and active popup invalidate proof. Model proof remains ephemeral and requires initial authoritative confirmation. |
+| AC-3 | passed | PR #184 head 5fc43e22a510e0b2d4fd6034cd8b9f3030abd6ef Test 39745014024; canonical main ef02f18ab792eee243973f1620144ec24bf50513 Test 39746346266: 503 total, 496 passed, 0 failed, 7 skips. Release 39746618228 succeeded. Asset 545666 bytes, SHA-256 2f44487766dea049a7e9f19554a2a8cb47b1cd663a3762ad1810bd8d6b7a74bc, downloaded asset byte-identical to tested source. Chrome extension and original page both read 2.10.65. |
+| R5 / AC-4 | passed | Original task 3dd43a37-9f36-4b7a-adac-dfcc87584523 resumed after installation with live effort high. Read-only event recording observed exactly one model-submenu entry, zero model-target clicks, and one ArrowRight on visible Strength owner with thumb value 2. Trigger became max. Same task round 4 entered generating at /c/6ad9c6a4-0eec-83e8-805e-8798dc8a3b54, token 374a8c12-e10c-4622-96f7-6f0158c41006, menus=0. No manual picker adjustment after installation/resume. |
+
+Additional tab evidence: another formerly stuck tab advanced automatically after script update to /c/6ad9c662-1e08-83e8-b11b-2a0ce6006799 (继续执行迁移审计), native UI composer 5.6 / 极高 and Stop visible. A later native readback showed its continuation /c/6ad9d770-8de4-83e8-a8ce-9ba3e1556418 with 5.6 / Extra High and an actively progressing response. GPT-5.5 is regression-tested for compatibility; current live menu offers GPT-6/GPT-5.6, so no claim of live GPT-5.5 entitlement/dispatch is made.
