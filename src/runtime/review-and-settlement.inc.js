@@ -151,6 +151,10 @@
   }
   function finish(task, reply) {
     if (requireConversationAuthorization(task, '当前会话已给出最终回复')) return;
+    if (authorizationGateExhausted(task)) {
+      queueInterruptedFreshRetry(task, '当前会话已继续 3 次仍未出现授权卡片', Date.now(), null, { allowExactRouteFallback:true, recoveryLabel:'无授权卡三次继续上限', historyReason:'authorization-continuation-limit' });
+      return;
+    }
     task.preview = '';
     task.previewSourceURL = '';
     task.previewPhase = '';
@@ -172,6 +176,9 @@
     task.lastBlockedRecoveryAt = 0;
     task.cooldownUntil = 0;
     task.rateLimitEpisodes = 0;
+    task.concurrentRequestIdentity = '';
+    task.concurrentRequestRetryAt = 0;
+    task.concurrentRequestRetryCount = 0;
     task.sendPrepared = false;
     task.preparedPrompt = '';
     task.sendUiWaitSince = 0;
@@ -282,9 +289,11 @@
       state(task, 'waiting', '正在等待切换到当前任务会话；不会读取其他任务的页面内容。');
       return;
     }
+    if (await recoverConcurrentRequest(task, signal)) return;
     if (task.authorizationRequiredContinuation) {
       cards({ wide:true });
-      if (!conversationAuthorizationSeen(task)) {
+      if (data.requireAuthorizationBeforeNewChat === true && !conversationAuthorizationSeen(task)
+        && !authorizationGateExhausted(task)) {
         await continueWithoutAuthorization(task, signal);
         return;
       }

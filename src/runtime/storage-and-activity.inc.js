@@ -519,6 +519,7 @@
         pausedAt:Number(control.pausedAt || 0),
         globalAutoApprove:Boolean(control.globalAutoApprove),
         autoApprove:control.autoApprove !== false,
+        requireAuthorizationBeforeNewChat:control.requireAuthorizationBeforeNewChat === true,
       };
     }
     const selected = taskIds.has(source.selected) ? source.selected : (selectedByTab[activeWorkspaceStorageId] || '');

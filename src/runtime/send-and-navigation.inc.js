@@ -342,6 +342,15 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     save();
     return true;
   }
+  function authorizationContinuationAttempts(task) {
+    const route = canonicalConversationURL(task?.url);
+    if (!route || canonicalConversationURL(task.authorizationContinuationURL) !== route) return 0;
+    return Math.max(0, Number(task.authorizationContinuationAttempts ?? task.continuationCount) || 0);
+  }
+  function authorizationGateExhausted(task) {
+    return data.requireAuthorizationBeforeNewChat === true && !conversationAuthorizationSeen(task)
+      && authorizationContinuationAttempts(task) >= 3;
+  }
   function requireConversationAuthorization(task, reason = '当前会话已结束或中断') {
     if (!task || !canonicalConversationURL(task.url)) return false;
     const pending = currentConversationURL() === canonicalConversationURL(task.url) ? cards({ wide:true }) : [];
@@ -353,17 +362,19 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       save();
       return true;
     }
-    if (conversationAuthorizationSeen(task)) return false;
+    if (data.requireAuthorizationBeforeNewChat !== true || conversationAuthorizationSeen(task)
+      || authorizationGateExhausted(task)) return false;
     if (!task.authorizationRequiredContinuation) {
       task.authorizationRequiredContinuation = true;
       task.state = 'waiting';
-      log(task, `${reason}；当前会话从未观察到授权卡片，保留原会话继续完成所有，闭环后按模板输入；不会结束任务或新开会话。`);
+      log(task, `${reason}；当前会话尚未观察到授权卡片，留在原会话继续完成所有，闭环后按模板输入（已继续 ${authorizationContinuationAttempts(task)}/3 次）；最多继续 3 次后新开会话。`);
       save();
     }
     return true;
   }
   async function continueWithoutAuthorization(task, signal, now = Date.now()) {
     const route = currentConversationURL();
+    if (data.requireAuthorizationBeforeNewChat !== true || authorizationGateExhausted(task)) return false;
     if (!running || data.autoResume === false || signal?.aborted
       || !route || route !== canonicalConversationURL(task.url) || task.attempted
       || !taskBelongsToTab(task) || terminal.has(task.state) || task.state === 'paused'
@@ -407,7 +418,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && now - Number(task.continuationSentAt) < CONTINUATION_SEND_COOLDOWN_MS) return false;
     // A newly mounted continuation without its assistant response is not an
     // ended round. Keep waiting rather than immediately sending it again.
-    if (isContinuationPrompt(text(user)) && !turn.text) return false;
+    if (isContinuationPrompt(text(user)) && !turn.text && !concurrentRequestRetry(turn)) return false;
     const input = composer();
     if (!input) return false;
     const draft = normalize(input.value || input.textContent);
@@ -421,10 +432,13 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       || blocker() || rateLimitNotice() || terminal.has(task.state) || task.state === 'paused'
       || !taskBelongsToTab(task) || conversationURLOwner(route, task.id)
       || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))
+      || data.requireAuthorizationBeforeNewChat !== true || authorizationGateExhausted(task)
       || normalize(input.value || input.textContent) !== CONTINUATION_PROMPT) return false;
     button = sendButtonFor(input);
     if (!button) return false;
+    const attempts = authorizationContinuationAttempts(task);
     task.authorizationContinuationURL = route;
+    task.authorizationContinuationAttempts = attempts + 1;
     task.authorizationContinuationBoundary = boundary;
     task.authorizationRequiredContinuation = false;
     task.continuationSentAt = now;
@@ -434,13 +448,17 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     observations.delete(task.id);
     save();
     activateControl(button);
-    log(task, '当前会话尚未出现授权卡片；已在原会话发送“继续完成所有，闭环后按模板输入”，等待执行与授权，不新开会话。');
+    log(task, `当前会话尚未出现授权卡片；已在原会话发送“继续完成所有，闭环后按模板输入”（第 ${task.authorizationContinuationAttempts}/3 次），等待执行与授权；本次结束仍无授权且已满 3 次时新开会话。`);
     return true;
   }
   function clearDispatchIntent(task) {
     task.authorizationRequiredContinuation = false;
     task.authorizationContinuationURL = '';
+    task.authorizationContinuationAttempts = 0;
     task.authorizationContinuationBoundary = '';
+    task.concurrentRequestIdentity = '';
+    task.concurrentRequestRetryAt = 0;
+    task.concurrentRequestRetryCount = 0;
     task.approvalRecoveryExhausted = false;
     clearApprovalSubmission(task);
     clearRecoveredFinalIdentity(task);
