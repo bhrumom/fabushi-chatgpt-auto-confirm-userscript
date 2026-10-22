@@ -1,6 +1,6 @@
 # GPT-6 picker completion and inactive views — Specification
 
-Status: active
+Status: completed
 Owner: standalone ChatGPT auto-confirm userscript
 Last updated: 2026-10-22
 
@@ -45,4 +45,11 @@ CI/release URLs, asset digest and installed/live state below.
 ## 16. References / provenance
 AGENTS.md; per-task-model-selector-v2.10.31.md; sticky-model-popup-outside-dismiss-v2.10.34.md; user clarification and native Chrome DOM/task log on 2026-10-22.
 ## 17. Spec compliance record
-Pending verification.
+| Requirement / AC | Status | Evidence / reason |
+| --- | --- | --- |
+| R1, R5, R6 / AC-3 | passed | PR #183 head 4c83fd65dae4829e13e1d9d7c7d92218725f39a6 Test 39740841848 and main 85b32483a7d7612564972fd216f39f8cd28bf73b Test 39741118899: 499 tests, 492 passed, 0 failed, 7 skips. Existing pre-Send ordering and model selection tests remain green. |
+| R2, R3 / AC-1 | passed | Added behavioral regression: selected GPT-6, Escape/toggle ignored, outside-main heading pointerdown closes radio portal, then reasoning index 3 confirms. No model reselect or Send. Native manual outside-heading dismissal also let original task advance before installation. |
+| R4 / AC-2 | passed | Inactive data-active=false and aria-hidden radios ignored; disabled inactive strength does not mask active slider; selected undismissable popup fails model confirmation and unsafe transcript/nav/header headings are not clicked. |
+| AC-4 | passed | Release 39741315447 published v2.10.64 at source 85b32483a7d7612564972fd216f39f8cd28bf73b. Asset 544374 bytes, sha256 00a013cbe0246ed4425029fb22ab1069a921c135fbe0a3ad09afa22c1e042743; downloaded asset byte-identical to installed source. Chrome extension readback shows enabled 2.10.64; current ChatGPT root dataset.version=2.10.64. |
+
+Live scope: current original task 3dd43a37-9f36-4b7a-adac-dfcc87584523 retained GPT-6 / reasoning 3, round 2, generating, token 6e98a091-bd8f-4bd4-9a10-c7d1e8cb49a9, conversation /c/6ad9baa8-79f4-83e8-bb4d-3314cf65f7aa and zero radio popup entries. The task advanced after diagnostic native outside dismissal before new code installation; the new close-to-reasoning flow is proven by CI regression, not a claimed new automatic production dispatch. Runtime update continued supervising the same task without an additional observed send.
