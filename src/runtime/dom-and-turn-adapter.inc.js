@@ -212,6 +212,49 @@
     }
     return false;
   }
+  const stoppedActivityRevealAttempts = new Map();
+  function revealStoppedResponseActivity(task, signal) {
+    if (!running || data.autoResume === false || signal?.aborted || stopButton() || !task || task.attempted
+      || terminal.has(task.state) || task.state === 'paused' || !taskBelongsToTab(task)) return false;
+    const route = currentConversationURL();
+    if (!route || route !== canonicalConversationURL(task.url) || conversationURLOwner(route, task.id)
+      || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))
+      || approvalSettlementActive(task, route)) return false;
+    const users = conversationRoleNodes('user');
+    const user = users.at(-1);
+    const marker = taskMarkerUser(task);
+    if (marker && marker !== user && !(task.continuationCount && isContinuationPrompt(text(user)))) return false;
+    const turn = taskTurnForInspection(task);
+    if (turn.final || currentWorkFinalReport(turn.text,task)) return false;
+    const article = turn.article || conversationRoleNodes('assistant').at(-1);
+    if (!article) return false;
+    const scope = article.closest?.(conversationTurnSelector) || article;
+    const controls = nodes('button,[role="button"],summary',scope).filter(control => {
+      if (!enabled(control) || control.hasAttribute('aria-haspopup') || control.getAttribute('aria-expanded') === 'true'
+        || control.closest('blockquote,pre,code,nav,aside,form,textarea,[contenteditable="true"],[data-message-author-role="user"],[data-user-message-bubble="true"]')
+        || (user && (user.contains(control) || !(user.compareDocumentPosition(control) & Node.DOCUMENT_POSITION_FOLLOWING)))
+        || actionMatches(control, allowLabel) || actionMatches(control, denyLabel)) return false;
+      const summary = control.tagName === 'SUMMARY' && control.parentElement?.tagName === 'DETAILS' && !control.parentElement.open;
+      return summary || control.getAttribute('aria-expanded') === 'false'
+        || /^(?:(?:用时|思考了|已处理)\s*\d|先前活动|查看活动|显示活动|previous activity|show activity|thought for|worked for)/i.test(text(control));
+    });
+    for (const control of controls) {
+      const key=JSON.stringify([task.id,route,task.token,task.round,recoveryUserBoundaryKey(user),
+        assistantResponseBoundaryKey(turn),control.getAttribute('aria-controls') || text(control)]);
+      const previous=stoppedActivityRevealAttempts.get(key);
+      if (previous) {
+        if (Date.now()-previous < 1500) return true; // Let lazy authorization content mount before checking.
+        continue; // Do not collapse a remounted activity or loop on a failed reveal.
+      }
+      if (stoppedActivityRevealAttempts.size>=40) stoppedActivityRevealAttempts.delete(stoppedActivityRevealAttempts.keys().next().value);
+      stoppedActivityRevealAttempts.set(key,Date.now());
+      clearStoppedConversationInspection(task);
+      activateControl(control);
+      log(task,'停止按钮已消失；已展开当前回复的折叠活动，下一轮重新扫描整页授权卡片后判断是否异常中断。');
+      return true;
+    }
+    return false;
+  }
   const pageUiAuthoredInputSelector = '#prompt-textarea,textarea,input,[contenteditable="true"],[role="textbox"]';
   function pageUiTextRecords() {
     const startedAt = performance.now();

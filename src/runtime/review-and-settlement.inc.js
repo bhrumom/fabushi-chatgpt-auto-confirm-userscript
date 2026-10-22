@@ -176,6 +176,7 @@
     task.lastBlockedRecoveryAt = 0;
     task.cooldownUntil = 0;
     task.rateLimitEpisodes = 0;
+    clearStoppedConversationInspection(task);
     task.concurrentRequestIdentity = '';
     task.concurrentRequestRetryAt = 0;
     task.concurrentRequestRetryCount = 0;
@@ -289,7 +290,9 @@
       state(task, 'waiting', '正在等待切换到当前任务会话；不会读取其他任务的页面内容。');
       return;
     }
-    if (await recoverConcurrentRequest(task, signal)) return;
+    if (revealCurrentCollapsedMessage(task, signal)) return;
+    if (revealStoppedResponseActivity(task, signal)) return;
+    if (await recoverStoppedConversation(task, signal)) return;
     if (task.authorizationRequiredContinuation) {
       cards({ wide:true });
       if (data.requireAuthorizationBeforeNewChat === true && !conversationAuthorizationSeen(task)
@@ -300,7 +303,6 @@
       task.authorizationRequiredContinuation = false;
       save();
     }
-    if (revealCurrentCollapsedMessage(task, signal)) return;
     // Handle an in-response Work upsell before any generic modal dismissal or
     // Stop-absent/connection-interrupted fresh-chat decision. The exact task
     // route was checked above and no second ChatGPT prompt is sent here.
@@ -682,7 +684,8 @@
       return;
     }
     const stopDisappearedFreshCandidate = Boolean(
-      !stopPresent
+      !task.stoppedConversationIdentity
+      && !stopPresent
       // WorkFinal uses the bounded settlement/no-final path below so long
       // reasoning and delayed toolbar hydration cannot create duplicate
       // acceptance chats.
@@ -752,7 +755,7 @@
       }
       clearStopNoApprovalConfirmation(task);
       stopDisappearedFreshEligible = true;
-    } else if (task.stopNoApprovalConfirmSince || task.stopNoApprovalConfirmSignature) {
+    } else if (!task.stoppedConversationIdentity && (task.stopNoApprovalConfirmSince || task.stopNoApprovalConfirmSignature)) {
       clearStopNoApprovalConfirmation(task);
       task.updatedAt = now;
       save();

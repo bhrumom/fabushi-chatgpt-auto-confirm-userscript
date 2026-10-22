@@ -372,7 +372,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     }
     return true;
   }
-  async function continueWithoutAuthorization(task, signal, now = Date.now()) {
+  async function continueWithoutAuthorization(task, signal, now = Date.now(), options = {}) {
     const route = currentConversationURL();
     if (data.requireAuthorizationBeforeNewChat !== true || authorizationGateExhausted(task)) return false;
     if (!running || data.autoResume === false || signal?.aborted
@@ -418,7 +418,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && now - Number(task.continuationSentAt) < CONTINUATION_SEND_COOLDOWN_MS) return false;
     // A newly mounted continuation without its assistant response is not an
     // ended round. Keep waiting rather than immediately sending it again.
-    if (isContinuationPrompt(text(user)) && !turn.text && !concurrentRequestRetry(turn)) return false;
+    if (isContinuationPrompt(text(user)) && !turn.text && !options.endedConfirmed) return false;
     const input = composer();
     if (!input) return false;
     const draft = normalize(input.value || input.textContent);
@@ -441,6 +441,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.authorizationContinuationAttempts = attempts + 1;
     task.authorizationContinuationBoundary = boundary;
     task.authorizationRequiredContinuation = false;
+    clearStoppedConversationInspection(task);
     task.continuationSentAt = now;
     task.continuationCount = Number(task.continuationCount || 0) + 1;
     task.state = 'waiting';
@@ -456,6 +457,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     task.authorizationContinuationURL = '';
     task.authorizationContinuationAttempts = 0;
     task.authorizationContinuationBoundary = '';
+    clearStoppedConversationInspection(task);
     task.concurrentRequestIdentity = '';
     task.concurrentRequestRetryAt = 0;
     task.concurrentRequestRetryCount = 0;
