@@ -260,3 +260,23 @@ test('a settled final reply is not overridden by an earlier concurrent error in 
     assert.equal(retries,0);assert.equal(task.concurrentRequestRetryAt,undefined);
   }finally{dom.window.close();}
 });
+
+for(const previousSends of [1,3]) test(`persistent concurrent error respects enabled gate with ${previousSends} prior sends`,async()=>{
+  const {dom,w,h,task}=await harness();
+  try {
+    let now=Date.now();w.Date.now=()=>now;
+    task.authorizationContinuationURL=task.url;task.continuationCount=previousSends;
+    task.authorizationContinuationAttempts=previousSends;
+    task.continuationSentAt=now-120_000;
+    w.document.querySelector('main').insertAdjacentHTML('beforeend','<article data-message-author-role="user" data-message-id="continued-user">继续完成所有，闭环后按模板输入</article><article data-message-author-role="assistant" data-message-id="concurrency-failure"><div>Too many concurrent requests</div><button id="retry">重试</button></article>');
+    let retries=0,sends=0;w.document.querySelector('#retry').onclick=()=>retries++;
+    w.document.querySelector('[data-testid="send-button"]').onclick=event=>{event.preventDefault();sends++;};
+    await h.recoverConcurrentRequest(task,null,now);
+    now+=30_000;await h.recoverConcurrentRequest(task,null,now);
+    now+=60_000;await h.recoverConcurrentRequest(task,null,now);
+    assert.equal(retries,1);
+    assert.equal(sends,previousSends===3?0:1);
+    if(previousSends===3){assert.equal(task.url,'');assert.equal(task.state,'queued');}
+    else {assert.equal(task.url,'https://chatgpt.com/c/guard');assert.equal(h.authorizationContinuationAttempts(task),2);}
+  }finally{dom.window.close();}
+});
