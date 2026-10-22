@@ -213,6 +213,7 @@
     return false;
   }
   const stoppedActivityRevealAttempts = new Map();
+  const stoppedActivityRevealedControls = new WeakSet();
   function revealStoppedResponseActivity(task, signal) {
     if (!running || data.autoResume === false || signal?.aborted || stopButton() || !task || task.attempted
       || terminal.has(task.state) || task.state === 'paused' || !taskBelongsToTab(task)) return false;
@@ -246,8 +247,10 @@
         if (Date.now()-previous < 1500) return true; // Let lazy authorization content mount before checking.
         continue; // Do not collapse a remounted activity or loop on a failed reveal.
       }
+      if (stoppedActivityRevealedControls.has(control)) continue;
       if (stoppedActivityRevealAttempts.size>=40) stoppedActivityRevealAttempts.delete(stoppedActivityRevealAttempts.keys().next().value);
       stoppedActivityRevealAttempts.set(key,Date.now());
+      stoppedActivityRevealedControls.add(control);
       clearStoppedConversationInspection(task);
       activateControl(control);
       log(task,'停止按钮已消失；已展开当前回复的折叠活动，下一轮重新扫描整页授权卡片后判断是否异常中断。');

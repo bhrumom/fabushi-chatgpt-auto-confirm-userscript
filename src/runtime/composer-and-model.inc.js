@@ -1237,7 +1237,7 @@
       turn = { ...latestTurn(), owned:true };
     }
     const input = composer();
-    const hasResponse = Boolean(turn.article || conversationRoleNodes('assistant').length
+    const hasResponse = Boolean(String(turn.text || '').trim() || (turn.article && hasTextNode(turn.article))
       || (task.stopObservedGenerationAt && visibleConversationHasMessages()));
     // A shell that has not hydrated its response is not an ended turn.
     if (!turn.owned || !hasResponse || !input || normalize(input.value || input.textContent)
@@ -1265,8 +1265,8 @@
     // the quiet window. Neither a stale spinner nor unknown error copy wins.
     if (stopButton() || cards({ wide:true }).length || approvalSettlementActive(task, route, now)) { reset(); return false; }
     const queued = queueInterruptedFreshRetry(task,
-      '停止按钮已消失；已展开当前消息并完成整页授权复核，没有授权卡片或有效最终报告，按异常中断处理',
-      now, turn, {allowExactRouteFallback:true,recoveryLabel:'通用异常中断恢复',historyReason:'structural-stop-absence'});
+      '停止按钮已经消失且没有授权卡片；已展开当前消息并复核整页，未发现有效最终报告，按异常中断处理',
+      now, turn, {allowExactRouteFallback:true,recoveryLabel:'停止按钮消失接力（通用异常中断）',historyReason:'structural-stop-absence'});
     if (task.authorizationRequiredContinuation) {
       await continueWithoutAuthorization(task, signal, now, { endedConfirmed:true });
     }

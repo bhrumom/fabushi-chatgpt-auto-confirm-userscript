@@ -2899,6 +2899,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     return false;
   }
   const stoppedActivityRevealAttempts = new Map();
+  const stoppedActivityRevealedControls = new WeakSet();
   function revealStoppedResponseActivity(task, signal) {
     if (!running || data.autoResume === false || signal?.aborted || stopButton() || !task || task.attempted
       || terminal.has(task.state) || task.state === 'paused' || !taskBelongsToTab(task)) return false;
@@ -2932,8 +2933,10 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
         if (Date.now()-previous < 1500) return true; // Let lazy authorization content mount before checking.
         continue; // Do not collapse a remounted activity or loop on a failed reveal.
       }
+      if (stoppedActivityRevealedControls.has(control)) continue;
       if (stoppedActivityRevealAttempts.size>=40) stoppedActivityRevealAttempts.delete(stoppedActivityRevealAttempts.keys().next().value);
       stoppedActivityRevealAttempts.set(key,Date.now());
+      stoppedActivityRevealedControls.add(control);
       clearStoppedConversationInspection(task);
       activateControl(control);
       log(task,'停止按钮已消失；已展开当前回复的折叠活动，下一轮重新扫描整页授权卡片后判断是否异常中断。');
@@ -5014,7 +5017,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
       turn = { ...latestTurn(), owned:true };
     }
     const input = composer();
-    const hasResponse = Boolean(turn.article || conversationRoleNodes('assistant').length
+    const hasResponse = Boolean(String(turn.text || '').trim() || (turn.article && hasTextNode(turn.article))
       || (task.stopObservedGenerationAt && visibleConversationHasMessages()));
     // A shell that has not hydrated its response is not an ended turn.
     if (!turn.owned || !hasResponse || !input || normalize(input.value || input.textContent)
@@ -5042,8 +5045,8 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     // the quiet window. Neither a stale spinner nor unknown error copy wins.
     if (stopButton() || cards({ wide:true }).length || approvalSettlementActive(task, route, now)) { reset(); return false; }
     const queued = queueInterruptedFreshRetry(task,
-      '停止按钮已消失；已展开当前消息并完成整页授权复核，没有授权卡片或有效最终报告，按异常中断处理',
-      now, turn, {allowExactRouteFallback:true,recoveryLabel:'通用异常中断恢复',historyReason:'structural-stop-absence'});
+      '停止按钮已经消失且没有授权卡片；已展开当前消息并复核整页，未发现有效最终报告，按异常中断处理',
+      now, turn, {allowExactRouteFallback:true,recoveryLabel:'停止按钮消失接力（通用异常中断）',historyReason:'structural-stop-absence'});
     if (task.authorizationRequiredContinuation) {
       await continueWithoutAuthorization(task, signal, now, { endedConfirmed:true });
     }
@@ -8404,11 +8407,17 @@ ${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carry
       cards({ wide:true });
       if (data.requireAuthorizationBeforeNewChat === true && !conversationAuthorizationSeen(task)
         && !authorizationGateExhausted(task)) {
-        await continueWithoutAuthorization(task, signal);
-        return;
+        const pendingTurn = taskTurnForInspection(task);
+        if (pendingTurn.final || currentWorkFinalReport(pendingTurn.text,task)) {
+          await continueWithoutAuthorization(task, signal);
+          return;
+        }
+        // An unknown failed response must still complete structural absence
+        // confirmation; a persisted gate wait cannot bypass or stall it.
+      } else {
+        task.authorizationRequiredContinuation = false;
+        save();
       }
-      task.authorizationRequiredContinuation = false;
-      save();
     }
     // Handle an in-response Work upsell before any generic modal dismissal or
     // Stop-absent/connection-interrupted fresh-chat decision. The exact task

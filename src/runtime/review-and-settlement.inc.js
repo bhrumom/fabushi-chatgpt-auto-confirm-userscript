@@ -297,11 +297,17 @@
       cards({ wide:true });
       if (data.requireAuthorizationBeforeNewChat === true && !conversationAuthorizationSeen(task)
         && !authorizationGateExhausted(task)) {
-        await continueWithoutAuthorization(task, signal);
-        return;
+        const pendingTurn = taskTurnForInspection(task);
+        if (pendingTurn.final || currentWorkFinalReport(pendingTurn.text,task)) {
+          await continueWithoutAuthorization(task, signal);
+          return;
+        }
+        // An unknown failed response must still complete structural absence
+        // confirmation; a persisted gate wait cannot bypass or stall it.
+      } else {
+        task.authorizationRequiredContinuation = false;
+        save();
       }
-      task.authorizationRequiredContinuation = false;
-      save();
     }
     // Handle an in-response Work upsell before any generic modal dismissal or
     // Stop-absent/connection-interrupted fresh-chat decision. The exact task
