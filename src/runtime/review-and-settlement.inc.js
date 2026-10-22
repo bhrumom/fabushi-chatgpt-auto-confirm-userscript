@@ -176,6 +176,9 @@
     task.lastBlockedRecoveryAt = 0;
     task.cooldownUntil = 0;
     task.rateLimitEpisodes = 0;
+    task.concurrentRequestIdentity = '';
+    task.concurrentRequestRetryAt = 0;
+    task.concurrentRequestRetryCount = 0;
     task.sendPrepared = false;
     task.preparedPrompt = '';
     task.sendUiWaitSince = 0;

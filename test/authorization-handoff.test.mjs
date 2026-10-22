@@ -204,7 +204,7 @@ test('concurrent request error waits, retries once with durable intent, then rec
   const {dom,w,h,task}=await harness({authorizationGate:false});
   try {
     let now=Date.now();w.Date.now=()=>now;
-    w.document.querySelector('[data-message-author-role="assistant"]').innerHTML='<div>Too many concurrent requests</div><button id="retry">重试</button>';
+    w.document.querySelector('[data-message-author-role="assistant"]').innerHTML='<div>Too many concurrent requests</div><button id="retry" aria-label="重试">重试</button>';
     let retries=0;w.document.querySelector('#retry').onclick=()=>retries++;
     assert.equal(await h.recoverConcurrentRequest(task,null,now),true);
     assert.equal(task.concurrentRequestRetryAt,now+30_000);assert.equal(retries,0);
@@ -222,8 +222,8 @@ for(const condition of ['quote','foreign-route','paused','draft','approval','sto
   test(`concurrency recovery respects ${condition}`,async()=>{
     const {dom,w,h,task}=await harness({authorizationGate:false});
     try {
-      w.document.querySelector('[data-message-author-role="assistant"]').innerHTML='<div>Too many concurrent requests</div><button id="retry">重试</button>';
-      if(condition==='quote') w.document.querySelector('[data-message-author-role="assistant"]').innerHTML='<blockquote>Too many concurrent requests</blockquote><button id="retry">重试</button>';
+      w.document.querySelector('[data-message-author-role="assistant"]').innerHTML='<div>Too many concurrent requests</div><button id="retry" aria-label="重试">重试</button>';
+      if(condition==='quote') w.document.querySelector('[data-message-author-role="assistant"]').innerHTML='<blockquote>Too many concurrent requests</blockquote><button id="retry" aria-label="重试">重试</button>';
       if(condition==='foreign-route') w.history.replaceState({},'', '/c/foreign');
       if(condition==='paused') task.state='paused';
       if(condition==='draft') w.document.querySelector('textarea').value='用户草稿';
@@ -242,7 +242,7 @@ for(const condition of ['quote','foreign-route','paused','draft','approval','sto
 test('shared-renderer sibling error is handled before a persisted no-card continuation wait',async()=>{
   const {dom,w,h,task}=await harness();
   try {
-    w.document.querySelector('main').innerHTML='<div data-content-search-turn-key="shared-concurrent"><div data-content-search-unit-key="shared-concurrent:0:user"><div data-user-message-bubble="true">执行 [Fabushi:guard-token]</div></div><div data-content-search-unit-key="shared-concurrent:2:assistant"><div data-testid="tool-call-result">已有工作记录</div></div><div class="error"><span>Too many concurrent requests</span><button id="retry">重试</button></div></div>';
+    w.document.querySelector('main').innerHTML='<div data-content-search-turn-key="shared-concurrent"><div data-content-search-unit-key="shared-concurrent:0:user"><div data-user-message-bubble="true">执行 [Fabushi:guard-token]</div></div><div data-content-search-unit-key="shared-concurrent:2:assistant"><div data-testid="tool-call-result">已有工作记录</div></div><div class="error"><span>Too many concurrent requests</span><button id="retry" aria-label="重试">重试</button></div></div>';
     task.authorizationRequiredContinuation=true;
     let retries=0;w.document.querySelector('#retry').onclick=()=>retries++;
     await h.inspect(task,null);
@@ -254,7 +254,7 @@ test('shared-renderer sibling error is handled before a persisted no-card contin
 test('a settled final reply is not overridden by an earlier concurrent error in the same response',async()=>{
   const {dom,w,h,task}=await harness({authorizationGate:false});
   try {
-    w.document.querySelector('[data-message-author-role="assistant"]').innerHTML='<div>Too many concurrent requests</div><button id="retry">重试</button><div class="markdown">'+JSON.stringify({taskId:task.id,round:1,status:'complete',summary:'新的成功结果',next:''})+'</div><button aria-label="复制"></button><button aria-label="赞"></button>';
+    w.document.querySelector('[data-message-author-role="assistant"]').innerHTML='<div>Too many concurrent requests</div><button id="retry" aria-label="重试">重试</button><div class="markdown">'+JSON.stringify({taskId:task.id,round:1,status:'complete',summary:'新的成功结果',next:''})+'</div><button aria-label="复制"></button><button aria-label="赞"></button>';
     let retries=0;w.document.querySelector('#retry').onclick=()=>retries++;
     assert.equal(await h.recoverConcurrentRequest(task,null),false);
     assert.equal(retries,0);assert.equal(task.concurrentRequestRetryAt,undefined);
@@ -268,7 +268,7 @@ for(const previousSends of [1,3]) test(`persistent concurrent error respects ena
     task.authorizationContinuationURL=task.url;task.continuationCount=previousSends;
     task.authorizationContinuationAttempts=previousSends;
     task.continuationSentAt=now-120_000;
-    w.document.querySelector('main').insertAdjacentHTML('beforeend','<article data-message-author-role="user" data-message-id="continued-user">继续完成所有，闭环后按模板输入</article><article data-message-author-role="assistant" data-message-id="concurrency-failure"><div>Too many concurrent requests</div><button id="retry">重试</button></article>');
+    w.document.querySelector('main').insertAdjacentHTML('beforeend','<article data-message-author-role="user" data-message-id="continued-user">继续完成所有，闭环后按模板输入</article><article data-message-author-role="assistant" data-message-id="concurrency-failure"><div>Too many concurrent requests</div><button id="retry" aria-label="重试">重试</button></article>');
     let retries=0,sends=0;w.document.querySelector('#retry').onclick=()=>retries++;
     w.document.querySelector('[data-testid="send-button"]').onclick=event=>{event.preventDefault();sends++;};
     await h.recoverConcurrentRequest(task,null,now);

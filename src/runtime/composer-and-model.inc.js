@@ -1228,7 +1228,8 @@
       for (let scope = parent, depth = 0; scope && depth < 6; scope = scope.parentElement, depth++) {
         if (scope.matches('main,[role="main"],body') || own(scope)) break;
         const retry = nodes('button,[role="button"]', scope).find(control =>
-          enabled(control) && /^(?:重试|再次尝试|再试一次|retry|try again)$/i.test(label(control)));
+          enabled(control) && [text(control),control.getAttribute('aria-label'),control.getAttribute('title')]
+            .some(value => /^(?:重试|再次尝试|再试一次|retry|try again)$/i.test(normalize(value))));
         if (retry) return retry;
         if (scope === article) break;
       }

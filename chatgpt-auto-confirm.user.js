@@ -4962,7 +4962,8 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
       for (let scope = parent, depth = 0; scope && depth < 6; scope = scope.parentElement, depth++) {
         if (scope.matches('main,[role="main"],body') || own(scope)) break;
         const retry = nodes('button,[role="button"]', scope).find(control =>
-          enabled(control) && /^(?:重试|再次尝试|再试一次|retry|try again)$/i.test(label(control)));
+          enabled(control) && [text(control),control.getAttribute('aria-label'),control.getAttribute('title')]
+            .some(value => /^(?:重试|再次尝试|再试一次|retry|try again)$/i.test(normalize(value))));
         if (retry) return retry;
         if (scope === article) break;
       }
@@ -8250,6 +8251,9 @@ ${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carry
     task.lastBlockedRecoveryAt = 0;
     task.cooldownUntil = 0;
     task.rateLimitEpisodes = 0;
+    task.concurrentRequestIdentity = '';
+    task.concurrentRequestRetryAt = 0;
+    task.concurrentRequestRetryCount = 0;
     task.sendPrepared = false;
     task.preparedPrompt = '';
     task.sendUiWaitSince = 0;
