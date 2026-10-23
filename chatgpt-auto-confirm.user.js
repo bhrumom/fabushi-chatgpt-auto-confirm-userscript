@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.73
+// @version      2.10.74
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -68,7 +68,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.73';
+  const VERSION = '2.10.74';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -8466,6 +8466,22 @@ ${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carry
     }
     save();
   }
+  function clearActiveTaskComposerDraft(task, signal) {
+    const route = currentConversationURL();
+    if (!running || data.autoResume === false || signal?.aborted || !task
+      || terminal.has(task.state) || task.state === 'paused' || task.attempted
+      || task.state === 'sending' || task.attachmentUploadPending
+      || !route || route !== canonicalConversationURL(task.url) || !taskBelongsToTab(task)
+      || conversationURLOwner(route, task.id)
+      || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))) return false;
+    const input = composer();
+    if (!input || !normalize(input.value || input.textContent)) return false;
+    // The user explicitly prefers clearing residual input on an active owned
+    // task. Never copy its text into logs or submit it as a task message.
+    setInput(input, '');
+    log(task, '检测到当前任务会话输入框残留内容，已自动清空并继续处理。');
+    return true;
+  }
   async function inspect(task, signal) {
     // Existing conversation inspection must not depend on the composer. A
     // stuck/partial renderer can hide the input while still exposing enough
@@ -8479,6 +8495,7 @@ ${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carry
       state(task, 'waiting', '正在等待切换到当前任务会话；不会读取其他任务的页面内容。');
       return;
     }
+    clearActiveTaskComposerDraft(task, signal);
     if (revealCurrentCollapsedMessage(task, signal)) return;
     if (revealStoppedResponseActivity(task, signal)) return;
     if (await recoverStoppedConversation(task, signal)) return;

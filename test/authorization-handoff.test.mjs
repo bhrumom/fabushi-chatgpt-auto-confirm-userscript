@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 const source = await fs.readFile(new URL('../chatgpt-auto-confirm.user.js', import.meta.url), 'utf8');
-const names = 'stopObservedGenerationIdentity,authorizationContinuationBoundaryMatches,authorizationContinuationBoundaryKey,ownedAuthorizationContinuationDraft,taskTurnForInspection,sendTimeoutNotice,measurements,connectionInterruptionContinuationPending,authorizationContinuationEnabled,isContinuationPrompt,data,tabId,cards,inspect,recoverStoppedConversation,revealStoppedResponseActivity,authorizationContinuationAttempts,authorizationGateExhausted,durableWorkbenchSnapshot,recordConversationAuthorization,conversationAuthorizationSeen,requireConversationAuthorization,continueWithoutAuthorization,durableTaskSnapshot,finish,queueInterruptedFreshRetry,queueBlockedFreshRetry,queueConversationLengthHandoff,queueWorkFinalReportRepair,clearDispatchIntent';
+const names = 'clearActiveTaskComposerDraft,stopObservedGenerationIdentity,authorizationContinuationBoundaryMatches,authorizationContinuationBoundaryKey,ownedAuthorizationContinuationDraft,taskTurnForInspection,sendTimeoutNotice,measurements,connectionInterruptionContinuationPending,authorizationContinuationEnabled,isContinuationPrompt,data,tabId,cards,inspect,recoverStoppedConversation,revealStoppedResponseActivity,authorizationContinuationAttempts,authorizationGateExhausted,durableWorkbenchSnapshot,recordConversationAuthorization,conversationAuthorizationSeen,requireConversationAuthorization,continueWithoutAuthorization,durableTaskSnapshot,finish,queueInterruptedFreshRetry,queueBlockedFreshRetry,queueConversationLengthHandoff,queueWorkFinalReportRepair,clearDispatchIntent';
 async function harness({authorizationGate=true}={}) {
   const dom = new JSDOM('<main><article data-message-author-role="user" data-message-id="u1">[Fabushi:guard-token]</article><article data-message-author-role="assistant" data-message-id="a1">已结束的回复</article></main><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">发送</button></form>', { runScripts:'outside-only', pretendToBeVisual:true, url:'https://chatgpt.com/c/guard' });
   const w = dom.window;
@@ -501,4 +501,51 @@ test('legacy continuation alias cannot cross response turns or adopt a foreign u
     boundary[1]='turn:fallback-turn-1';task.authorizationContinuationBoundary=JSON.stringify(boundary);
     assert.equal(h.authorizationContinuationBoundaryMatches(task,{...turn,owned:false}),false);
   }finally{dom.window.close();}
+});
+
+for (const editor of ['textarea','contenteditable']) test(`active owned task clears residual ${editor} input without sending it`,async()=>{
+  const {dom,w,h,task}=await harness();
+  try {
+    if(editor==='contenteditable') w.document.querySelector('textarea').outerHTML='<div contenteditable="true" data-lexical-editor="true"></div>';
+    const input=w.document.querySelector(editor==='textarea'?'textarea':'[contenteditable]');
+    const diagnostic="(()=>{const r=sessionStorage.getItem('diagnostic');return r})()";
+    if(editor==='textarea') input.value=diagnostic; else input.textContent=diagnostic;
+    let clicks=0,events=0;
+    w.document.querySelector('[data-testid="send-button"]').onclick=()=>clicks++;
+    input.addEventListener('input',()=>events++);
+    assert.equal(h.clearActiveTaskComposerDraft(task,new w.AbortController().signal),true);
+    assert.equal(input.value||input.textContent,'');
+    assert.equal(clicks,0); assert.ok(events>0);
+    assert.equal(JSON.stringify(task.messages).includes(diagnostic),false);
+    assert.equal(h.clearActiveTaskComposerDraft(task),false);
+  } finally {dom.window.close();}
+});
+for (const condition of ['paused','runner-paused','foreign-route','attempted','sending','uploading','foreign-owner','aborted']) test(`active composer cleanup respects ${condition}`,async()=>{
+  const {dom,w,h,task}=await harness();
+  try {
+    const input=w.document.querySelector('textarea'); input.value='unsent input';
+    const controller=new w.AbortController();
+    if(condition==='paused') task.state='paused';
+    if(condition==='runner-paused') h.halt();
+    if(condition==='foreign-route') w.history.replaceState({},'', '/c/other');
+    if(condition==='attempted') task.attempted=true;
+    if(condition==='sending') task.state='sending';
+    if(condition==='uploading') task.attachmentUploadPending=true;
+    if(condition==='foreign-owner') task.ownerTabId='another-tab';
+    if(condition==='aborted') controller.abort();
+    assert.equal(h.clearActiveTaskComposerDraft(task,controller.signal),false);
+    assert.equal(input.value,'unsent input');
+  } finally {dom.window.close();}
+});
+test('inspector clears a residual diagnostic before pending continuation classification',async()=>{
+  const {dom,w,h,task}=await harness();
+  try {
+    h.requireConversationAuthorization(task);
+    w.document.querySelector('textarea').value='operator diagnostic expression';
+    let clicks=0;w.document.querySelector('[data-testid="send-button"]').onclick=()=>clicks++;
+    await h.inspect(task,new w.AbortController().signal);
+    assert.notEqual(w.document.querySelector('textarea').value,'operator diagnostic expression');
+    assert.ok(task.messages.some(m=>JSON.stringify(m).includes('已自动清空')));
+    assert.ok(clicks<=1);
+  } finally {dom.window.close();}
 });

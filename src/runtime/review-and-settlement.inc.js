@@ -277,6 +277,22 @@
     }
     save();
   }
+  function clearActiveTaskComposerDraft(task, signal) {
+    const route = currentConversationURL();
+    if (!running || data.autoResume === false || signal?.aborted || !task
+      || terminal.has(task.state) || task.state === 'paused' || task.attempted
+      || task.state === 'sending' || task.attachmentUploadPending
+      || !route || route !== canonicalConversationURL(task.url) || !taskBelongsToTab(task)
+      || conversationURLOwner(route, task.id)
+      || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))) return false;
+    const input = composer();
+    if (!input || !normalize(input.value || input.textContent)) return false;
+    // The user explicitly prefers clearing residual input on an active owned
+    // task. Never copy its text into logs or submit it as a task message.
+    setInput(input, '');
+    log(task, '检测到当前任务会话输入框残留内容，已自动清空并继续处理。');
+    return true;
+  }
   async function inspect(task, signal) {
     // Existing conversation inspection must not depend on the composer. A
     // stuck/partial renderer can hide the input while still exposing enough
@@ -290,6 +306,7 @@
       state(task, 'waiting', '正在等待切换到当前任务会话；不会读取其他任务的页面内容。');
       return;
     }
+    clearActiveTaskComposerDraft(task, signal);
     if (revealCurrentCollapsedMessage(task, signal)) return;
     if (revealStoppedResponseActivity(task, signal)) return;
     if (await recoverStoppedConversation(task, signal)) return;
