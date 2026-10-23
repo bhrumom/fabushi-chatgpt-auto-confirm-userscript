@@ -9,20 +9,8 @@
   }
   function prepareTaskPrompt(task) {
     task.promptConfigSnapshot=normalizePromptConfig(data.promptConfig);
-    task.githubDeliveryRequired=true;task.githubDeliveryPending=false;
-    task.githubDeliveryAttempts=0;task.githubDeliveryBoundary='';task.githubDeliveryReportBoundary='';task.githubDeliveryLimitNoted=false;
     task.preparedPrompt=workPrompt(task);
     return task.preparedPrompt;
-  }
-  function githubDeliveryEvidence(report) {
-    const proof=report?.githubDelivery;
-    if(!proof || proof.verified !== true || typeof proof.sha !== 'string' || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i.test(proof.sha)) return false;
-    try {
-      const url=new URL(proof.commitUrl);
-      const match=url.pathname.match(/^\/[^/]+\/[^/]+\/commit\/([a-f0-9]{40}|[a-f0-9]{64})\/?$/i);
-      return Boolean(url.protocol==='https:' && url.hostname==='github.com' && !url.port && !url.username && !url.password
-        && !url.search && !url.hash && match && match[1].toLowerCase()===proof.sha.toLowerCase());
-    } catch {return false;}
   }
   function githubDeliveryInstruction(task) {
     return `【GitHub 提交与结束会话的强制门槛】
