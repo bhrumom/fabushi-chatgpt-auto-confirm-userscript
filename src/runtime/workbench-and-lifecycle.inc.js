@@ -418,8 +418,8 @@
     const authGateLabel=element('div','','handoff-switch');
     authGateLabel.append(element('strong','授权卡片接力'),authGateState,authGateOptions);
     const authGateBar=element('section','','handoff-control'); authGateBar.setAttribute('aria-label','授权卡片接力设置');
-    authGateBar.append(authGateLabel,element('small','开启：无授权先继续，最多 3 次后新开。关闭：普通结束直接接力；连接中断无授权时仍先续发。'));
-    authGateLabel.title='开启后，无授权卡片时在原会话最多发送 3 次继续指令，仍无授权再新开；关闭则普通结束/中断直接接力；连接中断且从未出现授权时，仍先在原会话最多续发 3 次。';
+    authGateBar.append(authGateLabel,element('small','开启：无授权先继续，最多 3 次后新开。关闭：普通结束和连接中断均直接接力，不因缺少授权卡片续发。'));
+    authGateLabel.title='开启后，无授权卡片时在原会话最多发送 3 次继续指令，仍无授权再新开；关闭后，普通结束和连接中断均直接接力。两种状态都先处理当前授权卡片。';
     const submit = element('button','↑','send'); submit.type='submit'; submit.setAttribute('aria-label','发送任务');
     const modelScopeHint = element('small','','model-scope-hint');
     controls.append(select,modelSelect,reasoningSelect,autoLabel,submit); compose.append(input,attachmentBox,controls,modelScopeHint); chat.append(authGateBar,settings,feed,notice,compose); desk.append(sidebar,chat);
@@ -644,7 +644,10 @@
       authGateOff.setAttribute('aria-pressed',String(!enabled));
       authGateState.textContent=enabled?'已开启':'已关闭';
       for (const task of tabTasks()) {
-        if (!enabled && !connectionInterruptionContinuationPending(task)) task.authorizationRequiredContinuation=false;
+        if (!enabled) {
+          task.authorizationRequiredContinuation=false;
+          task.connectionInterruptionContinuationURL='';
+        }
       }
       save();
       if (running) schedule(100);

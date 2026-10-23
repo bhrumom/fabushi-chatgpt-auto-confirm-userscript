@@ -352,7 +352,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     return Boolean(route && canonicalConversationURL(task.connectionInterruptionContinuationURL) === route);
   }
   function authorizationContinuationEnabled(task) {
-    return data.requireAuthorizationBeforeNewChat === true || connectionInterruptionContinuationPending(task);
+    return data.requireAuthorizationBeforeNewChat === true;
   }
   function ownedAuthorizationContinuationDraft(task, input = composer()) {
     const draft = normalize(input?.value || input?.textContent);
@@ -399,7 +399,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       save();
       return true;
     }
-    if (options.connectionInterruption && !conversationAuthorizationSeen(task)
+    if (data.requireAuthorizationBeforeNewChat === true && options.connectionInterruption && !conversationAuthorizationSeen(task)
       && currentConversationURL() === canonicalConversationURL(task.url) && taskBelongsToTab(task)
       && !task.attempted && !conversationURLOwner(task.url, task.id)
       && !tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))) {

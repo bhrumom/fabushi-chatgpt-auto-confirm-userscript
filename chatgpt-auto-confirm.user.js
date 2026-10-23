@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.74
+// @version      2.10.75
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -68,7 +68,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.74';
+  const VERSION = '2.10.75';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -5019,8 +5019,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     }
     const input = composer();
     const sentAge = now - Number(task.continuationSentAt || now);
-    const expiredPendingFence = Boolean(task.authorizationRequiredContinuation
-      && canonicalConversationURL(task.authorizationContinuationURL) === route
+    const expiredPendingFence = Boolean(canonicalConversationURL(task.authorizationContinuationURL) === route
       && Number(task.continuationSentAt || 0) > 0 && sentAge >= SEND_CONFIRM_TIMEOUT_MS
       && authorizationContinuationBoundaryMatches(task,turn,true));
     const agedContinuation = canonicalConversationURL(task.authorizationContinuationURL) === route
@@ -5052,10 +5051,10 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
       task.stopNoApprovalConfirmSignature = identity;
       task.updatedAt = now;
       save();
-      return false; // Ordinary classification may continue during confirmation.
+      return Boolean(expiredPendingFence && (turn.final || currentWorkFinalReport(turn.text, task))); // Do not re-consume an old fenced final reply.
     }
     const since = Math.min(Number(task.stoppedConversationSince), Number(task.stopNoApprovalConfirmSince || task.stoppedConversationSince));
-    if (now - since < STOP_NO_APPROVAL_CONFIRM_MS) return false;
+    if (now - since < STOP_NO_APPROVAL_CONFIRM_MS) return Boolean(expiredPendingFence && (turn.final || currentWorkFinalReport(turn.text, task)));
     // Always read the live entire-page card surfaces again after expansion and
     // the quiet window. Neither a stale spinner nor unknown error copy wins.
     if (stopButton() || cards({ wide:true }).length || approvalSettlementActive(task, route, now)) { reset(); return false; }
@@ -7407,7 +7406,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     return Boolean(route && canonicalConversationURL(task.connectionInterruptionContinuationURL) === route);
   }
   function authorizationContinuationEnabled(task) {
-    return data.requireAuthorizationBeforeNewChat === true || connectionInterruptionContinuationPending(task);
+    return data.requireAuthorizationBeforeNewChat === true;
   }
   function ownedAuthorizationContinuationDraft(task, input = composer()) {
     const draft = normalize(input?.value || input?.textContent);
@@ -7454,7 +7453,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       save();
       return true;
     }
-    if (options.connectionInterruption && !conversationAuthorizationSeen(task)
+    if (data.requireAuthorizationBeforeNewChat === true && options.connectionInterruption && !conversationAuthorizationSeen(task)
       && currentConversationURL() === canonicalConversationURL(task.url) && taskBelongsToTab(task)
       && !task.attempted && !conversationURLOwner(task.url, task.id)
       && !tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))) {
@@ -8706,7 +8705,7 @@ ${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carry
         task.state = 'waiting';
         task.updatedAt = now;
         if (handoffGate.started) {
-          log(task, `已识别 ChatGPT 连接中断，并归类为异常中断；不再等待 5 分钟或刷新旧会话。先进行至少 ${Math.ceil(STOP_NO_APPROVAL_CONFIRM_MS / 1000)} 秒的二次实时授权复核，确认没有授权卡后，未曾出现授权的会话先续发，最多 3 次；否则新开会话接力。`);
+          log(task, `已识别 ChatGPT 连接中断，并归类为异常中断；不再等待 5 分钟或刷新旧会话。先进行至少 ${Math.ceil(STOP_NO_APPROVAL_CONFIRM_MS / 1000)} 秒的二次实时授权复核，确认没有授权卡后，按授权卡片接力开关处理：开启则无授权最多续发 3 次，关闭则直接新开会话接力。`);
         } else {
           save();
         }
@@ -9073,7 +9072,7 @@ ${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carry
         task.state = 'waiting';
         task.updatedAt = now;
         if (handoffGate.started) {
-          log(task, `旧连接中断状态已升级为异常中断接力；进行至少 ${Math.ceil(STOP_NO_APPROVAL_CONFIRM_MS / 1000)} 秒授权复核后，未曾出现授权的会话先续发，最多 3 次；否则新开会话，不再刷新旧会话。`);
+          log(task, `旧连接中断状态已升级为异常中断接力；进行至少 ${Math.ceil(STOP_NO_APPROVAL_CONFIRM_MS / 1000)} 秒授权复核后，按授权卡片接力开关处理：开启则无授权最多续发 3 次，关闭则直接新开会话；不再刷新旧会话。`);
         } else {
           save();
         }
@@ -10303,8 +10302,8 @@ NaN
     const authGateLabel=element('div','','handoff-switch');
     authGateLabel.append(element('strong','授权卡片接力'),authGateState,authGateOptions);
     const authGateBar=element('section','','handoff-control'); authGateBar.setAttribute('aria-label','授权卡片接力设置');
-    authGateBar.append(authGateLabel,element('small','开启：无授权先继续，最多 3 次后新开。关闭：普通结束直接接力；连接中断无授权时仍先续发。'));
-    authGateLabel.title='开启后，无授权卡片时在原会话最多发送 3 次继续指令，仍无授权再新开；关闭则普通结束/中断直接接力；连接中断且从未出现授权时，仍先在原会话最多续发 3 次。';
+    authGateBar.append(authGateLabel,element('small','开启：无授权先继续，最多 3 次后新开。关闭：普通结束和连接中断均直接接力，不因缺少授权卡片续发。'));
+    authGateLabel.title='开启后，无授权卡片时在原会话最多发送 3 次继续指令，仍无授权再新开；关闭后，普通结束和连接中断均直接接力。两种状态都先处理当前授权卡片。';
     const submit = element('button','↑','send'); submit.type='submit'; submit.setAttribute('aria-label','发送任务');
     const modelScopeHint = element('small','','model-scope-hint');
     controls.append(select,modelSelect,reasoningSelect,autoLabel,submit); compose.append(input,attachmentBox,controls,modelScopeHint); chat.append(authGateBar,settings,feed,notice,compose); desk.append(sidebar,chat);
@@ -10529,7 +10528,10 @@ NaN
       authGateOff.setAttribute('aria-pressed',String(!enabled));
       authGateState.textContent=enabled?'已开启':'已关闭';
       for (const task of tabTasks()) {
-        if (!enabled && !connectionInterruptionContinuationPending(task)) task.authorizationRequiredContinuation=false;
+        if (!enabled) {
+          task.authorizationRequiredContinuation=false;
+          task.connectionInterruptionContinuationURL='';
+        }
       }
       save();
       if (running) schedule(100);
