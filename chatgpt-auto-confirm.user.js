@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.71
+// @version      2.10.72
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -68,7 +68,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.71';
+  const VERSION = '2.10.72';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -5022,7 +5022,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     const expiredPendingFence = Boolean(task.authorizationRequiredContinuation
       && canonicalConversationURL(task.authorizationContinuationURL) === route
       && Number(task.continuationSentAt || 0) > 0 && sentAge >= SEND_CONFIRM_TIMEOUT_MS
-      && task.authorizationContinuationBoundary === authorizationContinuationBoundaryKey(task,turn,true));
+      && authorizationContinuationBoundaryMatches(task,turn,true));
     const agedContinuation = canonicalConversationURL(task.authorizationContinuationURL) === route
       && Number(task.continuationSentAt || 0) > 0 && sentAge >= SEND_CONFIRM_TIMEOUT_MS
       && (isContinuationPrompt(text(conversationRoleNodes('user').at(-1))) || expiredPendingFence);
@@ -5065,7 +5065,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     if (task.authorizationRequiredContinuation) {
       const sent = await continueWithoutAuthorization(task, signal, now, { endedConfirmed:true });
       if (!sent && task.authorizationRequiredContinuation && agedContinuation
-        && (task.authorizationContinuationBoundary === authorizationContinuationBoundaryKey(task,turn,true)
+        && (authorizationContinuationBoundaryMatches(task,turn,true)
           || ((recoveryDraft || ownedAuthorizationContinuationDraft(task,input)) && !sendButtonFor(input) && sendTimeoutNotice(turn)))
         && currentConversationURL() === route && !stopButton() && !cards({wide:true}).length
         && !approvalSettlementActive(task,route,now) && !blocker() && !rateLimitNotice()
@@ -7419,6 +7419,23 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       || (routeFallback && task.token && turn.text ? `virtualized:${task.token}` : '');
     return userBoundary ? JSON.stringify([userBoundary, assistantResponseBoundaryKey(turn) || recoveryUserBoundaryKey(turn.article)]) : '';
   }
+  function authorizationContinuationBoundaryMatches(task, turn, routeFallback = false) {
+    const currentBoundary = authorizationContinuationBoundaryKey(task,turn,routeFallback);
+    if (!task.authorizationContinuationBoundary || !currentBoundary) return false;
+    if (task.authorizationContinuationBoundary === currentBoundary) return true;
+    const user = conversationRoleNodes('user').at(-1);
+    const ownedUser = turn?.owned && user && (user === taskMarkerUser(task)
+      || (Number(task.continuationCount || 0) > 0 && isContinuationPrompt(text(user))));
+    if (!ownedUser) return false;
+    try {
+      const previous = JSON.parse(task.authorizationContinuationBoundary), currentKey = JSON.parse(currentBoundary);
+      if (!Array.isArray(previous) || !Array.isArray(currentKey) || previous.length !== 2 || currentKey.length !== 2
+        || !String(currentKey[1] || '').startsWith('turn:') || previous[1] !== currentKey[1]) return false;
+      const responseTurn = currentKey[1].slice(5);
+      const userTurn = key => typeof key === 'string' && key.startsWith('id:') ? key.slice(3).split('|').at(-1) : '';
+      return Boolean(responseTurn && userTurn(previous[0]) === responseTurn && userTurn(currentKey[0]) === responseTurn);
+    } catch { return false; }
+  }
   function authorizationGateExhausted(task) {
     return authorizationContinuationEnabled(task) && !conversationAuthorizationSeen(task)
       && authorizationContinuationAttempts(task) >= 3;
@@ -7493,7 +7510,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const boundary = authorizationContinuationBoundaryKey(task,turn,routeFallback);
     if (!boundary || !turn.owned) return false;
     if (task.authorizationContinuationURL === route
-      && task.authorizationContinuationBoundary === boundary) return false;
+      && authorizationContinuationBoundaryMatches(task,turn,routeFallback)) return false;
     if (Number(task.continuationSentAt || 0)
       && now - Number(task.continuationSentAt) < CONTINUATION_SEND_COOLDOWN_MS) return false;
     // A newly mounted continuation without its assistant response is not an

@@ -367,6 +367,23 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       || (routeFallback && task.token && turn.text ? `virtualized:${task.token}` : '');
     return userBoundary ? JSON.stringify([userBoundary, assistantResponseBoundaryKey(turn) || recoveryUserBoundaryKey(turn.article)]) : '';
   }
+  function authorizationContinuationBoundaryMatches(task, turn, routeFallback = false) {
+    const currentBoundary = authorizationContinuationBoundaryKey(task,turn,routeFallback);
+    if (!task.authorizationContinuationBoundary || !currentBoundary) return false;
+    if (task.authorizationContinuationBoundary === currentBoundary) return true;
+    const user = conversationRoleNodes('user').at(-1);
+    const ownedUser = turn?.owned && user && (user === taskMarkerUser(task)
+      || (Number(task.continuationCount || 0) > 0 && isContinuationPrompt(text(user))));
+    if (!ownedUser) return false;
+    try {
+      const previous = JSON.parse(task.authorizationContinuationBoundary), currentKey = JSON.parse(currentBoundary);
+      if (!Array.isArray(previous) || !Array.isArray(currentKey) || previous.length !== 2 || currentKey.length !== 2
+        || !String(currentKey[1] || '').startsWith('turn:') || previous[1] !== currentKey[1]) return false;
+      const responseTurn = currentKey[1].slice(5);
+      const userTurn = key => typeof key === 'string' && key.startsWith('id:') ? key.slice(3).split('|').at(-1) : '';
+      return Boolean(responseTurn && userTurn(previous[0]) === responseTurn && userTurn(currentKey[0]) === responseTurn);
+    } catch { return false; }
+  }
   function authorizationGateExhausted(task) {
     return authorizationContinuationEnabled(task) && !conversationAuthorizationSeen(task)
       && authorizationContinuationAttempts(task) >= 3;
@@ -441,7 +458,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const boundary = authorizationContinuationBoundaryKey(task,turn,routeFallback);
     if (!boundary || !turn.owned) return false;
     if (task.authorizationContinuationURL === route
-      && task.authorizationContinuationBoundary === boundary) return false;
+      && authorizationContinuationBoundaryMatches(task,turn,routeFallback)) return false;
     if (Number(task.continuationSentAt || 0)
       && now - Number(task.continuationSentAt) < CONTINUATION_SEND_COOLDOWN_MS) return false;
     // A newly mounted continuation without its assistant response is not an

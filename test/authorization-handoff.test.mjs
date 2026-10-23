@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 const source = await fs.readFile(new URL('../chatgpt-auto-confirm.user.js', import.meta.url), 'utf8');
-const names = 'authorizationContinuationBoundaryKey,ownedAuthorizationContinuationDraft,taskTurnForInspection,sendTimeoutNotice,measurements,connectionInterruptionContinuationPending,authorizationContinuationEnabled,isContinuationPrompt,data,tabId,cards,inspect,recoverStoppedConversation,revealStoppedResponseActivity,authorizationContinuationAttempts,authorizationGateExhausted,durableWorkbenchSnapshot,recordConversationAuthorization,conversationAuthorizationSeen,requireConversationAuthorization,continueWithoutAuthorization,durableTaskSnapshot,finish,queueInterruptedFreshRetry,queueBlockedFreshRetry,queueConversationLengthHandoff,queueWorkFinalReportRepair,clearDispatchIntent';
+const names = 'authorizationContinuationBoundaryMatches,authorizationContinuationBoundaryKey,ownedAuthorizationContinuationDraft,taskTurnForInspection,sendTimeoutNotice,measurements,connectionInterruptionContinuationPending,authorizationContinuationEnabled,isContinuationPrompt,data,tabId,cards,inspect,recoverStoppedConversation,revealStoppedResponseActivity,authorizationContinuationAttempts,authorizationGateExhausted,durableWorkbenchSnapshot,recordConversationAuthorization,conversationAuthorizationSeen,requireConversationAuthorization,continueWithoutAuthorization,durableTaskSnapshot,finish,queueInterruptedFreshRetry,queueBlockedFreshRetry,queueConversationLengthHandoff,queueWorkFinalReportRepair,clearDispatchIntent';
 async function harness({authorizationGate=true}={}) {
   const dom = new JSDOM('<main><article data-message-author-role="user" data-message-id="u1">[Fabushi:guard-token]</article><article data-message-author-role="assistant" data-message-id="a1">已结束的回复</article></main><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">发送</button></form>', { runScripts:'outside-only', pretendToBeVisual:true, url:'https://chatgpt.com/c/guard' });
   const w = dom.window;
@@ -451,7 +451,7 @@ test('pending deduped continuation still reaches ordinary inspection during conf
   }finally{dom.window.close();}
 });
 
-for(const response of ['final-toolbar','structured-report']) test(`expired continuation fence survives server rollback to initial user: ${response}`,async()=>{
+for(const response of ['final-toolbar','structured-report','legacy-id-alias']) test(`expired continuation fence survives server rollback to initial user: ${response}`,async()=>{
   const {dom,w,h,task}=await harness({authorizationGate:false});
   try {
     let now=Date.now();w.Date.now=()=>now;
@@ -462,6 +462,11 @@ for(const response of ['final-toolbar','structured-report']) test(`expired conti
     body.insertAdjacentHTML('afterend','<button aria-label="复制"></button><button aria-label="赞"></button>');
     task.continuationSentAt=now-8*60*60*1000;
     task.authorizationContinuationBoundary=h.authorizationContinuationBoundaryKey(task,h.taskTurnForInspection(task));
+    if(response==='legacy-id-alias') {
+      const legacy=JSON.parse(task.authorizationContinuationBoundary);
+      legacy[0]=legacy[0].replace('id:','id:legacy-message-uuid|');
+      task.authorizationContinuationBoundary=JSON.stringify(legacy);
+    }
     const userText=w.document.querySelector('[data-user-message-bubble]').textContent;
     assert.equal(h.isContinuationPrompt(userText),false);
     let sends=0;w.document.querySelector('[data-testid="send-button"]').onclick=event=>{event.preventDefault();sends++;};
@@ -471,5 +476,23 @@ for(const response of ['final-toolbar','structured-report']) test(`expired conti
     assert.equal(task.history.at(-1).reason,'continuation-ack-timeout');
     assert.match(task.abnormalFreshCarry,/当前确切已完成工作证据/);
     assert.equal(task.round,1);assert.equal(task.goal,'完成目标');
+  }finally{dom.window.close();}
+});
+
+test('legacy continuation alias cannot cross response turns or adopt a foreign user',async()=>{
+  const {dom,w,h,task}=await harness();
+  try {
+    mountStalledContinuation(w,task);
+    const turn=h.taskTurnForInspection(task);
+    const boundary=JSON.parse(h.authorizationContinuationBoundaryKey(task,turn));
+    boundary[0]=boundary[0].replace('id:','id:legacy-message-uuid|');
+    task.authorizationContinuationBoundary=JSON.stringify(boundary);
+    assert.equal(h.authorizationContinuationBoundaryMatches(task,turn),true);
+    let sends=0;w.document.querySelector('[data-testid="send-button"]').onclick=event=>{event.preventDefault();sends++;};
+    assert.equal(await h.continueWithoutAuthorization(task,null),false);assert.equal(sends,0);
+    boundary[1]='turn:foreign-response';task.authorizationContinuationBoundary=JSON.stringify(boundary);
+    assert.equal(h.authorizationContinuationBoundaryMatches(task,turn),false);
+    boundary[1]='turn:fallback-turn-1';task.authorizationContinuationBoundary=JSON.stringify(boundary);
+    assert.equal(h.authorizationContinuationBoundaryMatches(task,{...turn,owned:false}),false);
   }finally{dom.window.close();}
 });
