@@ -1280,7 +1280,7 @@
       const sent = await continueWithoutAuthorization(task, signal, now, { endedConfirmed:true });
       if (!sent && task.authorizationRequiredContinuation && agedContinuation
         && (task.authorizationContinuationBoundary === authorizationContinuationBoundaryKey(task,turn,true)
-          || (recoveryDraft && !sendButtonFor(input) && sendTimeoutNotice(turn)))
+          || ((recoveryDraft || ownedAuthorizationContinuationDraft(task,input)) && !sendButtonFor(input) && sendTimeoutNotice(turn)))
         && currentConversationURL() === route && !stopButton() && !cards({wide:true}).length
         && !approvalSettlementActive(task,route,now) && !blocker() && !rateLimitNotice()
         && (!normalize(input.value || input.textContent) || ownedAuthorizationContinuationDraft(task,input))) {
