@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.69
+// @version      2.10.70
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -68,7 +68,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.69';
+  const VERSION = '2.10.70';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -5018,10 +5018,16 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
       turn = { ...latestTurn(), owned:true };
     }
     const input = composer();
+    const sentAge = now - Number(task.continuationSentAt || now);
+    const agedContinuation = canonicalConversationURL(task.authorizationContinuationURL) === route
+      && Number(task.continuationSentAt || 0) > 0 && sentAge >= SEND_CONFIRM_TIMEOUT_MS
+      && isContinuationPrompt(text(conversationRoleNodes('user').at(-1)));
+    const recoveryDraft = ownedAuthorizationContinuationDraft(task,input);
     const hasResponse = Boolean(String(turn.text || '').trim() || (turn.article && hasTextNode(turn.article))
-      || (task.stopObservedGenerationAt && visibleConversationHasMessages()));
+      || (task.stopObservedGenerationAt && visibleConversationHasMessages()) || agedContinuation
+      || sendTimeoutNotice(turn));
     // A shell that has not hydrated its response is not an ended turn.
-    if (!turn.owned || !hasResponse || !input || normalize(input.value || input.textContent)
+    if (!turn.owned || !hasResponse || !input || (normalize(input.value || input.textContent) && !recoveryDraft)
       || turn.final || currentWorkFinalReport(turn.text, task) || blocker() || rateLimitNotice()) { reset(); return false; }
     if (cards({ wide:true }).length || approvalSettlementActive(task, route, now)) { reset(); return false; }
     const inheritedStop = task.stopObservedGenerationIdentity === stopObservedGenerationIdentity(task,route)
@@ -5049,12 +5055,25 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
       '停止按钮已经消失且没有授权卡片；已展开当前消息并复核整页，未发现有效最终报告，按异常中断处理',
       now, turn, {allowExactRouteFallback:true,recoveryLabel:'停止按钮消失接力（通用异常中断）',historyReason:'structural-stop-absence'});
     if (task.authorizationRequiredContinuation) {
-      await continueWithoutAuthorization(task, signal, now, { endedConfirmed:true });
+      const sent = await continueWithoutAuthorization(task, signal, now, { endedConfirmed:true });
+      if (!sent && task.authorizationRequiredContinuation && agedContinuation
+        && (task.authorizationContinuationBoundary === authorizationContinuationBoundaryKey(task,turn,true)
+          || (recoveryDraft && !sendButtonFor(input) && sendTimeoutNotice(turn)))
+        && currentConversationURL() === route && !stopButton() && !cards({wide:true}).length
+        && !approvalSettlementActive(task,route,now) && !blocker() && !rateLimitNotice()
+        && (!normalize(input.value || input.textContent) || ownedAuthorizationContinuationDraft(task,input))) {
+        // The persisted click remains fenced. Repeating it could duplicate a
+        // server-accepted turn; carry the task to a new route after its bounded
+        // acknowledgment deadline instead of waiting forever on that fence.
+        if (ownedAuthorizationContinuationDraft(task,input)) setInput(input,'');
+        return queueInterruptedFreshRetry(task,'原会话继续指令发送后未确认新回复，且已超过发送确认时限；保留去重标记，按异常中断接力',now,turn,
+          {allowExactRouteFallback:true,recoveryLabel:'继续指令确认超时接力',historyReason:'continuation-ack-timeout',continuationAcknowledgmentExpired:true});
+      }
     }
     return queued;
   }
   function sendTimeoutNotice(turn = null, getPageRecords = pageUiTextRecords) {
-    const pattern = /消息(?:发送)?(?:超时|错误|失败)\s*[，,。.!]?\s*请重试|message (?:send|sending) timed out|message (?:error|failed)[\s,:-]*(?:please )?(?:retry|try again)|failed to send|(?:a\s+)?network (?:connection )?(?:error|failure)(?: occurred)?|connection (?:error|failed|failure)|(?:check|verify) (?:your )?(?:internet|network|connection)|网络(?:连接)?(?:错误|失败)|连接(?:错误|失败)|(?:请)?检查(?:一下)?(?:你的|您的)?(?:互联网|网络|连接)/i;
+    const pattern = /消息(?:发送|传输)?(?:超时|错误|失败)\s*[，,。.!]?\s*请重试|message (?:send|sending) timed out|message (?:error|failed)[\s,:-]*(?:please )?(?:retry|try again)|failed to send|(?:a\s+)?network (?:connection )?(?:error|failure)(?: occurred)?|connection (?:error|failed|failure)|(?:check|verify) (?:your )?(?:internet|network|connection)|网络(?:连接)?(?:错误|失败)|连接(?:错误|失败)|(?:请)?检查(?:一下)?(?:你的|您的)?(?:互联网|网络|连接)/i;
     const retryPattern = /^(?:重试|再次尝试|再试一次|retry|try again|again)(?:\b|$)/i;
     const retryControls = 'button,a,[role="button"]';
     const hasRetryControl = node => {
@@ -5599,7 +5618,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     if (!task || terminal.has(task.state) || task.state === 'paused') return false;
     const interruption = options.connectionInterruption === true || Boolean(task.pendingContinuationReason)
       || connectionInterruptedNotice(turn?.owned ? turn : taskTurnForInspection(task));
-    if (requireConversationAuthorization(task, reason, {connectionInterruption:interruption})) return true;
+    if (requireConversationAuthorization(task, reason, {connectionInterruption:interruption,skipHistoricalRequirement:options.continuationAcknowledgmentExpired === true})) return true;
     const sessionURL = currentConversationURL() || canonicalConversationURL(task.url);
     if (sessionURL) {
       recordConversationURL(task, sessionURL);
@@ -7379,6 +7398,19 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
   function authorizationContinuationEnabled(task) {
     return data.requireAuthorizationBeforeNewChat === true || connectionInterruptionContinuationPending(task);
   }
+  function ownedAuthorizationContinuationDraft(task, input = composer()) {
+    const draft = normalize(input?.value || input?.textContent);
+    const route = currentConversationURL();
+    return Boolean(draft && isContinuationPrompt(draft) && route && route === canonicalConversationURL(task?.url)
+      && (task.authorizationRequiredContinuation
+        || (canonicalConversationURL(task.authorizationContinuationURL) === route && Number(task.continuationSentAt || 0))));
+  }
+  function authorizationContinuationBoundaryKey(task, turn, routeFallback = false) {
+    const user = conversationRoleNodes('user').at(-1);
+    const userBoundary = recoveryUserBoundaryKey(user)
+      || (routeFallback && task.token && turn.text ? `virtualized:${task.token}` : '');
+    return userBoundary ? JSON.stringify([userBoundary, assistantResponseBoundaryKey(turn) || recoveryUserBoundaryKey(turn.article)]) : '';
+  }
   function authorizationGateExhausted(task) {
     return authorizationContinuationEnabled(task) && !conversationAuthorizationSeen(task)
       && authorizationContinuationAttempts(task) >= 3;
@@ -7403,7 +7435,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
         save(); // Durable recovery intent even if send controls are not ready yet.
       }
     }
-    if (!authorizationContinuationEnabled(task) || conversationAuthorizationSeen(task)
+    if (options.skipHistoricalRequirement || !authorizationContinuationEnabled(task) || conversationAuthorizationSeen(task)
       || authorizationGateExhausted(task)) return false;
     if (!task.authorizationRequiredContinuation) {
       task.authorizationRequiredContinuation = true;
@@ -7450,10 +7482,8 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     // A persisted click intent is never retried against the same ended turn,
     // even if the send acknowledgment was lost during a reload.
     const user = conversationRoleNodes('user').at(-1);
-    const userBoundary = recoveryUserBoundaryKey(user)
-      || (routeFallback && task.token && turn.text ? `virtualized:${task.token}` : '');
-    const boundary = JSON.stringify([userBoundary, assistantResponseBoundaryKey(turn) || recoveryUserBoundaryKey(turn.article)]);
-    if (!userBoundary || !turn.owned) return false;
+    const boundary = authorizationContinuationBoundaryKey(task,turn,routeFallback);
+    if (!boundary || !turn.owned) return false;
     if (task.authorizationContinuationURL === route
       && task.authorizationContinuationBoundary === boundary) return false;
     if (Number(task.continuationSentAt || 0)
@@ -8430,8 +8460,13 @@ ${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carry
         && !authorizationGateExhausted(task)) {
         const pendingTurn = taskTurnForInspection(task);
         if (connectionInterruptionContinuationPending(task) || pendingTurn.final || currentWorkFinalReport(pendingTurn.text,task)) {
-          await continueWithoutAuthorization(task, signal);
-          return;
+          if (await continueWithoutAuthorization(task, signal)) return;
+          const pendingInput = composer();
+          if (normalize(pendingInput?.value || pendingInput?.textContent)
+            && !ownedAuthorizationContinuationDraft(task,pendingInput)) return;
+          // A deduped/unavailable send must not hide current error and ended
+          // inspection forever. Ordinary generation/approval guards below
+          // still own their normal processing.
         }
         // An unknown failed response must still complete structural absence
         // confirmation; a persisted gate wait cannot bypass or stall it.

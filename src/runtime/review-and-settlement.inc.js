@@ -299,8 +299,13 @@
         && !authorizationGateExhausted(task)) {
         const pendingTurn = taskTurnForInspection(task);
         if (connectionInterruptionContinuationPending(task) || pendingTurn.final || currentWorkFinalReport(pendingTurn.text,task)) {
-          await continueWithoutAuthorization(task, signal);
-          return;
+          if (await continueWithoutAuthorization(task, signal)) return;
+          const pendingInput = composer();
+          if (normalize(pendingInput?.value || pendingInput?.textContent)
+            && !ownedAuthorizationContinuationDraft(task,pendingInput)) return;
+          // A deduped/unavailable send must not hide current error and ended
+          // inspection forever. Ordinary generation/approval guards below
+          // still own their normal processing.
         }
         // An unknown failed response must still complete structural absence
         // confirmation; a persisted gate wait cannot bypass or stall it.
