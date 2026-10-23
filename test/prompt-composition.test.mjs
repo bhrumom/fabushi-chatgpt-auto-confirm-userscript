@@ -36,6 +36,7 @@ test('editor supports add, reorder, disable, delete, save/default and safe exact
  const {dom,w,h,task}=await fixture();try{
   task.preparedPrompt='immutable prepared prompt';h.openPromptComposer(task);
   assert.ok(w.document.querySelector('[role="dialog"][aria-label="提示词组合"]'));
+  assert.ok(w.document.getElementById('fabushi-auto-confirm-root').contains(w.document.getElementById('fabushi-prompt-composer')));
   const rules=w.document.querySelector('[aria-label="执行规则提示词"]');rules.value='自定义执行';rules.dispatchEvent(new w.Event('input'));
   button(w,'新增提示词').click();
   let body=w.document.querySelector('[aria-label="附加提示词内容 1"]');body.value='<img src=x onerror=alert(1)> 用户要求';body.dispatchEvent(new w.Event('input'));

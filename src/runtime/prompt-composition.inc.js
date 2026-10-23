@@ -10,7 +10,7 @@
   function prepareTaskPrompt(task) {
     task.promptConfigSnapshot=normalizePromptConfig(data.promptConfig);
     task.githubDeliveryRequired=true;task.githubDeliveryPending=false;
-    task.githubDeliveryAttempts=0;task.githubDeliveryBoundary='';task.githubDeliveryReportBoundary='';
+    task.githubDeliveryAttempts=0;task.githubDeliveryBoundary='';task.githubDeliveryReportBoundary='';task.githubDeliveryLimitNoted=false;
     task.preparedPrompt=workPrompt(task);
     return task.preparedPrompt;
   }
@@ -69,5 +69,5 @@
       }
       refresh();
     };
-    render();(document.body || document.documentElement).append(overlay);
+    render();(document.getElementById(ROOT) || document.body || document.documentElement).append(overlay);
   }
