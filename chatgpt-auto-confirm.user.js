@@ -5019,8 +5019,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     }
     const input = composer();
     const sentAge = now - Number(task.continuationSentAt || now);
-    const expiredPendingFence = Boolean(task.authorizationRequiredContinuation
-      && canonicalConversationURL(task.authorizationContinuationURL) === route
+    const expiredPendingFence = Boolean(canonicalConversationURL(task.authorizationContinuationURL) === route
       && Number(task.continuationSentAt || 0) > 0 && sentAge >= SEND_CONFIRM_TIMEOUT_MS
       && authorizationContinuationBoundaryMatches(task,turn,true));
     const agedContinuation = canonicalConversationURL(task.authorizationContinuationURL) === route
@@ -5052,10 +5051,10 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
       task.stopNoApprovalConfirmSignature = identity;
       task.updatedAt = now;
       save();
-      return false; // Ordinary classification may continue during confirmation.
+      return Boolean(expiredPendingFence && (turn.final || currentWorkFinalReport(turn.text, task))); // Do not re-consume an old fenced final reply.
     }
     const since = Math.min(Number(task.stoppedConversationSince), Number(task.stopNoApprovalConfirmSince || task.stoppedConversationSince));
-    if (now - since < STOP_NO_APPROVAL_CONFIRM_MS) return false;
+    if (now - since < STOP_NO_APPROVAL_CONFIRM_MS) return Boolean(expiredPendingFence && (turn.final || currentWorkFinalReport(turn.text, task)));
     // Always read the live entire-page card surfaces again after expansion and
     // the quiet window. Neither a stale spinner nor unknown error copy wins.
     if (stopButton() || cards({ wide:true }).length || approvalSettlementActive(task, route, now)) { reset(); return false; }

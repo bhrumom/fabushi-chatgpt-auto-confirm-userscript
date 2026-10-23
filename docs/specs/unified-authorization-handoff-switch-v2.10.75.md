@@ -15,6 +15,9 @@ Supersedes: connection-interruption-continuation-v2.10.69.md exception when the 
 ## Implementation plan
 Make shared continuation eligibility depend only on the workspace switch. Record the connection-specific prompt intent only while enabled. OFF control clears pending requirement/reason intent in its own workspace while retaining send counters and boundaries. Update both confirmation messages and UI help. Update old connection tests to express the new explicit user override; regress disabled resumed intent and card precedence.
 
+## Persisted-fence reconciliation
+Cloud regressions exposed that OFF can clear the pending policy flag before a legacy inherited-Stop timer is initialized. An expired same-boundary send fence must remain evidence independently of that policy flag. During the existing eight-second quiet confirmation, an old final-looking reply on that exact expired boundary must not be parsed as a new final report. Retain original round/carry and deduplication; use direct structural handoff under OFF, acknowledgment-timeout handoff under ON. Test both modes against old blank/error responses, initial-user rollback and legacy aliases/inherited Stop.
+
 ## Compliance
 | Requirement / AC | Status | Evidence |
 | --- | --- | --- |

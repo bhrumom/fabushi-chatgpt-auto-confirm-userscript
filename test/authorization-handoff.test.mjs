@@ -403,8 +403,8 @@ function mountStalledContinuation(w,task,{error=false,draft='',sendAvailable=tru
   task.authorizationContinuationURL=task.url;task.connectionInterruptionContinuationURL=task.url;
   task.authorizationRequiredContinuation=true;task.authorizationContinuationAttempts=2;task.continuationCount=2;
 }
-for(const variant of ['same-boundary-empty','transmission-error-no-send','same-boundary-draft']) test(`observed stalled continuation recovers safely: ${variant}`,async()=>{
-  const {dom,w,h,task}=await harness({authorizationGate:false});
+for(const authorizationGate of [false,true]) for(const variant of ['same-boundary-empty','transmission-error-no-send','same-boundary-draft']) test(`observed stalled continuation recovers safely: gate=${authorizationGate}, ${variant}`,async()=>{
+  const {dom,w,h,task}=await harness({authorizationGate});
   try {
     let now=Date.now();w.Date.now=()=>now;
     mountStalledContinuation(w,task,{error:variant==='transmission-error-no-send',draft:variant==='same-boundary-empty'?'':'继续完成所有，按模板回复',sendAvailable:variant!=='transmission-error-no-send'});
@@ -418,7 +418,7 @@ for(const variant of ['same-boundary-empty','transmission-error-no-send','same-b
     assert.equal(task.url,'https://chatgpt.com/c/guard');
     now+=9_001;await h.inspect(task,null);
     assert.equal(sends,0);assert.equal(retries,0);assert.equal(task.state,'queued');assert.equal(task.url,'');
-    assert.equal(task.history.at(-1).reason,'continuation-ack-timeout');
+    assert.equal(task.history.at(-1).reason,authorizationGate?'continuation-ack-timeout':'structural-stop-absence');
     assert.equal(w.document.querySelector('[contenteditable]').textContent,'');
     assert.equal(task.round,1);assert.equal(task.phase,'work');assert.equal(task.goal,'完成目标');
   }finally{dom.window.close();}
@@ -457,8 +457,8 @@ test('pending deduped continuation still reaches ordinary inspection during conf
   }finally{dom.window.close();}
 });
 
-for(const response of ['final-toolbar','structured-report','legacy-id-alias','legacy-id-alias-with-stop']) test(`expired continuation fence survives server rollback to initial user: ${response}`,async()=>{
-  const {dom,w,h,task}=await harness({authorizationGate:false});
+for(const authorizationGate of [false,true]) for(const response of ['final-toolbar','structured-report','legacy-id-alias','legacy-id-alias-with-stop']) test(`expired continuation fence survives server rollback to initial user: gate=${authorizationGate}, ${response}`,async()=>{
+  const {dom,w,h,task}=await harness({authorizationGate});
   try {
     let now=Date.now();w.Date.now=()=>now;
     mountStalledContinuation(w,task,{draft:'继续完成所有，按模板回复'});
@@ -485,7 +485,7 @@ for(const response of ['final-toolbar','structured-report','legacy-id-alias','le
     await h.inspect(task,null);assert.equal(task.url,'https://chatgpt.com/c/guard');
     now+=9_001;await h.inspect(task,null);
     assert.equal(sends,0);assert.equal(task.state,'queued');assert.equal(task.url,'');
-    assert.equal(task.history.at(-1).reason,'continuation-ack-timeout');
+    assert.equal(task.history.at(-1).reason,authorizationGate?'continuation-ack-timeout':'structural-stop-absence');
     assert.match(task.abnormalFreshCarry,/当前确切已完成工作证据/);
     assert.equal(task.round,1);assert.equal(task.goal,'完成目标');
   }finally{dom.window.close();}
