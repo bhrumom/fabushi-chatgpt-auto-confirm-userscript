@@ -38,4 +38,10 @@ The user explicitly requires that the GitHub requirement remain in the prompt se
 
 | Requirement / AC | Status | Evidence |
 | --- | --- | --- |
-| R1-R7 / AC1-AC7 | pending | Implementation and exact-head GitHub Actions evidence pending. |
+| R1 / AC1 | passed | `githubDeliveryInstruction(task)` and the final JSON example remain in `workPromptSections()`; focused regression asserts commit/push/readback and `githubDelivery` remain in the generated prompt. |
+| R2 / AC2 | passed | `prepareTaskPrompt()` now only snapshots prompt configuration and the prepared prompt; it creates no GitHub-delivery runtime state. |
+| R3 / AC3 | passed | `finish()` no longer intercepts reports for GitHub evidence; focused `next` and `complete` regressions settle normally without `githubDelivery`. |
+| R4 / AC4 | passed | `continuePendingGithubDelivery()`, the special waiting status, and the automatic evidence-reminder path are absent from source and generated userscript. |
+| R5 / AC5 | passed | Regression seeds all v2.10.76 GitHub pending fields and proves they are behaviorally inert while a valid `next` report advances the round. |
+| R6 / AC6 | passed | Diff is limited to the GitHub-delivery prompt/runtime split, version metadata, focused tests and docs; existing authorization/send/attachment/ownership safety paths are unchanged. |
+| R7 / AC7 | passed | GitHub Actions run `39906604429` on exact head `a3329092d46ef865d6b2f29214d9b8f29473b217`: generated userscript check success, syntax check success, full regression success. |
