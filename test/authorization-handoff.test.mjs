@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 const source = await fs.readFile(new URL('../chatgpt-auto-confirm.user.js', import.meta.url), 'utf8');
-const names = 'authorizationContinuationBoundaryMatches,authorizationContinuationBoundaryKey,ownedAuthorizationContinuationDraft,taskTurnForInspection,sendTimeoutNotice,measurements,connectionInterruptionContinuationPending,authorizationContinuationEnabled,isContinuationPrompt,data,tabId,cards,inspect,recoverStoppedConversation,revealStoppedResponseActivity,authorizationContinuationAttempts,authorizationGateExhausted,durableWorkbenchSnapshot,recordConversationAuthorization,conversationAuthorizationSeen,requireConversationAuthorization,continueWithoutAuthorization,durableTaskSnapshot,finish,queueInterruptedFreshRetry,queueBlockedFreshRetry,queueConversationLengthHandoff,queueWorkFinalReportRepair,clearDispatchIntent';
+const names = 'stopObservedGenerationIdentity,authorizationContinuationBoundaryMatches,authorizationContinuationBoundaryKey,ownedAuthorizationContinuationDraft,taskTurnForInspection,sendTimeoutNotice,measurements,connectionInterruptionContinuationPending,authorizationContinuationEnabled,isContinuationPrompt,data,tabId,cards,inspect,recoverStoppedConversation,revealStoppedResponseActivity,authorizationContinuationAttempts,authorizationGateExhausted,durableWorkbenchSnapshot,recordConversationAuthorization,conversationAuthorizationSeen,requireConversationAuthorization,continueWithoutAuthorization,durableTaskSnapshot,finish,queueInterruptedFreshRetry,queueBlockedFreshRetry,queueConversationLengthHandoff,queueWorkFinalReportRepair,clearDispatchIntent';
 async function harness({authorizationGate=true}={}) {
   const dom = new JSDOM('<main><article data-message-author-role="user" data-message-id="u1">[Fabushi:guard-token]</article><article data-message-author-role="assistant" data-message-id="a1">已结束的回复</article></main><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">发送</button></form>', { runScripts:'outside-only', pretendToBeVisual:true, url:'https://chatgpt.com/c/guard' });
   const w = dom.window;
@@ -451,7 +451,7 @@ test('pending deduped continuation still reaches ordinary inspection during conf
   }finally{dom.window.close();}
 });
 
-for(const response of ['final-toolbar','structured-report','legacy-id-alias']) test(`expired continuation fence survives server rollback to initial user: ${response}`,async()=>{
+for(const response of ['final-toolbar','structured-report','legacy-id-alias','legacy-id-alias-with-stop']) test(`expired continuation fence survives server rollback to initial user: ${response}`,async()=>{
   const {dom,w,h,task}=await harness({authorizationGate:false});
   try {
     let now=Date.now();w.Date.now=()=>now;
@@ -462,10 +462,16 @@ for(const response of ['final-toolbar','structured-report','legacy-id-alias']) t
     body.insertAdjacentHTML('afterend','<button aria-label="复制"></button><button aria-label="赞"></button>');
     task.continuationSentAt=now-8*60*60*1000;
     task.authorizationContinuationBoundary=h.authorizationContinuationBoundaryKey(task,h.taskTurnForInspection(task));
-    if(response==='legacy-id-alias') {
+    if(response.startsWith('legacy-id-alias')) {
       const legacy=JSON.parse(task.authorizationContinuationBoundary);
       legacy[0]=legacy[0].replace('id:','id:legacy-message-uuid|');
       task.authorizationContinuationBoundary=JSON.stringify(legacy);
+    }
+    if(response==='legacy-id-alias-with-stop') {
+      task.stopObservedGenerationIdentity=h.stopObservedGenerationIdentity(task,task.url);
+      task.stopObservedDocumentId='previous-document';task.stopObservedGenerationAt=now-120_000;
+      task.reloadStopAbsentSince=0;
+      w.document.querySelector('main').insertAdjacentHTML('beforeend','<div role="status">连接已中断，正在等待完整答复</div>');
     }
     const userText=w.document.querySelector('[data-user-message-bubble]').textContent;
     assert.equal(h.isContinuationPrompt(userText),false);
