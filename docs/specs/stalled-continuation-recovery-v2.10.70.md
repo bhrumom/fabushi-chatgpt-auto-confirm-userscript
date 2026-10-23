@@ -1,6 +1,6 @@
 # Stalled continuation recovery — v2.10.70
 
-Status: active
+Status: completed (integrated acceptance in v2.10.73)
 Owner: Fabushi userscript
 Last updated: 2026-10-23
 Related: connection-interruption-continuation-v2.10.69.md; structural-stop-absence-recovery-v2.10.68.md
@@ -29,4 +29,10 @@ Reproduce both observed structures with shared fallback renderer, generic conten
 ## Compliance
 | Requirement / AC | Status | Evidence |
 | --- | --- | --- |
-| R1-R6 / AC1-AC6 | pending | Implementation and cloud/live acceptance pending. |
+| R1-R6 / AC1-AC6 | passed | Final integrated source c514eb32; PR #192; main Actions 39884321266: parity/syntax and 570 tests (563 pass, 0 fail, 7 skip); Release 39884547997, asset 667629960, SHA256 dbf633d002616241c6cc6dcfca337a188c343d647e7b623b8ee9ef4d296dbf88. See installed/live evidence below. |
+
+## Final installed acceptance — 2026-10-23
+- First original task `9a70a374-d09f-433b-8a65-6ed70b60a1fc`, work round 21, progressed from `/c/6ada32d8-71d0-83e8-ac43-834af61e1510` to `/c/6adab914-beb0-83e8-a084-c248b9854cbe`; root runtime reads 2.10.73. Native page shows Stop and new web-search activity. Original task identity/round preserved.
+- Second original task `3dd43a37-9f36-4b7a-adac-dfcc87584523`, work round 17, progressed from `/c/6ada1987-7850-83e8-8cc0-609c6b72730e` to `/c/6adab4db-6614-83e8-b213-90498f607495`; observed Stop, new pairing/database audit work, later same-chat continuation and real response at 09:37. Its active document remains runtime 2.10.71; it was not reloaded during generation. Installed extension is enabled 2.10.73.
+- Explicit header-level 开启/关闭 controls confirmed in both workspaces. First control tested ON then OFF with immediate aria/state readback; second explicitly set OFF. No manual Send/Retry, permission click, task-state edit, or synthetic failure was used to claim recovery. Existing automation continued normally.
+- Earlier 2.10.70/71 did not recover the first task: renderer alias and inherited Stop hydration gaps were discovered live and closed by combined 2.10.72/73. 2.10.72 was not separately installed. Cloud regressions verify no old-boundary send replay; live acceptance verifies real task progression, not completion of downstream migration work.
