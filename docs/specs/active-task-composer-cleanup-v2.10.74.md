@@ -1,6 +1,6 @@
 # Active task composer cleanup — v2.10.74
 
-Status: active
+Status: completed
 Owner: Fabushi userscript
 Last updated: 2026-10-23
 Related: expired-continuation-hydration-v2.10.73.md
@@ -19,4 +19,9 @@ Add a guarded composer cleanup helper at the inspector's validated-route entry, 
 ## Compliance
 | Requirement / AC | Status | Evidence |
 | --- | --- | --- |
-| R1-R3 / AC1-AC3 | pending | Cloud/release/installed acceptance pending. |
+| R1-R3 / AC1-AC3 | passed | Source 2b8d8f65; PR #193; PR Test 39885898004 and main Test 39886137454: parity/syntax and 581 tests, 574 pass / 0 fail / 7 skip. Release 39886359812, asset 667665970, SHA256 a998ef586a5c7d39b1fd8ffc87bae904e85cab49ce9caeb74a3cb48cccb31534. Native installed list confirms 2.10.74 enabled. |
+
+## Live acceptance
+Original task 3dd43a37-9f36-4b7a-adac-dfcc87584523 had a diagnostic expression accidentally pasted into its ChatGPT composer by the operator; the draft protection caused the wait. Native UI removed only that known expression without sending it. Task then automatically progressed from /c/6adab4db-6614-83e8-b213-90498f607495 to /c/6adabb8c-98ec-83e8-8924-5086816ff45a. After installing 2.10.74, the same bound task tab was refreshed. A benign unsent verification draft was entered; at 09:52:48 Asia/Shanghai the new cleanup log appeared, the input was empty, and the test text was absent from visible message/log content. The task subsequently showed 正在生成 with Stop visible. No diagnostic or test draft was submitted. Existing connection-interruption classification and continuation policy remained active.
+
+Cloud regression coverage includes textarea/contenteditable editor events and non-disclosure, inspector continuation integration, pause/global stop, foreign route/owner, aborted inspection and attempted/sending/upload protection. No local build/test was run. The first CI attempt failed only on the stale packaged-version assertion; it was corrected before final PR/main green runs.
