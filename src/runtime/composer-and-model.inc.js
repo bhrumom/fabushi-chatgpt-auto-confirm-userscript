@@ -1241,7 +1241,7 @@
     const expiredPendingFence = Boolean(task.authorizationRequiredContinuation
       && canonicalConversationURL(task.authorizationContinuationURL) === route
       && Number(task.continuationSentAt || 0) > 0 && sentAge >= SEND_CONFIRM_TIMEOUT_MS
-      && task.authorizationContinuationBoundary === authorizationContinuationBoundaryKey(task,turn,true));
+      && authorizationContinuationBoundaryMatches(task,turn,true));
     const agedContinuation = canonicalConversationURL(task.authorizationContinuationURL) === route
       && Number(task.continuationSentAt || 0) > 0 && sentAge >= SEND_CONFIRM_TIMEOUT_MS
       && (isContinuationPrompt(text(conversationRoleNodes('user').at(-1))) || expiredPendingFence);
@@ -1284,7 +1284,7 @@
     if (task.authorizationRequiredContinuation) {
       const sent = await continueWithoutAuthorization(task, signal, now, { endedConfirmed:true });
       if (!sent && task.authorizationRequiredContinuation && agedContinuation
-        && (task.authorizationContinuationBoundary === authorizationContinuationBoundaryKey(task,turn,true)
+        && (authorizationContinuationBoundaryMatches(task,turn,true)
           || ((recoveryDraft || ownedAuthorizationContinuationDraft(task,input)) && !sendButtonFor(input) && sendTimeoutNotice(turn)))
         && currentConversationURL() === route && !stopButton() && !cards({wide:true}).length
         && !approvalSettlementActive(task,route,now) && !blocker() && !rateLimitNotice()
