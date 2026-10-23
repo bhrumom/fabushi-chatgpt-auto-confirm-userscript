@@ -1256,7 +1256,10 @@
     if (cards({ wide:true }).length || approvalSettlementActive(task, route, now)) { reset(); return false; }
     const inheritedStop = task.stopObservedGenerationIdentity === stopObservedGenerationIdentity(task,route)
       && task.stopObservedDocumentId && task.stopObservedDocumentId !== DOCUMENT_INSTANCE_ID;
-    if (inheritedStop && (!task.reloadStopAbsentSince
+    // An aged pending click already has a stronger bounded send identity.
+    // Its own quiet/card confirmation must not depend on legacy hydration
+    // bookkeeping that an explicit-interruption branch can return before.
+    if (inheritedStop && !expiredPendingFence && (!task.reloadStopAbsentSince
       || now-Number(task.reloadStopAbsentSince) < RELOAD_STOP_ABSENCE_STABILITY_MS)) return false;
     const identity = JSON.stringify([route, String(task.token || ''), String(task.phase || ''), Number(task.round || 0),
       recoveryUserBoundaryKey(conversationRoleNodes('user').at(-1)), assistantResponseBoundaryKey(turn),
