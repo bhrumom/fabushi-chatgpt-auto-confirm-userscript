@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.76
+// @version      2.10.77
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -68,7 +68,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.76';
+  const VERSION = '2.10.77';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -375,20 +375,8 @@ async function bootstrapAttempt() {
   }
   function prepareTaskPrompt(task) {
     task.promptConfigSnapshot=normalizePromptConfig(data.promptConfig);
-    task.githubDeliveryRequired=true;task.githubDeliveryPending=false;
-    task.githubDeliveryAttempts=0;task.githubDeliveryBoundary='';task.githubDeliveryReportBoundary='';task.githubDeliveryLimitNoted=false;
     task.preparedPrompt=workPrompt(task);
     return task.preparedPrompt;
-  }
-  function githubDeliveryEvidence(report) {
-    const proof=report?.githubDelivery;
-    if(!proof || proof.verified !== true || typeof proof.sha !== 'string' || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i.test(proof.sha)) return false;
-    try {
-      const url=new URL(proof.commitUrl);
-      const match=url.pathname.match(/^\/[^/]+\/[^/]+\/commit\/([a-f0-9]{40}|[a-f0-9]{64})\/?$/i);
-      return Boolean(url.protocol==='https:' && url.hostname==='github.com' && !url.port && !url.username && !url.password
-        && !url.search && !url.hash && match && match[1].toLowerCase()===proof.sha.toLowerCase());
-    } catch {return false;}
   }
   function githubDeliveryInstruction(task) {
     return `【GitHub 提交与结束会话的强制门槛】
@@ -8420,15 +8408,6 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     return 'queued';
   }
   function finish(task, reply) {
-    if(task.githubDeliveryRequired) {
-      let candidate;try{candidate=parseWorkFinalReport(reply,task);}catch{}
-      if(!githubDeliveryEvidence(candidate)) {
-        if(!task.githubDeliveryPending) {task.githubDeliveryPending=true;log(task,'最终报告缺少 GitHub 真实提交 URL、完整 SHA 或远端回读确认；保留当前会话补齐，不结束本轮。');}
-        task.githubDeliveryReportBoundary=authorizationContinuationBoundaryKey(task,taskTurnForInspection(task));
-        task.state='waiting';save();return;
-      }
-      task.githubDeliveryPending=false;
-    }
     if (requireConversationAuthorization(task, '当前会话已给出最终回复')) return;
     if (authorizationGateExhausted(task)) {
       queueInterruptedFreshRetry(task, '当前会话已继续 3 次仍未出现授权卡片', Date.now(), null, { allowExactRouteFallback:true, recoveryLabel:'无授权卡三次继续上限', historyReason:'authorization-continuation-limit' });
@@ -8556,34 +8535,6 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     }
     save();
   }
-  async function continuePendingGithubDelivery(task,signal) {
-    if(!task.githubDeliveryRequired || !task.githubDeliveryPending) return false;
-    const route=currentConversationURL();
-    if(!running || data.autoResume===false || signal?.aborted || terminal.has(task.state) || task.state==='paused'
-      || task.attempted || !route || route!==canonicalConversationURL(task.url) || !taskBelongsToTab(task)
-      || conversationURLOwner(route,task.id) || tabTasks().some(item=>item.id!==task.id && item.token && hasTaskMarker(item))) return true;
-    if(cards({wide:true}).length || approvalSettlementActive(task,route) || blocker() || rateLimitNotice()) return false;
-    if(stopButton()) return true;
-    const turn=taskTurnForInspection(task);
-    if(!turn.owned) return true;
-    try {if(githubDeliveryEvidence(parseWorkFinalReport(turn.text,task))){task.githubDeliveryPending=false;save();return false;}}catch{}
-    const boundary=authorizationContinuationBoundaryKey(task,turn);
-    if(!boundary || task.githubDeliveryBoundary===boundary || !(turn.final || currentWorkFinalReport(turn.text,task) || boundary===task.githubDeliveryReportBoundary)) return true;
-    if(Number(task.githubDeliveryAttempts || 0)>=3) {if(!task.githubDeliveryLimitNoted){task.githubDeliveryLimitNoted=true;state(task,'waiting','已请求补齐 GitHub 提交证据 3 次；保留当前会话等待真实提交，不自动结束或重开。');save();}return true;}
-    const input=composer();if(!input) return true;
-    const prompt=`继续完成本轮任务：先把实际工作结果提交并推送到 GitHub，回读核验真实远端提交后，按原始最终 JSON 模板回复并附上 githubDelivery。不得重复已完成修改；无权限时不得伪造提交或扩大权限。taskId=${task.id}，round=${task.round}。\n[Fabushi:${task.token}]`;
-    setInput(input,prompt);
-    let button=sendButtonFor(input);if(!button) return true;
-    await delay(300,signal);check(signal);
-    if(currentConversationURL()!==route || stopButton() || cards({wide:true}).length || approvalSettlementActive(task,route)
-      || terminal.has(task.state) || task.state==='paused' || !running || data.autoResume===false || !taskBelongsToTab(task)
-      || conversationURLOwner(route,task.id) || blocker() || rateLimitNotice()
-      || tabTasks().some(item=>item.id!==task.id && item.token && hasTaskMarker(item))
-      || normalize(input.value || input.textContent)!==normalize(prompt)) return true;
-    button=sendButtonFor(input);if(!button) return true;
-    task.githubDeliveryBoundary=boundary;task.githubDeliveryAttempts=Number(task.githubDeliveryAttempts || 0)+1;save();
-    activateControl(button);log(task,`已在当前会话请求提交 GitHub 并核验证据（${task.githubDeliveryAttempts}/3）；保持任务和轮次不变。`);save();return true;
-  }
   function clearActiveTaskComposerDraft(task, signal) {
     const route = currentConversationURL();
     if (!running || data.autoResume === false || signal?.aborted || !task
@@ -8614,7 +8565,6 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       return;
     }
     clearActiveTaskComposerDraft(task, signal);
-    if(await continuePendingGithubDelivery(task,signal)) return;
     if (revealCurrentCollapsedMessage(task, signal)) return;
     if (revealStoppedResponseActivity(task, signal)) return;
     if (await recoverStoppedConversation(task, signal)) return;
@@ -10194,7 +10144,6 @@ NaN
     return Math.max(0, startedAt + SEND_CONFIRM_TIMEOUT_MS - now);
   }
   function taskStatusText(task, now = Date.now()) {
-    if(task?.githubDeliveryPending) return '等待 GitHub 提交与远端核验证据';
     if (task?.state === 'approval' && taskBelongsToTab(task) && !data.autoApprove && !data.globalAutoApprove) return '等待手动授权（自动授权已关闭）';
     const remaining = sendConfirmationRemaining(task, now);
     if (remaining === null) return statusNames[task?.state] || task?.state || '';
