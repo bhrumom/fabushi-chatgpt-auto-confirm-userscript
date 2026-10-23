@@ -190,6 +190,7 @@
     return Math.max(0, startedAt + SEND_CONFIRM_TIMEOUT_MS - now);
   }
   function taskStatusText(task, now = Date.now()) {
+    if(task?.githubDeliveryPending) return '等待 GitHub 提交与远端核验证据';
     if (task?.state === 'approval' && taskBelongsToTab(task) && !data.autoApprove && !data.globalAutoApprove) return '等待手动授权（自动授权已关闭）';
     const remaining = sendConfirmationRemaining(task, now);
     if (remaining === null) return statusNames[task?.state] || task?.state || '';
@@ -259,7 +260,8 @@
     const editGoalButton = element('button','编辑目标');
     const settingsButton = element('button','设置'), pauseButton = element('button','暂停当前任务'), close = element('button','×'); close.setAttribute('aria-label','收起任务工作台');
     const locateApprovalButton = element('button','定位授权卡'); locateApprovalButton.type='button'; locateApprovalButton.hidden=true;
-    head.append(heading,editGoalButton,settingsButton,pauseButton,locateApprovalButton,close);
+    const promptButton=element('button','提示词组合');promptButton.type='button';promptButton.onclick=()=>openPromptComposer(data.tasks.find(item=>item.id===selected && taskBelongsToTab(item)));
+    head.append(heading,promptButton,editGoalButton,settingsButton,pauseButton,locateApprovalButton,close);
     const settings = element('div','','settings');
     const globalApproval = element('input'); globalApproval.type='checkbox'; globalApproval.checked=data.globalAutoApprove;
     const globalApprovalLabel = element('label');

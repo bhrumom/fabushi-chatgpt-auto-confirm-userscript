@@ -5353,7 +5353,8 @@ test('an empty new tab visibly offers and adopts a closed workspace in place',as
     .find(button=>button.textContent==='恢复到当前标签页');
   assert.ok(restore);
   assert.equal(personal.w.document.querySelectorAll('aside .task-group[data-owner-tab-id]').length,1,'recovery is grouped in the left task list');
-  assert.equal(personal.w.document.querySelector('header button:nth-of-type(2)').textContent,'设置','top recovery strip is removed');
+  assert.ok([...personal.w.document.querySelectorAll('header button')].some(button=>button.textContent==='设置'));
+  assert.equal(personal.w.document.querySelector('header .restore-workspace'),null,'top recovery strip is removed');
   assert.equal(personal.h.recoverableWorkspaces()[0].ownerTabId,owner);
 
   const result=await personal.h.restoreWorkspace(owner,true);
@@ -7229,8 +7230,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2.10.75$/m);
-  assert.match(source,/const VERSION = '2.10.75'/);
+  assert.match(source,/^\/\/ @version\s+2.10.76$/m);
+  assert.match(source,/const VERSION = '2.10.76'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);

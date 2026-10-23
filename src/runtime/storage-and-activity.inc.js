@@ -462,6 +462,7 @@
       'reasoningPresetConfirmedAt','reasoningPresetConfirmedIndex','modelPresetConfirmedAt','modelPresetConfirmedKey','recentActivitySnapshotLoggedAt',
     ]) delete snapshot[field];
 
+    if (snapshot.promptConfigSnapshot) snapshot.promptConfigSnapshot=normalizePromptConfig(snapshot.promptConfigSnapshot);
     snapshot.id = String(snapshot.id || '').slice(0, 160);
     snapshot.ownerTabId = String(snapshot.ownerTabId || '').slice(0, 160);
     snapshot.goal = String(snapshot.goal || '').slice(0, 16000);
@@ -520,6 +521,7 @@
         globalAutoApprove:Boolean(control.globalAutoApprove),
         autoApprove:control.autoApprove !== false,
         requireAuthorizationBeforeNewChat:control.requireAuthorizationBeforeNewChat === true,
+        promptConfig:normalizePromptConfig(control.promptConfig),
       };
     }
     const selected = taskIds.has(source.selected) ? source.selected : (selectedByTab[activeWorkspaceStorageId] || '');

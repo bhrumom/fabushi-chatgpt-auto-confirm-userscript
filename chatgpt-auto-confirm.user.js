@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.75
+// @version      2.10.76
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -68,7 +68,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.75';
+  const VERSION = '2.10.76';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -363,6 +363,80 @@ async function bootstrapAttempt() {
   const STORAGE_CLEANUP_SCAN_LIMIT = 96;
   let storageCleanupLastAt = 0;
   let activeWorkspaceStorageId = '';
+
+  const DEFAULT_EXECUTION_RULES = "【强制执行与完成门槛】\n最终回复模板只是每轮的机器可读状态报告，不是停止工作的许可。只有在当前轮可执行工作已经真实落地后，才输出该模板；整个任务仍有要求未完成时，必须使用 status=next 继续后续 Work 轮次，绝不能提前使用 status=complete 结束任务。\n\n必须在内部逐项列出原始目标和每项明确要求/验收条件，然后逐项完成实际动作并核对证据。分析、方案、建议、任务拆解、代码片段、尚未应用的 diff 或口头声称均不等于完成；不得把“我将会”“建议下一步”或“已经分析”当作落地交付。严格按原始任务权限和范围执行：实现任务必须实际修改目标文件、配置或数据并按要求提交到云端；如果任务明确要求 PR、合并、发布、部署或其他交付步骤，必须完成对应步骤。若任务明确是只读审计，必须完成每一项真实读取、SHA/调用方/唯一状态 owner/生产接线/责任账本锚点等核验并保存可复核证据，绝不能为了通过门槛而修改被禁止改动的代码、账本或其他文件。\n\n只有每项要求和验收条件都已按原始范围实际完成，且有真实、可追溯的证据，才允许 status=complete。代码变更需要构建或测试时，必须核对绑定当前 exact commit/head 的 GitHub Actions 结果；queued/in_progress、失败、缺少证据、未提交变更或任务要求的交付步骤仍未完成，都不算通过。不得虚构测试、SHA、提交、合并、发布或部署结果。\n\n只要还有任何可执行的实现、核验、提交或交付工作，必须立即继续执行，不得因已经分析完、写好报告、上下文变长或接近回复边界而停止。遇到阻塞时先继续其他独立可做的事项；没有状态变化不得反复执行同一个失败动作。若仍有未完成项，必须使用 status=next，summary 只写已核实进展和缺口，next 写一条当前可以立即执行的具体动作。若仅剩外部阻塞，也不能标 complete；准确说明阻塞和解除后可执行的下一步，并在阻塞未变化时继续推进其他可做工作。若当前轮属于最终报告修复，使用已保存的证据，不重复已完成的生产修改；若证据揭示真实缺口，仍不得标 complete，必须补齐或使用 status=next 继续落地。\n";
+  function normalizePromptConfig(value) {
+    const config = value && typeof value === 'object' ? value : {};
+    return { executionRules:typeof config.executionRules === 'string' ? config.executionRules.slice(0,8000) : DEFAULT_EXECUTION_RULES,
+      additions:(Array.isArray(config.additions) ? config.additions : []).slice(0,8).map((item,index)=>({
+        id:String(item?.id || `section-${index}`).slice(0,80), title:String(item?.title || '附加提示词').slice(0,80),
+        text:String(item?.text || '').slice(0,2000), enabled:item?.enabled !== false,
+      })) };
+  }
+  function prepareTaskPrompt(task) {
+    task.promptConfigSnapshot=normalizePromptConfig(data.promptConfig);
+    task.githubDeliveryRequired=true;task.githubDeliveryPending=false;
+    task.githubDeliveryAttempts=0;task.githubDeliveryBoundary='';task.githubDeliveryReportBoundary='';task.githubDeliveryLimitNoted=false;
+    task.preparedPrompt=workPrompt(task);
+    return task.preparedPrompt;
+  }
+  function githubDeliveryEvidence(report) {
+    const proof=report?.githubDelivery;
+    if(!proof || proof.verified !== true || typeof proof.sha !== 'string' || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i.test(proof.sha)) return false;
+    try {
+      const url=new URL(proof.commitUrl);
+      const match=url.pathname.match(/^\/[^/]+\/[^/]+\/commit\/([a-f0-9]{40}|[a-f0-9]{64})\/?$/i);
+      return Boolean(url.protocol==='https:' && url.hostname==='github.com' && !url.port && !url.username && !url.password
+        && !url.search && !url.hash && match && match[1].toLowerCase()===proof.sha.toLowerCase());
+    } catch {return false;}
+  }
+  function githubDeliveryInstruction(task) {
+    return `【GitHub 提交与结束会话的强制门槛】
+在输出本轮任何最终报告（status=next 或 complete）、结束本次会话之前，必须先把本轮实际工作结果按任务允许范围提交并推送到 GitHub，并通过 GitHub 连接器/API 回读核验远端提交、文件内容与完整 SHA。只在本地 commit、尚未 push、仅提供计划/补丁、只开 PR 而无可回读提交、口头声称提交均不算完成。
+只读审计可在获准路径提交审计结果/证据，不得修改禁止改动的生产代码、账本或其他受保护文件。不得为满足本门槛伪造提交或擅自扩大权限；没有写入权限时继续处理其他获准事项并等待权限恢复，不得给出宣称提交完成的最终报告。
+最终 JSON 必须附上 githubDelivery:{"commitUrl":"https://github.com/OWNER/REPO/commit/FULL_SHA","sha":"完整真实提交 SHA","verified":true}，且 URL 和 SHA 必须一致；verified=true 只能在远端回读成功后填写。提交结果必须属于本任务本轮，而不是引用无关或旧提交。taskId=${task.id}，round=${task.round}。`;
+  }
+  function openPromptComposer(task) {
+    document.getElementById('fabushi-prompt-composer')?.remove();
+    let draft=normalizePromptConfig(data.promptConfig);
+    const overlay=element('section');overlay.id='fabushi-prompt-composer';overlay.setAttribute('role','dialog');overlay.setAttribute('aria-modal','true');overlay.setAttribute('aria-label','提示词组合');
+    overlay.style.cssText='position:fixed;inset:6vh 8vw;z-index:2147483647;overflow:auto;background:#252525;color:#eee;padding:22px;border:1px solid #777;border-radius:16px;font:14px system-ui;box-shadow:0 12px 80px #0009';
+    const appendButton=(parent,label,action)=>{const button=element('button',label);button.type='button';button.style.cssText='margin:4px;padding:7px 12px;cursor:pointer';button.onclick=action;parent.append(button);return button;};
+    const render=()=>{
+      overlay.replaceChildren();
+      const title=element('h2','提示词组合');overlay.append(title);
+      appendButton(overlay,'关闭提示词编辑器',()=>overlay.remove());
+      const status=element('p','修改后保存，从下一次尚未准备的发送生效；已准备或已发送的提示词保持不变。');overlay.append(status);
+      const rules=element('textarea');rules.value=draft.executionRules;rules.maxLength=8000;rules.setAttribute('aria-label','执行规则提示词');rules.style.cssText='display:block;width:98%;min-height:160px;background:#333;color:#eee';
+      overlay.append(element('h3','可编辑执行规则（最多 8000 字符）'),rules);
+      rules.oninput=()=>{draft.executionRules=rules.value;refresh();};
+      const additions=element('div');overlay.append(element('h3','附加提示词（最多 8 段，每段 2000 字符）'),additions);
+      draft.additions.forEach((part,index)=>{
+        const card=element('section');card.style.cssText='border:1px solid #666;padding:10px;margin:10px 0';
+        const enabled=element('input');enabled.type='checkbox';enabled.checked=part.enabled;enabled.setAttribute('aria-label',`启用附加提示词 ${index+1}`);enabled.onchange=()=>{part.enabled=enabled.checked;refresh();};
+        const name=element('input');name.value=part.title;name.maxLength=80;name.setAttribute('aria-label',`附加提示词标题 ${index+1}`);name.oninput=()=>{part.title=name.value;refresh();};
+        const body=element('textarea');body.value=part.text;body.maxLength=2000;body.setAttribute('aria-label',`附加提示词内容 ${index+1}`);body.style.cssText='display:block;width:98%;min-height:80px;background:#333;color:#eee';body.oninput=()=>{part.text=body.value;refresh();};
+        card.append(enabled,name,body);
+        appendButton(card,'上移',()=>{if(index){[draft.additions[index-1],draft.additions[index]]=[part,draft.additions[index-1]];render();}});
+        appendButton(card,'下移',()=>{if(index<draft.additions.length-1){[draft.additions[index+1],draft.additions[index]]=[part,draft.additions[index+1]];render();}});
+        appendButton(card,'删除此段',()=>{draft.additions.splice(index,1);render();});additions.append(card);
+      });
+      appendButton(overlay,'新增提示词',()=>{if(draft.additions.length<8){draft.additions.push({id:id(),title:'附加提示词',text:'',enabled:true});render();}});
+      appendButton(overlay,'恢复默认提示词',()=>{draft=normalizePromptConfig(null);render();});
+      appendButton(overlay,'保存提示词组合',()=>{data.promptConfig=normalizePromptConfig(draft);save();status.textContent='已保存；从下一次新准备的发送生效。';refresh();});
+      const list=element('div');overlay.append(element('h3','实际组合顺序'),list);
+      const preview=element('textarea');preview.readOnly=true;preview.setAttribute('aria-label','下一次发送完整提示词预览');preview.style.cssText='display:block;width:98%;min-height:260px;background:#191919;color:#ddd';overlay.append(element('h3','下一次发送完整预览'),preview);
+      if(task?.preparedPrompt){const prepared=element('textarea');prepared.readOnly=true;prepared.value=task.preparedPrompt;prepared.setAttribute('aria-label','当前已准备的发送原文');prepared.style.cssText='display:block;width:98%;min-height:120px;background:#191919;color:#ddd';overlay.append(element('h3','当前已准备的原文（保持不变）'),prepared);}
+      function refresh(){
+        const target={...(task || {id:'新任务预览',round:1,token:'发送时生成',goal:'（在任务目标中填写）',phase:'work',attachments:[]}),promptConfigSnapshot:normalizePromptConfig(draft)};
+        const parts=workPromptSections(target);list.replaceChildren();
+        parts.forEach((part,index)=>{const details=element('details');details.append(element('summary',`${index+1}. ${part.title}${part.editable?' · 可编辑':' · 自动组合/固定要求'}`),element('pre',part.text));details.style.cssText='padding:6px;border-bottom:1px solid #444';const pre=details.querySelector('pre');pre.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere';list.append(details);});
+        preview.value=parts.map(part=>part.text).join('\n');
+      }
+      refresh();
+    };
+    render();(document.getElementById(ROOT) || document.body || document.documentElement).append(overlay);
+  }
 
 // Optional extension scheduling. Page timers are always retained as fallback.
 // Host messages are advisory: ownership, pause and cooldown stay in the runner.
@@ -893,6 +967,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
       'reasoningPresetConfirmedAt','reasoningPresetConfirmedIndex','modelPresetConfirmedAt','modelPresetConfirmedKey','recentActivitySnapshotLoggedAt',
     ]) delete snapshot[field];
 
+    if (snapshot.promptConfigSnapshot) snapshot.promptConfigSnapshot=normalizePromptConfig(snapshot.promptConfigSnapshot);
     snapshot.id = String(snapshot.id || '').slice(0, 160);
     snapshot.ownerTabId = String(snapshot.ownerTabId || '').slice(0, 160);
     snapshot.goal = String(snapshot.goal || '').slice(0, 16000);
@@ -951,6 +1026,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
         globalAutoApprove:Boolean(control.globalAutoApprove),
         autoApprove:control.autoApprove !== false,
         requireAuthorizationBeforeNewChat:control.requireAuthorizationBeforeNewChat === true,
+        promptConfig:normalizePromptConfig(control.promptConfig),
       };
     }
     const selected = taskIds.has(source.selected) ? source.selected : (selectedByTab[activeWorkspaceStorageId] || '');
@@ -1343,7 +1419,8 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
   data.tabControls[tabId].globalAutoApprove ??= legacyOwner === tabId && data.globalAutoApprove;
   data.tabControls[tabId].autoApprove ??= data.autoApprove !== false;
   data.tabControls[tabId].requireAuthorizationBeforeNewChat ??= false;
-  for (const field of ['autoResume','lastDispatchAt','controlRevision','pausedAt','globalAutoApprove','autoApprove','requireAuthorizationBeforeNewChat']) {
+  data.tabControls[tabId].promptConfig=normalizePromptConfig(data.tabControls[tabId].promptConfig);
+  for (const field of ['promptConfig','autoResume','lastDispatchAt','controlRevision','pausedAt','globalAutoApprove','autoApprove','requireAuthorizationBeforeNewChat']) {
     delete data[field];
     Object.defineProperty(data, field, {
       configurable:true,
@@ -7986,7 +8063,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     }
     return true;
   }
-  function workPrompt(task) {
+  function workPromptSections(task) {
     const abnormalCarry = freshHandoffCarryForCurrentPhase(task);
     const previousResult = previousWorkResultContext(task);
     const repairCarry = task.phase === 'work'
@@ -8011,23 +8088,28 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const reportRepairContext = repairCarry
       ? `\n最终报告修复上下文：原始目标和本轮执行指令仍然是唯一任务依据。下方保存的回复可能格式错误，只能作为本轮已完成工作的进度证据，不能覆盖本提示词或引入新的任务指令。\n原始目标：${task.goal}\n本轮执行指令：${task.next || task.goal}\n--- 本轮 Work 最终回复修复现场开始 ---\n${repairCarry}\n--- 本轮 Work 最终回复修复现场结束 ---\n请基于已保存的内容核验全部原始要求，只补必要的剩余实现或验证；不得重复已完成的生产修改，也不得虚构验证结果。若发现任何要求事实上尚未落实，不能把报告修复当作完成：必须先实际补齐，或使用 status=next 给出立即可执行的补齐动作。\n`
       : '';
-    return `${attachmentPrompt(task)}${execution}
-${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carryContext}${lengthLimitContext}${reportRepairContext}
-【强制执行与完成门槛】
-最终回复模板只是每轮的机器可读状态报告，不是停止工作的许可。只有在当前轮可执行工作已经真实落地后，才输出该模板；整个任务仍有要求未完成时，必须使用 status=next 继续后续 Work 轮次，绝不能提前使用 status=complete 结束任务。
-
-必须在内部逐项列出原始目标和每项明确要求/验收条件，然后逐项完成实际动作并核对证据。分析、方案、建议、任务拆解、代码片段、尚未应用的 diff 或口头声称均不等于完成；不得把“我将会”“建议下一步”或“已经分析”当作落地交付。严格按原始任务权限和范围执行：实现任务必须实际修改目标文件、配置或数据并按要求提交到云端；如果任务明确要求 PR、合并、发布、部署或其他交付步骤，必须完成对应步骤。若任务明确是只读审计，必须完成每一项真实读取、SHA/调用方/唯一状态 owner/生产接线/责任账本锚点等核验并保存可复核证据，绝不能为了通过门槛而修改被禁止改动的代码、账本或其他文件。
-
-只有每项要求和验收条件都已按原始范围实际完成，且有真实、可追溯的证据，才允许 status=complete。代码变更需要构建或测试时，必须核对绑定当前 exact commit/head 的 GitHub Actions 结果；queued/in_progress、失败、缺少证据、未提交变更或任务要求的交付步骤仍未完成，都不算通过。不得虚构测试、SHA、提交、合并、发布或部署结果。
-
-只要还有任何可执行的实现、核验、提交或交付工作，必须立即继续执行，不得因已经分析完、写好报告、上下文变长或接近回复边界而停止。遇到阻塞时先继续其他独立可做的事项；没有状态变化不得反复执行同一个失败动作。若仍有未完成项，必须使用 status=next，summary 只写已核实进展和缺口，next 写一条当前可以立即执行的具体动作。若仅剩外部阻塞，也不能标 complete；准确说明阻塞和解除后可执行的下一步，并在阻塞未变化时继续推进其他可做工作。若当前轮属于最终报告修复，使用已保存的证据，不重复已完成的生产修改；若证据揭示真实缺口，仍不得标 complete，必须补齐或使用 status=next 继续落地。
-
-输出 JSON 前，必须逐项对照每个原始要求/验收条件及其证据；任何一项未完成或未核验，status 必须是 next。complete 的 summary 只能陈述真实交付和证据，next 必须为空字符串；next 的内容必须是立即可执行的工作动作，而不是泛泛计划、会话分工或角色说明。
+    const config=normalizePromptConfig(task.promptConfigSnapshot || data.promptConfig);
+    return [
+      {title:'附件',text:attachmentPrompt(task)},
+      {title:'本轮执行指令',text:execution},
+      {title:'原始目标',text:task.round>1 ? `原始目标：${task.goal}` : ''},
+      {title:'上一轮结果',text:priorContext},
+      {title:'异常恢复现场',text:carryContext},
+      {title:'长度上限接力现场',text:lengthLimitContext},
+      {title:'报告修复现场',text:reportRepairContext},
+      {title:'执行规则',text:config.executionRules,editable:true},
+      ...config.additions.filter(part=>part.enabled && part.text.trim()).map(part=>({title:part.title,text:`【${part.title}】\n${part.text}`,editable:true})),
+      {title:'GitHub 提交与远端核验（必需）',text:githubDeliveryInstruction(task)},
+      {title:'最终回复协议（固定）',text:`输出 JSON 前，必须逐项对照每个原始要求/验收条件及其证据；任何一项未完成或未核验，status 必须是 next。complete 的 summary 只能陈述真实交付和证据，next 必须为空字符串；next 的内容必须是立即可执行的工作动作，而不是泛泛计划、会话分工或角色说明。
 最终回复必须严格只输出以下 MAHAYANA_TASK_REPORT_V1 JSON，不要输出 Markdown 代码围栏或其他文字：
-{"taskId":"${task.id}","round":${task.round},"status":"complete 或 next","summary":"只写已核实的真实证据、完成项和剩余缺口","next":"status 为 complete 时必须为空字符串；status 为 next 时直接写当前执行环境可以立即实施的具体动作，保留仓库、文件、PR、SHA、测试和门槛"}
+{"taskId":"${task.id}","round":${task.round},"status":"complete 或 next","summary":"只写已核实的真实证据、完成项和剩余缺口","next":"status 为 complete 时必须为空字符串；status 为 next 时直接写当前执行环境可以立即实施的具体动作，保留仓库、文件、PR、SHA、测试和门槛","githubDelivery":{"commitUrl":"https://github.com/OWNER/REPO/commit/FULL_SHA","sha":"完整真实提交 SHA","verified":true}}
 输出前自行检查：taskId 和 round 必须与当前任务完全一致；complete 必须有充分真实证据且 next=""；next 必须是直接执行动作而不是会话分工、角色说明或泛泛计划。不要输出会话分工、角色说明、未来会话安排或只读身份的旁白。
-[Fabushi:${task.token}]`;
+`},
+      {title:'任务身份（固定）',text:`[Fabushi:${task.token}]`},
+    ].filter(part=>part.text);
   }
+  function workPrompt(task) {return workPromptSections(task).map(part=>part.text).join('\n');}
+
   function currentTaskModelStillConfirmed(task, verifiedPreset) {
     // A user can change the Fabushi task's model during any awaited part of
     // preflight. Only the exact requested model confirmed in this dispatch
@@ -8067,7 +8149,7 @@ ${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carry
     // than generating a second message or a second planner conversation.
     if (!task.sendPrepared || !task.token) {
       task.token = id();
-      task.preparedPrompt = workPrompt(task);
+      prepareTaskPrompt(task);
       task.preparedAt = Date.now();
       task.state = 'sending';
       task.attempted = false;
@@ -8338,6 +8420,15 @@ ${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carry
     return 'queued';
   }
   function finish(task, reply) {
+    if(task.githubDeliveryRequired) {
+      let candidate;try{candidate=parseWorkFinalReport(reply,task);}catch{}
+      if(!githubDeliveryEvidence(candidate)) {
+        if(!task.githubDeliveryPending) {task.githubDeliveryPending=true;log(task,'最终报告缺少 GitHub 真实提交 URL、完整 SHA 或远端回读确认；保留当前会话补齐，不结束本轮。');}
+        task.githubDeliveryReportBoundary=authorizationContinuationBoundaryKey(task,taskTurnForInspection(task));
+        task.state='waiting';save();return;
+      }
+      task.githubDeliveryPending=false;
+    }
     if (requireConversationAuthorization(task, '当前会话已给出最终回复')) return;
     if (authorizationGateExhausted(task)) {
       queueInterruptedFreshRetry(task, '当前会话已继续 3 次仍未出现授权卡片', Date.now(), null, { allowExactRouteFallback:true, recoveryLabel:'无授权卡三次继续上限', historyReason:'authorization-continuation-limit' });
@@ -8465,6 +8556,34 @@ ${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carry
     }
     save();
   }
+  async function continuePendingGithubDelivery(task,signal) {
+    if(!task.githubDeliveryRequired || !task.githubDeliveryPending) return false;
+    const route=currentConversationURL();
+    if(!running || data.autoResume===false || signal?.aborted || terminal.has(task.state) || task.state==='paused'
+      || task.attempted || !route || route!==canonicalConversationURL(task.url) || !taskBelongsToTab(task)
+      || conversationURLOwner(route,task.id) || tabTasks().some(item=>item.id!==task.id && item.token && hasTaskMarker(item))) return true;
+    if(cards({wide:true}).length || approvalSettlementActive(task,route) || blocker() || rateLimitNotice()) return false;
+    if(stopButton()) return true;
+    const turn=taskTurnForInspection(task);
+    if(!turn.owned) return true;
+    try {if(githubDeliveryEvidence(parseWorkFinalReport(turn.text,task))){task.githubDeliveryPending=false;save();return false;}}catch{}
+    const boundary=authorizationContinuationBoundaryKey(task,turn);
+    if(!boundary || task.githubDeliveryBoundary===boundary || !(turn.final || currentWorkFinalReport(turn.text,task) || boundary===task.githubDeliveryReportBoundary)) return true;
+    if(Number(task.githubDeliveryAttempts || 0)>=3) {if(!task.githubDeliveryLimitNoted){task.githubDeliveryLimitNoted=true;state(task,'waiting','已请求补齐 GitHub 提交证据 3 次；保留当前会话等待真实提交，不自动结束或重开。');save();}return true;}
+    const input=composer();if(!input) return true;
+    const prompt=`继续完成本轮任务：先把实际工作结果提交并推送到 GitHub，回读核验真实远端提交后，按原始最终 JSON 模板回复并附上 githubDelivery。不得重复已完成修改；无权限时不得伪造提交或扩大权限。taskId=${task.id}，round=${task.round}。\n[Fabushi:${task.token}]`;
+    setInput(input,prompt);
+    let button=sendButtonFor(input);if(!button) return true;
+    await delay(300,signal);check(signal);
+    if(currentConversationURL()!==route || stopButton() || cards({wide:true}).length || approvalSettlementActive(task,route)
+      || terminal.has(task.state) || task.state==='paused' || !running || data.autoResume===false || !taskBelongsToTab(task)
+      || conversationURLOwner(route,task.id) || blocker() || rateLimitNotice()
+      || tabTasks().some(item=>item.id!==task.id && item.token && hasTaskMarker(item))
+      || normalize(input.value || input.textContent)!==normalize(prompt)) return true;
+    button=sendButtonFor(input);if(!button) return true;
+    task.githubDeliveryBoundary=boundary;task.githubDeliveryAttempts=Number(task.githubDeliveryAttempts || 0)+1;save();
+    activateControl(button);log(task,`已在当前会话请求提交 GitHub 并核验证据（${task.githubDeliveryAttempts}/3）；保持任务和轮次不变。`);save();return true;
+  }
   function clearActiveTaskComposerDraft(task, signal) {
     const route = currentConversationURL();
     if (!running || data.autoResume === false || signal?.aborted || !task
@@ -8495,6 +8614,7 @@ ${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carry
       return;
     }
     clearActiveTaskComposerDraft(task, signal);
+    if(await continuePendingGithubDelivery(task,signal)) return;
     if (revealCurrentCollapsedMessage(task, signal)) return;
     if (revealStoppedResponseActivity(task, signal)) return;
     if (await recoverStoppedConversation(task, signal)) return;
@@ -10074,6 +10194,7 @@ NaN
     return Math.max(0, startedAt + SEND_CONFIRM_TIMEOUT_MS - now);
   }
   function taskStatusText(task, now = Date.now()) {
+    if(task?.githubDeliveryPending) return '等待 GitHub 提交与远端核验证据';
     if (task?.state === 'approval' && taskBelongsToTab(task) && !data.autoApprove && !data.globalAutoApprove) return '等待手动授权（自动授权已关闭）';
     const remaining = sendConfirmationRemaining(task, now);
     if (remaining === null) return statusNames[task?.state] || task?.state || '';
@@ -10143,7 +10264,8 @@ NaN
     const editGoalButton = element('button','编辑目标');
     const settingsButton = element('button','设置'), pauseButton = element('button','暂停当前任务'), close = element('button','×'); close.setAttribute('aria-label','收起任务工作台');
     const locateApprovalButton = element('button','定位授权卡'); locateApprovalButton.type='button'; locateApprovalButton.hidden=true;
-    head.append(heading,editGoalButton,settingsButton,pauseButton,locateApprovalButton,close);
+    const promptButton=element('button','提示词组合');promptButton.type='button';promptButton.onclick=()=>openPromptComposer(data.tasks.find(item=>item.id===selected && taskBelongsToTab(item)));
+    head.append(heading,promptButton,editGoalButton,settingsButton,pauseButton,locateApprovalButton,close);
     const settings = element('div','','settings');
     const globalApproval = element('input'); globalApproval.type='checkbox'; globalApproval.checked=data.globalAutoApprove;
     const globalApprovalLabel = element('label');

@@ -1,5 +1,6 @@
 [
   "src/runtime/bootstrap-and-config.inc.js",
+  "src/runtime/prompt-composition.inc.js",
   "src/background-clock.js",
   "src/runtime/storage-and-activity.inc.js",
   "src/runtime/workspace-ownership.inc.js",
