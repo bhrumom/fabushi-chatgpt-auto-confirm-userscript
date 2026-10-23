@@ -1238,16 +1238,21 @@
     }
     const input = composer();
     const sentAge = now - Number(task.continuationSentAt || now);
+    const expiredPendingFence = Boolean(task.authorizationRequiredContinuation
+      && canonicalConversationURL(task.authorizationContinuationURL) === route
+      && Number(task.continuationSentAt || 0) > 0 && sentAge >= SEND_CONFIRM_TIMEOUT_MS
+      && task.authorizationContinuationBoundary === authorizationContinuationBoundaryKey(task,turn,true));
     const agedContinuation = canonicalConversationURL(task.authorizationContinuationURL) === route
       && Number(task.continuationSentAt || 0) > 0 && sentAge >= SEND_CONFIRM_TIMEOUT_MS
-      && isContinuationPrompt(text(conversationRoleNodes('user').at(-1)));
+      && (isContinuationPrompt(text(conversationRoleNodes('user').at(-1))) || expiredPendingFence);
     const recoveryDraft = ownedAuthorizationContinuationDraft(task,input);
     const hasResponse = Boolean(String(turn.text || '').trim() || (turn.article && hasTextNode(turn.article))
       || (task.stopObservedGenerationAt && visibleConversationHasMessages()) || agedContinuation
       || sendTimeoutNotice(turn));
     // A shell that has not hydrated its response is not an ended turn.
     if (!turn.owned || !hasResponse || !input || (normalize(input.value || input.textContent) && !recoveryDraft)
-      || turn.final || currentWorkFinalReport(turn.text, task) || blocker() || rateLimitNotice()) { reset(); return false; }
+      || ((turn.final || currentWorkFinalReport(turn.text, task)) && !expiredPendingFence)
+      || blocker() || rateLimitNotice()) { reset(); return false; }
     if (cards({ wide:true }).length || approvalSettlementActive(task, route, now)) { reset(); return false; }
     const inheritedStop = task.stopObservedGenerationIdentity === stopObservedGenerationIdentity(task,route)
       && task.stopObservedDocumentId && task.stopObservedDocumentId !== DOCUMENT_INSTANCE_ID;

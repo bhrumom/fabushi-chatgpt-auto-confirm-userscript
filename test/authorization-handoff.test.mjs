@@ -450,3 +450,26 @@ test('pending deduped continuation still reaches ordinary inspection during conf
     assert.equal(task.url,'https://chatgpt.com/c/guard');
   }finally{dom.window.close();}
 });
+
+for(const response of ['final-toolbar','structured-report']) test(`expired continuation fence survives server rollback to initial user: ${response}`,async()=>{
+  const {dom,w,h,task}=await harness({authorizationGate:false});
+  try {
+    let now=Date.now();w.Date.now=()=>now;
+    mountStalledContinuation(w,task,{draft:'继续完成所有，按模板回复'});
+    w.document.querySelector('[data-content-search-turn-key="fallback-turn-1"]').remove();
+    const body=w.document.querySelector('[data-markdown-text-tone="primary"]');
+    body.textContent=response==='structured-report'?JSON.stringify({taskId:task.id,round:1,status:'next',summary:'当前确切已完成工作证据',next:'继续下一步'}):'当前确切已完成工作证据';
+    body.insertAdjacentHTML('afterend','<button aria-label="复制"></button><button aria-label="赞"></button>');
+    task.continuationSentAt=now-8*60*60*1000;
+    task.authorizationContinuationBoundary=h.authorizationContinuationBoundaryKey(task,h.taskTurnForInspection(task));
+    const userText=w.document.querySelector('[data-user-message-bubble]').textContent;
+    assert.equal(h.isContinuationPrompt(userText),false);
+    let sends=0;w.document.querySelector('[data-testid="send-button"]').onclick=event=>{event.preventDefault();sends++;};
+    await h.inspect(task,null);assert.equal(task.url,'https://chatgpt.com/c/guard');
+    now+=9_001;await h.inspect(task,null);
+    assert.equal(sends,0);assert.equal(task.state,'queued');assert.equal(task.url,'');
+    assert.equal(task.history.at(-1).reason,'continuation-ack-timeout');
+    assert.match(task.abnormalFreshCarry,/当前确切已完成工作证据/);
+    assert.equal(task.round,1);assert.equal(task.goal,'完成目标');
+  }finally{dom.window.close();}
+});

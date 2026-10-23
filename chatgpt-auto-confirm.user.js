@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.70
+// @version      2.10.71
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -68,7 +68,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.70';
+  const VERSION = '2.10.71';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -5019,16 +5019,21 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     }
     const input = composer();
     const sentAge = now - Number(task.continuationSentAt || now);
+    const expiredPendingFence = Boolean(task.authorizationRequiredContinuation
+      && canonicalConversationURL(task.authorizationContinuationURL) === route
+      && Number(task.continuationSentAt || 0) > 0 && sentAge >= SEND_CONFIRM_TIMEOUT_MS
+      && task.authorizationContinuationBoundary === authorizationContinuationBoundaryKey(task,turn,true));
     const agedContinuation = canonicalConversationURL(task.authorizationContinuationURL) === route
       && Number(task.continuationSentAt || 0) > 0 && sentAge >= SEND_CONFIRM_TIMEOUT_MS
-      && isContinuationPrompt(text(conversationRoleNodes('user').at(-1)));
+      && (isContinuationPrompt(text(conversationRoleNodes('user').at(-1))) || expiredPendingFence);
     const recoveryDraft = ownedAuthorizationContinuationDraft(task,input);
     const hasResponse = Boolean(String(turn.text || '').trim() || (turn.article && hasTextNode(turn.article))
       || (task.stopObservedGenerationAt && visibleConversationHasMessages()) || agedContinuation
       || sendTimeoutNotice(turn));
     // A shell that has not hydrated its response is not an ended turn.
     if (!turn.owned || !hasResponse || !input || (normalize(input.value || input.textContent) && !recoveryDraft)
-      || turn.final || currentWorkFinalReport(turn.text, task) || blocker() || rateLimitNotice()) { reset(); return false; }
+      || ((turn.final || currentWorkFinalReport(turn.text, task)) && !expiredPendingFence)
+      || blocker() || rateLimitNotice()) { reset(); return false; }
     if (cards({ wide:true }).length || approvalSettlementActive(task, route, now)) { reset(); return false; }
     const inheritedStop = task.stopObservedGenerationIdentity === stopObservedGenerationIdentity(task,route)
       && task.stopObservedDocumentId && task.stopObservedDocumentId !== DOCUMENT_INSTANCE_ID;
