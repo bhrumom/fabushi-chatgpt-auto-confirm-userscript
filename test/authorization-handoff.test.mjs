@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 const source = await fs.readFile(new URL('../chatgpt-auto-confirm.user.js', import.meta.url), 'utf8');
-const names = 'connectionInterruptionContinuationPending,authorizationContinuationEnabled,isContinuationPrompt,data,tabId,cards,inspect,recoverStoppedConversation,revealStoppedResponseActivity,authorizationContinuationAttempts,authorizationGateExhausted,durableWorkbenchSnapshot,recordConversationAuthorization,conversationAuthorizationSeen,requireConversationAuthorization,continueWithoutAuthorization,durableTaskSnapshot,finish,queueInterruptedFreshRetry,queueBlockedFreshRetry,queueConversationLengthHandoff,queueWorkFinalReportRepair,clearDispatchIntent';
+const names = 'authorizationContinuationBoundaryKey,ownedAuthorizationContinuationDraft,taskTurnForInspection,sendTimeoutNotice,measurements,connectionInterruptionContinuationPending,authorizationContinuationEnabled,isContinuationPrompt,data,tabId,cards,inspect,recoverStoppedConversation,revealStoppedResponseActivity,authorizationContinuationAttempts,authorizationGateExhausted,durableWorkbenchSnapshot,recordConversationAuthorization,conversationAuthorizationSeen,requireConversationAuthorization,continueWithoutAuthorization,durableTaskSnapshot,finish,queueInterruptedFreshRetry,queueBlockedFreshRetry,queueConversationLengthHandoff,queueWorkFinalReportRepair,clearDispatchIntent';
 async function harness({authorizationGate=true}={}) {
   const dom = new JSDOM('<main><article data-message-author-role="user" data-message-id="u1">[Fabushi:guard-token]</article><article data-message-author-role="assistant" data-message-id="a1">已结束的回复</article></main><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">发送</button></form>', { runScripts:'outside-only', pretendToBeVisual:true, url:'https://chatgpt.com/c/guard' });
   const w = dom.window;
@@ -147,10 +147,16 @@ test('authorization check is an optional persisted workspace switch, default off
   try {
     assert.equal(h.data.requireAuthorizationBeforeNewChat,false);
     assert.equal(h.requireConversationAuthorization(task),false);
-    const control=w.document.querySelector('[aria-label="新开会话前检查授权（最多继续3次）"]');
-    assert.ok(control);assert.equal(control.checked,false);
-    control.checked=true;control.dispatchEvent(new w.Event('change'));
+    const control=w.document.querySelector('button[aria-label="开启授权卡片接力"]');
+    const off=w.document.querySelector('button[aria-label="关闭授权卡片接力"]');
+    assert.ok(control);assert.ok(off);assert.equal(control.getAttribute('aria-pressed'),'false');
+    assert.equal(off.getAttribute('aria-pressed'),'true');
+    assert.equal(control.closest('form'),null,'the handoff switch stays outside the bottom composer');
+    assert.equal(control.closest('section').previousElementSibling.tagName,'HEADER');
+    control.click();
     assert.equal(h.data.requireAuthorizationBeforeNewChat,true);
+    assert.equal(control.getAttribute('aria-pressed'),'true');
+    assert.match(control.closest('section').textContent,/已开启/);
     assert.equal(JSON.parse(w.localStorage.getItem('fabushi-workbench-v2')).tabControls[h.tabId].requireAuthorizationBeforeNewChat,true);
     h.data.tabControls.other={autoResume:true,requireAuthorizationBeforeNewChat:false};
     h.data.tasks.push({id:'other-workspace-task',ownerTabId:'other',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/other-workspace',attachments:[]});
@@ -158,7 +164,7 @@ test('authorization check is an optional persisted workspace switch, default off
     assert.equal(saved.tabControls[h.tabId].requireAuthorizationBeforeNewChat,true);
     assert.equal(saved.tabControls.other.requireAuthorizationBeforeNewChat,false);
     h.requireConversationAuthorization(task);assert.equal(task.authorizationRequiredContinuation,true);
-    control.checked=false;control.dispatchEvent(new w.Event('change'));
+    off.click();
     assert.equal(task.authorizationRequiredContinuation,false);
     assert.equal(task.url,'https://chatgpt.com/c/guard');
   }finally{dom.window.close();}
@@ -382,5 +388,65 @@ for(const condition of ['draft','paused','foreign-route','approval','authorizati
     if(condition==='draft') assert.equal(w.document.querySelector('textarea').value,'保留用户草稿');
     task.url='https://chatgpt.com/c/new';assert.equal(h.connectionInterruptionContinuationPending(task),false);
     h.clearDispatchIntent(task);assert.equal(task.connectionInterruptionContinuationURL,'');
+  }finally{dom.window.close();}
+});
+
+function mountStalledContinuation(w,task,{error=false,draft='',sendAvailable=true}={}) {
+  w.document.querySelector('main').innerHTML=`<div data-content-search-turn-key="fallback-turn-0"><div data-content-search-unit-key="fallback-turn-0:0:user"><div data-message-id="initial-user"><div data-user-message-bubble="true">执行 [Fabushi:guard-token]</div></div></div><div data-content-search-unit-key="fallback-turn-0:2:assistant"><div data-markdown-text-style="assistant-message" data-markdown-text-tone="primary">已完成真实工作</div></div></div><div data-content-search-turn-key="fallback-turn-1"><div data-content-search-unit-key="fallback-turn-1:0:user"><div data-message-id="continuation-user"><div data-user-message-bubble="true">继续完成所有，按模板回复</div></div></div><div data-content-search-unit-key="fallback-turn-1:2:assistant"><div data-markdown-text-style="assistant-message" data-markdown-text-tone="primary"></div></div>${error?'<div role="alert">消息传输超时。请重试。<button id="retry">重试</button></div>':''}</div>`;
+  w.document.querySelector('form').innerHTML=`<div contenteditable="true" data-lexical-editor="true">${draft}</div>${sendAvailable?'<button data-testid="send-button">发送</button>':''}`;
+  task.authorizationContinuationURL=task.url;task.connectionInterruptionContinuationURL=task.url;
+  task.authorizationRequiredContinuation=true;task.authorizationContinuationAttempts=2;task.continuationCount=2;
+}
+for(const variant of ['same-boundary-empty','transmission-error-no-send','same-boundary-draft']) test(`observed stalled continuation recovers safely: ${variant}`,async()=>{
+  const {dom,w,h,task}=await harness({authorizationGate:false});
+  try {
+    let now=Date.now();w.Date.now=()=>now;
+    mountStalledContinuation(w,task,{error:variant==='transmission-error-no-send',draft:variant==='same-boundary-empty'?'':'继续完成所有，按模板回复',sendAvailable:variant!=='transmission-error-no-send'});
+    task.continuationSentAt=now-8*60*60*1000;
+    task.authorizationContinuationBoundary=variant==='transmission-error-no-send'?'["old-user","old-response"]':h.authorizationContinuationBoundaryKey(task,h.taskTurnForInspection(task));
+    let sends=0,retries=0;
+    w.document.querySelector('[data-testid="send-button"]')?.addEventListener('click',event=>{event.preventDefault();sends++;});
+    w.document.querySelector('#retry')?.addEventListener('click',()=>retries++);
+    if(variant==='transmission-error-no-send') assert.equal(h.sendTimeoutNotice(h.taskTurnForInspection(task)),true);
+    await h.inspect(task,null);
+    assert.equal(task.url,'https://chatgpt.com/c/guard');
+    now+=9_001;await h.inspect(task,null);
+    assert.equal(sends,0);assert.equal(retries,0);assert.equal(task.state,'queued');assert.equal(task.url,'');
+    assert.equal(task.history.at(-1).reason,'continuation-ack-timeout');
+    assert.equal(w.document.querySelector('[contenteditable]').textContent,'');
+    assert.equal(task.round,1);assert.equal(task.phase,'work');assert.equal(task.goal,'完成目标');
+  }finally{dom.window.close();}
+});
+for(const condition of ['young-intent','user-draft','stop','approval','settlement','foreign-route','foreign-user','initial-shell']) test(`stalled continuation escape respects ${condition}`,async()=>{
+  const {dom,w,h,task}=await harness({authorizationGate:false});
+  try {
+    let now=Date.now();w.Date.now=()=>now;
+    mountStalledContinuation(w,task);
+    task.continuationSentAt=now-(condition==='young-intent'?1_000:120_000);
+    task.authorizationContinuationBoundary=h.authorizationContinuationBoundaryKey(task,h.taskTurnForInspection(task));
+    if(condition==='user-draft') w.document.querySelector('[contenteditable]').textContent='用户未发送的独立草稿';
+    if(condition==='stop') w.document.body.insertAdjacentHTML('beforeend','<button aria-label="停止生成"></button>');
+    if(condition==='approval') w.document.querySelector('main').insertAdjacentHTML('beforeend','<section data-testid="approval-card"><button disabled>允许一次</button></section>');
+    if(condition==='settlement') Object.assign(task,{approvalSettlementUntil:now+60_000,approvalSettlementURL:task.url,approvalSettlementToken:task.token,approvalSettlementPhase:task.phase,approvalSettlementRound:task.round});
+    if(condition==='foreign-route') w.history.replaceState({},'', '/c/other');
+    if(condition==='foreign-user') w.document.querySelector('main').insertAdjacentHTML('beforeend','<div data-message-author-role="user">不同任务 [Fabushi:foreign]</div>');
+    if(condition==='initial-shell') {w.document.querySelector('[data-content-search-turn-key="fallback-turn-1"]').remove();w.document.querySelector('[data-markdown-text-tone="primary"]').textContent='';}
+    await h.recoverStoppedConversation(task,null,now);now+=9_001;await h.recoverStoppedConversation(task,null,now);
+    assert.equal(task.url,'https://chatgpt.com/c/guard');assert.notEqual(task.state,'queued');
+    if(condition==='user-draft') assert.equal(w.document.querySelector('[contenteditable]').textContent,'用户未发送的独立草稿');
+  }finally{dom.window.close();}
+});
+test('pending deduped continuation still reaches ordinary inspection during confirmation',async()=>{
+  const {dom,w,h,task}=await harness({authorizationGate:false});
+  try {
+    let now=Date.now();w.Date.now=()=>now;
+    mountStalledContinuation(w,task);task.continuationSentAt=now-120_000;
+    const response=w.document.querySelector('[data-content-search-unit-key="fallback-turn-1:2:assistant"]');
+    response.querySelector('[data-markdown-text-tone="primary"]').textContent='供应商未知异常';
+    task.authorizationContinuationBoundary=h.authorizationContinuationBoundaryKey(task,h.taskTurnForInspection(task));
+    const scans=h.measurements.scans;
+    await h.inspect(task,null);
+    assert.ok(h.measurements.scans>scans,'ordinary inspection must run when no send occurred');
+    assert.equal(task.url,'https://chatgpt.com/c/guard');
   }finally{dom.window.close();}
 });

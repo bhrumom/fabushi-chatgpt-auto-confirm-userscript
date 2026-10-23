@@ -354,6 +354,19 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
   function authorizationContinuationEnabled(task) {
     return data.requireAuthorizationBeforeNewChat === true || connectionInterruptionContinuationPending(task);
   }
+  function ownedAuthorizationContinuationDraft(task, input = composer()) {
+    const draft = normalize(input?.value || input?.textContent);
+    const route = currentConversationURL();
+    return Boolean(draft && isContinuationPrompt(draft) && route && route === canonicalConversationURL(task?.url)
+      && (task.authorizationRequiredContinuation
+        || (canonicalConversationURL(task.authorizationContinuationURL) === route && Number(task.continuationSentAt || 0))));
+  }
+  function authorizationContinuationBoundaryKey(task, turn, routeFallback = false) {
+    const user = conversationRoleNodes('user').at(-1);
+    const userBoundary = recoveryUserBoundaryKey(user)
+      || (routeFallback && task.token && turn.text ? `virtualized:${task.token}` : '');
+    return userBoundary ? JSON.stringify([userBoundary, assistantResponseBoundaryKey(turn) || recoveryUserBoundaryKey(turn.article)]) : '';
+  }
   function authorizationGateExhausted(task) {
     return authorizationContinuationEnabled(task) && !conversationAuthorizationSeen(task)
       && authorizationContinuationAttempts(task) >= 3;
@@ -378,7 +391,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
         save(); // Durable recovery intent even if send controls are not ready yet.
       }
     }
-    if (!authorizationContinuationEnabled(task) || conversationAuthorizationSeen(task)
+    if (options.skipHistoricalRequirement || !authorizationContinuationEnabled(task) || conversationAuthorizationSeen(task)
       || authorizationGateExhausted(task)) return false;
     if (!task.authorizationRequiredContinuation) {
       task.authorizationRequiredContinuation = true;
@@ -425,10 +438,8 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     // A persisted click intent is never retried against the same ended turn,
     // even if the send acknowledgment was lost during a reload.
     const user = conversationRoleNodes('user').at(-1);
-    const userBoundary = recoveryUserBoundaryKey(user)
-      || (routeFallback && task.token && turn.text ? `virtualized:${task.token}` : '');
-    const boundary = JSON.stringify([userBoundary, assistantResponseBoundaryKey(turn) || recoveryUserBoundaryKey(turn.article)]);
-    if (!userBoundary || !turn.owned) return false;
+    const boundary = authorizationContinuationBoundaryKey(task,turn,routeFallback);
+    if (!boundary || !turn.owned) return false;
     if (task.authorizationContinuationURL === route
       && task.authorizationContinuationBoundary === boundary) return false;
     if (Number(task.continuationSentAt || 0)

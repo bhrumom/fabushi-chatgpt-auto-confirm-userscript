@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.69
+// @version      2.10.70
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -68,7 +68,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.69';
+  const VERSION = '2.10.70';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -5018,10 +5018,16 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
       turn = { ...latestTurn(), owned:true };
     }
     const input = composer();
+    const sentAge = now - Number(task.continuationSentAt || now);
+    const agedContinuation = canonicalConversationURL(task.authorizationContinuationURL) === route
+      && Number(task.continuationSentAt || 0) > 0 && sentAge >= SEND_CONFIRM_TIMEOUT_MS
+      && isContinuationPrompt(text(conversationRoleNodes('user').at(-1)));
+    const recoveryDraft = ownedAuthorizationContinuationDraft(task,input);
     const hasResponse = Boolean(String(turn.text || '').trim() || (turn.article && hasTextNode(turn.article))
-      || (task.stopObservedGenerationAt && visibleConversationHasMessages()));
+      || (task.stopObservedGenerationAt && visibleConversationHasMessages()) || agedContinuation
+      || sendTimeoutNotice(turn));
     // A shell that has not hydrated its response is not an ended turn.
-    if (!turn.owned || !hasResponse || !input || normalize(input.value || input.textContent)
+    if (!turn.owned || !hasResponse || !input || (normalize(input.value || input.textContent) && !recoveryDraft)
       || turn.final || currentWorkFinalReport(turn.text, task) || blocker() || rateLimitNotice()) { reset(); return false; }
     if (cards({ wide:true }).length || approvalSettlementActive(task, route, now)) { reset(); return false; }
     const inheritedStop = task.stopObservedGenerationIdentity === stopObservedGenerationIdentity(task,route)
@@ -5045,16 +5051,32 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     // Always read the live entire-page card surfaces again after expansion and
     // the quiet window. Neither a stale spinner nor unknown error copy wins.
     if (stopButton() || cards({ wide:true }).length || approvalSettlementActive(task, route, now)) { reset(); return false; }
+    // Re-apply only our backed recovery prompt through the normal sender so
+    // stale composer state cannot obstruct a handoff or an enabled Send UI.
+    if (ownedAuthorizationContinuationDraft(task,input)) setInput(input,'');
     const queued = queueInterruptedFreshRetry(task,
       '停止按钮已经消失且没有授权卡片；已展开当前消息并复核整页，未发现有效最终报告，按异常中断处理',
       now, turn, {allowExactRouteFallback:true,recoveryLabel:'停止按钮消失接力（通用异常中断）',historyReason:'structural-stop-absence'});
     if (task.authorizationRequiredContinuation) {
-      await continueWithoutAuthorization(task, signal, now, { endedConfirmed:true });
+      const sent = await continueWithoutAuthorization(task, signal, now, { endedConfirmed:true });
+      if (!sent && task.authorizationRequiredContinuation && agedContinuation
+        && (task.authorizationContinuationBoundary === authorizationContinuationBoundaryKey(task,turn,true)
+          || ((recoveryDraft || ownedAuthorizationContinuationDraft(task,input)) && !sendButtonFor(input) && sendTimeoutNotice(turn)))
+        && currentConversationURL() === route && !stopButton() && !cards({wide:true}).length
+        && !approvalSettlementActive(task,route,now) && !blocker() && !rateLimitNotice()
+        && (!normalize(input.value || input.textContent) || ownedAuthorizationContinuationDraft(task,input))) {
+        // The persisted click remains fenced. Repeating it could duplicate a
+        // server-accepted turn; carry the task to a new route after its bounded
+        // acknowledgment deadline instead of waiting forever on that fence.
+        if (ownedAuthorizationContinuationDraft(task,input)) setInput(input,'');
+        return queueInterruptedFreshRetry(task,'原会话继续指令发送后未确认新回复，且已超过发送确认时限；保留去重标记，按异常中断接力',now,turn,
+          {allowExactRouteFallback:true,recoveryLabel:'继续指令确认超时接力',historyReason:'continuation-ack-timeout',continuationAcknowledgmentExpired:true});
+      }
     }
     return queued;
   }
   function sendTimeoutNotice(turn = null, getPageRecords = pageUiTextRecords) {
-    const pattern = /消息(?:发送)?(?:超时|错误|失败)\s*[，,。.!]?\s*请重试|message (?:send|sending) timed out|message (?:error|failed)[\s,:-]*(?:please )?(?:retry|try again)|failed to send|(?:a\s+)?network (?:connection )?(?:error|failure)(?: occurred)?|connection (?:error|failed|failure)|(?:check|verify) (?:your )?(?:internet|network|connection)|网络(?:连接)?(?:错误|失败)|连接(?:错误|失败)|(?:请)?检查(?:一下)?(?:你的|您的)?(?:互联网|网络|连接)/i;
+    const pattern = /消息(?:发送|传输)?(?:超时|错误|失败)\s*[，,。.!]?\s*请重试|message (?:send|sending) timed out|message (?:error|failed)[\s,:-]*(?:please )?(?:retry|try again)|failed to send|(?:a\s+)?network (?:connection )?(?:error|failure)(?: occurred)?|connection (?:error|failed|failure)|(?:check|verify) (?:your )?(?:internet|network|connection)|网络(?:连接)?(?:错误|失败)|连接(?:错误|失败)|(?:请)?检查(?:一下)?(?:你的|您的)?(?:互联网|网络|连接)/i;
     const retryPattern = /^(?:重试|再次尝试|再试一次|retry|try again|again)(?:\b|$)/i;
     const retryControls = 'button,a,[role="button"]';
     const hasRetryControl = node => {
@@ -5599,7 +5621,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     if (!task || terminal.has(task.state) || task.state === 'paused') return false;
     const interruption = options.connectionInterruption === true || Boolean(task.pendingContinuationReason)
       || connectionInterruptedNotice(turn?.owned ? turn : taskTurnForInspection(task));
-    if (requireConversationAuthorization(task, reason, {connectionInterruption:interruption})) return true;
+    if (requireConversationAuthorization(task, reason, {connectionInterruption:interruption,skipHistoricalRequirement:options.continuationAcknowledgmentExpired === true})) return true;
     const sessionURL = currentConversationURL() || canonicalConversationURL(task.url);
     if (sessionURL) {
       recordConversationURL(task, sessionURL);
@@ -7379,6 +7401,19 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
   function authorizationContinuationEnabled(task) {
     return data.requireAuthorizationBeforeNewChat === true || connectionInterruptionContinuationPending(task);
   }
+  function ownedAuthorizationContinuationDraft(task, input = composer()) {
+    const draft = normalize(input?.value || input?.textContent);
+    const route = currentConversationURL();
+    return Boolean(draft && isContinuationPrompt(draft) && route && route === canonicalConversationURL(task?.url)
+      && (task.authorizationRequiredContinuation
+        || (canonicalConversationURL(task.authorizationContinuationURL) === route && Number(task.continuationSentAt || 0))));
+  }
+  function authorizationContinuationBoundaryKey(task, turn, routeFallback = false) {
+    const user = conversationRoleNodes('user').at(-1);
+    const userBoundary = recoveryUserBoundaryKey(user)
+      || (routeFallback && task.token && turn.text ? `virtualized:${task.token}` : '');
+    return userBoundary ? JSON.stringify([userBoundary, assistantResponseBoundaryKey(turn) || recoveryUserBoundaryKey(turn.article)]) : '';
+  }
   function authorizationGateExhausted(task) {
     return authorizationContinuationEnabled(task) && !conversationAuthorizationSeen(task)
       && authorizationContinuationAttempts(task) >= 3;
@@ -7403,7 +7438,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
         save(); // Durable recovery intent even if send controls are not ready yet.
       }
     }
-    if (!authorizationContinuationEnabled(task) || conversationAuthorizationSeen(task)
+    if (options.skipHistoricalRequirement || !authorizationContinuationEnabled(task) || conversationAuthorizationSeen(task)
       || authorizationGateExhausted(task)) return false;
     if (!task.authorizationRequiredContinuation) {
       task.authorizationRequiredContinuation = true;
@@ -7450,10 +7485,8 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     // A persisted click intent is never retried against the same ended turn,
     // even if the send acknowledgment was lost during a reload.
     const user = conversationRoleNodes('user').at(-1);
-    const userBoundary = recoveryUserBoundaryKey(user)
-      || (routeFallback && task.token && turn.text ? `virtualized:${task.token}` : '');
-    const boundary = JSON.stringify([userBoundary, assistantResponseBoundaryKey(turn) || recoveryUserBoundaryKey(turn.article)]);
-    if (!userBoundary || !turn.owned) return false;
+    const boundary = authorizationContinuationBoundaryKey(task,turn,routeFallback);
+    if (!boundary || !turn.owned) return false;
     if (task.authorizationContinuationURL === route
       && task.authorizationContinuationBoundary === boundary) return false;
     if (Number(task.continuationSentAt || 0)
@@ -8430,8 +8463,13 @@ ${task.round > 1 ? `\n原始目标：${task.goal}\n` : ''}${priorContext}${carry
         && !authorizationGateExhausted(task)) {
         const pendingTurn = taskTurnForInspection(task);
         if (connectionInterruptionContinuationPending(task) || pendingTurn.final || currentWorkFinalReport(pendingTurn.text,task)) {
-          await continueWithoutAuthorization(task, signal);
-          return;
+          if (await continueWithoutAuthorization(task, signal)) return;
+          const pendingInput = composer();
+          if (normalize(pendingInput?.value || pendingInput?.textContent)
+            && !ownedAuthorizationContinuationDraft(task,pendingInput)) return;
+          // A deduped/unavailable send must not hide current error and ended
+          // inspection forever. Ordinary generation/approval guards below
+          // still own their normal processing.
         }
         // An unknown failed response must still complete structural absence
         // confirmation; a persisted gate wait cannot bypass or stall it.
@@ -10056,6 +10094,7 @@ NaN
       #${ROOT} aside .task-row-actions button.task-action.danger{color:#ffaaaa}
       #${ROOT} aside .task-row-actions button.task-action:disabled{color:#999}
       #${ROOT} .pause-all{margin-top:10px} #${ROOT} .memory-cleanup{margin-top:8px} #${ROOT} .memory-status{margin-top:6px;line-height:1.4}
+      #${ROOT} header{flex-shrink:0;flex-wrap:wrap} #${ROOT} .handoff-control{flex:0 0 auto;padding:10px 16px;border-bottom:1px solid #48405e;background:#292435} #${ROOT} .handoff-switch{display:flex;align-items:center;gap:10px;cursor:pointer} #${ROOT} .handoff-switch strong{margin-right:auto;color:#f2edff} #${ROOT} .handoff-options{display:flex;flex:0 0 auto;gap:4px} #${ROOT} .handoff-toggle{display:inline-flex;align-items:center;justify-content:center;min-width:48px;min-height:32px;padding:5px 10px;visibility:visible;opacity:1;border:1px solid #716583;background:#35303e;color:#f2edff} #${ROOT} .handoff-toggle[aria-pressed="true"]{background:#7551d5;border-color:#a88aff;color:white;box-shadow:0 0 0 1px #a88aff} #${ROOT} .handoff-state{min-width:3em;font-size:12px;color:#d8c9ff} #${ROOT} .handoff-control small{margin-top:5px;font-size:11px;color:#bcb3ce} #${ROOT} .feed{min-height:0}
     `;
     const desk = element('section', '', 'desk'); desk.setAttribute('aria-label','Fabushi 任务工作台');
     const sidebar = element('aside'), list = element('div'); sidebar.append(element('h3','Fabushi'), list);
@@ -10214,13 +10253,19 @@ NaN
     };
     const auto = element('input'); auto.type='checkbox'; auto.checked=data.autoApprove !== false;
     const autoLabel=element('label'); autoLabel.append(auto,document.createTextNode('本次会话自动授权'));
-    const authGate = element('input'); authGate.type='checkbox'; authGate.checked=data.requireAuthorizationBeforeNewChat === true;
-    authGate.setAttribute('aria-label','新开会话前检查授权（最多继续3次）');
-    const authGateLabel=element('label'); authGateLabel.append(authGate,document.createTextNode('新开会话前检查授权（最多继续3次）'));
+    const authGate=element('button','开启','handoff-toggle'); authGate.type='button'; authGate.setAttribute('aria-label','开启授权卡片接力');
+    const authGateOff=element('button','关闭','handoff-toggle'); authGateOff.type='button'; authGateOff.setAttribute('aria-label','关闭授权卡片接力');
+    const authGateState=element('span',data.requireAuthorizationBeforeNewChat?'已开启':'已关闭','handoff-state');
+    const authGateOptions=element('div','','handoff-options'); authGateOptions.setAttribute('role','group'); authGateOptions.setAttribute('aria-label','授权卡片接力');
+    authGateOptions.append(authGate,authGateOff);
+    const authGateLabel=element('div','','handoff-switch');
+    authGateLabel.append(element('strong','授权卡片接力'),authGateState,authGateOptions);
+    const authGateBar=element('section','','handoff-control'); authGateBar.setAttribute('aria-label','授权卡片接力设置');
+    authGateBar.append(authGateLabel,element('small','开启：无授权先继续，最多 3 次后新开。关闭：普通结束直接接力；连接中断无授权时仍先续发。'));
     authGateLabel.title='开启后，无授权卡片时在原会话最多发送 3 次继续指令，仍无授权再新开；关闭则普通结束/中断直接接力；连接中断且从未出现授权时，仍先在原会话最多续发 3 次。';
     const submit = element('button','↑','send'); submit.type='submit'; submit.setAttribute('aria-label','发送任务');
     const modelScopeHint = element('small','','model-scope-hint');
-    controls.append(select,modelSelect,reasoningSelect,autoLabel,authGateLabel,submit); compose.append(input,attachmentBox,controls,modelScopeHint); chat.append(settings,feed,notice,compose); desk.append(sidebar,chat);
+    controls.append(select,modelSelect,reasoningSelect,autoLabel,submit); compose.append(input,attachmentBox,controls,modelScopeHint); chat.append(authGateBar,settings,feed,notice,compose); desk.append(sidebar,chat);
     const launch=element('button','⚡ Fabushi 脚本','launch'); root.append(desk,launch); document.documentElement.append(style); (document.body || document.documentElement).append(root);
     let signature='', sidebarSignature='';
     paint = () => {
@@ -10241,7 +10286,10 @@ NaN
       editGoalButton.disabled=!task || task.state==='done';
       locateApprovalButton.hidden=task?.state!=='approval';
       auto.checked=Boolean(data.autoApprove);
-      authGate.checked=data.requireAuthorizationBeforeNewChat === true;
+      const handoffEnabled=data.requireAuthorizationBeforeNewChat === true;
+      authGate.setAttribute('aria-pressed',String(handoffEnabled));
+      authGateOff.setAttribute('aria-pressed',String(!handoffEnabled));
+      authGateState.textContent=handoffEnabled?'已开启':'已关闭';
       globalApproval.checked=Boolean(data.globalAutoApprove);
       memoryStatusNode.textContent=[memoryStatusText(), storageStatusText(), `宿主唤醒 ${backgroundClock.status().lastWakeAt ? new Date(backgroundClock.status().lastWakeAt).toLocaleTimeString() : '等待'}，时钟响应 ${backgroundClock.status().hostReplies}`].filter(Boolean).join(' · ');
       memoryCleanupButton.disabled=memoryMonitorBusy || hostMemoryPending.size > 0;
@@ -10433,14 +10481,19 @@ NaN
     globalPauseButton.onclick=()=>{if(running)pause(true);else start(true).catch(showError);};
     memoryCleanupButton.onclick=()=>requestHostMemoryCleanup({reason:'manual',userInitiated:true}).catch(showError);
     globalApproval.onchange=()=>setGlobalAutoApprove(globalApproval.checked);
-    authGate.onchange=()=>{
-      data.requireAuthorizationBeforeNewChat=authGate.checked;
+    const setAuthorizationHandoff=enabled=>{
+      data.requireAuthorizationBeforeNewChat=enabled;
+      authGate.setAttribute('aria-pressed',String(enabled));
+      authGateOff.setAttribute('aria-pressed',String(!enabled));
+      authGateState.textContent=enabled?'已开启':'已关闭';
       for (const task of tabTasks()) {
-        if (!authGate.checked && !connectionInterruptionContinuationPending(task)) task.authorizationRequiredContinuation=false;
+        if (!enabled && !connectionInterruptionContinuationPending(task)) task.authorizationRequiredContinuation=false;
       }
       save();
       if (running) schedule(100);
     };
+    authGate.onclick=()=>setAuthorizationHandoff(true);
+    authGateOff.onclick=()=>setAuthorizationHandoff(false);
     auto.onchange=()=>{data.autoApprove=auto.checked;save();}; select.onchange=()=>{mode=select.value;};
     let submitting=false;
     compose.onsubmit=async event=>{

@@ -1237,10 +1237,16 @@
       turn = { ...latestTurn(), owned:true };
     }
     const input = composer();
+    const sentAge = now - Number(task.continuationSentAt || now);
+    const agedContinuation = canonicalConversationURL(task.authorizationContinuationURL) === route
+      && Number(task.continuationSentAt || 0) > 0 && sentAge >= SEND_CONFIRM_TIMEOUT_MS
+      && isContinuationPrompt(text(conversationRoleNodes('user').at(-1)));
+    const recoveryDraft = ownedAuthorizationContinuationDraft(task,input);
     const hasResponse = Boolean(String(turn.text || '').trim() || (turn.article && hasTextNode(turn.article))
-      || (task.stopObservedGenerationAt && visibleConversationHasMessages()));
+      || (task.stopObservedGenerationAt && visibleConversationHasMessages()) || agedContinuation
+      || sendTimeoutNotice(turn));
     // A shell that has not hydrated its response is not an ended turn.
-    if (!turn.owned || !hasResponse || !input || normalize(input.value || input.textContent)
+    if (!turn.owned || !hasResponse || !input || (normalize(input.value || input.textContent) && !recoveryDraft)
       || turn.final || currentWorkFinalReport(turn.text, task) || blocker() || rateLimitNotice()) { reset(); return false; }
     if (cards({ wide:true }).length || approvalSettlementActive(task, route, now)) { reset(); return false; }
     const inheritedStop = task.stopObservedGenerationIdentity === stopObservedGenerationIdentity(task,route)
@@ -1264,16 +1270,32 @@
     // Always read the live entire-page card surfaces again after expansion and
     // the quiet window. Neither a stale spinner nor unknown error copy wins.
     if (stopButton() || cards({ wide:true }).length || approvalSettlementActive(task, route, now)) { reset(); return false; }
+    // Re-apply only our backed recovery prompt through the normal sender so
+    // stale composer state cannot obstruct a handoff or an enabled Send UI.
+    if (ownedAuthorizationContinuationDraft(task,input)) setInput(input,'');
     const queued = queueInterruptedFreshRetry(task,
       '停止按钮已经消失且没有授权卡片；已展开当前消息并复核整页，未发现有效最终报告，按异常中断处理',
       now, turn, {allowExactRouteFallback:true,recoveryLabel:'停止按钮消失接力（通用异常中断）',historyReason:'structural-stop-absence'});
     if (task.authorizationRequiredContinuation) {
-      await continueWithoutAuthorization(task, signal, now, { endedConfirmed:true });
+      const sent = await continueWithoutAuthorization(task, signal, now, { endedConfirmed:true });
+      if (!sent && task.authorizationRequiredContinuation && agedContinuation
+        && (task.authorizationContinuationBoundary === authorizationContinuationBoundaryKey(task,turn,true)
+          || ((recoveryDraft || ownedAuthorizationContinuationDraft(task,input)) && !sendButtonFor(input) && sendTimeoutNotice(turn)))
+        && currentConversationURL() === route && !stopButton() && !cards({wide:true}).length
+        && !approvalSettlementActive(task,route,now) && !blocker() && !rateLimitNotice()
+        && (!normalize(input.value || input.textContent) || ownedAuthorizationContinuationDraft(task,input))) {
+        // The persisted click remains fenced. Repeating it could duplicate a
+        // server-accepted turn; carry the task to a new route after its bounded
+        // acknowledgment deadline instead of waiting forever on that fence.
+        if (ownedAuthorizationContinuationDraft(task,input)) setInput(input,'');
+        return queueInterruptedFreshRetry(task,'原会话继续指令发送后未确认新回复，且已超过发送确认时限；保留去重标记，按异常中断接力',now,turn,
+          {allowExactRouteFallback:true,recoveryLabel:'继续指令确认超时接力',historyReason:'continuation-ack-timeout',continuationAcknowledgmentExpired:true});
+      }
     }
     return queued;
   }
   function sendTimeoutNotice(turn = null, getPageRecords = pageUiTextRecords) {
-    const pattern = /消息(?:发送)?(?:超时|错误|失败)\s*[，,。.!]?\s*请重试|message (?:send|sending) timed out|message (?:error|failed)[\s,:-]*(?:please )?(?:retry|try again)|failed to send|(?:a\s+)?network (?:connection )?(?:error|failure)(?: occurred)?|connection (?:error|failed|failure)|(?:check|verify) (?:your )?(?:internet|network|connection)|网络(?:连接)?(?:错误|失败)|连接(?:错误|失败)|(?:请)?检查(?:一下)?(?:你的|您的)?(?:互联网|网络|连接)/i;
+    const pattern = /消息(?:发送|传输)?(?:超时|错误|失败)\s*[，,。.!]?\s*请重试|message (?:send|sending) timed out|message (?:error|failed)[\s,:-]*(?:please )?(?:retry|try again)|failed to send|(?:a\s+)?network (?:connection )?(?:error|failure)(?: occurred)?|connection (?:error|failed|failure)|(?:check|verify) (?:your )?(?:internet|network|connection)|网络(?:连接)?(?:错误|失败)|连接(?:错误|失败)|(?:请)?检查(?:一下)?(?:你的|您的)?(?:互联网|网络|连接)/i;
     const retryPattern = /^(?:重试|再次尝试|再试一次|retry|try again|again)(?:\b|$)/i;
     const retryControls = 'button,a,[role="button"]';
     const hasRetryControl = node => {
