@@ -1270,6 +1270,9 @@
     // Always read the live entire-page card surfaces again after expansion and
     // the quiet window. Neither a stale spinner nor unknown error copy wins.
     if (stopButton() || cards({ wide:true }).length || approvalSettlementActive(task, route, now)) { reset(); return false; }
+    // Re-apply only our backed recovery prompt through the normal sender so
+    // stale composer state cannot obstruct a handoff or an enabled Send UI.
+    if (ownedAuthorizationContinuationDraft(task,input)) setInput(input,'');
     const queued = queueInterruptedFreshRetry(task,
       '停止按钮已经消失且没有授权卡片；已展开当前消息并复核整页，未发现有效最终报告，按异常中断处理',
       now, turn, {allowExactRouteFallback:true,recoveryLabel:'停止按钮消失接力（通用异常中断）',historyReason:'structural-stop-absence'});

@@ -424,7 +424,7 @@ for(const condition of ['young-intent','user-draft','stop','approval','settlemen
     if(condition==='settlement') Object.assign(task,{approvalSettlementUntil:now+60_000,approvalSettlementURL:task.url,approvalSettlementToken:task.token,approvalSettlementPhase:task.phase,approvalSettlementRound:task.round});
     if(condition==='foreign-route') w.history.replaceState({},'', '/c/other');
     if(condition==='foreign-user') w.document.querySelector('main').insertAdjacentHTML('beforeend','<div data-message-author-role="user">不同任务 [Fabushi:foreign]</div>');
-    if(condition==='initial-shell') w.document.querySelector('[data-content-search-turn-key="fallback-turn-1"]').remove();
+    if(condition==='initial-shell') {w.document.querySelector('[data-content-search-turn-key="fallback-turn-1"]').remove();w.document.querySelector('[data-markdown-text-tone="primary"]').textContent='';}
     await h.recoverStoppedConversation(task,null,now);now+=9_001;await h.recoverStoppedConversation(task,null,now);
     assert.equal(task.url,'https://chatgpt.com/c/guard');assert.notEqual(task.state,'queued');
     if(condition==='user-draft') assert.equal(w.document.querySelector('[contenteditable]').textContent,'用户未发送的独立草稿');
