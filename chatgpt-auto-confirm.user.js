@@ -10094,7 +10094,7 @@ NaN
       #${ROOT} aside .task-row-actions button.task-action.danger{color:#ffaaaa}
       #${ROOT} aside .task-row-actions button.task-action:disabled{color:#999}
       #${ROOT} .pause-all{margin-top:10px} #${ROOT} .memory-cleanup{margin-top:8px} #${ROOT} .memory-status{margin-top:6px;line-height:1.4}
-      #${ROOT} header{flex-shrink:0;flex-wrap:wrap} #${ROOT} .handoff-control{flex:0 0 auto;padding:10px 16px;border-bottom:1px solid #48405e;background:#292435} #${ROOT} .handoff-switch{display:flex;align-items:center;gap:10px;cursor:pointer} #${ROOT} .handoff-switch strong{margin-right:auto;color:#f2edff} #${ROOT} .handoff-switch input{appearance:none;flex-shrink:0;width:38px;height:22px;margin:0;border-radius:12px;background:#666;position:relative;cursor:pointer} #${ROOT} .handoff-switch input:before{content:'';position:absolute;left:3px;top:3px;width:16px;height:16px;border-radius:50%;background:white;transition:transform .15s} #${ROOT} .handoff-switch input:checked{background:#8864ed} #${ROOT} .handoff-switch input:checked:before{transform:translateX(16px)} #${ROOT} .handoff-switch input:focus-visible{outline:2px solid #c7b7ff;outline-offset:3px} #${ROOT} .handoff-state{min-width:3em;font-size:12px;color:#d8c9ff} #${ROOT} .handoff-control small{margin-top:5px;font-size:11px;color:#bcb3ce} #${ROOT} .feed{min-height:0}
+      #${ROOT} header{flex-shrink:0;flex-wrap:wrap} #${ROOT} .handoff-control{flex:0 0 auto;padding:10px 16px;border-bottom:1px solid #48405e;background:#292435} #${ROOT} .handoff-switch{display:flex;align-items:center;gap:10px;cursor:pointer} #${ROOT} .handoff-switch strong{margin-right:auto;color:#f2edff} #${ROOT} .handoff-options{display:flex;flex:0 0 auto;gap:4px} #${ROOT} .handoff-toggle{display:inline-flex;align-items:center;justify-content:center;min-width:48px;min-height:32px;padding:5px 10px;visibility:visible;opacity:1;border:1px solid #716583;background:#35303e;color:#f2edff} #${ROOT} .handoff-toggle[aria-pressed="true"]{background:#7551d5;border-color:#a88aff;color:white;box-shadow:0 0 0 1px #a88aff} #${ROOT} .handoff-state{min-width:3em;font-size:12px;color:#d8c9ff} #${ROOT} .handoff-control small{margin-top:5px;font-size:11px;color:#bcb3ce} #${ROOT} .feed{min-height:0}
     `;
     const desk = element('section', '', 'desk'); desk.setAttribute('aria-label','Fabushi 任务工作台');
     const sidebar = element('aside'), list = element('div'); sidebar.append(element('h3','Fabushi'), list);
@@ -10253,13 +10253,15 @@ NaN
     };
     const auto = element('input'); auto.type='checkbox'; auto.checked=data.autoApprove !== false;
     const autoLabel=element('label'); autoLabel.append(auto,document.createTextNode('本次会话自动授权'));
-    const authGate = element('input'); authGate.type='checkbox'; authGate.checked=data.requireAuthorizationBeforeNewChat === true;
-    authGate.setAttribute('aria-label','授权卡片接力'); authGate.setAttribute('role','switch');
-    const authGateState=element('span',authGate.checked?'已开启':'已关闭','handoff-state');
-    const authGateLabel=element('label','','handoff-switch');
-    authGateLabel.append(element('strong','授权卡片接力'),authGate,authGateState);
+    const authGate=element('button','开启','handoff-toggle'); authGate.type='button'; authGate.setAttribute('aria-label','开启授权卡片接力');
+    const authGateOff=element('button','关闭','handoff-toggle'); authGateOff.type='button'; authGateOff.setAttribute('aria-label','关闭授权卡片接力');
+    const authGateState=element('span',data.requireAuthorizationBeforeNewChat?'已开启':'已关闭','handoff-state');
+    const authGateOptions=element('div','','handoff-options'); authGateOptions.setAttribute('role','group'); authGateOptions.setAttribute('aria-label','授权卡片接力');
+    authGateOptions.append(authGate,authGateOff);
+    const authGateLabel=element('div','','handoff-switch');
+    authGateLabel.append(element('strong','授权卡片接力'),authGateState,authGateOptions);
     const authGateBar=element('section','','handoff-control'); authGateBar.setAttribute('aria-label','授权卡片接力设置');
-    authGateBar.append(authGateLabel,element('small','无授权先在原会话继续，最多 3 次后新开。连接中断时，无授权仍会先续发。'));
+    authGateBar.append(authGateLabel,element('small','开启：无授权先继续，最多 3 次后新开。关闭：普通结束直接接力；连接中断无授权时仍先续发。'));
     authGateLabel.title='开启后，无授权卡片时在原会话最多发送 3 次继续指令，仍无授权再新开；关闭则普通结束/中断直接接力；连接中断且从未出现授权时，仍先在原会话最多续发 3 次。';
     const submit = element('button','↑','send'); submit.type='submit'; submit.setAttribute('aria-label','发送任务');
     const modelScopeHint = element('small','','model-scope-hint');
@@ -10284,9 +10286,10 @@ NaN
       editGoalButton.disabled=!task || task.state==='done';
       locateApprovalButton.hidden=task?.state!=='approval';
       auto.checked=Boolean(data.autoApprove);
-      authGate.checked=data.requireAuthorizationBeforeNewChat === true;
-      authGate.setAttribute('aria-checked',String(authGate.checked));
-      authGateState.textContent=authGate.checked?'已开启':'已关闭';
+      const handoffEnabled=data.requireAuthorizationBeforeNewChat === true;
+      authGate.setAttribute('aria-pressed',String(handoffEnabled));
+      authGateOff.setAttribute('aria-pressed',String(!handoffEnabled));
+      authGateState.textContent=handoffEnabled?'已开启':'已关闭';
       globalApproval.checked=Boolean(data.globalAutoApprove);
       memoryStatusNode.textContent=[memoryStatusText(), storageStatusText(), `宿主唤醒 ${backgroundClock.status().lastWakeAt ? new Date(backgroundClock.status().lastWakeAt).toLocaleTimeString() : '等待'}，时钟响应 ${backgroundClock.status().hostReplies}`].filter(Boolean).join(' · ');
       memoryCleanupButton.disabled=memoryMonitorBusy || hostMemoryPending.size > 0;
@@ -10478,16 +10481,19 @@ NaN
     globalPauseButton.onclick=()=>{if(running)pause(true);else start(true).catch(showError);};
     memoryCleanupButton.onclick=()=>requestHostMemoryCleanup({reason:'manual',userInitiated:true}).catch(showError);
     globalApproval.onchange=()=>setGlobalAutoApprove(globalApproval.checked);
-    authGate.onchange=()=>{
-      data.requireAuthorizationBeforeNewChat=authGate.checked;
-      authGate.setAttribute('aria-checked',String(authGate.checked));
-      authGateState.textContent=authGate.checked?'已开启':'已关闭';
+    const setAuthorizationHandoff=enabled=>{
+      data.requireAuthorizationBeforeNewChat=enabled;
+      authGate.setAttribute('aria-pressed',String(enabled));
+      authGateOff.setAttribute('aria-pressed',String(!enabled));
+      authGateState.textContent=enabled?'已开启':'已关闭';
       for (const task of tabTasks()) {
-        if (!authGate.checked && !connectionInterruptionContinuationPending(task)) task.authorizationRequiredContinuation=false;
+        if (!enabled && !connectionInterruptionContinuationPending(task)) task.authorizationRequiredContinuation=false;
       }
       save();
       if (running) schedule(100);
     };
+    authGate.onclick=()=>setAuthorizationHandoff(true);
+    authGateOff.onclick=()=>setAuthorizationHandoff(false);
     auto.onchange=()=>{data.autoApprove=auto.checked;save();}; select.onchange=()=>{mode=select.value;};
     let submitting=false;
     compose.onsubmit=async event=>{

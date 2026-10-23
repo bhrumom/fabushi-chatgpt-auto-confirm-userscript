@@ -147,15 +147,16 @@ test('authorization check is an optional persisted workspace switch, default off
   try {
     assert.equal(h.data.requireAuthorizationBeforeNewChat,false);
     assert.equal(h.requireConversationAuthorization(task),false);
-    const control=w.document.querySelector('[aria-label="授权卡片接力"]');
-    assert.ok(control);assert.equal(control.checked,false);
-    assert.equal(control.getAttribute('role'),'switch');
+    const control=w.document.querySelector('button[aria-label="开启授权卡片接力"]');
+    const off=w.document.querySelector('button[aria-label="关闭授权卡片接力"]');
+    assert.ok(control);assert.ok(off);assert.equal(control.getAttribute('aria-pressed'),'false');
+    assert.equal(off.getAttribute('aria-pressed'),'true');
     assert.equal(control.closest('form'),null,'the handoff switch stays outside the bottom composer');
     assert.equal(control.closest('section').previousElementSibling.tagName,'HEADER');
-    control.checked=true;control.dispatchEvent(new w.Event('change'));
+    control.click();
     assert.equal(h.data.requireAuthorizationBeforeNewChat,true);
-    assert.equal(control.getAttribute('aria-checked'),'true');
-    assert.equal(control.closest('label').textContent,'授权卡片接力已开启');
+    assert.equal(control.getAttribute('aria-pressed'),'true');
+    assert.match(control.closest('section').textContent,/已开启/);
     assert.equal(JSON.parse(w.localStorage.getItem('fabushi-workbench-v2')).tabControls[h.tabId].requireAuthorizationBeforeNewChat,true);
     h.data.tabControls.other={autoResume:true,requireAuthorizationBeforeNewChat:false};
     h.data.tasks.push({id:'other-workspace-task',ownerTabId:'other',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/other-workspace',attachments:[]});
@@ -163,7 +164,7 @@ test('authorization check is an optional persisted workspace switch, default off
     assert.equal(saved.tabControls[h.tabId].requireAuthorizationBeforeNewChat,true);
     assert.equal(saved.tabControls.other.requireAuthorizationBeforeNewChat,false);
     h.requireConversationAuthorization(task);assert.equal(task.authorizationRequiredContinuation,true);
-    control.checked=false;control.dispatchEvent(new w.Event('change'));
+    off.click();
     assert.equal(task.authorizationRequiredContinuation,false);
     assert.equal(task.url,'https://chatgpt.com/c/guard');
   }finally{dom.window.close();}
