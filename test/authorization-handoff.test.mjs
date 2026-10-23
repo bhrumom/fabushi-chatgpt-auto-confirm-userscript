@@ -147,10 +147,15 @@ test('authorization check is an optional persisted workspace switch, default off
   try {
     assert.equal(h.data.requireAuthorizationBeforeNewChat,false);
     assert.equal(h.requireConversationAuthorization(task),false);
-    const control=w.document.querySelector('[aria-label="新开会话前检查授权（最多继续3次）"]');
+    const control=w.document.querySelector('[aria-label="授权卡片接力"]');
     assert.ok(control);assert.equal(control.checked,false);
+    assert.equal(control.getAttribute('role'),'switch');
+    assert.equal(control.closest('form'),null,'the handoff switch stays outside the bottom composer');
+    assert.equal(control.closest('section').previousElementSibling.tagName,'HEADER');
     control.checked=true;control.dispatchEvent(new w.Event('change'));
     assert.equal(h.data.requireAuthorizationBeforeNewChat,true);
+    assert.equal(control.getAttribute('aria-checked'),'true');
+    assert.equal(control.closest('label').textContent,'授权卡片接力已开启');
     assert.equal(JSON.parse(w.localStorage.getItem('fabushi-workbench-v2')).tabControls[h.tabId].requireAuthorizationBeforeNewChat,true);
     h.data.tabControls.other={autoResume:true,requireAuthorizationBeforeNewChat:false};
     h.data.tasks.push({id:'other-workspace-task',ownerTabId:'other',state:'waiting',phase:'work',round:1,url:'https://chatgpt.com/c/other-workspace',attachments:[]});

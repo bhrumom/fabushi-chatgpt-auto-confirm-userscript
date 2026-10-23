@@ -251,6 +251,7 @@
       #${ROOT} aside .task-row-actions button.task-action.danger{color:#ffaaaa}
       #${ROOT} aside .task-row-actions button.task-action:disabled{color:#999}
       #${ROOT} .pause-all{margin-top:10px} #${ROOT} .memory-cleanup{margin-top:8px} #${ROOT} .memory-status{margin-top:6px;line-height:1.4}
+      #${ROOT} header{flex-shrink:0;flex-wrap:wrap} #${ROOT} .handoff-control{flex:0 0 auto;padding:10px 16px;border-bottom:1px solid #48405e;background:#292435} #${ROOT} .handoff-switch{display:flex;align-items:center;gap:10px;cursor:pointer} #${ROOT} .handoff-switch strong{margin-right:auto;color:#f2edff} #${ROOT} .handoff-switch input{appearance:none;flex-shrink:0;width:38px;height:22px;margin:0;border-radius:12px;background:#666;position:relative;cursor:pointer} #${ROOT} .handoff-switch input:before{content:'';position:absolute;left:3px;top:3px;width:16px;height:16px;border-radius:50%;background:white;transition:transform .15s} #${ROOT} .handoff-switch input:checked{background:#8864ed} #${ROOT} .handoff-switch input:checked:before{transform:translateX(16px)} #${ROOT} .handoff-switch input:focus-visible{outline:2px solid #c7b7ff;outline-offset:3px} #${ROOT} .handoff-state{min-width:3em;font-size:12px;color:#d8c9ff} #${ROOT} .handoff-control small{margin-top:5px;font-size:11px;color:#bcb3ce} #${ROOT} .feed{min-height:0}
     `;
     const desk = element('section', '', 'desk'); desk.setAttribute('aria-label','Fabushi 任务工作台');
     const sidebar = element('aside'), list = element('div'); sidebar.append(element('h3','Fabushi'), list);
@@ -410,12 +411,16 @@
     const auto = element('input'); auto.type='checkbox'; auto.checked=data.autoApprove !== false;
     const autoLabel=element('label'); autoLabel.append(auto,document.createTextNode('本次会话自动授权'));
     const authGate = element('input'); authGate.type='checkbox'; authGate.checked=data.requireAuthorizationBeforeNewChat === true;
-    authGate.setAttribute('aria-label','新开会话前检查授权（最多继续3次）');
-    const authGateLabel=element('label'); authGateLabel.append(authGate,document.createTextNode('新开会话前检查授权（最多继续3次）'));
+    authGate.setAttribute('aria-label','授权卡片接力'); authGate.setAttribute('role','switch');
+    const authGateState=element('span',authGate.checked?'已开启':'已关闭','handoff-state');
+    const authGateLabel=element('label','','handoff-switch');
+    authGateLabel.append(element('strong','授权卡片接力'),authGate,authGateState);
+    const authGateBar=element('section','','handoff-control'); authGateBar.setAttribute('aria-label','授权卡片接力设置');
+    authGateBar.append(authGateLabel,element('small','无授权先在原会话继续，最多 3 次后新开。连接中断时，无授权仍会先续发。'));
     authGateLabel.title='开启后，无授权卡片时在原会话最多发送 3 次继续指令，仍无授权再新开；关闭则普通结束/中断直接接力；连接中断且从未出现授权时，仍先在原会话最多续发 3 次。';
     const submit = element('button','↑','send'); submit.type='submit'; submit.setAttribute('aria-label','发送任务');
     const modelScopeHint = element('small','','model-scope-hint');
-    controls.append(select,modelSelect,reasoningSelect,autoLabel,authGateLabel,submit); compose.append(input,attachmentBox,controls,modelScopeHint); chat.append(settings,feed,notice,compose); desk.append(sidebar,chat);
+    controls.append(select,modelSelect,reasoningSelect,autoLabel,submit); compose.append(input,attachmentBox,controls,modelScopeHint); chat.append(authGateBar,settings,feed,notice,compose); desk.append(sidebar,chat);
     const launch=element('button','⚡ Fabushi 脚本','launch'); root.append(desk,launch); document.documentElement.append(style); (document.body || document.documentElement).append(root);
     let signature='', sidebarSignature='';
     paint = () => {
@@ -437,6 +442,8 @@
       locateApprovalButton.hidden=task?.state!=='approval';
       auto.checked=Boolean(data.autoApprove);
       authGate.checked=data.requireAuthorizationBeforeNewChat === true;
+      authGate.setAttribute('aria-checked',String(authGate.checked));
+      authGateState.textContent=authGate.checked?'已开启':'已关闭';
       globalApproval.checked=Boolean(data.globalAutoApprove);
       memoryStatusNode.textContent=[memoryStatusText(), storageStatusText(), `宿主唤醒 ${backgroundClock.status().lastWakeAt ? new Date(backgroundClock.status().lastWakeAt).toLocaleTimeString() : '等待'}，时钟响应 ${backgroundClock.status().hostReplies}`].filter(Boolean).join(' · ');
       memoryCleanupButton.disabled=memoryMonitorBusy || hostMemoryPending.size > 0;
@@ -630,6 +637,8 @@
     globalApproval.onchange=()=>setGlobalAutoApprove(globalApproval.checked);
     authGate.onchange=()=>{
       data.requireAuthorizationBeforeNewChat=authGate.checked;
+      authGate.setAttribute('aria-checked',String(authGate.checked));
+      authGateState.textContent=authGate.checked?'已开启':'已关闭';
       for (const task of tabTasks()) {
         if (!authGate.checked && !connectionInterruptionContinuationPending(task)) task.authorizationRequiredContinuation=false;
       }

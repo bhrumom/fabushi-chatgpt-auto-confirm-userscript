@@ -15,6 +15,8 @@ Both installed 2.10.69 task tabs stalled after same-chat continuation. The first
 - R4/AC4: Never replay a persisted click on the same boundary. If it remains unacknowledged beyond the timeout, or a confirmed response error leaves a backed recovery draft but no usable Send control beyond that timeout, use a carried successor handoff with reason continuation-ack-timeout after a fresh no-card/settlement check. This bounded ambiguity escape may bypass only historical-card gating, not current permission requests. Normal successful continuation counts remain capped at three.
 - R5/AC5: Recognize localized “消息传输超时” as the existing send-timeout class; no known phrase is required for blank-response acknowledgment timeout. Validate in Actions only: bundle parity, syntax, complete regressions, exact-head source/release digest. Update both original tabs, preserve session-overflow tasks and prove progress without duplicate dispatch.
 
+- R6/AC6: The user cannot find the handoff switch. Place a single “授权卡片接力” switch in a dedicated always-visible row directly below the workbench header, outside the composer and collapsed settings. Show 已开启/已关闭 immediately, preserve workspace persistence/default-off and connection-interruption exception, and visually verify in both original workspaces.
+
 ## Architecture and plan
 Share the exact current continuation boundary computation between sending and acknowledgment-timeout detection. The structural observer admits backed recovery drafts, confirms a stopped owned response, and delegates to the same continuation sender. A deduped aged boundary takes a guarded carried handoff rather than clicking Send again. The pending gate path returns only after real progress or active protection; otherwise the rest of inspection remains reachable. After stopped/card confirmation, clear only the proven script recovery draft before the shared sender/handoff, allowing normal editor events to restore usable Send UI. No scheduler watchdog is added without evidence of a scheduler failure.
 
@@ -27,4 +29,4 @@ Reproduce both observed structures with shared fallback renderer, generic conten
 ## Compliance
 | Requirement / AC | Status | Evidence |
 | --- | --- | --- |
-| R1-R5 / AC1-AC5 | pending | Implementation and cloud/live acceptance pending. |
+| R1-R6 / AC1-AC6 | pending | Implementation and cloud/live acceptance pending. |
