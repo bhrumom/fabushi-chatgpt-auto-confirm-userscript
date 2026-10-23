@@ -517,7 +517,7 @@
         task.state = 'waiting';
         task.updatedAt = now;
         if (handoffGate.started) {
-          log(task, `已识别 ChatGPT 连接中断，并归类为异常中断；不再等待 5 分钟或刷新旧会话。先进行至少 ${Math.ceil(STOP_NO_APPROVAL_CONFIRM_MS / 1000)} 秒的二次实时授权复核，确认没有授权卡后，未曾出现授权的会话先续发，最多 3 次；否则新开会话接力。`);
+          log(task, `已识别 ChatGPT 连接中断，并归类为异常中断；不再等待 5 分钟或刷新旧会话。先进行至少 ${Math.ceil(STOP_NO_APPROVAL_CONFIRM_MS / 1000)} 秒的二次实时授权复核，确认没有授权卡后，按授权卡片接力开关处理：开启则无授权最多续发 3 次，关闭则直接新开会话接力。`);
         } else {
           save();
         }
@@ -884,7 +884,7 @@
         task.state = 'waiting';
         task.updatedAt = now;
         if (handoffGate.started) {
-          log(task, `旧连接中断状态已升级为异常中断接力；进行至少 ${Math.ceil(STOP_NO_APPROVAL_CONFIRM_MS / 1000)} 秒授权复核后，未曾出现授权的会话先续发，最多 3 次；否则新开会话，不再刷新旧会话。`);
+          log(task, `旧连接中断状态已升级为异常中断接力；进行至少 ${Math.ceil(STOP_NO_APPROVAL_CONFIRM_MS / 1000)} 秒授权复核后，按授权卡片接力开关处理：开启则无授权最多续发 3 次，关闭则直接新开会话；不再刷新旧会话。`);
         } else {
           save();
         }

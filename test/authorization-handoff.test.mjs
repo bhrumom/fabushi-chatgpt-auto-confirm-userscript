@@ -344,6 +344,12 @@ for(const authorizationGate of [false,true]) for(const variant of ['structural',
       await h.inspect(task,null); assert.equal(sends,0);
       now+=9_001;await h.inspect(task,null);
       for(let attempt=0;attempt<3&&!sends;attempt++) await h.inspect(task,null);
+      if(!authorizationGate) {
+        assert.equal(sends,0); assert.equal(task.state,'queued'); assert.equal(task.url,'');
+        assert.equal(task.connectionInterruptionContinuationURL,'');
+        assert.equal(h.authorizationContinuationEnabled(task),false);
+        return;
+      }
       assert.equal(sends,1);assert.equal(task.url,'https://chatgpt.com/c/guard');
       assert.equal(w.document.querySelector('textarea').value,'继续完成所有，按模板回复');
       assert.equal(h.isContinuationPrompt(w.document.querySelector('textarea').value),true);
@@ -358,8 +364,8 @@ for(const authorizationGate of [false,true]) for(const variant of ['structural',
     }finally{dom.window.close();}
   });
 }
-for(const previousSends of [2,3]) test(`connection exception has shared total cap after ${previousSends} sends with switch off`,async()=>{
-  const {dom,w,h,task}=await harness({authorizationGate:false});
+for(const previousSends of [2,3]) test(`enabled connection continuation has shared total cap after ${previousSends} sends`,async()=>{
+  const {dom,w,h,task}=await harness({authorizationGate:true});
   try {
     let now=Date.now();w.Date.now=()=>now;
     task.authorizationContinuationURL=task.url;task.authorizationContinuationAttempts=previousSends;
@@ -372,7 +378,7 @@ for(const previousSends of [2,3]) test(`connection exception has shared total ca
   }finally{dom.window.close();}
 });
 for(const condition of ['draft','paused','foreign-route','approval','authorization-seen','settlement']) test(`connection exception preserves ${condition} protection`,async()=>{
-  const {dom,w,h,task}=await harness({authorizationGate:false});
+  const {dom,w,h,task}=await harness({authorizationGate:true});
   try {
     w.document.querySelector('[data-message-author-role="assistant"]').textContent='连接已中断，正在等待完整回复';
     h.queueInterruptedFreshRetry(task,'connection interruption');
@@ -548,4 +554,36 @@ test('inspector clears a residual diagnostic before pending continuation classif
     assert.ok(task.messages.some(m=>JSON.stringify(m).includes('已自动清空')));
     assert.ok(clicks<=1);
   } finally {dom.window.close();}
+});
+
+test('OFF blocks persisted connection continuation before and after snapshot recovery',async()=>{
+  const {dom,w,h,task}=await harness({authorizationGate:false});
+  try {
+    task.connectionInterruptionContinuationURL=task.url;task.authorizationRequiredContinuation=true;
+    task.authorizationContinuationURL=task.url;task.authorizationContinuationAttempts=2;
+    task.continuationSentAt=1;task.authorizationContinuationBoundary='old-fence';
+    Object.assign(task,JSON.parse(JSON.stringify(h.durableTaskSnapshot(task))));
+    let sends=0;w.document.querySelector('[data-testid="send-button"]').onclick=()=>sends++;
+    assert.equal(h.authorizationContinuationEnabled(task),false);
+    assert.equal(await h.continueWithoutAuthorization(task,null),false);assert.equal(sends,0);
+    assert.equal(h.requireConversationAuthorization(task,'connection interrupted',{connectionInterruption:true}),false);
+    assert.equal(task.authorizationContinuationBoundary,'old-fence');
+    assert.equal(h.authorizationContinuationAttempts(task),2);
+    w.document.querySelector('main').insertAdjacentHTML('beforeend','<section data-testid="approval-card"><button disabled>允许一次</button></section>');
+    assert.equal(h.requireConversationAuthorization(task,'connection interrupted',{connectionInterruption:true}),true);
+    assert.equal(task.state,'approval');assert.equal(task.url,'https://chatgpt.com/c/guard');
+  }finally{dom.window.close();}
+});
+test('OFF control cancels already pending connection policy and keeps click fences',async()=>{
+  const {dom,w,h,task}=await harness();
+  try {
+    task.connectionInterruptionContinuationURL=task.url;task.authorizationRequiredContinuation=true;
+    task.authorizationContinuationBoundary='do-not-replay';task.authorizationContinuationURL=task.url;task.authorizationContinuationAttempts=2;
+    w.document.querySelector('button[aria-label="关闭授权卡片接力"]').click();
+    assert.equal(task.authorizationRequiredContinuation,false);assert.equal(task.connectionInterruptionContinuationURL,'');
+    assert.equal(h.authorizationContinuationEnabled(task),false);
+    assert.equal(task.authorizationContinuationBoundary,'do-not-replay');assert.equal(h.authorizationContinuationAttempts(task),2);
+    assert.equal(JSON.parse(w.localStorage.getItem('fabushi-workbench-v2')).tabControls[h.tabId].requireAuthorizationBeforeNewChat,false);
+    assert.match(w.document.querySelector('.handoff-control').textContent,/普通结束和连接中断均直接接力/);
+  }finally{dom.window.close();}
 });
