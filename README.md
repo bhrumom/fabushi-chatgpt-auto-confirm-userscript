@@ -1,3 +1,7 @@
+## v2.10.77
+
+修复 GitHub 提交要求被脚本自身误当成同步等待门禁的问题。GitHub commit/push/远端回读要求仍完整保留在发送给 ChatGPT 的提示词和最终报告协议中，但 userscript 不再创建 `githubDeliveryPending` 等本地阻塞状态、不再显示“等待 GitHub 提交与远端核验证据”、也不会自动发送最多三次补证据消息。有效的 `MAHAYANA_TASK_REPORT_V1` 现在只按既有 `status=next/complete` 和真实页面异步安全门禁推进；v2.10.76 已持久化的 GitHub pending 字段升级后保持行为惰性。验证只通过 GitHub Actions。
+
 ## v2.10.73
 
 修复已超时续发与旧停止按钮记录之间的恢复等待环：有明确未确认续发边界时，直接完成独立的实时授权复核，不再等待被连接中断流程挡住的旧刷新计时。保留发送去重、旧/新消息标识兼容和顶部开启/关闭按钮。
