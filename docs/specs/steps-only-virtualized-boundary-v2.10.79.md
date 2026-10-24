@@ -22,5 +22,6 @@ Add focused fixtures for a virtualized user with a prior primary reply in anothe
 ## Compliance
 | Requirement | Status | Evidence |
 | --- | --- | --- |
-| R1–R4 | blocked | Implementation and CI pending. |
+| R1–R4 implementation | passed | Executable head `d510ba6c1155e9f8bb95f4c111f5407e81438fac` passed full [Test 40076513227](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/actions/runs/40076513227), including hourly repeat and virtualized ownership/carry fixtures. |
+| R4 release | blocked | Awaiting final docs-head Test, merge, main Test and release readback. Post-release evidence is recorded in PR #198. |
 | Live hourly expiry | blocked | No hour-long live cycle yet observed. |
