@@ -65,7 +65,7 @@ test('old, hidden, foreign and newer manual turns cannot enter rest',async()=>{
   }finally{f.close();}
  }
 });
-test('inspection, sends, navigation and refresh are suppressed before rest deadline',asyncasync()=>{
+test('inspection, sends, navigation and refresh are suppressed before rest deadline',async()=>{
  const f=await fixture();try{
   const {h,task,w}=f;h.handleStepsOnlyRest(task);f.advance(120000);h.handleStepsOnlyRest(task);
   const before=JSON.stringify(task);const signal=new w.AbortController().signal;
@@ -75,7 +75,7 @@ test('inspection, sends, navigation and refresh are suppressed before rest deadl
   assert.equal(JSON.stringify(task),before);
  }finally{f.close();}
 });
-test('inspect detects steps-only while Stop is active before generic recovery',asyncasync()=>{
+test('inspect detects steps-only while Stop is active before generic recovery',async()=>{
  const f=await fixture();try{
   const {h,task,w}=f;const signal=new w.AbortController().signal;
   await h.inspect(task,signal);assert.equal(task.stepsOnlySince,f.now());
