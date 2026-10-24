@@ -190,7 +190,7 @@
     return Math.max(0, startedAt + SEND_CONFIRM_TIMEOUT_MS - now);
   }
   function taskStatusText(task, now = Date.now()) {
-    if (task?.state !== 'paused' && !terminal.has(task?.state) && Number(task?.stepsOnlyRestUntil || 0) > now) return `只有工作步骤，休息中（剩余 ${Math.ceil((task.stepsOnlyRestUntil - now) / 60000)} 分钟）`;
+    if (task?.state !== 'paused' && !terminal.has(task?.state) && stepsOnlyRestDeadline(task) > now) return `会话已结束且无卡无正文，休息中（剩余 ${Math.ceil((task.stepsOnlyRestUntil - now) / 60000)} 分钟）`;
     if (task?.state === 'approval' && taskBelongsToTab(task) && !data.autoApprove && !data.globalAutoApprove) return '等待手动授权（自动授权已关闭）';
     const remaining = sendConfirmationRemaining(task, now);
     if (remaining === null) return statusNames[task?.state] || task?.state || '';
@@ -464,7 +464,7 @@
         item.id,item.ownerTabId,item.state,Boolean(item.attempted),Number(item.round||0),Number(item.goalRevision||0),
         String(item.goal||'').slice(0,80),taskAttachments(item).length,
         Math.max(0,Math.ceil((Number(item.noFinalReplyRecoveryUntil||0)-Date.now())/60000)),
-        Math.max(0,Math.ceil((Number(item.stepsOnlyRestUntil||0)-Date.now())/60000)),
+        Math.max(0,Math.ceil((stepsOnlyRestDeadline(item)-Date.now())/60000)),
       ];
       const nextSidebarSignature=JSON.stringify([
         selected,current,running,Boolean(data.autoApprove),Boolean(data.globalAutoApprove),

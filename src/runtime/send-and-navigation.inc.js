@@ -682,7 +682,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     return 'queued';
   }
   async function navigate(url, signal, task = data.tasks.find(item => item.id === current), requireComposer = true) {
-    if (Number(task?.stepsOnlyRestUntil || 0) > Date.now()) return false;
+    if (stepsOnlyRestDeadline(task) > Date.now()) return false;
     // The conversation URL is the only session identity. If the live page
     // carries this task's ownership marker, canonicalize any stale/synthetic
     // address to the real browser path before doing anything else.
@@ -991,7 +991,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && Number(task.modelPresetConfirmedAt || 0) > 0);
   }
   async function send(task, signal) {
-    if (Number(task.stepsOnlyRestUntil || 0) > Date.now()) return;
+    if (stepsOnlyRestDeadline(task) > Date.now()) return;
     // Dismiss/acknowledge non-blocking overlays before rate-limit detection so
     // a history-only frequency popup cannot suppress a valid new dispatch.
     const scanContext = createPageScanContext();
