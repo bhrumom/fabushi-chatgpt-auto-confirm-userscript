@@ -434,6 +434,7 @@
     if (!task || terminal.has(task.state) || task.state === 'paused') return Number.POSITIVE_INFINITY;
     const deadlines = [
       Number(task.cooldownUntil || 0),
+      Number(task.stepsOnlyRestUntil || 0),
       Number(task.noFinalReplyRecoveryUntil || 0),
     ];
     const navigationRetryAt = Number(task.navigationGuardRetryAt || 0);

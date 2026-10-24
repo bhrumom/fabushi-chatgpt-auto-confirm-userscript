@@ -190,6 +190,7 @@
     return Math.max(0, startedAt + SEND_CONFIRM_TIMEOUT_MS - now);
   }
   function taskStatusText(task, now = Date.now()) {
+    if (task?.state !== 'paused' && !terminal.has(task?.state) && Number(task?.stepsOnlyRestUntil || 0) > now) return `只有工作步骤，休息中（剩余 ${Math.ceil((task.stepsOnlyRestUntil - now) / 60000)} 分钟）`;
     if (task?.state === 'approval' && taskBelongsToTab(task) && !data.autoApprove && !data.globalAutoApprove) return '等待手动授权（自动授权已关闭）';
     const remaining = sendConfirmationRemaining(task, now);
     if (remaining === null) return statusNames[task?.state] || task?.state || '';

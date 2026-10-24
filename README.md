@@ -1,3 +1,7 @@
+## v2.10.78
+
+- 当前任务持续两分钟只有工作步骤而没有回复正文时，休息一小时后复核；仍无正文则新开会话承接任务。同样情况重复休息一小时，直到出现正文。休息时间持久保存，工作台显示剩余分钟。
+
 ## v2.10.77
 
 修复 GitHub 提交要求被脚本自身误当成同步等待门禁的问题。GitHub commit/push/远端回读要求仍完整保留在发送给 ChatGPT 的提示词和最终报告协议中，但 userscript 不再创建 `githubDeliveryPending` 等本地阻塞状态、不再显示“等待 GitHub 提交与远端核验证据”、也不会自动发送最多三次补证据消息。有效的 `MAHAYANA_TASK_REPORT_V1` 现在只按既有 `status=next/complete` 和真实页面异步安全门禁推进；v2.10.76 已持久化的 GitHub pending 字段升级后保持行为惰性。验证只通过 GitHub Actions。

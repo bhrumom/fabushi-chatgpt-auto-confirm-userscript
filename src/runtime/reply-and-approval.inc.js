@@ -145,6 +145,72 @@
       sourceKind: parts.length ? sourceKind : '',
     };
   }
+  // Work summaries are useful carry context but are never reply-body evidence.
+  function stepsOnlyResponse(task) {
+    if (!task || task.attempted || !taskMatchesCurrentConversation(task)) return null;
+    const turn = taskTurnForInspection(task);
+    if (!turn.owned || conversationURLOwner(task.url, task.id)
+      || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))) return null;
+    const boundary = conversationRoleNodes('user').at(-1);
+    if (!boundary) return null;
+    const follows = node => Boolean(boundary.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const activity = nodes(assistantActivitySelector).filter(node => visible(node) && follows(node) && text(node).trim());
+    if (!activity.length) return null;
+    const replyNodes = conversationRoleNodes('assistant').filter(follows);
+    const exclusion = `${assistantActivitySelector},[data-testid*="tool"],[data-type*="tool"],[class*="tool-call"],[class*="toolCall"],[role="status"],button,[hidden],[inert]`;
+    const hasReply = replyNodes.some(node => {
+      if (node.closest?.(exclusion)) return false;
+      const roots = outermostSemanticRoots(nodes('.markdown,[data-message-content],[data-selected-text-overlay-target],[data-markdown-text-style="assistant-message"][data-markdown-text-tone="primary"]', node))
+        .filter(root => visible(root) && !root.closest(exclusion));
+      if (node.matches?.('[data-markdown-text-tone="primary"]') && visible(node)) roots.unshift(node);
+      if (!roots.length && visible(node)) roots.push(node);
+      return roots.some(root => {
+        const copy = root.cloneNode(true);
+        copy.querySelectorAll(exclusion).forEach(child => child.remove());
+        return Boolean(String(copy.textContent || '').trim());
+      });
+    });
+    return { hasReply, boundary:JSON.stringify([canonicalConversationURL(task.url), task.token, task.phase, task.round, recoveryUserBoundaryKey(boundary)]) };
+  }
+  function clearStepsOnlyRest(task) {
+    const changed = Boolean(task.stepsOnlySince || task.stepsOnlyBoundary || task.stepsOnlyRestUntil);
+    task.stepsOnlySince = 0;
+    task.stepsOnlyBoundary = '';
+    task.stepsOnlyRestUntil = 0;
+    return changed;
+  }
+  function handleStepsOnlyRest(task, { blocked = false, now = Date.now(), turn = null } = {}) {
+    if (!task || !running || data.autoResume === false || task.state === 'paused' || terminal.has(task.state) || task.attempted) return false;
+    const response = stepsOnlyResponse(task);
+    if (!response || response.hasReply) {
+      if (clearStepsOnlyRest(task)) save();
+      return false;
+    }
+    if (blocked) return false;
+    const input = composer();
+    if (input && normalize(input.value || input.textContent)) return false;
+    if (task.stepsOnlyBoundary !== response.boundary) {
+      clearStepsOnlyRest(task);
+      task.stepsOnlyBoundary = response.boundary;
+      task.stepsOnlySince = now;
+      save();
+    }
+    if (task.stepsOnlyRestUntil) {
+      if (now < task.stepsOnlyRestUntil) return true;
+      // This explicit policy skips historical no-card prompts, never a live grant.
+      return queueInterruptedFreshRetry(task, '只有工作步骤、没有实时回复正文；一小时休息结束，重新检查后仍无正文', now, turn, {
+        stepsOnlyRest:true, historyReason:'steps-only-hourly-rest', recoveryLabel:'工作步骤无回复接力',
+      });
+    }
+    if (now - task.stepsOnlySince < 2 * 60 * 1000) return true;
+    task.stepsOnlyRestUntil = now + 60 * 60 * 1000;
+    task.state = 'waiting';
+    task.updatedAt = now;
+    persistHandoffReplySnapshot(task, { allowExactRouteFallback:false, now });
+    log(task, '当前会话持续只有工作步骤，没有实时回复正文；休息 1 小时，期间不发送、不导航、不刷新。到期复核，仍无正文则新开会话继续；新会话出现同样情况会再次休息 1 小时，直到出现回复正文。');
+    save();
+    return true;
+  }
   function persistHandoffReplySnapshot(task, { allowExactRouteFallback = true, now = Date.now() } = {}) {
     if (!task || terminal.has(task.state) || task.state === 'paused') return false;
     const liveURL = canonicalConversationURL(currentConversationURL());
@@ -260,7 +326,7 @@
     if (!task || terminal.has(task.state) || task.state === 'paused') return false;
     const interruption = options.connectionInterruption === true || Boolean(task.pendingContinuationReason)
       || connectionInterruptedNotice(turn?.owned ? turn : taskTurnForInspection(task));
-    if (requireConversationAuthorization(task, reason, {connectionInterruption:interruption,skipHistoricalRequirement:options.continuationAcknowledgmentExpired === true})) return true;
+    if (requireConversationAuthorization(task, reason, {connectionInterruption:interruption,skipHistoricalRequirement:options.continuationAcknowledgmentExpired === true || options.stepsOnlyRest === true})) return true;
     const sessionURL = currentConversationURL() || canonicalConversationURL(task.url);
     if (sessionURL) {
       recordConversationURL(task, sessionURL);
@@ -407,7 +473,7 @@
     const conversationURL = currentConversationURL() || canonicalConversationURL(task.url);
     const taskURL = canonicalConversationURL(task.url);
     if (!conversationURL || !taskURL || conversationURL !== taskURL) return false;
-    if (Number(task.cooldownUntil || 0) > now) return false;
+    if (Math.max(Number(task.cooldownUntil || 0), Number(task.stepsOnlyRestUntil || 0)) > now) return false;
     if (task.stalledRefreshURL !== conversationURL) {
       task.stalledRefreshURL = conversationURL;
       task.stalledRefreshAttempts = 0;

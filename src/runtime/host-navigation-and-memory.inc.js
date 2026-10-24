@@ -490,7 +490,8 @@
       || ['sending','uploading','loading','approval'].includes(String(task.state || '')));
     const hasDraft = Boolean(transient.hasDraft || hasUnsavedComposerInput());
     const hasPendingAttachment = Boolean(transient.hasFiles || tabTasks().some(task => task.attachmentUploadPending));
-    const safe = !busy && !navigating && !hasDraft && !hasPendingAttachment && !taskInFlight;
+    const resting = tabTasks().some(task => Number(task.stepsOnlyRestUntil || 0) > Date.now() && !terminal.has(task.state));
+    const safe = !busy && !navigating && !hasDraft && !hasPendingAttachment && !taskInFlight && !resting;
     return {
       safe,
       hidden: document.visibilityState === 'hidden',
