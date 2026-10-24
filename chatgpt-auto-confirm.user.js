@@ -5647,14 +5647,14 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
       if (now < task.stepsOnlyRestUntil) return true;
       // This explicit policy skips historical no-card prompts, never a live grant.
       return queueInterruptedFreshRetry(task, '只有工作步骤、没有实时回复正文；一小时休息结束，重新检查后仍无正文', now, turn, {
-        stepsOnlyRest:true, historyReason:'steps-only-hourly-rest', recoveryLabel:'工作步骤无回复接力',
+        stepsOnlyRest:true, allowExactRouteFallback:true, historyReason:'steps-only-hourly-rest', recoveryLabel:'工作步骤无回复接力',
       });
     }
     if (now - task.stepsOnlySince < 2 * 60 * 1000) return true;
     task.stepsOnlyRestUntil = now + 60 * 60 * 1000;
     task.state = 'waiting';
     task.updatedAt = now;
-    persistHandoffReplySnapshot(task, { allowExactRouteFallback:false, now });
+    persistHandoffReplySnapshot(task, { allowExactRouteFallback:true, now });
     log(task, '当前会话持续只有工作步骤，没有实时回复正文；休息 1 小时，期间不发送、不导航、不刷新。到期复核，仍无正文则新开会话继续；新会话出现同样情况会再次休息 1 小时，直到出现回复正文。');
     save();
     return true;

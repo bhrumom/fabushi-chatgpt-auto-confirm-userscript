@@ -117,6 +117,7 @@ test('recorded Stop authority preserves rest across marker virtualization and ig
   assert.equal(h.stepsOnlyResponse(task).hasReply,false);
   h.handleStepsOnlyRest(task);assert.equal(task.stepsOnlyRestUntil,deadline);
   f.advance(3600000);h.handleStepsOnlyRest(task);assert.equal(task.state,'queued');assert.equal(task.url,'');
+  assert.match(task.abnormalFreshCarry,/整理了依赖范围/);assert.doesNotMatch(task.abnormalFreshCarry,/OLD REAL REPLY|old activity/);
  }finally{f.close();}
 });
 test('virtualized recovery requires recorded generation and user authority, and rejects newer manual users',async()=>{
