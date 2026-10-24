@@ -361,6 +361,7 @@
   }
   function queueInterruptedFreshRetry(task, reason = '检测到“连接已中断，正在等待完整回复”', now = Date.now(), turn = null, options = {}) {
     if (!task || terminal.has(task.state) || task.state === 'paused') return false;
+    if (settleCurrentReportBeforeFreshHandoff(task, now)) return true;
     const interruption = options.connectionInterruption === true || Boolean(task.pendingContinuationReason)
       || connectionInterruptedNotice(turn?.owned ? turn : taskTurnForInspection(task));
     if (requireConversationAuthorization(task, reason, {connectionInterruption:interruption,skipHistoricalRequirement:options.continuationAcknowledgmentExpired === true})) return true;

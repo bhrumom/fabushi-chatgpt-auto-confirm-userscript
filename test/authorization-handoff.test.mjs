@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 const source = await fs.readFile(new URL('../chatgpt-auto-confirm.user.js', import.meta.url), 'utf8');
-const names = 'clearActiveTaskComposerDraft,stopObservedGenerationIdentity,authorizationContinuationBoundaryMatches,authorizationContinuationBoundaryKey,ownedAuthorizationContinuationDraft,taskTurnForInspection,sendTimeoutNotice,measurements,connectionInterruptionContinuationPending,authorizationContinuationEnabled,isContinuationPrompt,data,tabId,cards,inspect,recoverStoppedConversation,revealStoppedResponseActivity,authorizationContinuationAttempts,authorizationGateExhausted,durableWorkbenchSnapshot,recordConversationAuthorization,conversationAuthorizationSeen,requireConversationAuthorization,continueWithoutAuthorization,durableTaskSnapshot,finish,queueInterruptedFreshRetry,queueBlockedFreshRetry,queueConversationLengthHandoff,queueWorkFinalReportRepair,clearDispatchIntent';
+const names = 'settleCurrentReportBeforeFreshHandoff,prepareTaskPrompt,workPromptSections,clearActiveTaskComposerDraft,stopObservedGenerationIdentity,authorizationContinuationBoundaryMatches,authorizationContinuationBoundaryKey,ownedAuthorizationContinuationDraft,taskTurnForInspection,sendTimeoutNotice,measurements,connectionInterruptionContinuationPending,authorizationContinuationEnabled,isContinuationPrompt,data,tabId,cards,inspect,recoverStoppedConversation,revealStoppedResponseActivity,authorizationContinuationAttempts,authorizationGateExhausted,durableWorkbenchSnapshot,recordConversationAuthorization,conversationAuthorizationSeen,requireConversationAuthorization,continueWithoutAuthorization,durableTaskSnapshot,finish,queueInterruptedFreshRetry,queueBlockedFreshRetry,queueConversationLengthHandoff,queueWorkFinalReportRepair,clearDispatchIntent';
 async function harness({authorizationGate=true}={}) {
   const dom = new JSDOM('<main><article data-message-author-role="user" data-message-id="u1">[Fabushi:guard-token]</article><article data-message-author-role="assistant" data-message-id="a1">已结束的回复</article></main><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">发送</button></form>', { runScripts:'outside-only', pretendToBeVisual:true, url:'https://chatgpt.com/c/guard' });
   const w = dom.window;
@@ -16,13 +16,12 @@ async function harness({authorizationGate=true}={}) {
   h.data.tasks.push(task); h.run();
   return {dom,w,h,task};
 }
-for (const method of ['finish','queueInterruptedFreshRetry','queueBlockedFreshRetry','queueConversationLengthHandoff','queueWorkFinalReportRepair']) {
+for (const method of ['queueInterruptedFreshRetry','queueBlockedFreshRetry','queueConversationLengthHandoff','queueWorkFinalReportRepair']) {
   test(`no card blocks ${method} without losing dispatch identity`, async()=>{
     const {dom,h,task}=await harness();
     try {
       const before=JSON.stringify([task.url,task.token,task.round,task.phase,task.attachments]);
-      if(method==='finish') h.finish(task,JSON.stringify({taskId:task.id,round:1,status:'complete',summary:'已完成',next:''}));
-      else h[method](task);
+      h[method](task);
       assert.equal(task.authorizationRequiredContinuation,true);
       assert.equal(task.state,'waiting');
       assert.equal(JSON.stringify([task.url,task.token,task.round,task.phase,task.attachments]),before);
@@ -188,9 +187,9 @@ test('enabled gate sends at most three continuations and hands off instead of ac
     assert.equal(await h.continueWithoutAuthorization(task,new w.AbortController().signal,now),false);
     assert.equal(sends,3);
     h.finish(task,JSON.stringify({taskId:task.id,round:1,status:'complete',summary:'完成声明',next:''}));
-    assert.equal(task.state,'queued');assert.equal(task.url,'');assert.equal(task.round,1);
-    assert.equal(task.history.at(-1).reason,'authorization-continuation-limit');
-    assert.equal(h.authorizationContinuationAttempts(task),0);
+    assert.equal(task.state,'done');assert.equal(task.round,1);
+    assert.equal(task.history.at(-1).url,'https://chatgpt.com/c/guard');
+    assert.equal(h.authorizationContinuationAttempts(task),3);
   }finally{dom.window.close();}
 });
 test('existing same-route sends migrate into the cap, survive toggles and do not leak across routes',async()=>{
@@ -586,4 +585,61 @@ test('OFF control cancels already pending connection policy and keeps click fenc
     assert.equal(JSON.parse(w.localStorage.getItem('fabushi-workbench-v2')).tabControls[h.tabId].requireAuthorizationBeforeNewChat,false);
     assert.match(w.document.querySelector('.handoff-control').textContent,/普通结束和连接中断均直接接力/);
   }finally{dom.window.close();}
+});
+
+for (const attempts of [0,3]) {
+  test(`valid next report settles without historical authorization at cap ${attempts}`,async()=>{
+    const {dom,h,task}=await harness();try{
+      task.authorizationContinuationURL=task.url;task.authorizationContinuationAttempts=attempts;
+      task.preparedPrompt='OLD EXECUTION';task.sendPrepared=true;
+      task.next='strict183 OLD';task.abnormalFreshCarry='old trace';
+      const reply=JSON.stringify({taskId:task.id,round:task.round,status:'next',summary:'strict183 verified',next:'strict184 NEW action'});
+      h.finish(task,reply);
+      assert.equal(task.round,2);assert.equal(task.state,'queued');assert.equal(task.next,'strict184 NEW action');
+      assert.equal(task.result,reply);assert.equal(task.preparedPrompt,'');assert.equal(task.abnormalFreshCarry,'');
+      task.token='new-token';h.prepareTaskPrompt(task);
+      assert.equal(h.workPromptSections(task).find(x=>x.title==='本轮执行指令').text,'strict184 NEW action');
+      assert.ok(task.preparedPrompt.includes(reply));assert.ok(!task.preparedPrompt.includes('strict183 OLD'));
+      assert.ok(task.preparedPrompt.includes('"round":2'));
+    }finally{dom.window.close();}
+  });
+}
+for (const entry of ['inspect','queueInterruptedFreshRetry']) {
+  test(`ended valid report progresses through ${entry} rather than waiting or repeating old prompt`,async()=>{
+    const {dom,w,h,task}=await harness();try{
+      const reply=JSON.stringify({taskId:task.id,round:1,status:'next',summary:'verified '.repeat(1000),next:'strict184 NEW'});
+      w.document.querySelector('[data-message-author-role="assistant"]').textContent=reply;
+      task.next='strict183 OLD';
+      let sends=0;w.document.querySelector('[data-testid="send-button"]').onclick=()=>sends++;
+      if(entry==='inspect') await h.inspect(task,null);else h.queueInterruptedFreshRetry(task);
+      assert.equal(task.round,1);assert.ok(task.liveFinalReportSince);assert.equal(task.authorizationRequiredContinuation || false,false);
+      task.liveFinalReportSince=Date.now()-5000;
+      if(entry==='inspect') await h.inspect(task,null);else h.queueInterruptedFreshRetry(task);
+      assert.equal(task.round,2);assert.equal(task.next,'strict184 NEW');assert.equal(task.state,'queued');assert.equal(sends,0);
+    }finally{dom.window.close();}
+  });
+}
+for(const guard of ['card','settlement','stop','draft','foreign-task','foreign-round','unacknowledged','foreign-route','new-manual-user']) {
+  test(`live report settlement preserves ${guard} guard`,async()=>{
+    const {dom,w,h,task}=await harness();try{
+      const reply=JSON.stringify({taskId:guard==='foreign-task'?'other':task.id,round:guard==='foreign-round'?2:1,status:'next',summary:'verified',next:'NEW'});
+      w.document.querySelector('[data-message-author-role="assistant"]').textContent=reply;
+      if(guard==='card') w.document.querySelector('main').insertAdjacentHTML('beforeend','<section data-testid="authorization-card"><button>拒绝</button><button>允许一次</button><button aria-haspopup="menu">更多</button></section>');
+      if(guard==='settlement') Object.assign(task,{approvalSettlementUntil:Date.now()+60000,approvalSettlementURL:task.url,approvalSettlementToken:task.token,approvalSettlementPhase:task.phase,approvalSettlementRound:task.round});
+      if(guard==='stop') w.document.body.insertAdjacentHTML('beforeend','<button aria-label="停止生成"></button>');
+      if(guard==='draft') w.document.querySelector('textarea').value='draft';
+      if(guard==='foreign-route') w.history.replaceState({},'', '/c/other');
+      if(guard==='new-manual-user') w.document.querySelector('main').insertAdjacentHTML('beforeend','<article data-message-author-role="user">another question</article>');
+      if(guard==='unacknowledged') {task.authorizationContinuationURL=task.url;task.continuationSentAt=Date.now()-120000;task.authorizationContinuationBoundary=h.authorizationContinuationBoundaryKey(task,h.taskTurnForInspection(task));}
+      assert.equal(h.settleCurrentReportBeforeFreshHandoff(task),false);
+      assert.equal(task.round,1);assert.equal(task.next || '','');
+    }finally{dom.window.close();}
+  });
+}
+test('valid report still waits for a real card and settlement inside finish',async()=>{
+ const {dom,w,h,task}=await harness();try{
+  const reply=JSON.stringify({taskId:task.id,round:1,status:'complete',summary:'verified',next:''});
+  w.document.querySelector('main').insertAdjacentHTML('beforeend','<section data-testid="authorization-card"><button>拒绝</button><button>允许一次</button><button aria-haspopup="menu">更多</button></section>');
+  h.finish(task,reply);assert.notEqual(task.state,'done');assert.equal(task.round,1);
+ }finally{dom.window.close();}
 });

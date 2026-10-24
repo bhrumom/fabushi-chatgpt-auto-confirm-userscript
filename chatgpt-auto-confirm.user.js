@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.80
+// @version      2.10.81
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -68,7 +68,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.80';
+  const VERSION = '2.10.81';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -5798,6 +5798,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
   }
   function queueInterruptedFreshRetry(task, reason = '检测到“连接已中断，正在等待完整回复”', now = Date.now(), turn = null, options = {}) {
     if (!task || terminal.has(task.state) || task.state === 'paused') return false;
+    if (settleCurrentReportBeforeFreshHandoff(task, now)) return true;
     const interruption = options.connectionInterruption === true || Boolean(task.pendingContinuationReason)
       || connectionInterruptedNotice(turn?.owned ? turn : taskTurnForInspection(task));
     if (requireConversationAuthorization(task, reason, {connectionInterruption:interruption,skipHistoricalRequirement:options.continuationAcknowledgmentExpired === true})) return true;
@@ -8504,6 +8505,44 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     try { return parseWorkFinalReport(value, task); }
     catch { return null; }
   }
+  function settleCurrentReportBeforeFreshHandoff(task, now = Date.now()) {
+    const reset = () => { task.liveFinalReportIdentity = ''; task.liveFinalReportSince = 0; };
+    const route = currentConversationURL();
+    const input = composer();
+    if (!task || task.phase !== 'work') return false;
+    if (terminal.has(task.state) || task.state === 'paused' || task.attempted
+      || !route || route !== canonicalConversationURL(task.url) || !taskBelongsToTab(task)
+      || conversationURLOwner(route, task.id)
+      || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))
+      || stopButton() || cards({wide:true}).length || approvalSettlementActive(task, route, now)
+      || !input || normalize(input.value || input.textContent) || blocker() || rateLimitNotice()) {
+      reset(); return false;
+    }
+    const ownedTurn = taskTurnForInspection(task);
+    const turn = ownedTurn.owned ? ownedTurn : latestTurn();
+    // A still-mounted foreign/manual user boundary cannot acquire reply ownership.
+    if ((!ownedTurn.owned && conversationRoleNodes('user').some(node => /\[Fabushi:[^\]]+\]/.test(text(node))))
+      || (turn.streaming && !turn.final)
+      || (Number(task.continuationSentAt || 0) > 0
+        && canonicalConversationURL(task.authorizationContinuationURL) === route
+        && authorizationContinuationBoundaryMatches(task, turn, true))) {
+      reset(); return false;
+    }
+    const reply = String(turn.text || '').trim();
+    if (!currentWorkFinalReport(reply, task)) { reset(); return false; }
+    const identity = JSON.stringify([route, task.id, task.round, task.goalRevision || 0, reply]);
+    if (task.liveFinalReportIdentity !== identity || !task.liveFinalReportSince) {
+      task.liveFinalReportIdentity = identity;
+      task.liveFinalReportSince = now;
+      task.state = 'waiting';
+      log(task, '已识别当前轮最终报告；正在复核内容稳定性，随后采用最新 next 推进，不再按旧指令接力。');
+      save();
+    } else if (now - task.liveFinalReportSince >= FINAL_REPLY_STABILITY_MS) {
+      reset();
+      finish(task, reply);
+    }
+    return true;
+  }
   function queueWorkFinalReportRepair(task, reason = '工作最终报告格式无法解析') {
     if (!task || task.phase !== 'work') return '';
     if (requireConversationAuthorization(task, reason)) return 'waiting';
@@ -8519,8 +8558,10 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     return 'queued';
   }
   function finish(task, reply) {
-    if (requireConversationAuthorization(task, '当前会话已给出最终回复')) return;
-    if (authorizationGateExhausted(task)) {
+    const validReport = currentWorkFinalReport(reply, task);
+    if (approvalSettlementActive(task, canonicalConversationURL(task.url))) return;
+    if (requireConversationAuthorization(task, '当前会话已给出最终回复', {skipHistoricalRequirement:Boolean(validReport)})) return;
+    if (!validReport && authorizationGateExhausted(task)) {
       queueInterruptedFreshRetry(task, '当前会话已继续 3 次仍未出现授权卡片', Date.now(), null, { allowExactRouteFallback:true, recoveryLabel:'无授权卡三次继续上限', historyReason:'authorization-continuation-limit' });
       return;
     }
@@ -8679,6 +8720,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     clearActiveTaskComposerDraft(task, signal);
     if (revealCurrentCollapsedMessage(task, signal)) return;
     if (revealStoppedResponseActivity(task, signal)) return;
+    if (settleCurrentReportBeforeFreshHandoff(task)) return;
     if (await recoverStoppedConversation(task, signal)) return;
     if (task.authorizationRequiredContinuation) {
       cards({ wide:true });
@@ -10488,7 +10530,7 @@ NaN
     authGateLabel.append(element('strong','授权卡片接力'),authGateState,authGateOptions);
     const authGateBar=element('section','','handoff-control'); authGateBar.setAttribute('aria-label','授权卡片接力设置');
     authGateBar.append(authGateLabel,element('small','开启：无授权先继续，最多 3 次后新开。关闭：普通结束和连接中断均直接接力，不因缺少授权卡片续发。'));
-    authGateLabel.title='开启后，无授权卡片时在原会话最多发送 3 次继续指令，仍无授权再新开；关闭后，普通结束和连接中断均直接接力。两种状态都先处理当前授权卡片。';
+    authGateLabel.title='开启后，无授权卡片时在原会话最多发送 3 次继续指令，仍无授权再新开；关闭后，普通结束和连接中断均直接接力。两种状态都先处理当前授权卡片；有效最终报告稳定后直接按报告推进。';
     const submit = element('button','↑','send'); submit.type='submit'; submit.setAttribute('aria-label','发送任务');
     const modelScopeHint = element('small','','model-scope-hint');
     controls.append(select,modelSelect,reasoningSelect,autoLabel,submit); compose.append(input,attachmentBox,controls,modelScopeHint); chat.append(authGateBar,settings,feed,notice,compose); desk.append(sidebar,chat);
