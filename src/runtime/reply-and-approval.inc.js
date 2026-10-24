@@ -185,42 +185,66 @@
     });
     return { hasReply, boundary:JSON.stringify([canonicalConversationURL(task.url), task.token, task.phase, task.round, boundaryKey]) };
   }
+  function stepsOnlyRestDeadline(task) {
+    return task?.stepsOnlyRestPolicy === 'ended-no-approval-v1' ? Number(task.stepsOnlyRestUntil || 0) : 0;
+  }
   function clearStepsOnlyRest(task) {
-    const changed = Boolean(task.stepsOnlySince || task.stepsOnlyBoundary || task.stepsOnlyRestUntil);
+    const changed = Boolean(task.stepsOnlySince || task.stepsOnlyBoundary || task.stepsOnlyRestUntil || task.stepsOnlyRestPolicy);
     task.stepsOnlySince = 0;
     task.stepsOnlyBoundary = '';
     task.stepsOnlyRestUntil = 0;
+    task.stepsOnlyRestPolicy = '';
+    task.stepsOnlyRestCheckAt = 0;
     return changed;
   }
-  function handleStepsOnlyRest(task, { blocked = false, now = Date.now(), turn = null } = {}) {
-    if (!task || !running || data.autoResume === false || task.state === 'paused' || terminal.has(task.state) || task.attempted) return false;
+  function recheckStepsOnlyRest(task, now = Date.now()) {
+    if (task.stepsOnlyRestUntil && !stepsOnlyRestDeadline(task)) {
+      clearStepsOnlyRest(task);
+      log(task, '已取消旧版本提前开始的休息；恢复正常监督，仅在会话结束、无授权卡且确需新开会话时重新判断。');
+      save();
+    }
+    if (stepsOnlyRestDeadline(task) <= now) return false;
+    if (!taskMatchesCurrentConversation(task)) return true; // Never navigate a resting task.
+    const response = stepsOnlyResponse(task);
+    if (stopButton() || latestTurn().streaming || cards({ wide:true }).length
+      || approvalSettlementActive(task, currentConversationURL(), now)
+      || !response || response.hasReply) {
+      clearStepsOnlyRest(task);
+      log(task, '休息期间检测到生成、授权或回复状态变化；取消休息，恢复正常监督。');
+      save();
+      return false;
+    }
+    task.stepsOnlyRestCheckAt = now + 15000; // Passive inspection only, no request or navigation.
+    return true;
+  }
+  function handleStepsOnlyRest(task, { freshRequired = false, blocked = false, now = Date.now() } = {}) {
+    // Work activity alone is never an end signal. Only the existing, guarded
+    // fresh-session transition may request this delay.
+    if (!freshRequired || !task || !running || data.autoResume === false
+      || task.state === 'paused' || terminal.has(task.state) || task.attempted) return false;
     const response = stepsOnlyResponse(task);
     if (!response || response.hasReply) {
       if (clearStepsOnlyRest(task)) save();
       return false;
     }
-    if (blocked) return false;
     const input = composer();
-    if (input && normalize(input.value || input.textContent)) return false;
-    if (task.stepsOnlyBoundary !== response.boundary) {
-      clearStepsOnlyRest(task);
-      task.stepsOnlyBoundary = response.boundary;
-      task.stepsOnlySince = now;
-      save();
+    if (blocked || stopButton() || latestTurn().streaming || cards({ wide:true }).length
+      || approvalSettlementActive(task, currentConversationURL(), now)
+      || blocker() || rateLimitNotice() || !input || !enabled(input)
+      || normalize(input.value || input.textContent)) return false;
+    if (stepsOnlyRestDeadline(task) && task.stepsOnlyBoundary === response.boundary) {
+      return now < stepsOnlyRestDeadline(task); // Expiry permits the caller's already-validated handoff.
     }
-    if (task.stepsOnlyRestUntil) {
-      if (now < task.stepsOnlyRestUntil) return true;
-      // This explicit policy skips historical no-card prompts, never a live grant.
-      return queueInterruptedFreshRetry(task, '只有工作步骤、没有实时回复正文；一小时休息结束，重新检查后仍无正文', now, turn, {
-        stepsOnlyRest:true, allowExactRouteFallback:true, historyReason:'steps-only-hourly-rest', recoveryLabel:'工作步骤无回复接力',
-      });
-    }
-    if (now - task.stepsOnlySince < 2 * 60 * 1000) return true;
+    clearStepsOnlyRest(task);
+    task.stepsOnlyRestPolicy = 'ended-no-approval-v1';
+    task.stepsOnlyBoundary = response.boundary;
+    task.stepsOnlySince = now;
     task.stepsOnlyRestUntil = now + 60 * 60 * 1000;
+    task.stepsOnlyRestCheckAt = now + 15000;
     task.state = 'waiting';
     task.updatedAt = now;
     persistHandoffReplySnapshot(task, { allowExactRouteFallback:true, now });
-    log(task, '当前会话持续只有工作步骤，没有实时回复正文；休息 1 小时，期间不发送、不导航、不刷新。到期复核，仍无正文则新开会话继续；新会话出现同样情况会再次休息 1 小时，直到出现回复正文。');
+    log(task, '当前会话已结束，确认没有授权卡片和回复正文，且已满足新开会话条件；先休息 1 小时，期间不发送、不导航、不刷新。到期重新核验后接力；后续会话同样结束且无卡无正文时再次休息。');
     save();
     return true;
   }
@@ -339,7 +363,8 @@
     if (!task || terminal.has(task.state) || task.state === 'paused') return false;
     const interruption = options.connectionInterruption === true || Boolean(task.pendingContinuationReason)
       || connectionInterruptedNotice(turn?.owned ? turn : taskTurnForInspection(task));
-    if (requireConversationAuthorization(task, reason, {connectionInterruption:interruption,skipHistoricalRequirement:options.continuationAcknowledgmentExpired === true || options.stepsOnlyRest === true})) return true;
+    if (requireConversationAuthorization(task, reason, {connectionInterruption:interruption,skipHistoricalRequirement:options.continuationAcknowledgmentExpired === true})) return true;
+    if (handleStepsOnlyRest(task, { freshRequired:true, now })) return true;
     const sessionURL = currentConversationURL() || canonicalConversationURL(task.url);
     if (sessionURL) {
       recordConversationURL(task, sessionURL);
@@ -486,7 +511,7 @@
     const conversationURL = currentConversationURL() || canonicalConversationURL(task.url);
     const taskURL = canonicalConversationURL(task.url);
     if (!conversationURL || !taskURL || conversationURL !== taskURL) return false;
-    if (Math.max(Number(task.cooldownUntil || 0), Number(task.stepsOnlyRestUntil || 0)) > now) return false;
+    if (Math.max(Number(task.cooldownUntil || 0), stepsOnlyRestDeadline(task)) > now) return false;
     if (task.stalledRefreshURL !== conversationURL) {
       task.stalledRefreshURL = conversationURL;
       task.stalledRefreshAttempts = 0;
