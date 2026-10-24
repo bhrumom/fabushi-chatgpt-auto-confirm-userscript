@@ -294,6 +294,7 @@
     return true;
   }
   async function inspect(task, signal) {
+    if (Number(task.stepsOnlyRestUntil || 0) > Date.now()) return;
     // Existing conversation inspection must not depend on the composer. A
     // stuck/partial renderer can hide the input while still exposing enough
     // turn state to detect an abnormal end and keep recovering the bound chat.
@@ -308,6 +309,12 @@
     }
     clearActiveTaskComposerDraft(task, signal);
     if (revealCurrentCollapsedMessage(task, signal)) return;
+    // Check before legacy no-Stop/authorization recovery can send a continuation.
+    if (stepsOnlyResponse(task)) {
+      const stepsBlocked = cards({ wide:true }).length || approvalSettlementActive(task, liveURL)
+        || blocker() || rateLimitNotice();
+      if (handleStepsOnlyRest(task, { blocked:Boolean(stepsBlocked) })) return;
+    } else if (clearStepsOnlyRest(task)) save();
     if (revealStoppedResponseActivity(task, signal)) return;
     if (await recoverStoppedConversation(task, signal)) return;
     if (task.authorizationRequiredContinuation) {
@@ -418,6 +425,7 @@
     }
     const currentBlocker = blocker();
     const currentRateLimit = rateLimitNotice(getPageUiRecords);
+
     // Recovery already has a safe exact-route transcript extractor for the
     // current visible assistant response. WorkFinal can additionally prove its
     // own semantic identity through taskId + round, so keep that text available

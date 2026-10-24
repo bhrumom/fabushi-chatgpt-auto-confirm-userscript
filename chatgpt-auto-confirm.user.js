@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.77
+// @version      2.10.78
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -68,7 +68,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.77';
+  const VERSION = '2.10.78';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -1972,7 +1972,8 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
       || ['sending','uploading','loading','approval'].includes(String(task.state || '')));
     const hasDraft = Boolean(transient.hasDraft || hasUnsavedComposerInput());
     const hasPendingAttachment = Boolean(transient.hasFiles || tabTasks().some(task => task.attachmentUploadPending));
-    const safe = !busy && !navigating && !hasDraft && !hasPendingAttachment && !taskInFlight;
+    const resting = tabTasks().some(task => Number(task.stepsOnlyRestUntil || 0) > Date.now() && !terminal.has(task.state));
+    const safe = !busy && !navigating && !hasDraft && !hasPendingAttachment && !taskInFlight && !resting;
     return {
       safe,
       hidden: document.visibilityState === 'hidden',
@@ -2722,6 +2723,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     if (!task || terminal.has(task.state) || task.state === 'paused') return Number.POSITIVE_INFINITY;
     const deadlines = [
       Number(task.cooldownUntil || 0),
+      Number(task.stepsOnlyRestUntil || 0),
       Number(task.noFinalReplyRecoveryUntil || 0),
     ];
     const navigationRetryAt = Number(task.navigationGuardRetryAt || 0);
@@ -5578,6 +5580,73 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
       sourceKind: parts.length ? sourceKind : '',
     };
   }
+  // Work summaries are useful carry context but are never reply-body evidence.
+  function stepsOnlyResponse(task) {
+    if (!task || task.attempted || !taskMatchesCurrentConversation(task)) return null;
+    const turn = taskTurnForInspection(task);
+    if (!turn.owned || conversationURLOwner(task.url, task.id)
+      || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))) return null;
+    const boundary = conversationRoleNodes('user').at(-1);
+    if (!boundary) return null;
+    const follows = node => Boolean(boundary.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const activity = nodes(assistantActivitySelector).filter(node => visible(node) && follows(node) && text(node).trim()
+      && !/^(?:正在思考|思考中|已停止思考|thinking|stopped thinking|思考了\s*[\d\s分秒小时ms]+|thought for\s+[\d\s.hms]+)$/i.test(text(node).trim()));
+    if (!activity.length) return null;
+    const replyNodes = conversationRoleNodes('assistant').filter(follows);
+    const exclusion = `${assistantActivitySelector},[data-testid*="tool"],[data-type*="tool"],[class*="tool-call"],[class*="toolCall"],[role="status"],button,[hidden],[inert]`;
+    const hasReply = replyNodes.some(node => {
+      if (node.closest?.(exclusion)) return false;
+      const roots = outermostSemanticRoots(nodes('.markdown,[data-message-content],[data-selected-text-overlay-target],[data-markdown-text-style="assistant-message"][data-markdown-text-tone="primary"]', node))
+        .filter(root => visible(root) && !root.closest(exclusion));
+      if (node.matches?.('[data-markdown-text-tone="primary"]') && visible(node)) roots.unshift(node);
+      if (!roots.length && visible(node)) roots.push(node);
+      return roots.some(root => {
+        const copy = root.cloneNode(true);
+        copy.querySelectorAll(exclusion).forEach(child => child.remove());
+        return Boolean(String(copy.textContent || '').trim());
+      });
+    });
+    return { hasReply, boundary:JSON.stringify([canonicalConversationURL(task.url), task.token, task.phase, task.round, recoveryUserBoundaryKey(boundary)]) };
+  }
+  function clearStepsOnlyRest(task) {
+    const changed = Boolean(task.stepsOnlySince || task.stepsOnlyBoundary || task.stepsOnlyRestUntil);
+    task.stepsOnlySince = 0;
+    task.stepsOnlyBoundary = '';
+    task.stepsOnlyRestUntil = 0;
+    return changed;
+  }
+  function handleStepsOnlyRest(task, { blocked = false, now = Date.now(), turn = null } = {}) {
+    if (!task || !running || data.autoResume === false || task.state === 'paused' || terminal.has(task.state) || task.attempted) return false;
+    const response = stepsOnlyResponse(task);
+    if (!response || response.hasReply) {
+      if (clearStepsOnlyRest(task)) save();
+      return false;
+    }
+    if (blocked) return false;
+    const input = composer();
+    if (input && normalize(input.value || input.textContent)) return false;
+    if (task.stepsOnlyBoundary !== response.boundary) {
+      clearStepsOnlyRest(task);
+      task.stepsOnlyBoundary = response.boundary;
+      task.stepsOnlySince = now;
+      save();
+    }
+    if (task.stepsOnlyRestUntil) {
+      if (now < task.stepsOnlyRestUntil) return true;
+      // This explicit policy skips historical no-card prompts, never a live grant.
+      return queueInterruptedFreshRetry(task, '只有工作步骤、没有实时回复正文；一小时休息结束，重新检查后仍无正文', now, turn, {
+        stepsOnlyRest:true, historyReason:'steps-only-hourly-rest', recoveryLabel:'工作步骤无回复接力',
+      });
+    }
+    if (now - task.stepsOnlySince < 2 * 60 * 1000) return true;
+    task.stepsOnlyRestUntil = now + 60 * 60 * 1000;
+    task.state = 'waiting';
+    task.updatedAt = now;
+    persistHandoffReplySnapshot(task, { allowExactRouteFallback:false, now });
+    log(task, '当前会话持续只有工作步骤，没有实时回复正文；休息 1 小时，期间不发送、不导航、不刷新。到期复核，仍无正文则新开会话继续；新会话出现同样情况会再次休息 1 小时，直到出现回复正文。');
+    save();
+    return true;
+  }
   function persistHandoffReplySnapshot(task, { allowExactRouteFallback = true, now = Date.now() } = {}) {
     if (!task || terminal.has(task.state) || task.state === 'paused') return false;
     const liveURL = canonicalConversationURL(currentConversationURL());
@@ -5693,7 +5762,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     if (!task || terminal.has(task.state) || task.state === 'paused') return false;
     const interruption = options.connectionInterruption === true || Boolean(task.pendingContinuationReason)
       || connectionInterruptedNotice(turn?.owned ? turn : taskTurnForInspection(task));
-    if (requireConversationAuthorization(task, reason, {connectionInterruption:interruption,skipHistoricalRequirement:options.continuationAcknowledgmentExpired === true})) return true;
+    if (requireConversationAuthorization(task, reason, {connectionInterruption:interruption,skipHistoricalRequirement:options.continuationAcknowledgmentExpired === true || options.stepsOnlyRest === true})) return true;
     const sessionURL = currentConversationURL() || canonicalConversationURL(task.url);
     if (sessionURL) {
       recordConversationURL(task, sessionURL);
@@ -5840,7 +5909,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     const conversationURL = currentConversationURL() || canonicalConversationURL(task.url);
     const taskURL = canonicalConversationURL(task.url);
     if (!conversationURL || !taskURL || conversationURL !== taskURL) return false;
-    if (Number(task.cooldownUntil || 0) > now) return false;
+    if (Math.max(Number(task.cooldownUntil || 0), Number(task.stepsOnlyRestUntil || 0)) > now) return false;
     if (task.stalledRefreshURL !== conversationURL) {
       task.stalledRefreshURL = conversationURL;
       task.stalledRefreshAttempts = 0;
@@ -7617,6 +7686,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     return true;
   }
   function clearDispatchIntent(task) {
+    clearStepsOnlyRest(task);
     task.authorizationRequiredContinuation = false;
     task.authorizationContinuationURL = '';
     task.connectionInterruptionContinuationURL = '';
@@ -7800,6 +7870,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     return 'queued';
   }
   async function navigate(url, signal, task = data.tasks.find(item => item.id === current), requireComposer = true) {
+    if (Number(task?.stepsOnlyRestUntil || 0) > Date.now()) return false;
     // The conversation URL is the only session identity. If the live page
     // carries this task's ownership marker, canonicalize any stale/synthetic
     // address to the real browser path before doing anything else.
@@ -8108,6 +8179,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && Number(task.modelPresetConfirmedAt || 0) > 0);
   }
   async function send(task, signal) {
+    if (Number(task.stepsOnlyRestUntil || 0) > Date.now()) return;
     // Dismiss/acknowledge non-blocking overlays before rate-limit detection so
     // a history-only frequency popup cannot suppress a valid new dispatch.
     const scanContext = createPageScanContext();
@@ -8552,6 +8624,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     return true;
   }
   async function inspect(task, signal) {
+    if (Number(task.stepsOnlyRestUntil || 0) > Date.now()) return;
     // Existing conversation inspection must not depend on the composer. A
     // stuck/partial renderer can hide the input while still exposing enough
     // turn state to detect an abnormal end and keep recovering the bound chat.
@@ -8566,6 +8639,12 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     }
     clearActiveTaskComposerDraft(task, signal);
     if (revealCurrentCollapsedMessage(task, signal)) return;
+    // Check before legacy no-Stop/authorization recovery can send a continuation.
+    if (stepsOnlyResponse(task)) {
+      const stepsBlocked = cards({ wide:true }).length || approvalSettlementActive(task, liveURL)
+        || blocker() || rateLimitNotice();
+      if (handleStepsOnlyRest(task, { blocked:Boolean(stepsBlocked) })) return;
+    } else if (clearStepsOnlyRest(task)) save();
     if (revealStoppedResponseActivity(task, signal)) return;
     if (await recoverStoppedConversation(task, signal)) return;
     if (task.authorizationRequiredContinuation) {
@@ -8676,6 +8755,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     }
     const currentBlocker = blocker();
     const currentRateLimit = rateLimitNotice(getPageUiRecords);
+
     // Recovery already has a safe exact-route transcript extractor for the
     // current visible assistant response. WorkFinal can additionally prove its
     // own semantic identity through taskId + round, so keep that text available
@@ -10144,6 +10224,7 @@ NaN
     return Math.max(0, startedAt + SEND_CONFIRM_TIMEOUT_MS - now);
   }
   function taskStatusText(task, now = Date.now()) {
+    if (task?.state !== 'paused' && !terminal.has(task?.state) && Number(task?.stepsOnlyRestUntil || 0) > now) return `只有工作步骤，休息中（剩余 ${Math.ceil((task.stepsOnlyRestUntil - now) / 60000)} 分钟）`;
     if (task?.state === 'approval' && taskBelongsToTab(task) && !data.autoApprove && !data.globalAutoApprove) return '等待手动授权（自动授权已关闭）';
     const remaining = sendConfirmationRemaining(task, now);
     if (remaining === null) return statusNames[task?.state] || task?.state || '';
@@ -10417,6 +10498,7 @@ NaN
         item.id,item.ownerTabId,item.state,Boolean(item.attempted),Number(item.round||0),Number(item.goalRevision||0),
         String(item.goal||'').slice(0,80),taskAttachments(item).length,
         Math.max(0,Math.ceil((Number(item.noFinalReplyRecoveryUntil||0)-Date.now())/60000)),
+        Math.max(0,Math.ceil((Number(item.stepsOnlyRestUntil||0)-Date.now())/60000)),
       ];
       const nextSidebarSignature=JSON.stringify([
         selected,current,running,Boolean(data.autoApprove),Boolean(data.globalAutoApprove),
