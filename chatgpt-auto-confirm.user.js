@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.78
+// @version      2.10.79
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -68,7 +68,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.78';
+  const VERSION = '2.10.79';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -5584,15 +5584,27 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
   function stepsOnlyResponse(task) {
     if (!task || task.attempted || !taskMatchesCurrentConversation(task)) return null;
     const turn = taskTurnForInspection(task);
-    if (!turn.owned || conversationURLOwner(task.url, task.id)
+    if (conversationURLOwner(task.url, task.id)
       || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))) return null;
     const boundary = conversationRoleNodes('user').at(-1);
-    if (!boundary) return null;
-    const follows = node => Boolean(boundary.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING);
-    const activity = nodes(assistantActivitySelector).filter(node => visible(node) && follows(node) && text(node).trim()
+    const observedUser = String(task.stopObservedUserBoundaryKey || '');
+    const boundaryKey = boundary ? recoveryUserBoundaryKey(boundary) : observedUser;
+    const generation = stopObservedGenerationIdentity(task, currentConversationURL());
+    const virtualizedOwned = Boolean(!turn.owned && !taskMarkerUser(task)
+      && generation && task.stopObservedGenerationIdentity === generation
+      && observedUser && (!boundary || boundaryKey === observedUser));
+    if (!turn.owned && !virtualizedOwned) return null;
+    const follows = node => !boundary || Boolean(boundary.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING);
+    let activity = nodes(assistantActivitySelector).filter(node => visible(node) && follows(node) && text(node).trim()
       && !/^(?:正在思考|思考中|已停止思考|thinking|stopped thinking|思考了\s*[\d\s分秒小时ms]+|thought for\s+[\d\s.hms]+)$/i.test(text(node).trim()));
     if (!activity.length) return null;
-    const replyNodes = conversationRoleNodes('assistant').filter(follows);
+    let replyNodes = conversationRoleNodes('assistant').filter(follows);
+    if (virtualizedOwned) {
+      const responseTurn = activity.at(-1).closest(contentSearchTurnSelector);
+      if (!responseTurn) return null;
+      activity = activity.filter(node => node.closest(contentSearchTurnSelector) === responseTurn);
+      replyNodes = replyNodes.filter(node => node.closest(contentSearchTurnSelector) === responseTurn);
+    }
     const exclusion = `${assistantActivitySelector},[data-testid*="tool"],[data-type*="tool"],[class*="tool-call"],[class*="toolCall"],[role="status"],button,[hidden],[inert]`;
     const hasReply = replyNodes.some(node => {
       if (node.closest?.(exclusion)) return false;
@@ -5606,7 +5618,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
         return Boolean(String(copy.textContent || '').trim());
       });
     });
-    return { hasReply, boundary:JSON.stringify([canonicalConversationURL(task.url), task.token, task.phase, task.round, recoveryUserBoundaryKey(boundary)]) };
+    return { hasReply, boundary:JSON.stringify([canonicalConversationURL(task.url), task.token, task.phase, task.round, boundaryKey]) };
   }
   function clearStepsOnlyRest(task) {
     const changed = Boolean(task.stepsOnlySince || task.stepsOnlyBoundary || task.stepsOnlyRestUntil);
@@ -5635,14 +5647,14 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
       if (now < task.stepsOnlyRestUntil) return true;
       // This explicit policy skips historical no-card prompts, never a live grant.
       return queueInterruptedFreshRetry(task, '只有工作步骤、没有实时回复正文；一小时休息结束，重新检查后仍无正文', now, turn, {
-        stepsOnlyRest:true, historyReason:'steps-only-hourly-rest', recoveryLabel:'工作步骤无回复接力',
+        stepsOnlyRest:true, allowExactRouteFallback:true, historyReason:'steps-only-hourly-rest', recoveryLabel:'工作步骤无回复接力',
       });
     }
     if (now - task.stepsOnlySince < 2 * 60 * 1000) return true;
     task.stepsOnlyRestUntil = now + 60 * 60 * 1000;
     task.state = 'waiting';
     task.updatedAt = now;
-    persistHandoffReplySnapshot(task, { allowExactRouteFallback:false, now });
+    persistHandoffReplySnapshot(task, { allowExactRouteFallback:true, now });
     log(task, '当前会话持续只有工作步骤，没有实时回复正文；休息 1 小时，期间不发送、不导航、不刷新。到期复核，仍无正文则新开会话继续；新会话出现同样情况会再次休息 1 小时，直到出现回复正文。');
     save();
     return true;
