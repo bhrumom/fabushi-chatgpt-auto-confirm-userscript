@@ -82,3 +82,22 @@ test('inspect detects steps-only while Stop is active before generic recovery',a
   f.advance(120000);await h.inspect(task,signal);assert.equal(task.stepsOnlyRestUntil,f.now()+3600000);
  }finally{f.close();}
 });
+test('a pending live grant at expiry prevents fresh-session handoff even with the historical gate bypass',()=>{
+ const f=fixture();try{
+  const {h,task,w}=f;h.data.requireAuthorizationBeforeNewChat=true;
+  h.handleStepsOnlyRest(task);f.advance(120000);h.handleStepsOnlyRest(task);f.advance(3600000);
+  w.document.querySelector('main').insertAdjacentHTML('beforeend','<section data-testid="authorization-card"><button disabled>拒绝</button><button disabled>允许一次</button><button disabled aria-haspopup="menu">更多</button></section>');
+  h.handleStepsOnlyRest(task);
+  assert.equal(task.state,'approval');assert.equal(task.url,w.location.href);assert.equal(task.token,'steps-token');
+ }finally{f.close();}
+});
+test('existing real body never enters grace, and nested activity in an assistant wrapper is not a body',()=>{
+ for(const real of [false,true]){
+  const html=body.replace('<section id="activity">','<section id="activity" data-message-author-role="assistant">')
+    .replace('</section>',`${real?'<div class="markdown">真实回复</div>':''}</section>`);
+  const f=fixture(html);try{
+   assert.equal(f.h.stepsOnlyResponse(f.task).hasReply,real);
+   assert.equal(f.h.handleStepsOnlyRest(f.task),!real);
+  }finally{f.close();}
+ }
+});

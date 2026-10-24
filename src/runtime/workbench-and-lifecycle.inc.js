@@ -464,6 +464,7 @@
         item.id,item.ownerTabId,item.state,Boolean(item.attempted),Number(item.round||0),Number(item.goalRevision||0),
         String(item.goal||'').slice(0,80),taskAttachments(item).length,
         Math.max(0,Math.ceil((Number(item.noFinalReplyRecoveryUntil||0)-Date.now())/60000)),
+        Math.max(0,Math.ceil((Number(item.stepsOnlyRestUntil||0)-Date.now())/60000)),
       ];
       const nextSidebarSignature=JSON.stringify([
         selected,current,running,Boolean(data.autoApprove),Boolean(data.globalAutoApprove),
