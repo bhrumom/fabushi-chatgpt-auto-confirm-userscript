@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.81
+// @version      2.10.82
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -68,7 +68,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.81';
+  const VERSION = '2.10.82';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -2754,6 +2754,16 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     return runnable[0];
   }
 
+  function pendingFinalReportRecheckDelay(task, now = Date.now()) {
+    if (!task || task.attempted || terminal.has(task.state) || task.state === 'paused'
+      || !taskMatchesCurrentConversation(task)) return Infinity;
+    const observation = observations.get(task.id);
+    const liveSince = task.liveFinalReportIdentity ? Number(task.liveFinalReportSince || 0) : 0;
+    const observedSince = observation?.final ? Number(observation.finalSince || 0)
+      : currentWorkFinalReport(observation?.activityText, task) ? Number(observation.activityTextStableSince || 0) : 0;
+    const since = liveSince || observedSince;
+    return since > 0 && now >= since && now - since < 15000 ? 1000 : Infinity;
+  }
   function visibilityAwareDelay(ordinaryDelay, visibleMs, hiddenMs, hidden = document.hidden) {
     const delayMs = Math.max(0, Number(ordinaryDelay) || 0);
     // Preserve explicit short recovery deadlines while reducing ordinary work
@@ -2918,6 +2928,8 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
       || conversationURLOwner(route, task.id)
       || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))
       || approvalSettlementActive(task, route)) return false;
+    // An already readable exact report needs no user-prompt expansion delay.
+    if (!stopButton() && currentWorkFinalReport(latestTurn().text, task)) return false;
     const users = conversationRoleNodes('user');
     const user = users.at(-1);
     if (!user || !renderedConversationMessage(user)) return false;
@@ -6164,7 +6176,9 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     const stopVisible = Boolean(stopButton());
     const streamingMarker = Boolean(article?.querySelector('[data-is-streaming="true"],[aria-busy="true"]')
       || [markdown, assistantUnit, article].some(node => node?.getAttribute?.('data-is-streaming') === 'true' || node?.getAttribute?.('aria-busy') === 'true'));
-    const boundedStreamRead = stopVisible || streamingMarker;
+    // Residual aria-busy/stream attributes may outlive the final toolbar.
+    // Once Stop disappears, a full read is necessary to retain report identity.
+    const boundedStreamRead = stopVisible;
     const content = assistantTurnContent(assistant, { tailLimit:boundedStreamRead ? STREAM_TEXT_TAIL_LIMIT : 0 });
     const naturalReplyNode = article?.querySelector?.('.markdown,[data-message-content],[data-markdown-text-style="assistant-message"]');
     const hasNaturalReply = Boolean(
@@ -6329,7 +6343,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
       markdown
       && [markdown, assistantUnit, article].some(hasCompletionMarker),
     );
-    const streaming = boundedStreamRead;
+    const streaming = stopVisible || streamingMarker;
     // Product completion evidence is deliberately smaller than the full
     // response-action row: once Stop is gone, a Copy control that is bound to
     // the latest owned assistant lane proves ChatGPT has committed the reply.
@@ -8522,14 +8536,14 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const turn = ownedTurn.owned ? ownedTurn : latestTurn();
     // A still-mounted foreign/manual user boundary cannot acquire reply ownership.
     if ((!ownedTurn.owned && conversationRoleNodes('user').some(node => /\[Fabushi:[^\]]+\]/.test(text(node))))
-      || (turn.streaming && !turn.final)
       || (Number(task.continuationSentAt || 0) > 0
         && canonicalConversationURL(task.authorizationContinuationURL) === route
         && authorizationContinuationBoundaryMatches(task, turn, true))) {
       reset(); return false;
     }
     const reply = String(turn.text || '').trim();
-    if (!currentWorkFinalReport(reply, task)) { reset(); return false; }
+    if (!currentWorkFinalReport(reply, task)
+      || (turn.streaming && !turn.final && !completeWorkFinalReport(reply, task))) { reset(); return false; }
     const identity = JSON.stringify([route, task.id, task.round, task.goalRevision || 0, reply]);
     if (task.liveFinalReportIdentity !== identity || !task.liveFinalReportSince) {
       task.liveFinalReportIdentity = identity;
@@ -8718,10 +8732,10 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       return;
     }
     clearActiveTaskComposerDraft(task, signal);
-    if (revealCurrentCollapsedMessage(task, signal)) return;
-    if (revealStoppedResponseActivity(task, signal)) return;
     if (authorizationContinuationEnabled(task) && !conversationAuthorizationSeen(task)
       && settleCurrentReportBeforeFreshHandoff(task)) return;
+    if (revealCurrentCollapsedMessage(task, signal)) return;
+    if (revealStoppedResponseActivity(task, signal)) return;
     if (await recoverStoppedConversation(task, signal)) return;
     if (task.authorizationRequiredContinuation) {
       cards({ wide:true });
@@ -9783,7 +9797,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
         log(task, '异常会话延迟恢复等待结束，插件继续自动新开会话。');
         save();
       }
-      if (revealCurrentCollapsedMessage(task, signal)) return;
+      if (task.attempted && revealCurrentCollapsedMessage(task, signal)) return;
       if (task.attempted) {
         const liveURL = currentConversationURL();
         // A matching URL without the task marker is not enough to confirm a
@@ -9867,7 +9881,10 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       }
     } finally {
       busy = false;
-      if (!signal.aborted) schedule(visibilityAwareDelay(nextScheduleMs, VISIBLE_SCAN_INTERVAL_MS, HIDDEN_SCAN_INTERVAL_MS));
+      if (!signal.aborted) {
+        const reportDelay = pendingFinalReportRecheckDelay(task);
+        schedule(visibilityAwareDelay(Math.min(nextScheduleMs, reportDelay), VISIBLE_SCAN_INTERVAL_MS, HIDDEN_SCAN_INTERVAL_MS));
+      }
     }
   }
   async function start(restorePaused = true) {
@@ -10531,7 +10548,7 @@ NaN
     authGateLabel.append(element('strong','授权卡片接力'),authGateState,authGateOptions);
     const authGateBar=element('section','','handoff-control'); authGateBar.setAttribute('aria-label','授权卡片接力设置');
     authGateBar.append(authGateLabel,element('small','开启：无授权先继续，最多 3 次后新开。关闭：普通结束和连接中断均直接接力，不因缺少授权卡片续发。'));
-    authGateLabel.title='开启后，无授权卡片时在原会话最多发送 3 次继续指令，仍无授权再新开；关闭后，普通结束和连接中断均直接接力。两种状态都先处理当前授权卡片；有效最终报告稳定后直接按报告推进。';
+    authGateLabel.title='开启后，无授权卡片时在原会话最多发送 3 次继续指令，仍无授权再新开；关闭后，普通结束和连接中断均直接接力。两种状态都先处理当前授权卡片；有效最终报告完整读取后快速复核并推进，后台确认不再按普通等待周期延后。';
     const submit = element('button','↑','send'); submit.type='submit'; submit.setAttribute('aria-label','发送任务');
     const modelScopeHint = element('small','','model-scope-hint');
     controls.append(select,modelSelect,reasoningSelect,autoLabel,submit); compose.append(input,attachmentBox,controls,modelScopeHint); chat.append(authGateBar,settings,feed,notice,compose); desk.append(sidebar,chat);

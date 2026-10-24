@@ -1,3 +1,13 @@
+  function pendingFinalReportRecheckDelay(task, now = Date.now()) {
+    if (!task || task.attempted || terminal.has(task.state) || task.state === 'paused'
+      || !taskMatchesCurrentConversation(task)) return Infinity;
+    const observation = observations.get(task.id);
+    const liveSince = task.liveFinalReportIdentity ? Number(task.liveFinalReportSince || 0) : 0;
+    const observedSince = observation?.final ? Number(observation.finalSince || 0)
+      : currentWorkFinalReport(observation?.activityText, task) ? Number(observation.activityTextStableSince || 0) : 0;
+    const since = liveSince || observedSince;
+    return since > 0 && now >= since && now - since < 15000 ? 1000 : Infinity;
+  }
   function visibilityAwareDelay(ordinaryDelay, visibleMs, hiddenMs, hidden = document.hidden) {
     const delayMs = Math.max(0, Number(ordinaryDelay) || 0);
     // Preserve explicit short recovery deadlines while reducing ordinary work
@@ -162,6 +172,8 @@
       || conversationURLOwner(route, task.id)
       || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))
       || approvalSettlementActive(task, route)) return false;
+    // An already readable exact report needs no user-prompt expansion delay.
+    if (!stopButton() && currentWorkFinalReport(latestTurn().text, task)) return false;
     const users = conversationRoleNodes('user');
     const user = users.at(-1);
     if (!user || !renderedConversationMessage(user)) return false;

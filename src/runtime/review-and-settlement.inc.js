@@ -152,14 +152,14 @@
     const turn = ownedTurn.owned ? ownedTurn : latestTurn();
     // A still-mounted foreign/manual user boundary cannot acquire reply ownership.
     if ((!ownedTurn.owned && conversationRoleNodes('user').some(node => /\[Fabushi:[^\]]+\]/.test(text(node))))
-      || (turn.streaming && !turn.final)
       || (Number(task.continuationSentAt || 0) > 0
         && canonicalConversationURL(task.authorizationContinuationURL) === route
         && authorizationContinuationBoundaryMatches(task, turn, true))) {
       reset(); return false;
     }
     const reply = String(turn.text || '').trim();
-    if (!currentWorkFinalReport(reply, task)) { reset(); return false; }
+    if (!currentWorkFinalReport(reply, task)
+      || (turn.streaming && !turn.final && !completeWorkFinalReport(reply, task))) { reset(); return false; }
     const identity = JSON.stringify([route, task.id, task.round, task.goalRevision || 0, reply]);
     if (task.liveFinalReportIdentity !== identity || !task.liveFinalReportSince) {
       task.liveFinalReportIdentity = identity;
@@ -348,10 +348,10 @@
       return;
     }
     clearActiveTaskComposerDraft(task, signal);
-    if (revealCurrentCollapsedMessage(task, signal)) return;
-    if (revealStoppedResponseActivity(task, signal)) return;
     if (authorizationContinuationEnabled(task) && !conversationAuthorizationSeen(task)
       && settleCurrentReportBeforeFreshHandoff(task)) return;
+    if (revealCurrentCollapsedMessage(task, signal)) return;
+    if (revealStoppedResponseActivity(task, signal)) return;
     if (await recoverStoppedConversation(task, signal)) return;
     if (task.authorizationRequiredContinuation) {
       cards({ wide:true });

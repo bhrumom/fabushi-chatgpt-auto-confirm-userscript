@@ -421,7 +421,7 @@
     authGateLabel.append(element('strong','授权卡片接力'),authGateState,authGateOptions);
     const authGateBar=element('section','','handoff-control'); authGateBar.setAttribute('aria-label','授权卡片接力设置');
     authGateBar.append(authGateLabel,element('small','开启：无授权先继续，最多 3 次后新开。关闭：普通结束和连接中断均直接接力，不因缺少授权卡片续发。'));
-    authGateLabel.title='开启后，无授权卡片时在原会话最多发送 3 次继续指令，仍无授权再新开；关闭后，普通结束和连接中断均直接接力。两种状态都先处理当前授权卡片；有效最终报告稳定后直接按报告推进。';
+    authGateLabel.title='开启后，无授权卡片时在原会话最多发送 3 次继续指令，仍无授权再新开；关闭后，普通结束和连接中断均直接接力。两种状态都先处理当前授权卡片；有效最终报告完整读取后快速复核并推进，后台确认不再按普通等待周期延后。';
     const submit = element('button','↑','send'); submit.type='submit'; submit.setAttribute('aria-label','发送任务');
     const modelScopeHint = element('small','','model-scope-hint');
     controls.append(select,modelSelect,reasoningSelect,autoLabel,submit); compose.append(input,attachmentBox,controls,modelScopeHint); chat.append(authGateBar,settings,feed,notice,compose); desk.append(sidebar,chat);

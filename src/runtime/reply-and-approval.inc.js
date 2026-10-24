@@ -727,7 +727,9 @@
     const stopVisible = Boolean(stopButton());
     const streamingMarker = Boolean(article?.querySelector('[data-is-streaming="true"],[aria-busy="true"]')
       || [markdown, assistantUnit, article].some(node => node?.getAttribute?.('data-is-streaming') === 'true' || node?.getAttribute?.('aria-busy') === 'true'));
-    const boundedStreamRead = stopVisible || streamingMarker;
+    // Residual aria-busy/stream attributes may outlive the final toolbar.
+    // Once Stop disappears, a full read is necessary to retain report identity.
+    const boundedStreamRead = stopVisible;
     const content = assistantTurnContent(assistant, { tailLimit:boundedStreamRead ? STREAM_TEXT_TAIL_LIMIT : 0 });
     const naturalReplyNode = article?.querySelector?.('.markdown,[data-message-content],[data-markdown-text-style="assistant-message"]');
     const hasNaturalReply = Boolean(
@@ -892,7 +894,7 @@
       markdown
       && [markdown, assistantUnit, article].some(hasCompletionMarker),
     );
-    const streaming = boundedStreamRead;
+    const streaming = stopVisible || streamingMarker;
     // Product completion evidence is deliberately smaller than the full
     // response-action row: once Stop is gone, a Copy control that is bound to
     // the latest owned assistant lane proves ChatGPT has committed the reply.

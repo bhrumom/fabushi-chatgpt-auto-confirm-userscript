@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 const source = await fs.readFile(new URL('../chatgpt-auto-confirm.user.js', import.meta.url), 'utf8');
-const names = 'settleCurrentReportBeforeFreshHandoff,prepareTaskPrompt,workPromptSections,clearActiveTaskComposerDraft,stopObservedGenerationIdentity,authorizationContinuationBoundaryMatches,authorizationContinuationBoundaryKey,ownedAuthorizationContinuationDraft,taskTurnForInspection,sendTimeoutNotice,measurements,connectionInterruptionContinuationPending,authorizationContinuationEnabled,isContinuationPrompt,data,tabId,cards,inspect,recoverStoppedConversation,revealStoppedResponseActivity,authorizationContinuationAttempts,authorizationGateExhausted,durableWorkbenchSnapshot,recordConversationAuthorization,conversationAuthorizationSeen,requireConversationAuthorization,continueWithoutAuthorization,durableTaskSnapshot,finish,queueInterruptedFreshRetry,queueBlockedFreshRetry,queueConversationLengthHandoff,queueWorkFinalReportRepair,clearDispatchIntent';
+const names = 'latestTurn,observations,pendingFinalReportRecheckDelay,visibilityAwareDelay,settleCurrentReportBeforeFreshHandoff,prepareTaskPrompt,workPromptSections,clearActiveTaskComposerDraft,stopObservedGenerationIdentity,authorizationContinuationBoundaryMatches,authorizationContinuationBoundaryKey,ownedAuthorizationContinuationDraft,taskTurnForInspection,sendTimeoutNotice,measurements,connectionInterruptionContinuationPending,authorizationContinuationEnabled,isContinuationPrompt,data,tabId,cards,inspect,recoverStoppedConversation,revealStoppedResponseActivity,authorizationContinuationAttempts,authorizationGateExhausted,durableWorkbenchSnapshot,recordConversationAuthorization,conversationAuthorizationSeen,requireConversationAuthorization,continueWithoutAuthorization,durableTaskSnapshot,finish,queueInterruptedFreshRetry,queueBlockedFreshRetry,queueConversationLengthHandoff,queueWorkFinalReportRepair,clearDispatchIntent';
 async function harness({authorizationGate=true}={}) {
   const dom = new JSDOM('<main><article data-message-author-role="user" data-message-id="u1">[Fabushi:guard-token]</article><article data-message-author-role="assistant" data-message-id="a1">已结束的回复</article></main><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">发送</button></form>', { runScripts:'outside-only', pretendToBeVisual:true, url:'https://chatgpt.com/c/guard' });
   const w = dom.window;
@@ -641,5 +641,52 @@ test('valid report still waits for a real card and settlement inside finish',asy
   const reply=JSON.stringify({taskId:task.id,round:1,status:'complete',summary:'verified',next:''});
   w.document.querySelector('main').insertAdjacentHTML('beforeend','<section data-testid="authorization-card"><button>拒绝</button><button>允许一次</button><button aria-haspopup="menu">更多</button></section>');
   h.finish(task,reply);assert.notEqual(task.state,'done');assert.equal(task.round,1);
+ }finally{dom.window.close();}
+});
+
+for(const marker of ['aria-busy','data-is-streaming'])for(const authorization of ['unseen','seen','off']) {
+ test(`long ended report retains identity with stale ${marker}, authorization ${authorization}`,async()=>{
+  const {dom,w,h,task}=await harness({authorizationGate:authorization!=='off'});try{
+   let now=Date.now();w.Date.now=()=>now;
+   if(authorization==='seen')h.recordConversationAuthorization(task);
+   const reply=JSON.stringify({taskId:task.id,round:1,status:'next',summary:'已核验'.repeat(4000),next:'NEW exact action'});
+   const assistant=w.document.querySelector('[data-message-author-role="assistant"]');
+   assistant.innerHTML='<div class="markdown"></div>';assistant.setAttribute(marker,'true');assistant.firstChild.textContent=reply;
+   const turn=h.latestTurn(task);
+   assert.equal(turn.text,reply);assert.equal(turn.streaming,true);assert.equal(turn.diagnostic.boundedStreamRead,false);
+   await h.inspect(task,null);
+   assert.equal(task.round,1);
+   assert.equal(h.pendingFinalReportRecheckDelay(task,now),1000,'hidden confirmation gets an explicit short deadline');
+   assert.equal(h.visibilityAwareDelay(h.pendingFinalReportRecheckDelay(task,now),4000,15000,true),1000);
+   for(let step=0;step<14 && task.round===1;step++){now+=1000;await h.inspect(task,null);}
+   assert.equal(task.round,2,'stale attribute must not hold the report until a later renderer recovery');
+   assert.equal(task.next,'NEW exact action');assert.equal(task.state,'queued');
+   assert.equal(h.pendingFinalReportRecheckDelay(task,now),Infinity);
+   assert.equal(h.settleCurrentReportBeforeFreshHandoff(task,now),false);assert.equal(task.round,2);
+  }finally{dom.window.close();}
+ });
+}
+test('stale-stream final guard rejects partial reports and restarts stability when valid text changes',async()=>{
+ const {dom,w,h,task}=await harness();try{
+  let now=Date.now();w.Date.now=()=>now;
+  const assistant=w.document.querySelector('[data-message-author-role="assistant"]');assistant.setAttribute('aria-busy','true');
+  const report={taskId:task.id,round:1,status:'next',summary:'verified',next:'first action'};
+  assistant.textContent=JSON.stringify(report).slice(0,-1);
+  assert.equal(h.settleCurrentReportBeforeFreshHandoff(task,now),false);
+  assistant.textContent=JSON.stringify(report);assert.equal(h.settleCurrentReportBeforeFreshHandoff(task,now),true);
+  now+=3000;report.next='updated action';assistant.textContent=JSON.stringify(report);
+  assert.equal(h.settleCurrentReportBeforeFreshHandoff(task,now),true);
+  now+=3000;h.settleCurrentReportBeforeFreshHandoff(task,now);assert.equal(task.round,1);
+  now+=1000;h.settleCurrentReportBeforeFreshHandoff(task,now);assert.equal(task.round,2);assert.equal(task.next,'updated action');
+ }finally{dom.window.close();}
+});
+test('confirmation deadline expires and never overrides off-route, paused or ambiguous send state',async()=>{
+ const {dom,w,h,task}=await harness();try{
+  const now=Date.now();task.liveFinalReportIdentity='validated candidate';task.liveFinalReportSince=now;
+  assert.equal(h.pendingFinalReportRecheckDelay(task,now),1000);
+  assert.equal(h.pendingFinalReportRecheckDelay(task,now+15000),Infinity);
+  task.attempted=true;assert.equal(h.pendingFinalReportRecheckDelay(task,now),Infinity);task.attempted=false;
+  task.state='paused';assert.equal(h.pendingFinalReportRecheckDelay(task,now),Infinity);task.state='waiting';
+  w.history.replaceState({},'', '/c/other');assert.equal(h.pendingFinalReportRecheckDelay(task,now),Infinity);
  }finally{dom.window.close();}
 });
