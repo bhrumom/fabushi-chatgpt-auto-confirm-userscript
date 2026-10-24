@@ -135,6 +135,44 @@
     try { return parseWorkFinalReport(value, task); }
     catch { return null; }
   }
+  function settleCurrentReportBeforeFreshHandoff(task, now = Date.now()) {
+    const reset = () => { task.liveFinalReportIdentity = ''; task.liveFinalReportSince = 0; };
+    const route = currentConversationURL();
+    const input = composer();
+    if (!task || task.phase !== 'work') return false;
+    if (terminal.has(task.state) || task.state === 'paused' || task.attempted
+      || !route || route !== canonicalConversationURL(task.url) || !taskBelongsToTab(task)
+      || conversationURLOwner(route, task.id)
+      || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))
+      || stopButton() || cards({wide:true}).length || approvalSettlementActive(task, route, now)
+      || !input || normalize(input.value || input.textContent) || blocker() || rateLimitNotice()) {
+      reset(); return false;
+    }
+    const ownedTurn = taskTurnForInspection(task);
+    const turn = ownedTurn.owned ? ownedTurn : latestTurn();
+    // A still-mounted foreign/manual user boundary cannot acquire reply ownership.
+    if ((!ownedTurn.owned && conversationRoleNodes('user').some(node => /\[Fabushi:[^\]]+\]/.test(text(node))))
+      || (turn.streaming && !turn.final)
+      || (Number(task.continuationSentAt || 0) > 0
+        && canonicalConversationURL(task.authorizationContinuationURL) === route
+        && authorizationContinuationBoundaryMatches(task, turn, true))) {
+      reset(); return false;
+    }
+    const reply = String(turn.text || '').trim();
+    if (!currentWorkFinalReport(reply, task)) { reset(); return false; }
+    const identity = JSON.stringify([route, task.id, task.round, task.goalRevision || 0, reply]);
+    if (task.liveFinalReportIdentity !== identity || !task.liveFinalReportSince) {
+      task.liveFinalReportIdentity = identity;
+      task.liveFinalReportSince = now;
+      task.state = 'waiting';
+      log(task, '已识别当前轮最终报告；正在复核内容稳定性，随后采用最新 next 推进，不再按旧指令接力。');
+      save();
+    } else if (now - task.liveFinalReportSince >= FINAL_REPLY_STABILITY_MS) {
+      reset();
+      finish(task, reply);
+    }
+    return true;
+  }
   function queueWorkFinalReportRepair(task, reason = '工作最终报告格式无法解析') {
     if (!task || task.phase !== 'work') return '';
     if (requireConversationAuthorization(task, reason)) return 'waiting';
@@ -150,8 +188,10 @@
     return 'queued';
   }
   function finish(task, reply) {
-    if (requireConversationAuthorization(task, '当前会话已给出最终回复')) return;
-    if (authorizationGateExhausted(task)) {
+    const validReport = currentWorkFinalReport(reply, task);
+    if (approvalSettlementActive(task, canonicalConversationURL(task.url))) return;
+    if (requireConversationAuthorization(task, '当前会话已给出最终回复', {skipHistoricalRequirement:Boolean(validReport)})) return;
+    if (!validReport && authorizationGateExhausted(task)) {
       queueInterruptedFreshRetry(task, '当前会话已继续 3 次仍未出现授权卡片', Date.now(), null, { allowExactRouteFallback:true, recoveryLabel:'无授权卡三次继续上限', historyReason:'authorization-continuation-limit' });
       return;
     }
@@ -310,6 +350,8 @@
     clearActiveTaskComposerDraft(task, signal);
     if (revealCurrentCollapsedMessage(task, signal)) return;
     if (revealStoppedResponseActivity(task, signal)) return;
+    if (authorizationContinuationEnabled(task) && !conversationAuthorizationSeen(task)
+      && settleCurrentReportBeforeFreshHandoff(task)) return;
     if (await recoverStoppedConversation(task, signal)) return;
     if (task.authorizationRequiredContinuation) {
       cards({ wide:true });
