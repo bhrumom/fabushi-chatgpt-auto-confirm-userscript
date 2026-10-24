@@ -8720,7 +8720,8 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     clearActiveTaskComposerDraft(task, signal);
     if (revealCurrentCollapsedMessage(task, signal)) return;
     if (revealStoppedResponseActivity(task, signal)) return;
-    if (settleCurrentReportBeforeFreshHandoff(task)) return;
+    if (authorizationContinuationEnabled(task) && !conversationAuthorizationSeen(task)
+      && settleCurrentReportBeforeFreshHandoff(task)) return;
     if (await recoverStoppedConversation(task, signal)) return;
     if (task.authorizationRequiredContinuation) {
       cards({ wide:true });
