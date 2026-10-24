@@ -5589,7 +5589,8 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     const boundary = conversationRoleNodes('user').at(-1);
     if (!boundary) return null;
     const follows = node => Boolean(boundary.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING);
-    const activity = nodes(assistantActivitySelector).filter(node => visible(node) && follows(node) && text(node).trim());
+    const activity = nodes(assistantActivitySelector).filter(node => visible(node) && follows(node) && text(node).trim()
+      && !/^(?:正在思考|思考中|已停止思考|thinking|stopped thinking|思考了\s*[\d\s分秒小时ms]+|thought for\s+[\d\s.hms]+)$/i.test(text(node).trim()));
     if (!activity.length) return null;
     const replyNodes = conversationRoleNodes('assistant').filter(follows);
     const exclusion = `${assistantActivitySelector},[data-testid*="tool"],[data-type*="tool"],[class*="tool-call"],[class*="toolCall"],[role="status"],button,[hidden],[inert]`;

@@ -101,3 +101,8 @@ test('existing real body never enters grace, and nested activity in an assistant
   }finally{f.close();}
  }
 });
+test('a thinking status alone does not count as a work step',()=>{
+ const f=fixture(body.replace('整理了依赖范围','已停止思考'));try{
+  assert.equal(f.h.stepsOnlyResponse(f.task),null);assert.equal(f.h.handleStepsOnlyRest(f.task),false);
+ }finally{f.close();}
+});
