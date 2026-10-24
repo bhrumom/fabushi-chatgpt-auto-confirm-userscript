@@ -11,7 +11,7 @@ async function fixture(html=body){
  w.Element.prototype.getClientRects=function(){return this.closest('[hidden]')?[]:[{width:1,height:1}];};
  w.navigator.locks={request:(_n,o,cb)=>Promise.resolve((cb||o)({})),query:()=>Promise.resolve({held:[]})};
  let now=1800000000000;w.Date.now=()=>now;
- await w.eval(source.replace('  mount();',`  window.h={stepsOnlyResponse,handleStepsOnlyRest,taskDeferredUntil,durableTaskSnapshot,inspect,send,navigate,refreshStalledConversation,memoryDiscardSafety,taskStatusText,data,pause,tabId,run:()=>{running=true;data.autoResume=true;}};\n  mount();`));
+ await w.eval(source.replace('  mount();',`  window.h={stopObservedGenerationIdentity,recoveryUserBoundaryKey,stepsOnlyResponse,handleStepsOnlyRest,taskDeferredUntil,durableTaskSnapshot,inspect,send,navigate,refreshStalledConversation,memoryDiscardSafety,taskStatusText,data,pause,tabId,run:()=>{running=true;data.autoResume=true;}};\n  mount();`));
  const h=w.h;h.run();
  const task={id:'steps',ownerTabId:h.tabId,token:'steps-token',url:w.location.href,phase:'work',round:77,mode:'goal',goal:'keep goal',state:'waiting',attempted:false,messages:[],attachments:[{name:'keep.txt'}]};
  h.data.tasks.push(task);
@@ -105,4 +105,30 @@ test('a thinking status alone does not count as a work step',async()=>{
  const f=await fixture(body.replace('整理了依赖范围','已停止思考'));try{
   assert.equal(f.h.stepsOnlyResponse(f.task),null);assert.equal(f.h.handleStepsOnlyRest(f.task),false);
  }finally{f.close();}
+});
+test('recorded Stop authority preserves rest across marker virtualization and ignores old response turns',async()=>{
+ const f=await fixture(`<div data-content-search-turn-key="old"><div data-message-author-role="assistant" class="markdown">OLD REAL REPLY</div>${step('old activity')}</div><div data-content-search-turn-key="current">${body}</div>`);
+ try{
+  const {w,h,task}=f;
+  task.stopObservedUserBoundaryKey=h.recoveryUserBoundaryKey(w.document.querySelector('[data-message-author-role="user"]'));
+  task.stopObservedGenerationIdentity=h.stopObservedGenerationIdentity(task,w.location.href);
+  h.handleStepsOnlyRest(task);f.advance(120000);h.handleStepsOnlyRest(task);const deadline=task.stepsOnlyRestUntil;
+  w.document.querySelector('[data-message-author-role="user"]').remove();
+  assert.equal(h.stepsOnlyResponse(task).hasReply,false);
+  h.handleStepsOnlyRest(task);assert.equal(task.stepsOnlyRestUntil,deadline);
+  f.advance(3600000);h.handleStepsOnlyRest(task);assert.equal(task.state,'queued');assert.equal(task.url,'');
+ }finally{f.close();}
+});
+test('virtualized recovery requires recorded generation and user authority, and rejects newer manual users',async()=>{
+ for(const guard of ['generation','user','manual']){
+  const f=await fixture(`<div data-content-search-turn-key="current">${body}</div>`);try{
+   const {w,h,task}=f;task.stopObservedUserBoundaryKey=h.recoveryUserBoundaryKey(w.document.querySelector('[data-message-author-role="user"]'));
+   task.stopObservedGenerationIdentity=h.stopObservedGenerationIdentity(task,w.location.href);
+   w.document.querySelector('[data-message-author-role="user"]').remove();
+   if(guard==='generation')task.stopObservedGenerationIdentity='different';
+   if(guard==='user')task.stopObservedUserBoundaryKey='';
+   if(guard==='manual')w.document.querySelector('#activity').insertAdjacentHTML('beforebegin','<div data-message-author-role="user" data-message-id="manual">manual</div>');
+   assert.equal(h.stepsOnlyResponse(task),null,guard);
+  }finally{f.close();}
+ }
 });

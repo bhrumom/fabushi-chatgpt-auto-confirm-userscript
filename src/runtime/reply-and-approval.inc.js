@@ -149,15 +149,27 @@
   function stepsOnlyResponse(task) {
     if (!task || task.attempted || !taskMatchesCurrentConversation(task)) return null;
     const turn = taskTurnForInspection(task);
-    if (!turn.owned || conversationURLOwner(task.url, task.id)
+    if (conversationURLOwner(task.url, task.id)
       || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))) return null;
     const boundary = conversationRoleNodes('user').at(-1);
-    if (!boundary) return null;
-    const follows = node => Boolean(boundary.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING);
-    const activity = nodes(assistantActivitySelector).filter(node => visible(node) && follows(node) && text(node).trim()
+    const observedUser = String(task.stopObservedUserBoundaryKey || '');
+    const boundaryKey = boundary ? recoveryUserBoundaryKey(boundary) : observedUser;
+    const generation = stopObservedGenerationIdentity(task, currentConversationURL());
+    const virtualizedOwned = Boolean(!turn.owned && !taskMarkerUser(task)
+      && generation && task.stopObservedGenerationIdentity === generation
+      && observedUser && (!boundary || boundaryKey === observedUser));
+    if (!turn.owned && !virtualizedOwned) return null;
+    const follows = node => !boundary || Boolean(boundary.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING);
+    let activity = nodes(assistantActivitySelector).filter(node => visible(node) && follows(node) && text(node).trim()
       && !/^(?:正在思考|思考中|已停止思考|thinking|stopped thinking|思考了\s*[\d\s分秒小时ms]+|thought for\s+[\d\s.hms]+)$/i.test(text(node).trim()));
     if (!activity.length) return null;
-    const replyNodes = conversationRoleNodes('assistant').filter(follows);
+    let replyNodes = conversationRoleNodes('assistant').filter(follows);
+    if (virtualizedOwned) {
+      const responseTurn = activity.at(-1).closest(contentSearchTurnSelector);
+      if (!responseTurn) return null;
+      activity = activity.filter(node => node.closest(contentSearchTurnSelector) === responseTurn);
+      replyNodes = replyNodes.filter(node => node.closest(contentSearchTurnSelector) === responseTurn);
+    }
     const exclusion = `${assistantActivitySelector},[data-testid*="tool"],[data-type*="tool"],[class*="tool-call"],[class*="toolCall"],[role="status"],button,[hidden],[inert]`;
     const hasReply = replyNodes.some(node => {
       if (node.closest?.(exclusion)) return false;
@@ -171,7 +183,7 @@
         return Boolean(String(copy.textContent || '').trim());
       });
     });
-    return { hasReply, boundary:JSON.stringify([canonicalConversationURL(task.url), task.token, task.phase, task.round, recoveryUserBoundaryKey(boundary)]) };
+    return { hasReply, boundary:JSON.stringify([canonicalConversationURL(task.url), task.token, task.phase, task.round, boundaryKey]) };
   }
   function clearStepsOnlyRest(task) {
     const changed = Boolean(task.stepsOnlySince || task.stepsOnlyBoundary || task.stepsOnlyRestUntil);
