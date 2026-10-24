@@ -30,5 +30,7 @@ Deliver through PR and existing Test → Release workflow. Previous version 2.10
 ## Compliance
 | Requirement | Status | Evidence |
 | --- | --- | --- |
-| R1–R6 | blocked | Implementation / exact-head CI pending. |
+| R1–R5 | passed | DOM/fake-clock regressions on executable head `9aa5d27ae2ae4b40073a661830e8fe7b0373770c`; full Test run [40075660216](https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/actions/runs/40075660216) succeeded. Covers repeated sessions, fixed deadline after reconstruction, real replies, task isolation, draft/pause guards, live grant at expiry and no sends/navigation/refresh during rest. |
+| R6 source, UI and CI | passed | v2.10.78 source/bundle parity, syntax and full Test succeeded in the same run; badge displays remaining minutes and participates in the sidebar rendering signature. |
+| R6 release | blocked | PR #197 awaiting final docs-head Test, merge and release readback. |
 | Live Chrome hourly cycle | blocked | Screenshot shows symptom only. |
