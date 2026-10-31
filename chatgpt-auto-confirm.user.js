@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.83
+// @version      2.10.84
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -68,7 +68,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.83';
+  const VERSION = '2.10.84';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -8140,6 +8140,12 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     save();
     return false;
   }
+  function visibleUserTurnBeforeFreshSend() {
+    return conversationRoleNodes('user').some(node =>
+      !node.closest?.('[aria-hidden="true"]')
+      && Boolean(node.closest?.(conversationTurnSelector))
+      && renderedConversationMessage(node));
+  }
   function conversationLengthContinuationContext(task) {
     const carry = String(task?.lengthLimitCarry || '').trim();
     if (task?.lengthLimitNoReply) return `\n上一会话已达到 ChatGPT 对话长度上限并显示开始新聊天，未生成可提取的新回复。继续同一阶段的当前任务；没有新的完成结果，不要把上限提示或停止思考当作工作成果。${carry ? `\n更早会话保留的接力上下文（并非上一会话的新回复）：\n${carry}\n` : ''}\n`;
@@ -8297,7 +8303,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     }
     const input = composer();
     if (!input) return waitForSendUI(task, '未找到 ChatGPT 输入框');
-    if (conversationRoleNodes('user').length) return waitForSendUI(task, '新会话页面仍保留旧消息');
+    if (visibleUserTurnBeforeFreshSend()) return waitForSendUI(task, '新会话页面仍显示旧对话消息');
     if (!await ensureChatMode(task, signal)) return;
     const verifiedModelPreset = taskModelPreset(task);
     if (!await ensureTaskModelPreset(task, signal)) return;

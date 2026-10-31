@@ -3582,6 +3582,32 @@ test('missing send controls keep one prepared intent instead of blocking or dupl
   }
   dom.window.close();
 });
+test('fresh send ignores hidden old turns and user-styled home suggestions',async()=>{
+  const {h,dom}=await fixture('<main><article aria-hidden="true"><div data-message-author-role="user">Old chat</div></article><button data-markdown-text-tone="user-message">Suggested prompt</button><form><textarea id="prompt-textarea"></textarea></form></main>');
+  const task={id:'stale-home',goal:'send once',mode:'goal',phase:'work',round:1,state:'queued',url:'',token:'',messages:[]};
+  h.data.tasks.push(task);
+  await h.start();
+  try {
+    assert.equal(await h.send(task,null),false);
+    assert.equal(task.state,'sending');
+    assert.equal(task.sendPrepared,true);
+    assert.match(task.messages.at(-1).text,/发送按钮暂不可用/);
+    assert.doesNotMatch(task.messages.at(-1).text,/旧对话消息/);
+  } finally { h.pause(); dom.window.close(); }
+});
+test('fresh send keeps its prepared intent when an old user turn is visibly mounted',async()=>{
+  const {h,dom}=await fixture('<main><article><div data-message-author-role="user">Old chat</div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">Send</button></form></main>');
+  const task={id:'visible-old',goal:'send once',mode:'goal',phase:'work',round:1,state:'queued',url:'',token:'',messages:[]};
+  h.data.tasks.push(task);
+  await h.start();
+  try {
+    assert.equal(await h.send(task,null),false);
+    assert.equal(task.sendPrepared,true);
+    assert.equal(task.attempted,false);
+    assert.equal(h.measurements.sends,0);
+    assert.match(task.messages.at(-1).text,/仍显示旧对话消息/);
+  } finally { h.pause(); dom.window.close(); }
+});
 test('dispatch clears an unrelated ChatGPT composer draft before sending',async()=>{
   const {w,h,dom}=await fixture('<main><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">Send</button></form></main>');
   const input=w.document.querySelector('#prompt-textarea');
@@ -7279,8 +7305,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2.10.83$/m);
-  assert.match(source,/const VERSION = '2.10.83'/);
+  assert.match(source,/^\/\/ @version\s+2.10.84$/m);
+  assert.match(source,/const VERSION = '2.10.84'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
