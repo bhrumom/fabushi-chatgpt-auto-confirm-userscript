@@ -3582,6 +3582,32 @@ test('missing send controls keep one prepared intent instead of blocking or dupl
   }
   dom.window.close();
 });
+test('fresh send ignores hidden old turns and user-styled home suggestions',async()=>{
+  const {h,dom}=await fixture('<main><article aria-hidden="true"><div data-message-author-role="user">Old chat</div></article><button data-markdown-text-tone="user-message">Suggested prompt</button><form><textarea id="prompt-textarea"></textarea></form></main>');
+  const task={id:'stale-home',goal:'send once',mode:'goal',phase:'work',round:1,state:'queued',url:'',token:'',messages:[]};
+  h.data.tasks.push(task);
+  await h.start();
+  try {
+    assert.equal(await h.send(task,null),false);
+    assert.equal(task.state,'sending');
+    assert.equal(task.sendPrepared,true);
+    assert.match(task.messages.at(-1).text,/发送按钮暂不可用/);
+    assert.doesNotMatch(task.messages.at(-1).text,/旧对话消息/);
+  } finally { h.pause(); dom.window.close(); }
+});
+test('fresh send keeps its prepared intent when an old user turn is visibly mounted',async()=>{
+  const {h,dom}=await fixture('<main><article><div data-message-author-role="user">Old chat</div></article><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">Send</button></form></main>');
+  const task={id:'visible-old',goal:'send once',mode:'goal',phase:'work',round:1,state:'queued',url:'',token:'',messages:[]};
+  h.data.tasks.push(task);
+  await h.start();
+  try {
+    assert.equal(await h.send(task,null),false);
+    assert.equal(task.sendPrepared,true);
+    assert.equal(task.attempted,false);
+    assert.equal(h.measurements.sends,0);
+    assert.match(task.messages.at(-1).text,/仍显示旧对话消息/);
+  } finally { h.pause(); dom.window.close(); }
+});
 test('dispatch clears an unrelated ChatGPT composer draft before sending',async()=>{
   const {w,h,dom}=await fixture('<main><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">Send</button></form></main>');
   const input=w.document.querySelector('#prompt-textarea');
@@ -4658,6 +4684,55 @@ test('ambiguous send timeout prioritizes the current-round Work conversation bef
   assert.match(task.messages.at(-1).text,/绑定会话/);
   assert.match(task.messages.at(-1).text,/最终回复/);
   dom.window.close();
+});
+test('a paused unbound task does not block adoption of the current attempted send',async()=>{
+  const {h,w,dom}=await fixture('<main><article><div data-message-author-role="user">Current submitted prompt</div></article></main>');
+  try {
+    w.history.replaceState({},'', '/c/current-after-paused');
+    const paused={id:'paused-old',ownerTabId:h.getTabId(),state:'paused',pausedState:'sending',url:'',token:'old-token',attempted:true,sentAt:Date.now()-200000};
+    const task={id:'current-new',ownerTabId:h.getTabId(),state:'sending',phase:'work',round:2,url:'',token:'new-token',preparedPrompt:'Current submitted prompt',attempted:true,sentAt:Date.now()-100000,attachments:[],messages:[]};
+    h.data.tasks.push(paused,task);
+    assert.equal(h.adoptUnboundAttemptedConversation(task),w.location.href);
+    assert.equal(task.url,w.location.href);
+    assert.equal(paused.url,'');
+  } finally {h.pause();dom.window.close();}
+});
+test('a paused bound task cannot turn a visible submitted message into a duplicate resend',async()=>{
+  const {h,w,dom}=await fixture('<main><article><div data-message-author-role="user">Current submitted prompt [Fabushi:new-token]</div></article></main>');
+  try {
+    w.history.replaceState({},'', '/c/shared-with-paused');
+    const paused={id:'paused-old',ownerTabId:h.getTabId(),state:'paused',pausedState:'waiting',url:w.location.href,token:'old-token',attempted:false,messages:[]};
+    const task={id:'current-new',ownerTabId:h.getTabId(),state:'sending',phase:'work',round:2,url:'',token:'new-token',attempted:true,sentAt:1,attachments:[{id:'proof',name:'proof.png'}],messages:[]};
+    h.data.tasks.push(paused,task);
+    assert.equal(h.stopAmbiguousSend(task,false,100000),false);
+    assert.equal(task.state,'sending');
+    assert.equal(task.attempted,true);
+    assert.equal(task.token,'new-token');
+    assert.equal(task.url,'');
+    assert.equal(task.round,2);
+    assert.equal(task.attachments.length,1);
+    assert.equal(task.ambiguousFreshRetryCount||0,0);
+    assert.match(task.messages.at(-1).text,/不会自动重发/);
+    assert.equal(h.deleteTask(paused),true);
+    assert.equal(h.stopAmbiguousSend(task,false,160000),true);
+    assert.equal(task.url,w.location.href);
+    assert.equal(task.attempted,false);
+    assert.equal(task.token,'new-token');
+  } finally {h.pause();dom.window.close();}
+});
+test('a paused ambiguous sender cannot lend an unrelated unmarked route to a new task',async()=>{
+  const {h,w,dom}=await fixture('<main><article><div data-message-author-role="user">Older task prompt</div></article></main>');
+  try {
+    w.history.replaceState({},'', '/c/unrelated-paused-send');
+    const paused={id:'paused-old',ownerTabId:h.getTabId(),state:'paused',url:'',token:'old-token',attempted:true,sentAt:1};
+    const task={id:'current-new',ownerTabId:h.getTabId(),state:'sending',phase:'work',round:2,url:'',token:'new-token',preparedPrompt:'Current task prompt',attempted:true,sentAt:2,attachments:[],messages:[]};
+    h.data.tasks.push(paused,task);
+    assert.equal(h.adoptUnboundAttemptedConversation(task),'');
+    assert.equal(h.stopAmbiguousSend(task,false,100000),false);
+    assert.equal(task.attempted,true);
+    assert.equal(task.token,'new-token');
+    assert.equal(task.url,'');
+  } finally {h.pause();dom.window.close();}
 });
 test('loading recovery never refreshes an owned Work conversation after its final reply is already visible',async()=>{
   const {h,w,dom}=await fixture('<main><article data-testid="conversation-turn-user"><div data-message-author-role="user">验收 [Fabushi:final-no-refresh-token]</div></article><article data-testid="conversation-turn-assistant"><div data-message-author-role="assistant"><div class="markdown" data-is-streaming="false">验收最终回复已经完成。</div></div><button aria-label="复制回复"></button><button aria-label="评价回复"></button></article><form><textarea id="prompt-textarea"></textarea></form></main>');
@@ -7230,8 +7305,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2.10.82$/m);
-  assert.match(source,/const VERSION = '2.10.82'/);
+  assert.match(source,/^\/\/ @version\s+2.10.84$/m);
+  assert.match(source,/const VERSION = '2.10.84'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
