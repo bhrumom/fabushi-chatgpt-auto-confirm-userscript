@@ -239,6 +239,24 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     if (perform && currentConversationURL() !== boundURL) directNavigate(new URL(boundURL), task);
     return true;
   }
+  // A visible marker proves the original click reached this conversation.
+  // A paused task may still own the route, so keep the send pending until the
+  // ownership conflict is resolved instead of dispatching a duplicate.
+  const pausedAmbiguous = tabTasks().some(item => item.id !== task.id && item.state === 'paused'
+    && item.attempted && item.token && !canonicalConversationURL(item.url));
+  const unresolvedVisibleSend = hasTaskMarker(task)
+    || Boolean(pausedAmbiguous && currentConversationURL()
+      && currentConversationURL() !== canonicalConversationURL(task.dispatchOriginURL)
+      && conversationRoleNodes('user').length);
+  if (unresolvedVisibleSend) {
+    task.state = 'sending';
+    if (!task.markerRouteConflictNotedAt || now - task.markerRouteConflictNotedAt >= 60_000) {
+      task.markerRouteConflictNotedAt = now;
+      log(task, '当前会话有待确认的已发送消息，另有暂停任务占用发送或会话身份；保留原发送标识继续确认，不会自动重发。');
+      save();
+    }
+    return false;
+  }
   const retryCount = Number(task.ambiguousFreshRetryCount || 0) + 1;
   clearDispatchIntent(task);
   task.ambiguousFreshRetryCount = retryCount;

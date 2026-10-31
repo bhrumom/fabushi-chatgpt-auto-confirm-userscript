@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.82
+// @version      2.10.83
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -68,7 +68,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.82';
+  const VERSION = '2.10.83';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -2695,9 +2695,13 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     // send in this workspace. This is the recovery path for a renderer that
     // accepted the click but never painted the user's marker; it cannot guess
     // between two concurrent sends or reclaim an older task's URL.
-    const otherAmbiguous = tabTasks().filter(item => item.id !== task.id
-      && item.attempted && item.token && !canonicalConversationURL(item.url));
     const marked = hasTaskMarker(task);
+    const latestUser = conversationRoleNodes('user').at(-1);
+    const exactSubmittedPrompt = Boolean(latestUser && task.preparedPrompt
+      && normalize(text(latestUser)) === normalize(task.preparedPrompt));
+    const otherAmbiguous = tabTasks().filter(item => item.id !== task.id
+      && item.attempted && item.token && !canonicalConversationURL(item.url)
+      && (item.state !== 'paused' || (!marked && !exactSubmittedPrompt)));
     const confirmationStartedAt = Number(task.recoveryConfirmationStartedAt || task.sentAt || 0);
     const agedEnough = confirmationStartedAt > 0
       && Date.now() - confirmationStartedAt >= SEND_CONFIRM_TIMEOUT_MS;
@@ -7480,6 +7484,24 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     save();
     if (perform && currentConversationURL() !== boundURL) directNavigate(new URL(boundURL), task);
     return true;
+  }
+  // A visible marker proves the original click reached this conversation.
+  // A paused task may still own the route, so keep the send pending until the
+  // ownership conflict is resolved instead of dispatching a duplicate.
+  const pausedAmbiguous = tabTasks().some(item => item.id !== task.id && item.state === 'paused'
+    && item.attempted && item.token && !canonicalConversationURL(item.url));
+  const unresolvedVisibleSend = hasTaskMarker(task)
+    || Boolean(pausedAmbiguous && currentConversationURL()
+      && currentConversationURL() !== canonicalConversationURL(task.dispatchOriginURL)
+      && conversationRoleNodes('user').length);
+  if (unresolvedVisibleSend) {
+    task.state = 'sending';
+    if (!task.markerRouteConflictNotedAt || now - task.markerRouteConflictNotedAt >= 60_000) {
+      task.markerRouteConflictNotedAt = now;
+      log(task, '当前会话有待确认的已发送消息，另有暂停任务占用发送或会话身份；保留原发送标识继续确认，不会自动重发。');
+      save();
+    }
+    return false;
   }
   const retryCount = Number(task.ambiguousFreshRetryCount || 0) + 1;
   clearDispatchIntent(task);

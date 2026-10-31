@@ -406,9 +406,13 @@
     // send in this workspace. This is the recovery path for a renderer that
     // accepted the click but never painted the user's marker; it cannot guess
     // between two concurrent sends or reclaim an older task's URL.
-    const otherAmbiguous = tabTasks().filter(item => item.id !== task.id
-      && item.attempted && item.token && !canonicalConversationURL(item.url));
     const marked = hasTaskMarker(task);
+    const latestUser = conversationRoleNodes('user').at(-1);
+    const exactSubmittedPrompt = Boolean(latestUser && task.preparedPrompt
+      && normalize(text(latestUser)) === normalize(task.preparedPrompt));
+    const otherAmbiguous = tabTasks().filter(item => item.id !== task.id
+      && item.attempted && item.token && !canonicalConversationURL(item.url)
+      && (item.state !== 'paused' || (!marked && !exactSubmittedPrompt)));
     const confirmationStartedAt = Number(task.recoveryConfirmationStartedAt || task.sentAt || 0);
     const agedEnough = confirmationStartedAt > 0
       && Date.now() - confirmationStartedAt >= SEND_CONFIRM_TIMEOUT_MS;
