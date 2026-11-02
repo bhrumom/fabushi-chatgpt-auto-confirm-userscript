@@ -943,16 +943,39 @@
       responseTurn,
     };
   }
+  function manualContinuationReportTurn(task, scanContext = null) {
+    if (!task || task.phase !== 'work' || task.attempted || !task.token
+      || task.state === 'paused' || terminal.has(task.state) || !taskBelongsToTab(task)) return null;
+    const route = currentConversationURL();
+    if (!route || route !== canonicalConversationURL(task.url)
+      || conversationURLOwner(route, task.id)
+      || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))
+      || stopButton() || (scanContext?.cards() || cards({wide:true})).length
+      || approvalSettlementActive(task, route)) return null;
+    const users = conversationRoleNodes('user');
+    const marker = taskMarkerUser(task);
+    const index = marker ? users.indexOf(marker) : -1;
+    const continuations = index >= 0 ? users.slice(index + 1) : [];
+    if (!continuations.length || !continuations.every(user => isContinuationPrompt(text(user)))) return null;
+    const candidate = latestTurn();
+    // Exact prompt text alone never grants ownership. Only an ended, complete
+    // report proving this task and round can cross this manual user boundary.
+    if (!candidate.article || !candidate.hasNaturalReply || candidate.streaming
+      || !(users.at(-1).compareDocumentPosition(candidate.article) & Node.DOCUMENT_POSITION_FOLLOWING)
+      || !completeWorkFinalReport(candidate.text, task)) return null;
+    return { ...candidate, owned:true, final:true, structuredWorkFinal:true,
+      manualContinuationReport:true };
+  }
   function taskTurnForInspection(task, scanContext = null) {
     const scoped = latestTurn(task);
     if (!task || scoped.owned || task.attempted) return scoped;
     const liveURL = currentConversationURL();
     const taskURL = canonicalConversationURL(task.url);
     if (!liveURL || !taskURL || liveURL !== taskURL) return scoped;
-    // If the original marker is still mounted, latestTurn(task) already made
-    // the authoritative ownership decision. An unowned result in that state
-    // means a newer user turn exists, so recovery must remain fail-closed.
-    if (taskMarkerUser(task)) return scoped;
+    // A mounted marker normally makes a newer manual user turn unowned. Only
+    // a complete exact-identity report after an uninterrupted continuation
+    // chain may cross that boundary; arbitrary manual replies remain unowned.
+    if (taskMarkerUser(task)) return manualContinuationReportTurn(task, scanContext) || scoped;
     if (conversationURLOwner(liveURL, task.id)) return scoped;
     const foreignTask = tabTasks().find(item => item.id !== task.id && item.token && hasTaskMarker(item));
     if (foreignTask) return scoped;
