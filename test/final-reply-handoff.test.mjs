@@ -130,16 +130,21 @@ test('manual continuation accepts the current content-search renderer without ad
   const {dom,window:w,hooks:h,task,report}=await manualReportHarness();
   try {
     w.document.querySelector('main').innerHTML=`<div data-content-search-turn-key="initial">
+      <h4 class="sr-only" data-conversation-role="user">你说：<span>你</span></h4>
       <div data-content-search-unit-key="initial:user"><div data-user-message-bubble="true">任务 [Fabushi:manual-report-token]</div></div>
       </div><div data-content-search-turn-key="manual">
+      <h4 class="sr-only" data-conversation-role="user">你说：<span>你</span></h4>
       <div data-content-search-unit-key="manual:user"><div data-user-message-bubble="true">继续完成所有</div></div>
-      <div data-content-search-unit-key="manual:assistant"><div class="markdown"></div></div>
+      <div data-content-search-unit-key="manual:assistant"><h4 class="sr-only" data-conversation-role="assistant">ChatGPT 说：</h4><div data-markdown-text-style="assistant-message"></div></div>
       <button aria-label="复制回复"></button></div>`;
-    w.document.querySelector('.markdown').textContent=JSON.stringify(report);
+    w.document.querySelector('[data-markdown-text-style="assistant-message"]').textContent=JSON.stringify(report);
     const candidate=h.taskTurnForInspection(task);
     assert.equal(candidate.owned,true);
     assert.equal(candidate.manualContinuationReport,true);
     assert.equal(candidate.text,JSON.stringify(report));
+    w.document.querySelector('[data-content-search-turn-key="manual"]').insertAdjacentHTML('beforebegin',
+      '<div data-content-search-unit-key="intervening:user">另一个真实用户消息</div>');
+    assert.equal(h.taskTurnForInspection(task).owned,false,'hidden heading exclusion must not hide actual intervening messages');
   } finally {dom.window.close();}
 });
 

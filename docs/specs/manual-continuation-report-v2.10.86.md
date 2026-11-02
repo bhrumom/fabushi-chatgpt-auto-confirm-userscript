@@ -26,3 +26,6 @@ Increment to v2.10.86, keep source and bundle identical, use PR and protected Ac
 | Requirement | Status | Evidence |
 | --- | --- | --- |
 | R1–R4 | pending | Implementation and verification pending. |
+
+## Live correction — v2.10.87
+The original Chrome document after v2.10.86 installation still waited. Read-only debugging proved the exact task/round report is complete, the route/workspace is correct, continuationCount is zero, and no Stop/card/settlement is present. The actual user adapter returns an extra standalone H4 with data-conversation-role=user and class sr-only before each user content unit. Its text is “你说：你”; it is presentation metadata rather than a user message. Exclude only these standalone hidden role headings from the manual-continuation chain, leaving latestTurn ownership and all real user messages strict. Add the exact heading-plus-content structure to the positive test, and verify a visible intervening user message still rejects adoption. Preserve all prior R1–R4 criteria and rerun Actions before release/update.
