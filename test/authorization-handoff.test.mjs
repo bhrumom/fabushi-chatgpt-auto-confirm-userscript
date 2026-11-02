@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 const source = await fs.readFile(new URL('../chatgpt-auto-confirm.user.js', import.meta.url), 'utf8');
-const names = 'latestTurn,observations,pendingFinalReportRecheckDelay,visibilityAwareDelay,settleCurrentReportBeforeFreshHandoff,prepareTaskPrompt,workPromptSections,clearActiveTaskComposerDraft,stopObservedGenerationIdentity,authorizationContinuationBoundaryMatches,authorizationContinuationBoundaryKey,ownedAuthorizationContinuationDraft,taskTurnForInspection,sendTimeoutNotice,measurements,connectionInterruptionContinuationPending,authorizationContinuationEnabled,isContinuationPrompt,data,tabId,cards,inspect,recoverStoppedConversation,revealStoppedResponseActivity,authorizationContinuationAttempts,authorizationGateExhausted,durableWorkbenchSnapshot,recordConversationAuthorization,conversationAuthorizationSeen,requireConversationAuthorization,continueWithoutAuthorization,durableTaskSnapshot,finish,queueInterruptedFreshRetry,queueBlockedFreshRetry,queueConversationLengthHandoff,queueWorkFinalReportRepair,clearDispatchIntent';
+const names = 'responseFailureNotice,latestTurn,observations,pendingFinalReportRecheckDelay,visibilityAwareDelay,settleCurrentReportBeforeFreshHandoff,prepareTaskPrompt,workPromptSections,clearActiveTaskComposerDraft,stopObservedGenerationIdentity,authorizationContinuationBoundaryMatches,authorizationContinuationBoundaryKey,ownedAuthorizationContinuationDraft,taskTurnForInspection,sendTimeoutNotice,measurements,connectionInterruptionContinuationPending,authorizationContinuationEnabled,isContinuationPrompt,data,tabId,cards,inspect,recoverStoppedConversation,revealStoppedResponseActivity,authorizationContinuationAttempts,authorizationGateExhausted,durableWorkbenchSnapshot,recordConversationAuthorization,conversationAuthorizationSeen,requireConversationAuthorization,continueWithoutAuthorization,durableTaskSnapshot,finish,queueInterruptedFreshRetry,queueBlockedFreshRetry,queueConversationLengthHandoff,queueWorkFinalReportRepair,clearDispatchIntent';
 async function harness({authorizationGate=true}={}) {
   const dom = new JSDOM('<main><article data-message-author-role="user" data-message-id="u1">[Fabushi:guard-token]</article><article data-message-author-role="assistant" data-message-id="a1">已结束的回复</article></main><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">发送</button></form>', { runScripts:'outside-only', pretendToBeVisual:true, url:'https://chatgpt.com/c/guard' });
   const w = dom.window;
@@ -16,6 +16,113 @@ async function harness({authorizationGate=true}={}) {
   h.data.tasks.push(task); h.run();
   return {dom,w,h,task};
 }
+
+function mountResponseError(w, {onAdjust=()=>{}}={}) {
+  w.document.querySelector('[data-message-author-role="assistant"]').textContent='Hmm...something seems to have gone wrong.';
+  const trigger=w.document.createElement('button');
+  trigger.type='button';
+  trigger.setAttribute('aria-label','选择 ChatGPT 模型');
+  trigger.setAttribute('aria-haspopup','menu');
+  trigger.setAttribute('aria-expanded','false');
+  trigger.setAttribute('data-codex-intelligence-trigger','true');
+  trigger.setAttribute('data-composer-navigation-target','reasoning');
+  trigger.setAttribute('data-selected-reasoning-effort','medium');
+  trigger.textContent='Pro';
+  w.document.querySelector('form').append(trigger);
+  let index=4;
+  trigger.onclick=()=>{
+    const open=trigger.getAttribute('aria-expanded')==='true';
+    trigger.setAttribute('aria-expanded',String(!open));
+    if(open) {w.document.querySelector('[role="menu"]')?.remove();return;}
+    const menu=w.document.createElement('div');menu.setAttribute('role','menu');
+    menu.innerHTML=`<div role="menuitem" aria-label="强度" data-reasoning-slider="true"><span role="slider" aria-valuemin="0" aria-valuemax="4" aria-valuenow="${index}"></span></div>`;
+    w.document.body.append(menu);
+    menu.firstElementChild.onkeydown=event=>{
+      if(event.key==='ArrowLeft')index=Math.max(0,index-1);
+      if(event.key==='ArrowRight')index=Math.min(4,index+1);
+      menu.querySelector('[role="slider"]').setAttribute('aria-valuenow',String(index));
+      trigger.setAttribute('data-selected-reasoning-effort',index===3?'max':'medium');
+      trigger.textContent=index===3?'Extra High':'Pro';
+      onAdjust();
+    };
+  };
+  return trigger;
+}
+
+for(const authorizationGate of [false,true]) {
+  test(`native response error switches Pro to Extra High before exact continuation, gate=${authorizationGate}`,async()=>{
+    const {dom,w,h,task}=await harness({authorizationGate});
+    try {
+      const trigger=mountResponseError(w);task.reasoningPreset=4;
+      h.recordConversationAuthorization(task); // Resolved historical cards must not force a new chat.
+      task.authorizationRequiredContinuation=true; // Older pending generic recovery must not win.
+      let clicks=0;
+      w.document.querySelector('[data-testid="send-button"]').onclick=()=>{
+        clicks++;
+        assert.equal(trigger.textContent,'Extra High');
+        assert.equal(trigger.getAttribute('aria-expanded'),'false');
+        assert.equal(w.document.querySelector('textarea').value,'继续完成所有');
+      };
+      const signal=new w.AbortController().signal;
+      await h.inspect(task,signal);
+      assert.equal(clicks,0,'eight-second safety confirmation precedes model/send');
+      task.stopNoApprovalConfirmSince=Date.now()-9000;
+      await h.inspect(task,signal);
+      assert.equal(clicks,1);
+      assert.equal(task.reasoningPreset,4,'future configured dispatch remains Pro');
+      assert.equal(task.url,w.location.href);
+      assert.equal(task.round,1);
+      assert.equal(task.continuationCount,1);
+      Object.assign(task,JSON.parse(JSON.stringify(task)));
+      assert.equal(await h.continueWithoutAuthorization(task,signal,Date.now()+70000,{responseFailure:true}),false);
+      assert.equal(clicks,1,'reload cannot replay the same response boundary');
+    } finally {dom.window.close();}
+  });
+}
+
+for(const scenario of ['draft','paused','stop','foreign-route','aborted','card','cap','during-selection-card','during-selection-draft','during-selection-route','missing-picker']) {
+  test(`native response error continuation protects ${scenario}`,async()=>{
+    const {dom,w,h,task}=await harness({authorizationGate:false});
+    try {
+      const trigger=mountResponseError(w,{onAdjust:()=>{
+        if(scenario==='during-selection-card')w.document.body.insertAdjacentHTML('beforeend','<section data-testid="authorization-card"><button>拒绝</button><button>允许一次</button><button aria-haspopup="menu">更多</button></section>');
+        if(scenario==='during-selection-draft')w.document.querySelector('textarea').value='用户新草稿';
+        if(scenario==='during-selection-route')w.history.replaceState({},'', '/c/other');
+      }});
+      const signal=new w.AbortController();
+      if(scenario==='draft')w.document.querySelector('textarea').value='用户草稿';
+      if(scenario==='paused')task.state='paused';
+      if(scenario==='stop')w.document.body.insertAdjacentHTML('beforeend','<button aria-label="停止生成"></button>');
+      if(scenario==='foreign-route')w.history.replaceState({},'', '/c/other');
+      if(scenario==='aborted')signal.abort();
+      if(scenario==='card')w.document.body.insertAdjacentHTML('beforeend','<section data-testid="authorization-card"><button>拒绝</button><button>允许一次</button><button aria-haspopup="menu">更多</button></section>');
+      if(scenario==='cap'){task.authorizationContinuationURL=task.url;task.authorizationContinuationAttempts=3;}
+      if(scenario==='missing-picker')trigger.remove();
+      let clicks=0;w.document.querySelector('[data-testid="send-button"]').onclick=()=>clicks++;
+      assert.equal(await h.continueWithoutAuthorization(task,signal.signal,Date.now(),{responseFailure:true}),false);
+      assert.equal(clicks,0);
+      if(scenario.includes('draft'))assert.match(w.document.querySelector('textarea').value,/用户.*草稿/);
+    } finally {dom.window.close();}
+  });
+}
+
+test('response error detector rejects quotes, user content, workbench and earlier turns',async()=>{
+  const {dom,w,h}=await harness();
+  try {
+    const article=w.document.querySelector('[data-message-author-role="assistant"]');
+    const error='Hmm...something seems to have gone wrong.';
+    for(const html of [`<blockquote>${error}</blockquote>`,`<pre>${error}</pre>`,`<code>${error}</code>`,`We saw ${error} previously.`]) {
+      article.innerHTML=html;
+      assert.equal(h.responseFailureNotice(h.latestTurn()),false);
+    }
+    article.textContent='当前正常回复';
+    w.document.querySelector('[data-message-author-role="user"]').textContent=error;
+    w.document.querySelector('main').insertAdjacentHTML('afterbegin',`<article data-message-author-role="assistant">${error}</article>`);
+    assert.equal(h.responseFailureNotice(h.latestTurn()),false);
+    article.textContent=error;
+    assert.equal(h.responseFailureNotice({...h.latestTurn(),owned:true}),true);
+  } finally {dom.window.close();}
+});
 for (const method of ['queueInterruptedFreshRetry','queueBlockedFreshRetry','queueConversationLengthHandoff','queueWorkFinalReportRepair']) {
   test(`no card blocks ${method} without losing dispatch identity`, async()=>{
     const {dom,h,task}=await harness();

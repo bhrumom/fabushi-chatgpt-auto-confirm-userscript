@@ -564,8 +564,7 @@
       await delay(Math.min(100, deadline - Date.now()), signal); check(signal);
     }
   }
-  async function ensureTaskReasoningPreset(task, signal) {
-    const target = taskReasoningPreset(task);
+  async function ensureTaskReasoningPreset(task, signal, target = taskReasoningPreset(task)) {
     let trigger = reasoningPickerTrigger();
     if (!trigger) {
       waitForReasoningPicker(task, '未找到 ChatGPT 模型/思考强度选择器');
@@ -1434,6 +1433,12 @@
     return boundedConversationLengthCarry(source);
   }
   const connectionInterruptedPattern = /^(?:连接已中断[，,。.!；;：:\s]*正在等待完整(?:回复|答复)[。.!]?|connection (?:was |has been )?interrupted[.!]?\s*(?:we(?:'re| are) )?waiting for (?:the )?(?:full|complete) (?:response|answer)[.!]?)$/i;
+  function responseFailureNotice(turn = null, getPageRecords = pageUiTextRecords) {
+    const matches = value => /^Hmm\s*\.{3}\s*something seems to have gone wrong\.?$/i.test(normalize(value));
+    const records = turn?.owned && turn.article ? responseTextNodes(turn) : [];
+    return [...records, ...getPageRecords()].some(({parent, direct}) =>
+      parent && direct && direct.length <= 100 && visible(parent) && matches(direct));
+  }
   function connectionInterruptedNotice(turn = null, getPageRecords = pageUiTextRecords) {
     const matches = value => connectionInterruptedPattern.test(normalize(value));
     // Current ChatGPT builds can render this product error inside the live
