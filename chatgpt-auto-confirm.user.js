@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.86
+// @version      2.10.87
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -68,7 +68,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.86';
+  const VERSION = '2.10.87';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -6411,7 +6411,13 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
       || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))
       || stopButton() || (scanContext?.cards() || cards({wide:true})).length
       || approvalSettlementActive(task, route)) return null;
-    const users = conversationRoleNodes('user');
+    // Current Chrome markup has a separate screen-reader role heading before
+    // the content unit. It carries data-conversation-role but is not a sent
+    // message; keeping it in this chain would reject every manual continuation.
+    const users = conversationRoleNodes('user').filter(node => !(
+      node.matches('h1,h2,h3,h4,h5,h6')
+      && node.getAttribute('data-conversation-role') === 'user'
+      && node.classList.contains('sr-only')));
     const marker = taskMarkerUser(task);
     const index = marker ? users.indexOf(marker) : -1;
     const continuations = index >= 0 ? users.slice(index + 1) : [];

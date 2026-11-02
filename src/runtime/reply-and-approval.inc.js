@@ -952,7 +952,13 @@
       || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))
       || stopButton() || (scanContext?.cards() || cards({wide:true})).length
       || approvalSettlementActive(task, route)) return null;
-    const users = conversationRoleNodes('user');
+    // Current Chrome markup has a separate screen-reader role heading before
+    // the content unit. It carries data-conversation-role but is not a sent
+    // message; keeping it in this chain would reject every manual continuation.
+    const users = conversationRoleNodes('user').filter(node => !(
+      node.matches('h1,h2,h3,h4,h5,h6')
+      && node.getAttribute('data-conversation-role') === 'user'
+      && node.classList.contains('sr-only')));
     const marker = taskMarkerUser(task);
     const index = marker ? users.indexOf(marker) : -1;
     const continuations = index >= 0 ? users.slice(index + 1) : [];
