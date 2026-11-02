@@ -65,16 +65,28 @@
       if (next) report.next = next;
       return report;
     };
-    const candidates = [];
+    // A work transcript may quote many report examples. Reparse only a
+    // bounded set of candidate starts; strict JSON above still handles a
+    // complete report of any length. The tolerant path fails closed if a
+    // malformed report exceeds this recovery window.
+    const RECOVERY_WINDOW_CHARS = 128_000;
+    const candidateStarts = [];
+    const exactStarts = [];
     const taskIdField = /(?:["']\s*)?taskId(?:\s*["'])?\s*:/gi;
     for (const match of source.matchAll(taskIdField)) {
-      const report = parseCandidate(source.slice(match.index));
-      if (report) candidates.push(report);
+      if (!candidateStarts.length) candidateStarts.push(match.index);
+      else {
+        if (candidateStarts.length >= 9) candidateStarts.splice(1, 1);
+        candidateStarts.push(match.index);
+      }
+      if (task && source.slice(match.index, match.index + 200).includes(task.id)) {
+        if (exactStarts.length >= 4) exactStarts.shift();
+        exactStarts.push(match.index);
+      }
     }
-    if (!candidates.length) {
-      const report = parseCandidate(source);
-      if (report) candidates.push(report);
-    }
+    const starts = [...new Set([...candidateStarts, ...exactStarts])].sort((a, b) => a - b);
+    if (!starts.length) starts.push(0);
+    const candidates = starts.map(index => parseCandidate(source.slice(index, index + RECOVERY_WINDOW_CHARS))).filter(Boolean);
     if (task) {
       const exact = candidates.find(report => report.taskId === task.id && report.round === task.round);
       if (exact) return exact;

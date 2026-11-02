@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.89
+// @version      2.10.90
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -68,7 +68,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.89';
+  const VERSION = '2.10.90';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -2473,11 +2473,12 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     const limit = Math.max(1, Math.floor(Number(maxChars)));
     const stack = [node], chunks = [];
     let length = 0;
-    // Walk the DOM from the end and stop as soon as the bounded suffix is
-    // collected. Reading node.textContent first would materialize the entire
-    // growing response on every supervision tick.
+    // Follow lastChild/previousSibling from the end. Queuing every child of
+    // a wide turn before reading its suffix defeats the character limit and
+    // can monopolize the renderer main thread on a long conversation.
     while (stack.length && length < limit) {
       const current = stack.pop();
+      if (current !== node && current.previousSibling) stack.push(current.previousSibling);
       if (current.nodeType === Node.TEXT_NODE) {
         const value = String(current.nodeValue || '');
         if (!value) continue;
@@ -2486,7 +2487,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
         length += take;
         continue;
       }
-      for (let child = current.firstChild; child; child = child.nextSibling) stack.push(child);
+      if (current.lastChild) stack.push(current.lastChild);
     }
     return chunks.reverse().join('');
   }
@@ -8545,16 +8546,28 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       if (next) report.next = next;
       return report;
     };
-    const candidates = [];
+    // A work transcript may quote many report examples. Reparse only a
+    // bounded set of candidate starts; strict JSON above still handles a
+    // complete report of any length. The tolerant path fails closed if a
+    // malformed report exceeds this recovery window.
+    const RECOVERY_WINDOW_CHARS = 128_000;
+    const candidateStarts = [];
+    const exactStarts = [];
     const taskIdField = /(?:["']\s*)?taskId(?:\s*["'])?\s*:/gi;
     for (const match of source.matchAll(taskIdField)) {
-      const report = parseCandidate(source.slice(match.index));
-      if (report) candidates.push(report);
+      if (!candidateStarts.length) candidateStarts.push(match.index);
+      else {
+        if (candidateStarts.length >= 9) candidateStarts.splice(1, 1);
+        candidateStarts.push(match.index);
+      }
+      if (task && source.slice(match.index, match.index + 200).includes(task.id)) {
+        if (exactStarts.length >= 4) exactStarts.shift();
+        exactStarts.push(match.index);
+      }
     }
-    if (!candidates.length) {
-      const report = parseCandidate(source);
-      if (report) candidates.push(report);
-    }
+    const starts = [...new Set([...candidateStarts, ...exactStarts])].sort((a, b) => a - b);
+    if (!starts.length) starts.push(0);
+    const candidates = starts.map(index => parseCandidate(source.slice(index, index + RECOVERY_WINDOW_CHARS))).filter(Boolean);
     if (task) {
       const exact = candidates.find(report => report.taskId === task.id && report.round === task.round);
       if (exact) return exact;
