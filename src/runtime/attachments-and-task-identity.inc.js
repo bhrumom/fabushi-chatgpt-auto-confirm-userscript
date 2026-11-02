@@ -184,11 +184,12 @@
     const limit = Math.max(1, Math.floor(Number(maxChars)));
     const stack = [node], chunks = [];
     let length = 0;
-    // Walk the DOM from the end and stop as soon as the bounded suffix is
-    // collected. Reading node.textContent first would materialize the entire
-    // growing response on every supervision tick.
+    // Follow lastChild/previousSibling from the end. Queuing every child of
+    // a wide turn before reading its suffix defeats the character limit and
+    // can monopolize the renderer main thread on a long conversation.
     while (stack.length && length < limit) {
       const current = stack.pop();
+      if (current !== node && current.previousSibling) stack.push(current.previousSibling);
       if (current.nodeType === Node.TEXT_NODE) {
         const value = String(current.nodeValue || '');
         if (!value) continue;
@@ -197,7 +198,7 @@
         length += take;
         continue;
       }
-      for (let child = current.firstChild; child; child = child.nextSibling) stack.push(child);
+      if (current.lastChild) stack.push(current.lastChild);
     }
     return chunks.reverse().join('');
   }
