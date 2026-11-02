@@ -4034,7 +4034,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
     if (/\b5\.5\b/i.test(text)) return 'gpt-5.5';
     // On current ChatGPT a ready trigger contains reasoning strength only
     // for GPT-6. Empty or loading controls never imply GPT-6.
-    if (/^(?:思考强度|即时|中|高|极高|Pro|Instant|Medium|High|Extra High)(?:\s.*)?$/i.test(text)) return 'gpt-6';
+    if (/^(?:即时|中|高|极高|Pro|Instant|Medium|High|Extra High)$/i.test(text)) return 'gpt-6';
     return null;
   }
   function modelMenuOption(target) {
