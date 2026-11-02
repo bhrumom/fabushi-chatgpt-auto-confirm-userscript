@@ -636,6 +636,89 @@ async function liveNestedModelFixture(initialLabel='GPT-6', options={}) {
   return {...result,state};
 }
 
+test('English Thinking effort prefix preserves same-dispatch model proof and exact Pro without repeated picker clicks',async()=>{
+  const {h,w,dom,state}=await liveNestedModelFixture('GPT-6',{realTriggerLabels:true});
+  try {
+    const task={id:'english-pro-proof',ownerTabId:h.getTabId(),token:'prepared-token',goalRevision:0,
+      phase:'work',round:1,state:'sending',modelPreset:'gpt-6',reasoningPreset:4,messages:[]};
+    h.data.tasks.push(task);h.setRunningForTest(true);
+    const trigger=w.document.querySelector('[data-codex-intelligence-trigger]');
+    trigger.setAttribute('aria-label','Select ChatGPT model');
+    assert.equal(await h.ensureTaskModelPreset(task,null),true,'initial dispatch still verifies the checked radio');
+    assert.ok(state.submenuClicks>0);
+    trigger.innerHTML='<span>Thinking effort</span><span>Pro</span>';
+    const counts=[state.triggerClicks,state.submenuClicks,state.targetClicks];
+    for(let attempt=0;attempt<3;attempt++){
+      assert.equal(await h.ensureTaskModelPreset(task,null),true);
+      assert.equal(await h.ensureTaskReasoningPreset(task,null),true);
+      assert.equal(task.reasoningPresetConfirmedIndex,4);
+    }
+    assert.deepEqual([state.triggerClicks,state.submenuClicks,state.targetClicks],counts,
+      'repeated dispatch attempts must not revisit model radios or the reasoning slider');
+    assert.equal(task.token,'prepared-token');
+    trigger.innerHTML='<span>Thinking effort</span><span>5.6 Pro</span>';
+    assert.equal(h.closedComposerModelHint(trigger),'gpt-5.6-sol');
+    assert.equal(await h.ensureTaskModelPreset(task,null),true);
+    assert.ok(state.submenuClicks>counts[1],'a changed model label still invalidates the proof');
+  }finally{h.pause();dom.window.close();}
+});
+
+test('closed English picker labels require exact selected values, never a generic heading or loading text',async()=>{
+  const {h,w,dom}=await fixture('<main><button data-codex-intelligence-trigger="true" aria-haspopup="menu" aria-expanded="false" data-selected-reasoning-effort="medium">Thinking effortPro</button></main>');
+  try {
+    const trigger=w.document.querySelector('[data-codex-intelligence-trigger]');
+    for(const value of ['Thinking effortPro','Thinking effort Pro','Thinking effort\nPro','思考强度Pro','Thinking effortMedium']){
+      trigger.textContent=value;assert.equal(h.closedComposerModelHint(trigger),'gpt-6',value);
+    }
+    for(const value of ['Thinking effort','Thinking effortLoading','Thinking effortPro unavailable','Thinking effortUnknown','']){
+      trigger.textContent=value;assert.equal(h.closedComposerModelHint(trigger),null,value);
+    }
+    trigger.textContent='Thinking effortPro';trigger.setAttribute('aria-expanded','true');
+    assert.equal(h.closedComposerModelHint(trigger),null,'open menus never provide a closed-state hint');
+  }finally{h.pause();dom.window.close();}
+});
+
+for(const [label,target] of [['Thinking effortPro',4],['Thinking effortMedium',1],['思考强度中',1]]){
+  test(`exact closed reasoning value ${label} confirms only its requested preset`,async()=>{
+    const {h,w,dom}=await fixture(`<button data-codex-intelligence-trigger="true" data-composer-navigation-target="reasoning" aria-haspopup="menu" aria-expanded="false" data-selected-reasoning-effort="medium">${label}</button>`);
+    try {
+      const task={id:'closed-reasoning-'+target,ownerTabId:h.getTabId(),state:'sending',phase:'work',round:1,reasoningPreset:target,messages:[]};
+      h.data.tasks.push(task);h.setRunningForTest(true);
+      let clicks=0;w.document.querySelector('button').onclick=()=>clicks++;
+      assert.equal(await h.ensureTaskReasoningPreset(task,null),true);
+      assert.equal(task.reasoningPresetConfirmedIndex,target);
+      assert.equal(clicks,0);
+    }finally{h.pause();dom.window.close();}
+  });
+}
+
+for(const [label,target,effort] of [['Thinking effortMedium',4,'medium'],['Thinking effortPro',1,'medium'],['Thinking effort',4,'medium'],['Thinking effortPro',4,'high']]){
+  test(`ambiguous or mismatched closed reasoning ${label}/${target}/${effort} still needs a slider`,async()=>{
+    const {h,w,dom}=await fixture(`<button data-codex-intelligence-trigger="true" data-composer-navigation-target="reasoning" aria-haspopup="menu" aria-expanded="false" data-selected-reasoning-effort="${effort}">${label}</button>`);
+    try {
+      const task={id:'mismatched-closed',ownerTabId:h.getTabId(),state:'sending',phase:'work',round:1,reasoningPreset:target,messages:[]};
+      h.data.tasks.push(task);h.setRunningForTest(true);
+      const controller=new w.AbortController();
+      let clicks=0;w.document.querySelector('button').onclick=()=>{clicks++;controller.abort();};
+      await assert.rejects(()=>h.ensureTaskReasoningPreset(task,controller.signal));
+      assert.ok(clicks>0,'the label cannot authorize a fast-path confirmation');
+      assert.notEqual(task.reasoningPresetConfirmedIndex,target);
+    }finally{h.pause();dom.window.close();}
+  });
+}
+
+test('English Power menu item hydrates the reasoning slider through the existing bounded recovery',async()=>{
+  const {h,w,dom}=await fixture('<button data-codex-intelligence-trigger="true" data-composer-navigation-target="reasoning" aria-haspopup="menu" aria-expanded="true" data-selected-reasoning-effort="medium">Thinking effort</button><div role="menu"><div role="menuitem" aria-label="Power" id="power"></div></div>');
+  try {
+    const task={id:'power-slider',ownerTabId:h.getTabId(),state:'sending',phase:'work',round:1,reasoningPreset:4,messages:[]};
+    h.data.tasks.push(task);h.setRunningForTest(true);
+    let clicks=0;
+    w.document.querySelector('#power').onclick=function(){clicks++;this.dataset.reasoningSlider='true';this.innerHTML='<span role="slider" aria-valuenow="4" aria-valuemin="0" aria-valuemax="4"></span>';};
+    assert.equal(await h.ensureTaskReasoningPreset(task,null),true);
+    assert.equal(task.reasoningPresetConfirmedIndex,4);assert.equal(clicks,1);
+  }finally{h.pause();dom.window.close();}
+});
+
 test('live nested menu recognizes already-selected GPT-5.6 Sol from aria-checked without reselecting it',async()=>{
   const {h,dom,state}=await liveNestedModelFixture('GPT-5.6 Sol');
   try {
@@ -7305,8 +7388,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2.10.87$/m);
-  assert.match(source,/const VERSION = '2.10.87'/);
+  assert.match(source,/^\/\/ @version\s+2.10.88$/m);
+  assert.match(source,/const VERSION = '2.10.88'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);
