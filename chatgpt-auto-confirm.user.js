@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.88
+// @version      2.10.89
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -68,7 +68,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.88';
+  const VERSION = '2.10.89';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -4023,15 +4023,21 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
   function modelTriggerMatches(trigger, target) {
     return modelControlStrings(trigger).some(value => modelValueMatches(value, target));
   }
-  function composerSelectedReasoningLabel(trigger) {
+  function composerPickerValue(trigger) {
     return normalize(trigger?.innerText || trigger?.textContent || '')
       .replace(/^(?:Thinking effort|思考强度)\s*/i, '').trim();
   }
+  function composerSelectedReasoningLabel(trigger) {
+    return composerPickerValue(trigger)
+      .replace(/^(?:GPT-)?(?:5\.6(?:\s*Sol)?|5\.5|6)\s*/i, '').trim();
+  }
   function closedComposerModelHint(trigger) {
     if (!trigger || !visible(trigger) || trigger.getAttribute('aria-expanded') === 'true') return null;
-    const text = composerSelectedReasoningLabel(trigger);
-    if (/\b5\.6\b/i.test(text)) return 'gpt-5.6-sol';
-    if (/\b5\.5\b/i.test(text)) return 'gpt-5.5';
+    const text = composerPickerValue(trigger);
+    const reasoning = '(?:即时|中|高|极高|Pro|Instant|Medium|High|Extra High)';
+    if (new RegExp('^(?:GPT-)?5\\.6(?:\\s*Sol)?(?:\\s*' + reasoning + ')?$', 'i').test(text)) return 'gpt-5.6-sol';
+    if (new RegExp('^(?:GPT-)?5\\.5(?:\\s*' + reasoning + ')?$', 'i').test(text)) return 'gpt-5.5';
+    if (new RegExp('^(?:GPT-)?6(?:\\s*' + reasoning + ')?$', 'i').test(text)) return 'gpt-6';
     // On current ChatGPT a ready trigger contains reasoning strength only
     // for GPT-6. Empty or loading controls never imply GPT-6.
     if (/^(?:即时|中|高|极高|Pro|Instant|Medium|High|Extra High)$/i.test(text)) return 'gpt-6';

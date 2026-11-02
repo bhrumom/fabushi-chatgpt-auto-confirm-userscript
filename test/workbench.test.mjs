@@ -628,7 +628,12 @@ async function liveNestedModelFixture(initialLabel='GPT-6', options={}) {
       state.triggerClicks++;state.triggerTimes.push(Date.now());
       const open=trigger.getAttribute('aria-expanded')==='true';
       trigger.setAttribute('aria-expanded',open?'false':'true');trigger.dataset.state=open?'closed':'open';
-      if(open){menu()?.remove();if(options.realTriggerLabels)trigger.textContent=state.selected==='GPT-6'?'Medium':shortLabel(state.selected)+' Medium';return;}
+      if(open){
+        menu()?.remove();
+        if(options.englishTriggerLabels)trigger.textContent='Thinking effort'+(state.selected==='GPT-6'?'':shortLabel(state.selected))+(options.reasoningValue||'Pro');
+        else if(options.realTriggerLabels)trigger.textContent=state.selected==='GPT-6'?'Medium':shortLabel(state.selected)+' Medium';
+        return;
+      }
       renderParent();
     });
     window.__liveNestedModelState=state;
@@ -670,11 +675,79 @@ test('closed English picker labels require exact selected values, never a generi
     for(const value of ['Thinking effortPro','Thinking effort Pro','Thinking effort\nPro','思考强度Pro','Thinking effortMedium']){
       trigger.textContent=value;assert.equal(h.closedComposerModelHint(trigger),'gpt-6',value);
     }
-    for(const value of ['Thinking effort','Thinking effortLoading','Thinking effortPro unavailable','Thinking effortUnknown','']){
+    for(const value of ['Thinking effort','Thinking effortLoading','Thinking effortPro unavailable','Thinking effortUnknown','Thinking effort5.6Pro unavailable','Thinking effort5.5MediumUnknown','Thinking effort5.60 Pro','']){
       trigger.textContent=value;assert.equal(h.closedComposerModelHint(trigger),null,value);
     }
     trigger.textContent='Thinking effortPro';trigger.setAttribute('aria-expanded','true');
     assert.equal(h.closedComposerModelHint(trigger),null,'open menus never provide a closed-state hint');
+  }finally{h.pause();dom.window.close();}
+});
+
+const pickerRoundtripModels=[['GPT-6','gpt-6'],['GPT-5.6 Sol','gpt-5.6-sol'],['GPT-5.5','gpt-5.5']];
+for(const [startLabel,startKey] of pickerRoundtripModels){
+  for(const [otherLabel,otherKey] of pickerRoundtripModels.filter(([label])=>label!==startLabel)){
+    for(const [reasoningValue,reasoningPreset] of [['Pro',4],['Medium',1]]){
+      test(`English picker switches ${startLabel} → ${otherLabel} → ${startLabel} with ${reasoningValue}`,async()=>{
+        const {h,w,dom,state}=await liveNestedModelFixture(startLabel,{englishTriggerLabels:true,reasoningValue});
+        try {
+          const task={id:'roundtrip-'+startKey+'-'+otherKey+'-'+reasoningPreset,ownerTabId:h.getTabId(),
+            token:'roundtrip-intent',goalRevision:0,phase:'work',round:1,state:'sending',
+            modelPreset:startKey,reasoningPreset,messages:[]};
+          h.data.tasks.push(task);h.setRunningForTest(true);
+          const trigger=w.document.querySelector('[data-codex-intelligence-trigger]');
+          trigger.setAttribute('aria-label','Select ChatGPT model');
+          for(const [label,key] of [[startLabel,startKey],[otherLabel,otherKey],[startLabel,startKey]]){
+            task.modelPreset=key;
+            assert.equal(await h.ensureTaskModelPreset(task,null),true,label);
+            assert.equal(state.selected,label);
+            assert.equal(task.modelPresetConfirmedKey,key);
+            assert.equal(h.closedComposerModelHint(trigger),key);
+            const afterModel=[state.triggerClicks,state.submenuClicks,state.targetClicks];
+            assert.equal(await h.ensureTaskReasoningPreset(task,null),true);
+            assert.equal(task.reasoningPresetConfirmedIndex,reasoningPreset);
+            for(let repeat=0;repeat<2;repeat++){
+              assert.equal(await h.ensureTaskModelPreset(task,null),true);
+              assert.equal(await h.ensureTaskReasoningPreset(task,null),true);
+            }
+            assert.deepEqual([state.triggerClicks,state.submenuClicks,state.targetClicks],afterModel,
+              'same verified leg cannot reopen model or reasoning menus');
+            assert.equal(task.modelPreset,key);
+            assert.equal(task.reasoningPreset,reasoningPreset);
+          }
+          assert.equal(state.targetClicks,2,'each actual model change clicks exactly once');
+          assert.equal(task.token,'roundtrip-intent');
+        }finally{h.pause();dom.window.close();}
+      });
+    }
+  }
+}
+
+for(const [label,key] of pickerRoundtripModels){
+  for(const failure of ['missingTarget','disabledTarget','ignoredTarget']){
+    test(`model switching fails closed for ${label}: ${failure}`,async()=>{
+      const initial=label==='GPT-6'?'GPT-5.6 Sol':'GPT-6';
+      const {h,w,dom,state}=await liveNestedModelFixture(initial,{[failure]:label,englishTriggerLabels:true});
+      try {
+        const task={id:'unavailable-'+key+'-'+failure,ownerTabId:h.getTabId(),token:'unavailable-intent',
+          phase:'work',round:1,state:'sending',modelPreset:key,messages:[]};
+        h.data.tasks.push(task);h.setRunningForTest(true);
+        let sends=0;w.document.querySelector('[data-testid="send-button"]').onclick=()=>sends++;
+        assert.equal(await h.ensureTaskModelPreset(task,null),false);
+        assert.equal(state.selected,initial);
+        assert.notEqual(task.modelPresetConfirmedKey,key);
+        assert.equal(sends,0);
+      }finally{h.pause();dom.window.close();}
+    });
+  }
+}
+
+test('supported compact model markers separate exact reasoning values from their presentation prefix',async()=>{
+  const {h,w,dom}=await fixture('<main><button data-codex-intelligence-trigger="true" aria-haspopup="menu" aria-expanded="false" data-selected-reasoning-effort="medium"></button></main>');
+  try {
+    const trigger=w.document.querySelector('button');
+    for(const [value,key] of [['Thinking effort5.6Pro','gpt-5.6-sol'],['Thinking effort5.6 SolMedium','gpt-5.6-sol'],['Thinking effort5.5Medium','gpt-5.5'],['思考强度5.5 Pro','gpt-5.5'],['Thinking effortGPT-6Pro','gpt-6']]){
+      trigger.textContent=value;assert.equal(h.closedComposerModelHint(trigger),key,value);
+    }
   }finally{h.pause();dom.window.close();}
 });
 
@@ -7388,8 +7461,8 @@ test('marker-virtualized final without a structural response key stays fail-clos
 });
 
 test('the packaged userscript declares its stable remote update and download URLs',()=>{
-  assert.match(source,/^\/\/ @version\s+2.10.88$/m);
-  assert.match(source,/const VERSION = '2.10.88'/);
+  assert.match(source,/^\/\/ @version\s+2.10.89$/m);
+  assert.match(source,/const VERSION = '2.10.89'/);
   assert.match(source,/^\/\/ @run-at\s+document-start$/m);
   assert.match(source,/const STALLED_REFRESH_MS = 5 \* 60 \* 1000/);
   assert.match(source,/const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 \* 1000/);

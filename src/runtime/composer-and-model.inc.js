@@ -157,15 +157,21 @@
   function modelTriggerMatches(trigger, target) {
     return modelControlStrings(trigger).some(value => modelValueMatches(value, target));
   }
-  function composerSelectedReasoningLabel(trigger) {
+  function composerPickerValue(trigger) {
     return normalize(trigger?.innerText || trigger?.textContent || '')
       .replace(/^(?:Thinking effort|思考强度)\s*/i, '').trim();
   }
+  function composerSelectedReasoningLabel(trigger) {
+    return composerPickerValue(trigger)
+      .replace(/^(?:GPT-)?(?:5\.6(?:\s*Sol)?|5\.5|6)\s*/i, '').trim();
+  }
   function closedComposerModelHint(trigger) {
     if (!trigger || !visible(trigger) || trigger.getAttribute('aria-expanded') === 'true') return null;
-    const text = composerSelectedReasoningLabel(trigger);
-    if (/\b5\.6\b/i.test(text)) return 'gpt-5.6-sol';
-    if (/\b5\.5\b/i.test(text)) return 'gpt-5.5';
+    const text = composerPickerValue(trigger);
+    const reasoning = '(?:即时|中|高|极高|Pro|Instant|Medium|High|Extra High)';
+    if (new RegExp('^(?:GPT-)?5\\.6(?:\\s*Sol)?(?:\\s*' + reasoning + ')?$', 'i').test(text)) return 'gpt-5.6-sol';
+    if (new RegExp('^(?:GPT-)?5\\.5(?:\\s*' + reasoning + ')?$', 'i').test(text)) return 'gpt-5.5';
+    if (new RegExp('^(?:GPT-)?6(?:\\s*' + reasoning + ')?$', 'i').test(text)) return 'gpt-6';
     // On current ChatGPT a ready trigger contains reasoning strength only
     // for GPT-6. Empty or loading controls never imply GPT-6.
     if (/^(?:即时|中|高|极高|Pro|Instant|Medium|High|Extra High)$/i.test(text)) return 'gpt-6';
