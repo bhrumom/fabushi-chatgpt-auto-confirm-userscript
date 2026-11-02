@@ -36,6 +36,113 @@ async function createHarness(body) {
   return { dom, window, hooks: window.__fabushiFinalReplyTestHooks };
 }
 
+async function manualReportHarness() {
+  const harness=await createHarness(`<main>
+    <article><div data-message-author-role="user" data-message-id="original">任务 [Fabushi:manual-report-token]</div></article>
+    <article><div data-message-author-role="assistant">Earlier failure</div></article>
+    <article id="manual-user"><div data-message-author-role="user" data-message-id="manual">继续完成所有</div></article>
+    <article id="manual-assistant"><div data-message-author-role="assistant" data-message-id="report"><div class="markdown" data-is-streaming="false"></div></div></article>
+    </main><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button">发送</button></form>`);
+  const {window:w,hooks:h}=harness;
+  w.history.replaceState({},'', '/c/manual-report');
+  const task={id:'manual-report',ownerTabId:h.tabId,url:w.location.href,token:'manual-report-token',
+    phase:'work',round:1,state:'waiting',mode:'goal',goal:'完成目标',goalRevision:0,dispatchGoalRevision:0,
+    attempted:false,messages:[],attachments:[]};
+  const report={taskId:task.id,round:1,status:'next',summary:'已验证本轮改动',next:'读取当前 Actions 结果并修复失败'};
+  const body=w.document.querySelector('#manual-assistant .markdown');
+  body.textContent=JSON.stringify(report);
+  h.data.tasks.push(task);h.data.requireAuthorizationBeforeNewChat=true;h.setRunningForTest();
+  return {...harness,task,report,body};
+}
+
+for(const mode of ['goal','once']) {
+  test(`manual continuation with zero recorded sends settles exact current report in ${mode} mode`,async()=>{
+    const {dom,window:w,hooks:h,task,report}=await manualReportHarness();
+    try {
+      task.mode=mode;
+      let sends=0;w.document.querySelector('[data-testid="send-button"]').onclick=()=>sends++;
+      assert.equal(h.latestTurn(task).owned,false,'normal ownership remains strict');
+      let candidate=h.taskTurnForInspection(task);
+      assert.equal(candidate.manualContinuationReport,true);
+      assert.equal(candidate.owned,true);
+      assert.equal(candidate.final,true);
+      Object.assign(task,JSON.parse(JSON.stringify(task)));
+      assert.equal(h.taskTurnForInspection(task).owned,true,'reload derives current DOM evidence');
+      await h.inspect(task,null);
+      assert.equal(task.state,'waiting','report must stabilize first');
+      assert.ok(task.liveFinalReportSince>0);
+      task.liveFinalReportSince=Date.now()-5000;
+      await h.inspect(task,null);
+      assert.equal(task.next,report.next);
+      assert.equal(task.state,mode==='goal'?'queued':'done');
+      assert.equal(task.round,mode==='goal'?2:1);
+      assert.equal(sends,0,'settlement must never send a recovery prompt');
+      assert.equal(task.continuationCount||0,0);
+      assert.equal(task.authorizationSeenAt||0,0,'no authorization is invented');
+      if(mode==='goal')assert.match(h.workPrompt(task),/读取当前 Actions 结果并修复失败/);
+    } finally {dom.window.close();}
+  });
+}
+
+for(const scenario of ['wrong-task','wrong-round','partial','prose','intervening-user','foreign-marker',
+  'different-latest-user','old-report','missing-marker','other-route','other-owner','other-workspace',
+  'paused','terminal','unsent','stop','streaming','approval','settlement']) {
+  test(`manual continuation report adoption rejects ${scenario}`,async()=>{
+    const {dom,window:w,hooks:h,task,report,body}=await manualReportHarness();
+    try {
+      if(scenario==='wrong-task')body.textContent=JSON.stringify({...report,taskId:'other'});
+      if(scenario==='wrong-round')body.textContent=JSON.stringify({...report,round:2});
+      if(scenario==='partial')body.textContent=JSON.stringify(report).slice(0,-1);
+      if(scenario==='prose')body.textContent='已完成，请继续';
+      if(scenario==='intervening-user')w.document.querySelector('#manual-user').insertAdjacentHTML('beforebegin','<article><div data-message-author-role="user">另一个问题</div></article>');
+      if(scenario==='foreign-marker')w.document.querySelector('#manual-user').insertAdjacentHTML('beforebegin','<article><div data-message-author-role="user">其他任务 [Fabushi:foreign]</div></article>');
+      if(scenario==='different-latest-user')w.document.querySelector('#manual-user div').textContent='请解释别的问题';
+      if(scenario==='old-report')w.document.querySelector('main').append(w.document.querySelector('#manual-user'));
+      if(scenario==='missing-marker')w.document.querySelector('[data-message-id="original"]').remove();
+      if(scenario==='other-route')w.history.replaceState({},'', '/c/other');
+      if(scenario==='other-owner')h.data.tasks.push({...task,id:'other',token:'other-token'});
+      if(scenario==='other-workspace')task.ownerTabId='foreign-workspace';
+      if(scenario==='paused')task.state='paused';
+      if(scenario==='terminal')task.state='done';
+      if(scenario==='unsent')task.attempted=true;
+      if(scenario==='stop')w.document.body.insertAdjacentHTML('beforeend','<button aria-label="停止生成"></button>');
+      if(scenario==='streaming')body.setAttribute('data-is-streaming','true');
+      if(scenario==='approval')w.document.body.insertAdjacentHTML('beforeend','<section data-testid="authorization-card"><button>拒绝</button><button>允许一次</button><button aria-haspopup="menu">更多</button></section>');
+      if(scenario==='settlement')Object.assign(task,{approvalSettlementUntil:Date.now()+60000,
+        approvalSettlementURL:task.url,approvalSettlementToken:task.token,
+        approvalSettlementPhase:task.phase,approvalSettlementRound:task.round});
+      assert.equal(h.taskTurnForInspection(task).owned,false);
+    } finally {dom.window.close();}
+  });
+}
+
+test('a new manual boundary revokes report adoption, while repeated exact continuations remain eligible',async()=>{
+  const {dom,window:w,hooks:h,task}=await manualReportHarness();
+  try {
+    w.document.querySelector('#manual-user').insertAdjacentHTML('beforebegin','<article><div data-message-author-role="user">继续完成所有，按模板回复</div></article>');
+    assert.equal(h.taskTurnForInspection(task).owned,true);
+    w.document.querySelector('main').insertAdjacentHTML('beforeend','<article><div data-message-author-role="user">现在问另一个问题</div></article>');
+    assert.equal(h.taskTurnForInspection(task).owned,false);
+  } finally {dom.window.close();}
+});
+
+test('manual continuation accepts the current content-search renderer without adopting its shared user container',async()=>{
+  const {dom,window:w,hooks:h,task,report}=await manualReportHarness();
+  try {
+    w.document.querySelector('main').innerHTML=`<div data-content-search-turn-key="initial">
+      <div data-content-search-unit-key="initial:user"><div data-user-message-bubble="true">任务 [Fabushi:manual-report-token]</div></div>
+      </div><div data-content-search-turn-key="manual">
+      <div data-content-search-unit-key="manual:user"><div data-user-message-bubble="true">继续完成所有</div></div>
+      <div data-content-search-unit-key="manual:assistant"><div class="markdown"></div></div>
+      <button aria-label="复制回复"></button></div>`;
+    w.document.querySelector('.markdown').textContent=JSON.stringify(report);
+    const candidate=h.taskTurnForInspection(task);
+    assert.equal(candidate.owned,true);
+    assert.equal(candidate.manualContinuationReport,true);
+    assert.equal(candidate.text,JSON.stringify(report));
+  } finally {dom.window.close();}
+});
+
 test('Work prompt owns the final report contract and no planner prompt remains in runtime', async () => {
   const { dom, hooks } = await createHarness('<main></main>');
   try {
