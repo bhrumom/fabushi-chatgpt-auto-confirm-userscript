@@ -34,5 +34,9 @@ Use deterministic DOM/parser regressions and the repository's existing Actions p
 
 | Requirement | Status | Evidence |
 | --- | --- | --- |
-| R1–R4 | pending | Implementation and regressions pending. |
-| R5 | pending | Exact-head Actions and live browser check pending. |
+| R1 | passed | `textTail()` reverse traversal and wide-sibling regression passed in PR Test 41479882568. |
+| R2 | passed | Recovery checks at most the first, eight latest and four current-task candidate starts, each within 128,000 characters; repeated-example regression passed in PR Test 41479882568. |
+| R3 | passed | Existing ownership/authorization/report regressions and new foreign/partial checks passed in PR Test 41479882568. |
+| R4 | passed | Both new regressions passed; Test 41479882568: 705 total, 698 passed, 0 failed, 7 skipped. |
+| R5, Actions | passed for source head | Source head `25c7676` passed generated bundle, syntax and full tests in Test 41479882568; this compliance note is a documentation-only follow-up. |
+| R5, live | blocked | The original Chrome tab remains black and unresponsive before installation; causal attribution and post-install responsiveness still require live checks. |
