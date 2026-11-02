@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.87
+// @version      2.10.88
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -68,7 +68,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.87';
+  const VERSION = '2.10.88';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -4023,9 +4023,13 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
   function modelTriggerMatches(trigger, target) {
     return modelControlStrings(trigger).some(value => modelValueMatches(value, target));
   }
+  function composerSelectedReasoningLabel(trigger) {
+    return normalize(trigger?.innerText || trigger?.textContent || '')
+      .replace(/^(?:Thinking effort|思考强度)\s*/i, '').trim();
+  }
   function closedComposerModelHint(trigger) {
     if (!trigger || !visible(trigger) || trigger.getAttribute('aria-expanded') === 'true') return null;
-    const text = normalize(trigger.innerText || trigger.textContent || '');
+    const text = composerSelectedReasoningLabel(trigger);
     if (/\b5\.6\b/i.test(text)) return 'gpt-5.6-sol';
     if (/\b5\.5\b/i.test(text)) return 'gpt-5.5';
     // On current ChatGPT a ready trigger contains reasoning strength only
@@ -4423,7 +4427,7 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
       // Strength item may itself be a toggle, so activate it at most once.
       if (!strengthActivated && !modelRadioOptions().length) {
         const strength = nodes('[role="menuitem"]').find(node => pickerControlVisible(node) && enabled(node)
-          && /^(?:强度|Strength)$/i.test(normalize(node.getAttribute('aria-label') || label(node))));
+          && /^(?:强度|Strength|Power)$/i.test(normalize(node.getAttribute('aria-label') || label(node))));
         if (strength) { activateControl(strength); strengthActivated = true; }
       }
       if (Date.now() >= deadline) return null;
@@ -4440,13 +4444,15 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
       task.updatedAt = Date.now();
       save();
     }
-    // Closed-trigger text is a cheap no-mutation fast path. It is not used for
-    // Pro vs Medium identity because both can expose effort=medium.
-    const closedText = normalize(trigger.innerText || trigger.textContent);
+    // Pro and Medium share effort=medium. Only an exact selected-value label
+    // together with that effort disambiguates them without reopening a menu.
+    const closedText = composerSelectedReasoningLabel(trigger);
     const effort = trigger.getAttribute('data-selected-reasoning-effort') || '';
     const unambiguousMatch = target === 0 ? effort === 'none'
       : target === 2 ? effort === 'high'
       : target === 3 ? effort === 'max'
+      : target === 4 ? effort === 'medium' && /^Pro$/i.test(closedText)
+      : target === 1 ? effort === 'medium' && /^(?:中|Medium)$/i.test(closedText)
       : false;
     if (unambiguousMatch && trigger.getAttribute('aria-expanded') !== 'true') {
       task.reasoningPresetConfirmedAt = Date.now();
