@@ -347,13 +347,15 @@
       state(task, 'waiting', '正在等待切换到当前任务会话；不会读取其他任务的页面内容。');
       return;
     }
-    clearActiveTaskComposerDraft(task, signal);
+    const responseErrorTurn = taskTurnForInspection(task);
+    const responseErrorRecovery = responseErrorTurn.owned && responseFailureNotice(responseErrorTurn);
+    if (!responseErrorRecovery) clearActiveTaskComposerDraft(task, signal);
     if (authorizationContinuationEnabled(task) && !conversationAuthorizationSeen(task)
       && settleCurrentReportBeforeFreshHandoff(task)) return;
     if (revealCurrentCollapsedMessage(task, signal)) return;
     if (revealStoppedResponseActivity(task, signal)) return;
-    if (await recoverStoppedConversation(task, signal)) return;
-    if (task.authorizationRequiredContinuation) {
+    if (!responseErrorRecovery && await recoverStoppedConversation(task, signal)) return;
+    if (!responseErrorRecovery && task.authorizationRequiredContinuation) {
       cards({ wide:true });
       if (authorizationContinuationEnabled(task) && !conversationAuthorizationSeen(task)
         && !authorizationGateExhausted(task)) {
@@ -507,6 +509,22 @@
     if (messagesMountedForLoadFailure && clearConversationLoadFailureState(task)) {
       task.updatedAt = Date.now();
       save();
+    }
+    // This explicit native response error needs a model change on the same
+    // route, including conversations whose earlier authorization was resolved.
+    if (pageBelongsToTask && routeOwned && turn.owned && !foreignTask && !otherRouteOwner
+      && !task.attempted && task.state !== 'paused' && !terminal.has(task.state)
+      && !stopPresent && !observedActivityStreaming && !approvalBlocking
+      && !currentBlocker && !currentRateLimit && !structuredWorkFinalFinal && !visibleWorkFinalReport
+      && responseFailureNotice(turn, getPageUiRecords)
+      && authorizationContinuationAttempts(task) < MAX_SAME_SESSION_CONTINUATIONS) {
+      const gate = interruptedFreshHandoffApprovalGate(task, liveURL, now);
+      if (gate.state === 'ready') {
+        await continueWithoutAuthorization(task, signal, now, { responseFailure:true, endedConfirmed:true });
+      } else if (gate.started) {
+        log(task, '检测到 ChatGPT 回复报错；完成授权安全复核后，将切换为极高档位并在原会话发送“继续完成所有”。');
+      }
+      return;
     }
     // A visible connection-interrupted product notice is actionable recovery
     // evidence for this already-bound exact route. Handle it before inherited
