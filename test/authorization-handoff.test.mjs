@@ -113,12 +113,14 @@ test('response error detector rejects quotes, user content, workbench and earlie
     const error='Hmm...something seems to have gone wrong.';
     for(const html of [`<blockquote>${error}</blockquote>`,`<pre>${error}</pre>`,`<code>${error}</code>`,`We saw ${error} previously.`]) {
       article.innerHTML=html;
-      assert.equal(h.responseFailureNotice(h.latestTurn()),false);
+      assert.equal(h.responseFailureNotice({...h.latestTurn(),owned:true}),false);
     }
     article.textContent='当前正常回复';
     w.document.querySelector('[data-message-author-role="user"]').textContent=error;
     w.document.querySelector('main').insertAdjacentHTML('afterbegin',`<article data-message-author-role="assistant">${error}</article>`);
-    assert.equal(h.responseFailureNotice(h.latestTurn()),false);
+    assert.equal(h.responseFailureNotice({...h.latestTurn(),owned:true}),false);
+    article.insertAdjacentHTML('beforebegin',`<article data-message-author-role="assistant">${error}</article>`);
+    assert.equal(h.responseFailureNotice({...h.latestTurn(),owned:true}),false,'a prior assistant segment cannot trigger recovery');
     article.textContent=error;
     assert.equal(h.responseFailureNotice({...h.latestTurn(),owned:true}),true);
   } finally {dom.window.close();}

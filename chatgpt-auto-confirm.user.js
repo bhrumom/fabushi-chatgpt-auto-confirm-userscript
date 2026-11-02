@@ -5301,7 +5301,8 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
   const connectionInterruptedPattern = /^(?:连接已中断[，,。.!；;：:\s]*正在等待完整(?:回复|答复)[。.!]?|connection (?:was |has been )?interrupted[.!]?\s*(?:we(?:'re| are) )?waiting for (?:the )?(?:full|complete) (?:response|answer)[.!]?)$/i;
   function responseFailureNotice(turn = null, getPageRecords = pageUiTextRecords) {
     const matches = value => /^Hmm\s*\.{3}\s*something seems to have gone wrong\.?$/i.test(normalize(value));
-    const records = turn?.owned && turn.article ? responseTextNodes(turn) : [];
+    const records = turn?.owned && turn.article
+      ? responseTextNodes(turn).filter(({parent}) => turn.article.contains(parent)) : [];
     return [...records, ...getPageRecords()].some(({parent, direct}) =>
       parent && direct && direct.length <= 100 && visible(parent) && matches(direct));
   }
