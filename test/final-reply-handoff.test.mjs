@@ -108,7 +108,9 @@ for(const scenario of ['wrong-task','wrong-round','partial','prose','intervening
       if(scenario==='stop')w.document.body.insertAdjacentHTML('beforeend','<button aria-label="停止生成"></button>');
       if(scenario==='streaming')body.setAttribute('data-is-streaming','true');
       if(scenario==='approval')w.document.body.insertAdjacentHTML('beforeend','<section data-testid="authorization-card"><button>拒绝</button><button>允许一次</button><button aria-haspopup="menu">更多</button></section>');
-      if(scenario==='settlement'){task.approvalSubmissionAt=Date.now();task.approvalSubmissionURL=task.url;}
+      if(scenario==='settlement')Object.assign(task,{approvalSettlementUntil:Date.now()+60000,
+        approvalSettlementURL:task.url,approvalSettlementToken:task.token,
+        approvalSettlementPhase:task.phase,approvalSettlementRound:task.round});
       assert.equal(h.taskTurnForInspection(task).owned,false);
     } finally {dom.window.close();}
   });
@@ -121,6 +123,23 @@ test('a new manual boundary revokes report adoption, while repeated exact contin
     assert.equal(h.taskTurnForInspection(task).owned,true);
     w.document.querySelector('main').insertAdjacentHTML('beforeend','<article><div data-message-author-role="user">现在问另一个问题</div></article>');
     assert.equal(h.taskTurnForInspection(task).owned,false);
+  } finally {dom.window.close();}
+});
+
+test('manual continuation accepts the current content-search renderer without adopting its shared user container',async()=>{
+  const {dom,window:w,hooks:h,task,report}=await manualReportHarness();
+  try {
+    w.document.querySelector('main').innerHTML=`<div data-content-search-turn-key="initial">
+      <div data-content-search-unit-key="initial:user"><div data-user-message-bubble="true">任务 [Fabushi:manual-report-token]</div></div>
+      </div><div data-content-search-turn-key="manual">
+      <div data-content-search-unit-key="manual:user"><div data-user-message-bubble="true">继续完成所有</div></div>
+      <div data-content-search-unit-key="manual:assistant"><div class="markdown"></div></div>
+      <button aria-label="复制回复"></button></div>`;
+    w.document.querySelector('.markdown').textContent=JSON.stringify(report);
+    const candidate=h.taskTurnForInspection(task);
+    assert.equal(candidate.owned,true);
+    assert.equal(candidate.manualContinuationReport,true);
+    assert.equal(candidate.text,JSON.stringify(report));
   } finally {dom.window.close();}
 });
 
