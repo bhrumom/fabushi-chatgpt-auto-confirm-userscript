@@ -1,6 +1,6 @@
 # Response error → Extra High continuation
 
-Status: active
+Status: completed (implementation delivered in PR; not released or installed)
 Owner: standalone Fabushi userscript
 Last updated: 2026-11-02
 
@@ -28,4 +28,12 @@ User request and live Chrome route /c/6ae7f55e-b63c-83e8-a133-b14b2a8374db; rela
 ## Spec compliance record
 | Requirement / AC | Status | Evidence / reason |
 | --- | --- | --- |
-| R1–R4 / AC1–AC4 | pending | Implementation and Actions verification pending. |
+| R1 / AC1 | passed | Detector regressions reject quotations, user content, earlier turns and earlier assistant segments. Actions 41379425593 on 1394d3d76500f978c611104584f09ff11f16ebb1 passed. |
+| R2 / AC2 | passed | Inspection regressions prove eight-second confirmation, resolved historical authorization and identity/round/route preservation. Existing live-card, final-report and generation regressions pass. |
+| R3 / AC3 | passed | Both switch settings verify Pro → Extra High, menu closure, exact prompt and send ordering, while task.reasoningPreset remains Pro. Missing picker prevents send. |
+| R4 / AC4 | passed | Reload dedupe, three-send cap, pause, Stop, abort, current card, foreign route, draft and model-selection card/draft/route races pass. Full suite: 648 tests, 641 passed, 7 skipped, 0 failed; parity and syntax passed. |
+
+Validation: https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/actions/runs/41379425593
+Delivery: https://github.com/bhrumom/fabushi-chatgpt-auto-confirm-userscript/pull/203
+
+The live manual recovery used the existing installed version: the native model menu read “Extra High，第 4 项，共 5 项”, then the exact user message mounted and “ChatGPT 正在回应”/Stop appeared. This proves the requested immediate action, not installation or runtime acceptance of the new automatic rule. PR source is not merged, released or installed. Subsequent compliance-only documentation does not change the tested runtime/bundle/tests.
