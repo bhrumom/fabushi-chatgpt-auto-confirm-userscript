@@ -28,4 +28,7 @@ Bump to 2.10.91 and generate the bundle; submit source and regressions for Actio
 | Requirement | Status | Evidence |
 | --- | --- | --- |
 | R1–R4 | passed | Report gate and exact-message DOM regressions passed in Actions 41564096404 (including cards, settlement, prior authorization, both switch states and persisted send boundaries). |
-| R5 | blocked | First full run: 730 tests, 721 passed, 7 skipped, 2 legacy fixture failures. Fixture/version corrections submitted; final exact-head Actions pending. |
+| R5 | passed | Actions 41564386118 at 6b3a6aa: bundle parity, syntax and full 730-test suite passed (723 passed, 7 existing skips, 0 failures). Earlier fixture/version failures corrected. Final PR-head validation and delivery evidence are tracked in PR #209. |
+
+## Live action evidence
+The requested exact continuation was sent once through Chrome UI in the original conversation on 2026-11-03; the user message and active response were visible. This manual action is not acceptance of automatic runtime behavior. Installed version was 2.10.90 at inspection; newer installation is tracked separately in PR #209.
