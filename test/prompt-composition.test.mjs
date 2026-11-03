@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import test from 'node:test';
 import {JSDOM} from 'jsdom';
 const source=await fs.readFile(new URL('../chatgpt-auto-confirm.user.js',import.meta.url),'utf8');
-const names='data,tabId,workPrompt,workPromptSections,prepareTaskPrompt,normalizePromptConfig,DEFAULT_EXECUTION_RULES,openPromptComposer,durableWorkbenchSnapshot,durableTaskSnapshot,finish,taskTurnForInspection';
+const names='data,tabId,workPrompt,workPromptSections,prepareTaskPrompt,normalizePromptConfig,DEFAULT_EXECUTION_RULES,openPromptComposer,durableWorkbenchSnapshot,durableTaskSnapshot,finish,inspect,continueWithoutAuthorization,reportHasCloudDelivery,taskTurnForInspection';
 async function fixture(){
  const dom=new JSDOM('<main><article data-message-author-role="user" data-message-id="user">task [Fabushi:prompt-token]</article><article data-message-author-role="assistant" data-message-id="reply"><div id="response">工作完成</div><button aria-label="复制"></button><button aria-label="赞"></button></article></main><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form>',{runScripts:'outside-only',pretendToBeVisual:true,url:'https://chatgpt.com/c/prompt'});
  const w=dom.window;w.Element.prototype.getClientRects=()=>[{width:1,height:1}];
@@ -67,36 +67,49 @@ test('GitHub delivery remains prompt-only and creates no runner-side delivery st
   }
  }finally{dom.window.close();}
 });
-for(const status of ['next','complete'])test(`report without githubDelivery settles normally for ${status}`,async()=>{
+
+const delivery={verified:true,sha:'a'.repeat(40),commitUrl:'https://github.com/example/project/commit/'+'a'.repeat(40)};
+for(const mode of ['goal','once'])for(const status of ['next','complete'])for(const evidence of [undefined,{...delivery,verified:false},{...delivery,sha:'b'.repeat(40)},{...delivery,sha:'short'},delivery])test(`cloud report gate ${mode}/${status}/${JSON.stringify(evidence)}`,async()=>{
  const {dom,h,task}=await fixture();try{
-  task.githubDeliveryRequired=true;
-  task.githubDeliveryPending=true;
-  task.githubDeliveryAttempts=3;
-  const raw=report(task,status);
-  h.finish(task,raw);
-  if(status==='complete'){
-    assert.equal(task.state,'done');
-    assert.equal(task.round,2);
-  }else{
-    assert.equal(task.state,'queued');
-    assert.equal(task.round,3);
-    assert.equal(task.next,'继续实现下一项');
-  }
+  task.mode=mode;task.authorizationSeenURL=task.url;task.authorizationSeenAt=Date.now();
+  h.finish(task,report(task,status,{githubDelivery:evidence}));
+  if(evidence===delivery){assert.equal(task.state,status==='complete'||mode==='once'?'done':'queued');}
+  else {assert.equal(task.state,'waiting');assert.equal(task.round,2);assert.equal(task.url,'https://chatgpt.com/c/prompt');}
  }finally{dom.window.close();}
 });
-test('legacy v2.10.76 GitHub pending fields are behaviorally inert and never project a special wait',async()=>{
- const {dom,h,task}=await fixture();try{
-  Object.assign(task,{githubDeliveryRequired:true,githubDeliveryPending:true,githubDeliveryAttempts:3,githubDeliveryBoundary:'legacy',githubDeliveryReportBoundary:'legacy',githubDeliveryLimitNoted:true});
-  const raw=report(task,'next');
-  h.finish(task,raw);
-  assert.equal(task.state,'queued');
-  assert.equal(task.round,3);
-  assert.equal(task.next,'继续实现下一项');
+for(const enabled of [true,false])test(`missing cloud evidence sends exact prompt once with prior authorization, switch=${enabled}`,async()=>{
+ const {dom,w,h,task}=await fixture();try{
+  h.data.requireAuthorizationBeforeNewChat=enabled;
+  task.authorizationSeenURL=task.url;task.authorizationSeenAt=Date.now();
+  task.authorizationContinuationAttempts=3;task.authorizationContinuationURL=task.url;
+  w.document.getElementById('response').textContent=report(task,'next');
+  let sent=0,submitted='';w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>{sent++;submitted=w.document.querySelector('textarea').value;w.document.querySelector('textarea').value='';});
+  await h.inspect(task,null);task.liveFinalReportSince=Date.now()-5000;
+  await h.inspect(task,null);
+  assert.equal(sent,1);assert.equal(submitted,'继续完成所有，并把工作成果提交到云端');
+  assert.equal(task.round,2);assert.equal(task.url,w.location.href);
+  task.continuationSentAt=Date.now()-120000;
+  await h.inspect(task,null);assert.equal(sent,1);
+  const stored=h.durableTaskSnapshot(task);assert.equal(stored.authorizationContinuationBoundary,task.authorizationContinuationBoundary);
  }finally{dom.window.close();}
 });
-test('source has no local GitHub delivery wait or reminder loop',()=>{
- assert.doesNotMatch(source,/function githubDeliveryEvidence\s*\(/);
- assert.doesNotMatch(source,/function continuePendingGithubDelivery\s*\(/);
- assert.doesNotMatch(source,/等待 GitHub 提交与远端核验证据/);
- assert.doesNotMatch(source,/已在当前会话请求提交 GitHub 并核验证据/);
+for(const guard of ['draft','stop','paused','foreign','card','settlement'])test(`cloud delivery continuation respects ${guard}`,async()=>{
+ const {dom,w,h,task}=await fixture();try{
+  w.document.getElementById('response').textContent=report(task,'complete');
+  if(guard==='draft')w.document.querySelector('textarea').value='用户草稿';
+  if(guard==='stop'){const b=w.document.createElement('button');b.setAttribute('data-testid','stop-button');w.document.body.append(b);}
+  if(guard==='card')w.document.querySelector('main').insertAdjacentHTML('beforeend','<section data-testid="authorization-card"><button>拒绝</button><button>允许一次</button><button aria-haspopup="menu">更多</button></section>');
+  if(guard==='settlement')Object.assign(task,{approvalSettlementUntil:Date.now()+60000,approvalSettlementURL:task.url,approvalSettlementToken:task.token,approvalSettlementPhase:task.phase,approvalSettlementRound:task.round});
+  if(guard==='paused')task.state='paused';
+  if(guard==='foreign')task.ownerTabId='another-tab';
+  let sent=0;w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>sent++);
+  assert.equal(await h.continueWithoutAuthorization(task,null,Date.now(),{cloudDelivery:true}),false);assert.equal(sent,0);
+  if(guard==='draft')assert.equal(w.document.querySelector('textarea').value,'用户草稿');
+ }finally{dom.window.close();}
+});
+test('legacy pending delivery fields cannot override a valid live report',async()=>{
+ const {dom,h,task}=await fixture();try{
+  Object.assign(task,{githubDeliveryPending:true,githubDeliveryAttempts:3});
+  h.finish(task,report(task,'next',{githubDelivery:delivery}));assert.equal(task.state,'queued');assert.equal(task.round,3);
+ }finally{dom.window.close();}
 });

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.90
+// @version      2.10.91
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -68,7 +68,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.90';
+  const VERSION = '2.10.91';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -186,11 +186,12 @@ async function bootstrapAttempt() {
   const CONVERSATION_LOAD_FAILURE_RETRY_MS = 30 * 1000;
   const CONVERSATION_LOAD_FAILURE_REFRESH_LIMIT = 7;
   const ROUTE_RECOVERY_RETRY_INTERVAL_MS = 60 * 1000; // legacy persisted-field compatibility; exhaustion no longer auto-retries.
+  const CLOUD_DELIVERY_CONTINUATION_PROMPT = '继续完成所有，并把工作成果提交到云端';
   const CONTINUATION_PROMPT = '继续完成所有，闭环后按模板输入';
   const CONNECTION_CONTINUATION_PROMPT = '继续完成所有，按模板回复';
   function isContinuationPrompt(value) {
     const prompt = normalize(value);
-    return prompt === CONTINUATION_PROMPT || prompt === CONNECTION_CONTINUATION_PROMPT || prompt === '继续完成所有';
+    return prompt === CLOUD_DELIVERY_CONTINUATION_PROMPT || prompt === CONTINUATION_PROMPT || prompt === CONNECTION_CONTINUATION_PROMPT || prompt === '继续完成所有';
   }
   const MAX_SAME_SESSION_CONTINUATIONS = 3;
   const CONTINUATION_SEND_COOLDOWN_MS = 60 * 1000;
@@ -7650,7 +7651,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     if (conversationAuthorizationSeen(task)) return true;
     task.authorizationSeenURL = url;
     task.authorizationSeenAt = Date.now();
-    log(task, '当前会话已出现授权卡片；已记录会话级接力资格，仍需等待当前授权与回复处理完成。');
+    log(task, '当前会话已出现授权卡片；已记录授权历史；仍需处理当前授权，并检查最终报告中的云端提交证据。');
     save();
     return true;
   }
@@ -7733,33 +7734,35 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
   async function continueWithoutAuthorization(task, signal, now = Date.now(), options = {}) {
     const route = currentConversationURL();
     const responseFailure = options.responseFailure === true;
-    if (responseFailure ? authorizationContinuationAttempts(task) >= MAX_SAME_SESSION_CONTINUATIONS
-      : (!authorizationContinuationEnabled(task) || authorizationGateExhausted(task))) return false;
+    const cloudDelivery = options.cloudDelivery === true;
+    if (!cloudDelivery && (responseFailure ? authorizationContinuationAttempts(task) >= MAX_SAME_SESSION_CONTINUATIONS
+      : (!authorizationContinuationEnabled(task) || authorizationGateExhausted(task)))) return false;
     if (!running || data.autoResume === false || signal?.aborted
       || !route || route !== canonicalConversationURL(task.url) || task.attempted
       || !taskBelongsToTab(task) || terminal.has(task.state) || task.state === 'paused'
       || conversationURLOwner(route, task.id)
       || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))) return false;
     const pending = cards({ wide:true });
-    if (pending.length || (!responseFailure && conversationAuthorizationSeen(task))) return false;
+    if (pending.length || (!responseFailure && !cloudDelivery && conversationAuthorizationSeen(task))) return false;
     if (blocker() || rateLimitNotice() || approvalSettlementActive(task,route,now)) return false;
-    const prompt = responseFailure ? '继续完成所有'
+    const prompt = cloudDelivery ? CLOUD_DELIVERY_CONTINUATION_PROMPT : responseFailure ? '继续完成所有'
       : connectionInterruptionContinuationPending(task) ? CONNECTION_CONTINUATION_PROMPT : CONTINUATION_PROMPT;
     let turn = taskTurnForInspection(task);
     if (responseFailure && (!turn.owned || !responseFailureNotice(turn))) return false;
     // The same exact-route fallback already used by ended-session detection
     // may continue a virtualized marker. It never adopts a foreign marker or
     // turns assistant text into a final result; it only permits this prompt.
-    const routeFallback = !turn.owned && task.authorizationRequiredContinuation
+    const routeFallback = !turn.owned && (task.authorizationRequiredContinuation || cloudDelivery)
       && !taskMarkerUser(task)
       && !conversationRoleNodes('user').some(node => /\[Fabushi:[^\]]+\]/.test(text(node)));
     if (routeFallback) turn = { ...latestTurn(), owned:true };
+    if (cloudDelivery && !reportNeedsCloudDelivery(currentWorkFinalReport(turn.text, task), task)) return false;
     const stop = stopButton();
     if (stop) {
       // Only an explicit product interruption permits stopping a stale Stop
       // control. Ordinary generation remains untouched; persist before click.
       const stopBoundary = recoveryUserBoundaryKey(conversationRoleNodes('user').at(-1));
-      if (turn.owned && connectionInterruptedNotice(turn) && stopBoundary
+      if (!cloudDelivery && turn.owned && connectionInterruptedNotice(turn) && stopBoundary
         && task.authorizationContinuationStopBoundary !== `${route}|${stopBoundary}`) {
         task.authorizationContinuationStopBoundary = `${route}|${stopBoundary}`;
         save();
@@ -7803,13 +7806,20 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     if (!button) return false;
     await delay(300, signal);
     check(signal);
-    if (currentConversationURL() !== route || stopButton() || cards({ wide:true }).length
+    if (!running || data.autoResume === false || task.attempted
+      || currentConversationURL() !== route || stopButton() || cards({ wide:true }).length
       || blocker() || rateLimitNotice() || approvalSettlementActive(task,route,now) || terminal.has(task.state) || task.state === 'paused'
       || !taskBelongsToTab(task) || conversationURLOwner(route, task.id)
       || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))
-      || (responseFailure ? authorizationContinuationAttempts(task) >= MAX_SAME_SESSION_CONTINUATIONS
-        : (!authorizationContinuationEnabled(task) || authorizationGateExhausted(task)))
+      || (!cloudDelivery && (responseFailure ? authorizationContinuationAttempts(task) >= MAX_SAME_SESSION_CONTINUATIONS
+        : (!authorizationContinuationEnabled(task) || authorizationGateExhausted(task))))
       || normalize(input.value || input.textContent) !== prompt) return false;
+    if (cloudDelivery) {
+      const latest = taskTurnForInspection(task);
+      const current = latest.owned ? latest : routeFallback ? latestTurn() : latest;
+      if (!reportNeedsCloudDelivery(currentWorkFinalReport(current.text, task), task)
+        || authorizationContinuationBoundaryKey(task, current, routeFallback) !== boundary) return false;
+    }
     button = sendButtonFor(input);
     if (!button) return false;
     const attempts = authorizationContinuationAttempts(task);
@@ -7825,7 +7835,9 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     observations.delete(task.id);
     save();
     activateControl(button);
-    log(task, responseFailure
+    log(task, cloudDelivery
+      ? `报告缺少有效云端提交证据；已在原会话发送“${prompt}”，等待新的本轮报告。`
+      : responseFailure
       ? `检测到 ChatGPT 回复报错；已确认极高档位，并在原会话发送“${prompt}”（第 ${task.authorizationContinuationAttempts}/3 次）。`
       : `当前会话尚未出现授权卡片；已在原会话发送“${prompt}”（第 ${task.authorizationContinuationAttempts}/3 次），等待执行与授权；本次结束仍无授权且已满 3 次时新开会话。`);
     return true;
@@ -8580,7 +8592,8 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     try {
       report = JSON.parse(source);
     } catch (error) {
-      report = recoverWorkFinalReport(source, task);
+      try { report = JSON.parse(source.slice(source.indexOf('{'), source.lastIndexOf('}') + 1)); }
+      catch { report = recoverWorkFinalReport(source, task); }
       if (!report) throw workFinalReportParseError('工作最终报告 JSON 无法解析；插件将有限重开工作最终报告会话，不会重复执行 Work。', error);
     }
     if (!report || typeof report !== 'object' || Array.isArray(report)
@@ -8680,12 +8693,28 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     save();
     return 'queued';
   }
+  function reportHasCloudDelivery(report) {
+    const delivery = report?.githubDelivery;
+    if (delivery?.verified !== true || typeof delivery.sha !== 'string'
+      || !/^[a-f0-9]{40}$/i.test(delivery.sha) || typeof delivery.commitUrl !== 'string') return false;
+    const match = /^https:\/\/github\.com\/[^/\s?#]+\/[^/\s?#]+\/commit\/([a-f0-9]{40})$/i.exec(delivery.commitUrl);
+    return Boolean(match && match[1].toLowerCase() === delivery.sha.toLowerCase());
+  }
+  function reportNeedsCloudDelivery(report, task) {
+    return Boolean(report && Number(task.dispatchGoalRevision || 0) === Number(task.goalRevision || 0)
+      && !reportHasCloudDelivery(report));
+  }
   function finish(task, reply) {
     const validReport = currentWorkFinalReport(reply, task);
     if (approvalSettlementActive(task, canonicalConversationURL(task.url))) return;
     if (requireConversationAuthorization(task, '当前会话已给出最终回复', {skipHistoricalRequirement:Boolean(validReport)})) return;
     if (!validReport && authorizationGateExhausted(task)) {
       queueInterruptedFreshRetry(task, '当前会话已继续 3 次仍未出现授权卡片', Date.now(), null, { allowExactRouteFallback:true, recoveryLabel:'无授权卡三次继续上限', historyReason:'authorization-continuation-limit' });
+      return;
+    }
+    if (reportNeedsCloudDelivery(validReport, task)) {
+      state(task, 'waiting', '报告尚未提供本轮成果已提交云端的有效证据；将在原会话继续要求提交。');
+      save();
       return;
     }
     task.preview = '';
@@ -8842,7 +8871,29 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     }
     const responseErrorTurn = taskTurnForInspection(task);
     const responseErrorRecovery = responseErrorTurn.owned && responseFailureNotice(responseErrorTurn);
-    if (!responseErrorRecovery) clearActiveTaskComposerDraft(task, signal);
+    const ownedDeliveryTurn = responseErrorTurn;
+    const deliveryTurn = ownedDeliveryTurn.owned ? ownedDeliveryTurn
+      : !conversationRoleNodes('user').some(node => /\[Fabushi:[^\]]+\]/.test(text(node))) ? latestTurn() : ownedDeliveryTurn;
+    const deliveryReport = currentWorkFinalReport(deliveryTurn.text, task);
+    if (!responseErrorRecovery && !reportNeedsCloudDelivery(deliveryReport, task)) clearActiveTaskComposerDraft(task, signal);
+    if (reportNeedsCloudDelivery(deliveryReport, task)
+      && !stopButton() && !cards({wide:true}).length && !approvalSettlementActive(task, liveURL)) {
+      if (terminal.has(task.state) || task.state === 'paused' || task.attempted
+        || !taskBelongsToTab(task) || conversationURLOwner(liveURL, task.id)
+        || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))) return;
+      if (revealCurrentCollapsedMessage(task, signal) || revealStoppedResponseActivity(task, signal)) return;
+      // Stabilize the exact live report before using the existing durable send fence.
+      const identity = JSON.stringify([liveURL, task.id, task.round, deliveryTurn.text]);
+      const now = Date.now();
+      if (task.liveFinalReportIdentity !== identity || !task.liveFinalReportSince) {
+        task.liveFinalReportIdentity = identity;
+        task.liveFinalReportSince = now;
+        finish(task, deliveryTurn.text);
+      } else if (now - task.liveFinalReportSince >= FINAL_REPLY_STABILITY_MS) {
+        await continueWithoutAuthorization(task, signal, now, {cloudDelivery:true});
+      }
+      return;
+    }
     if (authorizationContinuationEnabled(task) && !conversationAuthorizationSeen(task)
       && settleCurrentReportBeforeFreshHandoff(task)) return;
     if (revealCurrentCollapsedMessage(task, signal)) return;
@@ -10674,8 +10725,8 @@ NaN
     const authGateLabel=element('div','','handoff-switch');
     authGateLabel.append(element('strong','授权卡片接力'),authGateState,authGateOptions);
     const authGateBar=element('section','','handoff-control'); authGateBar.setAttribute('aria-label','授权卡片接力设置');
-    authGateBar.append(authGateLabel,element('small','开启：无授权先继续，最多 3 次后新开。关闭：普通结束和连接中断均直接接力，不因缺少授权卡片续发。'));
-    authGateLabel.title='开启后，无授权卡片时在原会话最多发送 3 次继续指令，仍无授权再新开；关闭后，普通结束和连接中断均直接接力。两种状态都先处理当前授权卡片；有效最终报告完整读取后快速复核并推进，后台确认不再按普通等待周期延后。';
+    authGateBar.append(authGateLabel,element('small','开启：无授权先继续，最多 3 次后新开。关闭：普通结束和连接中断均直接接力，不因缺少授权卡片续发。两种状态下，最终报告缺少云端提交证据时，均在原会话继续要求提交。'));
+    authGateLabel.title='开启后，无授权卡片时在原会话最多发送 3 次继续指令，仍无授权再新开；关闭后，普通结束和连接中断均直接接力。两种状态都先处理当前授权卡片；最终报告须包含有效云端提交证据，否则在原会话发送“继续完成所有，并把工作成果提交到云端”；有效报告完整读取后快速复核并推进，后台确认不再按普通等待周期延后。';
     const submit = element('button','↑','send'); submit.type='submit'; submit.setAttribute('aria-label','发送任务');
     const modelScopeHint = element('small','','model-scope-hint');
     controls.append(select,modelSelect,reasoningSelect,autoLabel,submit); compose.append(input,attachmentBox,controls,modelScopeHint); chat.append(authGateBar,settings,feed,notice,compose); desk.append(sidebar,chat);

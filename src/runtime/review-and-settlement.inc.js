@@ -99,7 +99,8 @@
     try {
       report = JSON.parse(source);
     } catch (error) {
-      report = recoverWorkFinalReport(source, task);
+      try { report = JSON.parse(source.slice(source.indexOf('{'), source.lastIndexOf('}') + 1)); }
+      catch { report = recoverWorkFinalReport(source, task); }
       if (!report) throw workFinalReportParseError('工作最终报告 JSON 无法解析；插件将有限重开工作最终报告会话，不会重复执行 Work。', error);
     }
     if (!report || typeof report !== 'object' || Array.isArray(report)
@@ -199,12 +200,28 @@
     save();
     return 'queued';
   }
+  function reportHasCloudDelivery(report) {
+    const delivery = report?.githubDelivery;
+    if (delivery?.verified !== true || typeof delivery.sha !== 'string'
+      || !/^[a-f0-9]{40}$/i.test(delivery.sha) || typeof delivery.commitUrl !== 'string') return false;
+    const match = /^https:\/\/github\.com\/[^/\s?#]+\/[^/\s?#]+\/commit\/([a-f0-9]{40})$/i.exec(delivery.commitUrl);
+    return Boolean(match && match[1].toLowerCase() === delivery.sha.toLowerCase());
+  }
+  function reportNeedsCloudDelivery(report, task) {
+    return Boolean(report && Number(task.dispatchGoalRevision || 0) === Number(task.goalRevision || 0)
+      && !reportHasCloudDelivery(report));
+  }
   function finish(task, reply) {
     const validReport = currentWorkFinalReport(reply, task);
     if (approvalSettlementActive(task, canonicalConversationURL(task.url))) return;
     if (requireConversationAuthorization(task, '当前会话已给出最终回复', {skipHistoricalRequirement:Boolean(validReport)})) return;
     if (!validReport && authorizationGateExhausted(task)) {
       queueInterruptedFreshRetry(task, '当前会话已继续 3 次仍未出现授权卡片', Date.now(), null, { allowExactRouteFallback:true, recoveryLabel:'无授权卡三次继续上限', historyReason:'authorization-continuation-limit' });
+      return;
+    }
+    if (reportNeedsCloudDelivery(validReport, task)) {
+      state(task, 'waiting', '报告尚未提供本轮成果已提交云端的有效证据；将在原会话继续要求提交。');
+      save();
       return;
     }
     task.preview = '';
@@ -361,7 +378,29 @@
     }
     const responseErrorTurn = taskTurnForInspection(task);
     const responseErrorRecovery = responseErrorTurn.owned && responseFailureNotice(responseErrorTurn);
-    if (!responseErrorRecovery) clearActiveTaskComposerDraft(task, signal);
+    const ownedDeliveryTurn = responseErrorTurn;
+    const deliveryTurn = ownedDeliveryTurn.owned ? ownedDeliveryTurn
+      : !conversationRoleNodes('user').some(node => /\[Fabushi:[^\]]+\]/.test(text(node))) ? latestTurn() : ownedDeliveryTurn;
+    const deliveryReport = currentWorkFinalReport(deliveryTurn.text, task);
+    if (!responseErrorRecovery && !reportNeedsCloudDelivery(deliveryReport, task)) clearActiveTaskComposerDraft(task, signal);
+    if (reportNeedsCloudDelivery(deliveryReport, task)
+      && !stopButton() && !cards({wide:true}).length && !approvalSettlementActive(task, liveURL)) {
+      if (terminal.has(task.state) || task.state === 'paused' || task.attempted
+        || !taskBelongsToTab(task) || conversationURLOwner(liveURL, task.id)
+        || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))) return;
+      if (revealCurrentCollapsedMessage(task, signal) || revealStoppedResponseActivity(task, signal)) return;
+      // Stabilize the exact live report before using the existing durable send fence.
+      const identity = JSON.stringify([liveURL, task.id, task.round, deliveryTurn.text]);
+      const now = Date.now();
+      if (task.liveFinalReportIdentity !== identity || !task.liveFinalReportSince) {
+        task.liveFinalReportIdentity = identity;
+        task.liveFinalReportSince = now;
+        finish(task, deliveryTurn.text);
+      } else if (now - task.liveFinalReportSince >= FINAL_REPLY_STABILITY_MS) {
+        await continueWithoutAuthorization(task, signal, now, {cloudDelivery:true});
+      }
+      return;
+    }
     if (authorizationContinuationEnabled(task) && !conversationAuthorizationSeen(task)
       && settleCurrentReportBeforeFreshHandoff(task)) return;
     if (revealCurrentCollapsedMessage(task, signal)) return;

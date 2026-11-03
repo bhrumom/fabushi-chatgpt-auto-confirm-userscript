@@ -356,7 +356,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     if (conversationAuthorizationSeen(task)) return true;
     task.authorizationSeenURL = url;
     task.authorizationSeenAt = Date.now();
-    log(task, '当前会话已出现授权卡片；已记录会话级接力资格，仍需等待当前授权与回复处理完成。');
+    log(task, '当前会话已出现授权卡片；已记录授权历史；仍需处理当前授权，并检查最终报告中的云端提交证据。');
     save();
     return true;
   }
@@ -439,33 +439,35 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
   async function continueWithoutAuthorization(task, signal, now = Date.now(), options = {}) {
     const route = currentConversationURL();
     const responseFailure = options.responseFailure === true;
-    if (responseFailure ? authorizationContinuationAttempts(task) >= MAX_SAME_SESSION_CONTINUATIONS
-      : (!authorizationContinuationEnabled(task) || authorizationGateExhausted(task))) return false;
+    const cloudDelivery = options.cloudDelivery === true;
+    if (!cloudDelivery && (responseFailure ? authorizationContinuationAttempts(task) >= MAX_SAME_SESSION_CONTINUATIONS
+      : (!authorizationContinuationEnabled(task) || authorizationGateExhausted(task)))) return false;
     if (!running || data.autoResume === false || signal?.aborted
       || !route || route !== canonicalConversationURL(task.url) || task.attempted
       || !taskBelongsToTab(task) || terminal.has(task.state) || task.state === 'paused'
       || conversationURLOwner(route, task.id)
       || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))) return false;
     const pending = cards({ wide:true });
-    if (pending.length || (!responseFailure && conversationAuthorizationSeen(task))) return false;
+    if (pending.length || (!responseFailure && !cloudDelivery && conversationAuthorizationSeen(task))) return false;
     if (blocker() || rateLimitNotice() || approvalSettlementActive(task,route,now)) return false;
-    const prompt = responseFailure ? '继续完成所有'
+    const prompt = cloudDelivery ? CLOUD_DELIVERY_CONTINUATION_PROMPT : responseFailure ? '继续完成所有'
       : connectionInterruptionContinuationPending(task) ? CONNECTION_CONTINUATION_PROMPT : CONTINUATION_PROMPT;
     let turn = taskTurnForInspection(task);
     if (responseFailure && (!turn.owned || !responseFailureNotice(turn))) return false;
     // The same exact-route fallback already used by ended-session detection
     // may continue a virtualized marker. It never adopts a foreign marker or
     // turns assistant text into a final result; it only permits this prompt.
-    const routeFallback = !turn.owned && task.authorizationRequiredContinuation
+    const routeFallback = !turn.owned && (task.authorizationRequiredContinuation || cloudDelivery)
       && !taskMarkerUser(task)
       && !conversationRoleNodes('user').some(node => /\[Fabushi:[^\]]+\]/.test(text(node)));
     if (routeFallback) turn = { ...latestTurn(), owned:true };
+    if (cloudDelivery && !reportNeedsCloudDelivery(currentWorkFinalReport(turn.text, task), task)) return false;
     const stop = stopButton();
     if (stop) {
       // Only an explicit product interruption permits stopping a stale Stop
       // control. Ordinary generation remains untouched; persist before click.
       const stopBoundary = recoveryUserBoundaryKey(conversationRoleNodes('user').at(-1));
-      if (turn.owned && connectionInterruptedNotice(turn) && stopBoundary
+      if (!cloudDelivery && turn.owned && connectionInterruptedNotice(turn) && stopBoundary
         && task.authorizationContinuationStopBoundary !== `${route}|${stopBoundary}`) {
         task.authorizationContinuationStopBoundary = `${route}|${stopBoundary}`;
         save();
@@ -509,13 +511,20 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     if (!button) return false;
     await delay(300, signal);
     check(signal);
-    if (currentConversationURL() !== route || stopButton() || cards({ wide:true }).length
+    if (!running || data.autoResume === false || task.attempted
+      || currentConversationURL() !== route || stopButton() || cards({ wide:true }).length
       || blocker() || rateLimitNotice() || approvalSettlementActive(task,route,now) || terminal.has(task.state) || task.state === 'paused'
       || !taskBelongsToTab(task) || conversationURLOwner(route, task.id)
       || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))
-      || (responseFailure ? authorizationContinuationAttempts(task) >= MAX_SAME_SESSION_CONTINUATIONS
-        : (!authorizationContinuationEnabled(task) || authorizationGateExhausted(task)))
+      || (!cloudDelivery && (responseFailure ? authorizationContinuationAttempts(task) >= MAX_SAME_SESSION_CONTINUATIONS
+        : (!authorizationContinuationEnabled(task) || authorizationGateExhausted(task))))
       || normalize(input.value || input.textContent) !== prompt) return false;
+    if (cloudDelivery) {
+      const latest = taskTurnForInspection(task);
+      const current = latest.owned ? latest : routeFallback ? latestTurn() : latest;
+      if (!reportNeedsCloudDelivery(currentWorkFinalReport(current.text, task), task)
+        || authorizationContinuationBoundaryKey(task, current, routeFallback) !== boundary) return false;
+    }
     button = sendButtonFor(input);
     if (!button) return false;
     const attempts = authorizationContinuationAttempts(task);
@@ -531,7 +540,9 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     observations.delete(task.id);
     save();
     activateControl(button);
-    log(task, responseFailure
+    log(task, cloudDelivery
+      ? `报告缺少有效云端提交证据；已在原会话发送“${prompt}”，等待新的本轮报告。`
+      : responseFailure
       ? `检测到 ChatGPT 回复报错；已确认极高档位，并在原会话发送“${prompt}”（第 ${task.authorizationContinuationAttempts}/3 次）。`
       : `当前会话尚未出现授权卡片；已在原会话发送“${prompt}”（第 ${task.authorizationContinuationAttempts}/3 次），等待执行与授权；本次结束仍无授权且已满 3 次时新开会话。`);
     return true;

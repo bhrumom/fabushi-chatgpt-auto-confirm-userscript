@@ -48,7 +48,7 @@ async function manualReportHarness() {
   const task={id:'manual-report',ownerTabId:h.tabId,url:w.location.href,token:'manual-report-token',
     phase:'work',round:1,state:'waiting',mode:'goal',goal:'完成目标',goalRevision:0,dispatchGoalRevision:0,
     attempted:false,messages:[],attachments:[]};
-  const report={taskId:task.id,round:1,status:'next',summary:'已验证本轮改动',next:'读取当前 Actions 结果并修复失败'};
+  const report={githubDelivery:{"verified":true,"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","commitUrl":"https://github.com/example/project/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},taskId:task.id,round:1,status:'next',summary:'已验证本轮改动',next:'读取当前 Actions 结果并修复失败'};
   const body=w.document.querySelector('#manual-assistant .markdown');
   body.textContent=JSON.stringify(report);
   h.data.tasks.push(task);h.data.requireAuthorizationBeforeNewChat=true;h.setRunningForTest();
@@ -623,7 +623,7 @@ test('malformed Work final reply is durably carried into a report-only repair pr
       JSON.stringify({
         taskId:task.id,
         round:task.round,
-        status:'complete',
+        githubDelivery:{"verified":true,"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","commitUrl":"https://github.com/example/project/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},status:'complete',
         summary:'实现已完成，CI 已验证。',
         next:'this must be empty for complete',
       }),
@@ -660,7 +660,7 @@ test('malformed Work final reply is durably carried into a report-only repair pr
     hooks.finish(task, JSON.stringify({
       taskId:task.id,
       round:task.round,
-      status:'complete',
+      githubDelivery:{"verified":true,"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","commitUrl":"https://github.com/example/project/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},status:'complete',
       summary:'基于已保存的进度修复了最终报告。',
       next:'',
     }));
@@ -1485,7 +1485,7 @@ test('a confirmed Work final report directly queues the next Work round', async 
   const { dom, hooks } = await createHarness('<main></main>');
   try {
     const finalReply = JSON.stringify({
-      taskId:'TFI-USERSCRIPT-RECOVERY-009-test', round:1, status:'next',
+      taskId:'TFI-USERSCRIPT-RECOVERY-009-test', round:1, githubDelivery:{verified:true,sha:'a'.repeat(40),commitUrl:'https://github.com/example/project/commit/'+'a'.repeat(40)}, status:'next',
       summary:'已核实实现和现有证据，仍有一个真实缺口。',
       next:'读取缺口对应源码，修改生产代码，运行 GitHub Actions 并提交验证结果.',
     });
@@ -1531,7 +1531,7 @@ test('a review result that requests more work keeps the same attachments for the
     hooks.finish(task, JSON.stringify({
       taskId: task.id,
       round: task.round,
-      status: 'next',
+      githubDelivery:{"verified":true,"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","commitUrl":"https://github.com/example/project/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},status: 'next',
       summary: '需要带着同一份视频继续验证',
       next: '检查视频中的第二个场景',
     }));
@@ -1551,7 +1551,7 @@ test('marker-virtualized Work final report consumes an exact visible next report
   const report = JSON.stringify({
     taskId,
     round:8,
-    status:'next',
+    githubDelivery:{"verified":true,"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","commitUrl":"https://github.com/example/project/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},status:'next',
     summary:'验收识别到仍有剩余工作',
     next:'继续处理 strict 第一 blocker，并重新验收。',
   });
@@ -1614,7 +1614,7 @@ test('marker-virtualized Work final report does not promote a visible report for
     <main>
       <article data-testid="conversation-turn-assistant">
         <div data-message-author-role="assistant" data-message-id="foreign-review-report">
-          <div class="markdown">{"taskId":"another-task","round":8,"status":"next","summary":"不是当前任务","next":"不应采用"}</div>
+          <div class="markdown">{"githubDelivery":{"verified":true,"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","commitUrl":"https://github.com/example/project/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"taskId":"another-task","round":8,"status":"next","summary":"不是当前任务","next":"不应采用"}</div>
         </div>
       </article>
       <form><textarea id="prompt-textarea"></textarea></form>

@@ -189,7 +189,7 @@ test('observed authorization permits next-round handoff and initial unbound disp
   const {dom,h,task}=await harness();
   try {
     h.recordConversationAuthorization(task);
-    h.finish(task,`MAHAYANA_TASK_REPORT_V1\n${JSON.stringify({taskId:task.id,round:1,status:'next',summary:'已核验',next:'继续读取当前证据'})}`);
+    h.finish(task,`MAHAYANA_TASK_REPORT_V1\n${JSON.stringify({githubDelivery:{"verified":true,"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","commitUrl":"https://github.com/example/project/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},taskId:task.id,round:1,status:'next',summary:'已核验',next:'继续读取当前证据'})}`);
     assert.equal(task.round,2);
     assert.equal(task.url,'');
     assert.equal(task.state,'queued');
@@ -295,7 +295,7 @@ test('enabled gate sends at most three continuations and hands off instead of ac
     assert.equal(h.authorizationGateExhausted(task),true);
     assert.equal(await h.continueWithoutAuthorization(task,new w.AbortController().signal,now),false);
     assert.equal(sends,3);
-    h.finish(task,JSON.stringify({taskId:task.id,round:1,status:'complete',summary:'完成声明',next:''}));
+    h.finish(task,JSON.stringify({githubDelivery:{"verified":true,"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","commitUrl":"https://github.com/example/project/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},taskId:task.id,round:1,status:'complete',summary:'完成声明',next:''}));
     assert.equal(task.state,'done');assert.equal(task.round,1);
     assert.equal(task.history.at(-1).url,'https://chatgpt.com/c/guard');
     assert.equal(h.authorizationContinuationAttempts(task),3);
@@ -365,7 +365,7 @@ test('shared-renderer sibling error is handled before a persisted no-card contin
 test('a settled final reply is not overridden by an earlier concurrent error in the same response',async()=>{
   const {dom,w,h,task}=await harness({authorizationGate:false});
   try {
-    w.document.querySelector('[data-message-author-role="assistant"]').innerHTML='<div>Too many concurrent requests</div><button id="retry" aria-label="重试">重试</button><div class="markdown">'+JSON.stringify({taskId:task.id,round:1,status:'complete',summary:'新的成功结果',next:''})+'</div><button aria-label="复制"></button><button aria-label="赞"></button>';
+    w.document.querySelector('[data-message-author-role="assistant"]').innerHTML='<div>Too many concurrent requests</div><button id="retry" aria-label="重试">重试</button><div class="markdown">'+JSON.stringify({githubDelivery:{"verified":true,"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","commitUrl":"https://github.com/example/project/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},taskId:task.id,round:1,status:'complete',summary:'新的成功结果',next:''})+'</div><button aria-label="复制"></button><button aria-label="赞"></button>';
     let retries=0;w.document.querySelector('#retry').onclick=()=>retries++;
     assert.equal(await h.recoverStoppedConversation(task,null),false);
     assert.equal(retries,0);assert.equal(task.concurrentRequestRetryAt,undefined);
@@ -572,7 +572,7 @@ for(const authorizationGate of [false,true]) for(const response of ['final-toolb
     mountStalledContinuation(w,task,{draft:'继续完成所有，按模板回复'});
     w.document.querySelector('[data-content-search-turn-key="fallback-turn-1"]').remove();
     const body=w.document.querySelector('[data-markdown-text-tone="primary"]');
-    body.textContent=response==='structured-report'?JSON.stringify({taskId:task.id,round:1,status:'next',summary:'当前确切已完成工作证据',next:'继续下一步'}):'当前确切已完成工作证据';
+    body.textContent=response==='structured-report'?JSON.stringify({githubDelivery:{"verified":true,"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","commitUrl":"https://github.com/example/project/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},taskId:task.id,round:1,status:'next',summary:'当前确切已完成工作证据',next:'继续下一步'}):'当前确切已完成工作证据';
     body.insertAdjacentHTML('afterend','<button aria-label="复制"></button><button aria-label="赞"></button>');
     task.continuationSentAt=now-8*60*60*1000;
     task.authorizationContinuationBoundary=h.authorizationContinuationBoundaryKey(task,h.taskTurnForInspection(task));
@@ -702,7 +702,7 @@ for (const attempts of [0,3]) {
       task.authorizationContinuationURL=task.url;task.authorizationContinuationAttempts=attempts;
       task.preparedPrompt='OLD EXECUTION';task.sendPrepared=true;
       task.next='strict183 OLD';task.abnormalFreshCarry='old trace';
-      const reply=JSON.stringify({taskId:task.id,round:task.round,status:'next',summary:'strict183 verified',next:'strict184 NEW action'});
+      const reply=JSON.stringify({githubDelivery:{"verified":true,"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","commitUrl":"https://github.com/example/project/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},taskId:task.id,round:task.round,status:'next',summary:'strict183 verified',next:'strict184 NEW action'});
       h.finish(task,reply);
       assert.equal(task.round,2);assert.equal(task.state,'queued');assert.equal(task.next,'strict184 NEW action');
       assert.equal(task.result,reply);assert.equal(task.preparedPrompt,'');assert.equal(task.abnormalFreshCarry,'');
@@ -716,7 +716,7 @@ for (const attempts of [0,3]) {
 for (const entry of ['inspect','queueInterruptedFreshRetry']) {
   test(`ended valid report progresses through ${entry} rather than waiting or repeating old prompt`,async()=>{
     const {dom,w,h,task}=await harness();try{
-      const reply=JSON.stringify({taskId:task.id,round:1,status:'next',summary:'verified '.repeat(1000),next:'strict184 NEW'});
+      const reply=JSON.stringify({githubDelivery:{"verified":true,"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","commitUrl":"https://github.com/example/project/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},taskId:task.id,round:1,status:'next',summary:'verified '.repeat(1000),next:'strict184 NEW'});
       w.document.querySelector('[data-message-author-role="assistant"]').textContent=reply;
       task.next='strict183 OLD';
       let sends=0;w.document.querySelector('[data-testid="send-button"]').onclick=()=>sends++;
@@ -731,7 +731,7 @@ for (const entry of ['inspect','queueInterruptedFreshRetry']) {
 for(const guard of ['card','settlement','stop','draft','foreign-task','foreign-round','unacknowledged','foreign-route','new-manual-user']) {
   test(`live report settlement preserves ${guard} guard`,async()=>{
     const {dom,w,h,task}=await harness();try{
-      const reply=JSON.stringify({taskId:guard==='foreign-task'?'other':task.id,round:guard==='foreign-round'?2:1,status:'next',summary:'verified',next:'NEW'});
+      const reply=JSON.stringify({githubDelivery:{"verified":true,"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","commitUrl":"https://github.com/example/project/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},taskId:guard==='foreign-task'?'other':task.id,round:guard==='foreign-round'?2:1,status:'next',summary:'verified',next:'NEW'});
       w.document.querySelector('[data-message-author-role="assistant"]').textContent=reply;
       if(guard==='card') w.document.querySelector('main').insertAdjacentHTML('beforeend','<section data-testid="authorization-card"><button>拒绝</button><button>允许一次</button><button aria-haspopup="menu">更多</button></section>');
       if(guard==='settlement') Object.assign(task,{approvalSettlementUntil:Date.now()+60000,approvalSettlementURL:task.url,approvalSettlementToken:task.token,approvalSettlementPhase:task.phase,approvalSettlementRound:task.round});
@@ -747,7 +747,7 @@ for(const guard of ['card','settlement','stop','draft','foreign-task','foreign-r
 }
 test('valid report still waits for a real card and settlement inside finish',async()=>{
  const {dom,w,h,task}=await harness();try{
-  const reply=JSON.stringify({taskId:task.id,round:1,status:'complete',summary:'verified',next:''});
+  const reply=JSON.stringify({githubDelivery:{"verified":true,"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","commitUrl":"https://github.com/example/project/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},taskId:task.id,round:1,status:'complete',summary:'verified',next:''});
   w.document.querySelector('main').insertAdjacentHTML('beforeend','<section data-testid="authorization-card"><button>拒绝</button><button>允许一次</button><button aria-haspopup="menu">更多</button></section>');
   h.finish(task,reply);assert.notEqual(task.state,'done');assert.equal(task.round,1);
  }finally{dom.window.close();}
@@ -758,7 +758,7 @@ for(const marker of ['aria-busy','data-is-streaming'])for(const authorization of
   const {dom,w,h,task}=await harness({authorizationGate:authorization!=='off'});try{
    let now=Date.now();w.Date.now=()=>now;
    if(authorization==='seen')h.recordConversationAuthorization(task);
-   const reply=JSON.stringify({taskId:task.id,round:1,status:'next',summary:'已核验'.repeat(4000),next:'NEW exact action'});
+   const reply=JSON.stringify({githubDelivery:{"verified":true,"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","commitUrl":"https://github.com/example/project/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},taskId:task.id,round:1,status:'next',summary:'已核验'.repeat(4000),next:'NEW exact action'});
    const assistant=w.document.querySelector('[data-message-author-role="assistant"]');
    assistant.innerHTML='<div class="markdown"></div>';assistant.setAttribute(marker,'true');assistant.firstChild.textContent=reply;
    const turn=h.latestTurn(task);
@@ -779,7 +779,7 @@ test('stale-stream final guard rejects partial reports and restarts stability wh
  const {dom,w,h,task}=await harness();try{
   let now=Date.now();w.Date.now=()=>now;
   const assistant=w.document.querySelector('[data-message-author-role="assistant"]');assistant.setAttribute('aria-busy','true');
-  const report={taskId:task.id,round:1,status:'next',summary:'verified',next:'first action'};
+  const report={githubDelivery:{"verified":true,"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","commitUrl":"https://github.com/example/project/commit/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},taskId:task.id,round:1,status:'next',summary:'verified',next:'first action'};
   assistant.textContent=JSON.stringify(report).slice(0,-1);
   assert.equal(h.settleCurrentReportBeforeFreshHandoff(task,now),false);
   assistant.textContent=JSON.stringify(report);assert.equal(h.settleCurrentReportBeforeFreshHandoff(task,now),true);
