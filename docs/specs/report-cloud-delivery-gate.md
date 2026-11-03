@@ -32,3 +32,12 @@ Bump to 2.10.91 and generate the bundle; submit source and regressions for Actio
 
 ## Live action evidence
 The requested exact continuation was sent once through Chrome UI in the original conversation on 2026-11-03; the user message and active response were visible. This manual action is not acceptance of automatic runtime behavior. Installed version was 2.10.90 at inspection; newer installation is tracked separately in PR #209.
+
+## Markdown commit link correction — 2026-11-03
+The live report supplied a valid SHA and verified=true but wrapped commitUrl as [URL](URL). v2.10.91 rejected that representation and incorrectly requested submission again.
+
+R6: Normalize surrounding whitespace, a single complete Markdown link (using its destination), and autolink angle brackets before existing HTTPS GitHub/SHA validation. Do not accept embedded prose, foreign destinations, partial SHAs, or Markdown labels concealing a destination with a different SHA. Valid wrapped evidence must follow normal next/complete settlement and never trigger the cloud reminder. Add the exact screenshot SHA fixture, both statuses, and invalid-destination tests. Release 2.10.92 after Actions parity/syntax/full regressions; installation remains separate.
+
+| Requirement | Status | Evidence |
+| --- | --- | --- |
+| R6 | blocked | Implementation and exact-head Actions pending. |

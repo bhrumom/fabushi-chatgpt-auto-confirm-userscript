@@ -204,7 +204,11 @@
     const delivery = report?.githubDelivery;
     if (delivery?.verified !== true || typeof delivery.sha !== 'string'
       || !/^[a-f0-9]{40}$/i.test(delivery.sha) || typeof delivery.commitUrl !== 'string') return false;
-    const match = /^https:\/\/github\.com\/[^/\s?#]+\/[^/\s?#]+\/commit\/([a-f0-9]{40})$/i.exec(delivery.commitUrl);
+    const rawUrl = delivery.commitUrl.trim();
+    const markdown = /^\[[^\]\r\n]*\]\((https:\/\/[^\s()]+)\)$/.exec(rawUrl);
+    const autoLink = /^<(https:\/\/[^\s<>]+)>$/.exec(rawUrl);
+    const commitUrl = markdown?.[1] || autoLink?.[1] || rawUrl;
+    const match = /^https:\/\/github\.com\/[^/\s?#]+\/[^/\s?#]+\/commit\/([a-f0-9]{40})$/i.exec(commitUrl);
     return Boolean(match && match[1].toLowerCase() === delivery.sha.toLowerCase());
   }
   function reportNeedsCloudDelivery(report, task) {
