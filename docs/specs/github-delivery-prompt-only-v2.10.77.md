@@ -1,6 +1,6 @@
 # GitHub delivery prompt-only contract — v2.10.77
 
-Status: active
+Status: partially superseded by report-cloud-delivery-gate.md (2026-11-03 user requirement)
 Owner: Fabushi userscript
 Last updated: 2026-10-23
 Supersedes: runtime-enforcement portions of `editable-prompt-composition-github-delivery-v2.10.76.md`

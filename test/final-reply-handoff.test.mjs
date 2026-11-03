@@ -1485,7 +1485,7 @@ test('a confirmed Work final report directly queues the next Work round', async 
   const { dom, hooks } = await createHarness('<main></main>');
   try {
     const finalReply = JSON.stringify({
-      taskId:'TFI-USERSCRIPT-RECOVERY-009-test', round:1, status:'next',
+      taskId:'TFI-USERSCRIPT-RECOVERY-009-test', round:1, githubDelivery:{verified:true,sha:'a'.repeat(40),commitUrl:'https://github.com/example/project/commit/'+'a'.repeat(40)}, status:'next',
       summary:'已核实实现和现有证据，仍有一个真实缺口。',
       next:'读取缺口对应源码，修改生产代码，运行 GitHub Actions 并提交验证结果.',
     });
