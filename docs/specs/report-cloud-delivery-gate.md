@@ -27,4 +27,5 @@ Bump to 2.10.91 and generate the bundle; submit source and regressions for Actio
 ## Compliance
 | Requirement | Status | Evidence |
 | --- | --- | --- |
-| R1–R5 | blocked | Implementation and Actions validation pending. |
+| R1–R4 | passed | Report gate and exact-message DOM regressions passed in Actions 41564096404 (including cards, settlement, prior authorization, both switch states and persisted send boundaries). |
+| R5 | blocked | First full run: 730 tests, 721 passed, 7 skipped, 2 legacy fixture failures. Fixture/version corrections submitted; final exact-head Actions pending. |

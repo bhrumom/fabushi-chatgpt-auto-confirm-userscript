@@ -378,11 +378,11 @@
     }
     const responseErrorTurn = taskTurnForInspection(task);
     const responseErrorRecovery = responseErrorTurn.owned && responseFailureNotice(responseErrorTurn);
-    if (!responseErrorRecovery && !reportNeedsCloudDelivery(currentWorkFinalReport(responseErrorTurn.text, task), task)) clearActiveTaskComposerDraft(task, signal);
     const ownedDeliveryTurn = responseErrorTurn;
     const deliveryTurn = ownedDeliveryTurn.owned ? ownedDeliveryTurn
       : !conversationRoleNodes('user').some(node => /\[Fabushi:[^\]]+\]/.test(text(node))) ? latestTurn() : ownedDeliveryTurn;
     const deliveryReport = currentWorkFinalReport(deliveryTurn.text, task);
+    if (!responseErrorRecovery && !reportNeedsCloudDelivery(deliveryReport, task)) clearActiveTaskComposerDraft(task, signal);
     if (reportNeedsCloudDelivery(deliveryReport, task)
       && !stopButton() && !cards({wide:true}).length && !approvalSettlementActive(task, liveURL)) {
       if (terminal.has(task.state) || task.state === 'paused' || task.attempted
