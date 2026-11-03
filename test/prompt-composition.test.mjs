@@ -93,11 +93,13 @@ for(const enabled of [true,false])test(`missing cloud evidence sends exact promp
   const stored=h.durableTaskSnapshot(task);assert.equal(stored.authorizationContinuationBoundary,task.authorizationContinuationBoundary);
  }finally{dom.window.close();}
 });
-for(const guard of ['draft','stop','paused','foreign'])test(`cloud delivery continuation respects ${guard}`,async()=>{
+for(const guard of ['draft','stop','paused','foreign','card','settlement'])test(`cloud delivery continuation respects ${guard}`,async()=>{
  const {dom,w,h,task}=await fixture();try{
   w.document.getElementById('response').textContent=report(task,'complete');
   if(guard==='draft')w.document.querySelector('textarea').value='用户草稿';
   if(guard==='stop'){const b=w.document.createElement('button');b.setAttribute('data-testid','stop-button');w.document.body.append(b);}
+  if(guard==='card')w.document.querySelector('main').insertAdjacentHTML('beforeend','<section data-testid="authorization-card"><button>拒绝</button><button>允许一次</button><button aria-haspopup="menu">更多</button></section>');
+  if(guard==='settlement')Object.assign(task,{approvalSettlementUntil:Date.now()+60000,approvalSettlementURL:task.url,approvalSettlementToken:task.token,approvalSettlementPhase:task.phase,approvalSettlementRound:task.round});
   if(guard==='paused')task.state='paused';
   if(guard==='foreign')task.ownerTabId='another-tab';
   let sent=0;w.document.querySelector('[data-testid="send-button"]').addEventListener('click',()=>sent++);

@@ -379,9 +379,14 @@
     const responseErrorTurn = taskTurnForInspection(task);
     const responseErrorRecovery = responseErrorTurn.owned && responseFailureNotice(responseErrorTurn);
     if (!responseErrorRecovery && !reportNeedsCloudDelivery(currentWorkFinalReport(responseErrorTurn.text, task), task)) clearActiveTaskComposerDraft(task, signal);
-    const deliveryTurn = taskTurnForInspection(task);
+    const ownedDeliveryTurn = responseErrorTurn;
+    const deliveryTurn = ownedDeliveryTurn.owned ? ownedDeliveryTurn
+      : !conversationRoleNodes('user').some(node => /\[Fabushi:[^\]]+\]/.test(text(node))) ? latestTurn() : ownedDeliveryTurn;
     const deliveryReport = currentWorkFinalReport(deliveryTurn.text, task);
     if (reportNeedsCloudDelivery(deliveryReport, task)) {
+      if (terminal.has(task.state) || task.state === 'paused' || task.attempted
+        || !taskBelongsToTab(task) || conversationURLOwner(liveURL, task.id)
+        || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))) return;
       if (revealCurrentCollapsedMessage(task, signal) || revealStoppedResponseActivity(task, signal)) return;
       // Stabilize the exact live report before using the existing durable send fence.
       if (stopButton() || cards({wide:true}).length || approvalSettlementActive(task, liveURL)) return;

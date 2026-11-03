@@ -7748,7 +7748,6 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const prompt = cloudDelivery ? CLOUD_DELIVERY_CONTINUATION_PROMPT : responseFailure ? '继续完成所有'
       : connectionInterruptionContinuationPending(task) ? CONNECTION_CONTINUATION_PROMPT : CONTINUATION_PROMPT;
     let turn = taskTurnForInspection(task);
-    if (cloudDelivery && !reportNeedsCloudDelivery(currentWorkFinalReport(turn.text, task), task)) return false;
     if (responseFailure && (!turn.owned || !responseFailureNotice(turn))) return false;
     // The same exact-route fallback already used by ended-session detection
     // may continue a virtualized marker. It never adopts a foreign marker or
@@ -7757,6 +7756,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
       && !taskMarkerUser(task)
       && !conversationRoleNodes('user').some(node => /\[Fabushi:[^\]]+\]/.test(text(node)));
     if (routeFallback) turn = { ...latestTurn(), owned:true };
+    if (cloudDelivery && !reportNeedsCloudDelivery(currentWorkFinalReport(turn.text, task), task)) return false;
     const stop = stopButton();
     if (stop) {
       // Only an explicit product interruption permits stopping a stale Stop
@@ -7806,7 +7806,8 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     if (!button) return false;
     await delay(300, signal);
     check(signal);
-    if (currentConversationURL() !== route || stopButton() || cards({ wide:true }).length
+    if (!running || data.autoResume === false || task.attempted
+      || currentConversationURL() !== route || stopButton() || cards({ wide:true }).length
       || blocker() || rateLimitNotice() || approvalSettlementActive(task,route,now) || terminal.has(task.state) || task.state === 'paused'
       || !taskBelongsToTab(task) || conversationURLOwner(route, task.id)
       || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))
@@ -8871,9 +8872,14 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     const responseErrorTurn = taskTurnForInspection(task);
     const responseErrorRecovery = responseErrorTurn.owned && responseFailureNotice(responseErrorTurn);
     if (!responseErrorRecovery && !reportNeedsCloudDelivery(currentWorkFinalReport(responseErrorTurn.text, task), task)) clearActiveTaskComposerDraft(task, signal);
-    const deliveryTurn = taskTurnForInspection(task);
+    const ownedDeliveryTurn = responseErrorTurn;
+    const deliveryTurn = ownedDeliveryTurn.owned ? ownedDeliveryTurn
+      : !conversationRoleNodes('user').some(node => /\[Fabushi:[^\]]+\]/.test(text(node))) ? latestTurn() : ownedDeliveryTurn;
     const deliveryReport = currentWorkFinalReport(deliveryTurn.text, task);
     if (reportNeedsCloudDelivery(deliveryReport, task)) {
+      if (terminal.has(task.state) || task.state === 'paused' || task.attempted
+        || !taskBelongsToTab(task) || conversationURLOwner(liveURL, task.id)
+        || tabTasks().some(item => item.id !== task.id && item.token && hasTaskMarker(item))) return;
       if (revealCurrentCollapsedMessage(task, signal) || revealStoppedResponseActivity(task, signal)) return;
       // Stabilize the exact live report before using the existing durable send fence.
       if (stopButton() || cards({wide:true}).length || approvalSettlementActive(task, liveURL)) return;
