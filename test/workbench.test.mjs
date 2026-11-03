@@ -8597,3 +8597,37 @@ test('model proof does not cross tasks and a changed live label requires radio r
     assert.ok(state.triggerClicks>before,'open popup must be observed and closed, never cached away');
   }finally{h.pause();dom.window.close();}
 });
+
+for (const scenario of [
+  {name:'missing Pro selects Extra High',max:3,moves:true,ok:true,index:3},
+  {name:'available Pro remains Pro',max:4,moves:true,ok:true,index:4},
+  {name:'missing Pro with stuck slider blocks',max:3,moves:false,ok:false},
+  {name:'range without Extra High blocks',max:2,moves:true,ok:false},
+]) test(scenario.name,async()=>{
+  let keys=0;
+  const {h,w,dom}=await fixture('<button data-codex-intelligence-trigger="true" data-composer-navigation-target="reasoning" aria-haspopup="menu" aria-expanded="false" data-selected-reasoning-effort="medium">Medium</button>',window=>{
+    const d=window.document,trigger=d.querySelector('button');let index=1;
+    trigger.addEventListener('click',()=>{
+      const old=d.querySelector('[role=menu]');if(old){old.remove();trigger.setAttribute('aria-expanded','false');return;}
+      trigger.setAttribute('aria-expanded','true');
+      const menu=d.createElement('div');menu.setAttribute('role','menu');
+      menu.innerHTML='<div data-reasoning-slider="true"><span role="slider" aria-hidden="true" aria-valuenow="'+index+'" aria-valuemin="0" aria-valuemax="'+scenario.max+'"></span></div>';
+      const control=menu.querySelector('[data-reasoning-slider]'),thumb=control.querySelector('[role=slider]');
+      control.addEventListener('keydown',event=>{
+        keys++;
+        if(scenario.moves){index+=event.key==='ArrowRight'?1:-1;thumb.setAttribute('aria-valuenow',index);trigger.dataset.selectedReasoningEffort=['none','medium','high','max','medium'][index];}
+      });
+      d.body.append(menu);
+    });
+  });
+  try{
+    const task={id:'pro-fallback',ownerTabId:h.getTabId(),phase:'work',round:4,state:'sending',reasoningPreset:4,token:'original',messages:[]};
+    h.data.tasks.push(task);h.setRunningForTest(true);
+    assert.equal(await h.ensureTaskReasoningPreset(task,null),scenario.ok);
+    assert.equal(task.reasoningPreset,4,'saved Pro preference remains available for future sessions');
+    assert.equal(task.round,4);assert.equal(task.token,'original');
+    if(scenario.ok){assert.equal(task.reasoningPresetConfirmedIndex,scenario.index);assert.equal(keys,scenario.index-1);}
+    else assert.equal(task.reasoningPresetConfirmedIndex,undefined);
+    if(scenario.max===2)assert.equal(keys,0);
+  }finally{h.pause();dom.window.close();}
+});

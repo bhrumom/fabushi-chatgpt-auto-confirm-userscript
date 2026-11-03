@@ -4482,6 +4482,12 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
       waitForReasoningPicker(task, 'ChatGPT 模型菜单已打开，但强度滑块暂时消失，重新打开后仍未恢复');
       return false;
     }
+    // A hydrated four-level slider proves Pro is unavailable. Keep the saved
+    // preference so a later session can select Pro again when it returns.
+    if (target === 4 && slider.min === 0 && slider.max === 3) {
+      target = 3;
+      log(task, 'ChatGPT Pro 档位暂不可用，自动选择极高并校验后继续发送');
+    }
     if (target < slider.min || target > slider.max) {
       trigger = reasoningPickerTrigger();
       if (trigger?.getAttribute('aria-expanded') === 'true') await pacedModelPickerClick(trigger, signal);
