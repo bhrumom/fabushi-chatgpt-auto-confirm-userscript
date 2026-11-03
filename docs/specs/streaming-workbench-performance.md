@@ -12,7 +12,10 @@ R2: Skip final-report JSON/recovery work for text without a taskId field marker;
 R3: Verify DOM node identity across repeated large-preview updates, updated content, and valid report recognition. Run bundle parity, syntax and full regression checks in Actions. Track actual installed version and live responsiveness separately; do not promise elimination of ChatGPT-owned freezes.
 
 ## Delivery and rollback
-Release 2.10.93 after checks. Revert source and bundle together if semantics regress. No storage migration.
+Release 2.10.94 after checks. Revert source and bundle together if semantics regress. No storage migration.
+
+## Integration and verification correction
+2026-11-03: User explicitly requests merge and publication. Integrate canonical main including Pro fallback. CI 41570133923 failed because fixture exported the pre-mount no-op paint value; expose a forwarding function that resolves the mounted paint binding at invocation time. Retain all DOM identity and content assertions. Cover manual scroll preservation and history-triggered rebuild as well. No local executable build/test; Actions remains authoritative.
 
 ## Compliance
 | Requirement | Status | Evidence |

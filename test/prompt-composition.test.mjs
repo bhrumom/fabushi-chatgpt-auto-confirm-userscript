@@ -3,12 +3,12 @@ import fs from 'node:fs/promises';
 import test from 'node:test';
 import {JSDOM} from 'jsdom';
 const source=await fs.readFile(new URL('../chatgpt-auto-confirm.user.js',import.meta.url),'utf8');
-const names='data,tabId,workPrompt,workPromptSections,prepareTaskPrompt,normalizePromptConfig,DEFAULT_EXECUTION_RULES,openPromptComposer,durableWorkbenchSnapshot,durableTaskSnapshot,paint,currentWorkFinalReport,finish,inspect,continueWithoutAuthorization,reportHasCloudDelivery,taskTurnForInspection';
+const names='data,tabId,workPrompt,workPromptSections,prepareTaskPrompt,normalizePromptConfig,DEFAULT_EXECUTION_RULES,openPromptComposer,durableWorkbenchSnapshot,durableTaskSnapshot,currentWorkFinalReport,finish,inspect,continueWithoutAuthorization,reportHasCloudDelivery,taskTurnForInspection';
 async function fixture(){
  const dom=new JSDOM('<main><article data-message-author-role="user" data-message-id="user">task [Fabushi:prompt-token]</article><article data-message-author-role="assistant" data-message-id="reply"><div id="response">工作完成</div><button aria-label="复制"></button><button aria-label="赞"></button></article></main><form><textarea id="prompt-textarea"></textarea><button data-testid="send-button" type="button">发送</button></form>',{runScripts:'outside-only',pretendToBeVisual:true,url:'https://chatgpt.com/c/prompt'});
  const w=dom.window;w.Element.prototype.getClientRects=()=>[{width:1,height:1}];
  w.navigator.locks={request(_n,opt,cb){return Promise.resolve((typeof opt==='function'?opt:cb)({}));}};
- await w.eval(source.replace('  mount();',`  window.h={${names},selectForTest:id=>{selected=id;paint();},run:()=>{running=true;data.autoResume=true;},halt:()=>{running=false;}};\n  mount();`));
+ await w.eval(source.replace('  mount();',`  window.h={${names},paint:()=>paint(),selectForTest:id=>{selected=id;paint();},run:()=>{running=true;data.autoResume=true;},halt:()=>{running=false;}};\n  mount();`));
  const h=w.h;h.run();h.data.requireAuthorizationBeforeNewChat=false;
  const task={id:'prompt',ownerTabId:h.tabId,url:w.location.href,phase:'work',round:2,mode:'goal',state:'waiting',token:'prompt-token',goal:'实现功能',next:'继续修改',attachments:[],messages:[],goalRevision:0,dispatchGoalRevision:0};h.data.tasks.push(task);
  return {dom,w,h,task};
@@ -142,13 +142,22 @@ test('large streaming previews update in place and retain history nodes',async()
   task.messages=Array.from({length:40},(_,i)=>({role:'assistant',text:'history '+i+' '+ 'x'.repeat(1000),at:Date.now()}));
   h.selectForTest(task.id);
   const preview=w.document.querySelector('.live-preview');assert.ok(preview);
+  const feed=preview.parentElement;
+  Object.defineProperty(feed,'scrollHeight',{configurable:true,value:10000});
+  Object.defineProperty(feed,'clientHeight',{configurable:true,value:500});
+  feed.scrollTop=123;
   const history=Array.from(w.document.querySelectorAll('.bubble:not(.live-preview)'));assert.ok(history.length);
   for(let i=0;i<20;i++){
    task.preview='update '+i+' '+ 'y'.repeat(16000);h.paint();
    assert.equal(w.document.querySelector('.live-preview'),preview);
    assert.equal(w.document.querySelector('.bubble:not(.live-preview)'),history[0]);
    assert.equal(preview.textContent,'实时回复\n'+task.preview);
+   assert.equal(feed.scrollTop,123,'reader scroll position remains unchanged');
   }
+  feed.scrollTop=9490;task.preview='near bottom';h.paint();assert.equal(feed.scrollTop,10000);
+  task.messages.push({role:'status',text:'new history',at:Date.now()});task.messageVersion++;h.paint();
+  assert.notEqual(w.document.querySelector('.bubble:not(.live-preview)'),history[0]);
+  assert.ok(w.document.body.textContent.includes('new history'));
   task.preview='';h.paint();assert.equal(w.document.querySelector('.live-preview'),null);
   task.preview='restored';h.paint();assert.equal(w.document.querySelector('.live-preview').textContent,'实时回复\nrestored');
  }finally{dom.window.close();}
