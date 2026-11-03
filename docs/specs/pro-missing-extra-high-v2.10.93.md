@@ -25,5 +25,9 @@ User request and attached live log, 2026-11-03. Supersedes strict Pro-unavailabl
 ## Spec compliance record
 | Requirement | Status | Evidence |
 | --- | --- | --- |
-| R1–R4 | pending | Implementation and exact-head Actions pending |
-| Live browser acceptance | pending | Not yet installed |
+| R1 | passed | Local target changes only for requested 4 with validated min=0/max=3. |
+| R2 | passed | Existing arrow/current-index verification runs against resolved target; regression includes stuck control. |
+| R3 | passed | Saved preference is untouched; log records fallback; five-level case retains Pro. |
+| R4 | passed | Null/malformed/inactive controls retain existing recovery; identity fields untouched. |
+| Executable verification | blocked | GitHub Actions required before delivery; see PR #212 checks for final exact-head result. |
+| Live browser acceptance | blocked | Chrome browser control unavailable and official device discovery returned no online Mac; installation cannot be verified. |
