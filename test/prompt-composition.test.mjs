@@ -113,3 +113,25 @@ test('legacy pending delivery fields cannot override a valid live report',async(
   h.finish(task,report(task,'next',{githubDelivery:delivery}));assert.equal(task.state,'queued');assert.equal(task.round,3);
  }finally{dom.window.close();}
 });
+
+for(const status of ['next','complete'])for(const style of ['markdown','autolink','whitespace'])test(`wrapped delivery URL settles without reminder: ${status}/${style}`,async()=>{
+ const {dom,w,h,task}=await fixture();try{
+  const sha='cc16c51eb94c9926cb3560b6973ef41ee241f399';
+  const url='https://github.com/bhrumom/fabushi-desktop/commit/'+sha;
+  const commitUrl=style==='markdown'?`[${url}](${url})`:style==='autolink'?`<${url}>`:`  ${url}  `;
+  const raw=report(task,status,{githubDelivery:{sha,commitUrl,verified:true}});
+  w.document.getElementById('response').textContent=raw;
+  let sent=0;w.document.querySelector('[data-testid="send-button"]').onclick=()=>sent++;
+  h.finish(task,raw);
+  assert.equal(task.state,status==='complete'?'done':'queued');
+  assert.equal(task.round,status==='complete'?2:3);assert.equal(sent,0);
+ }finally{dom.window.close();}
+});
+for(const url of [
+ `[${delivery.commitUrl}](https://evil.example/commit/${delivery.sha})`,
+ `[${delivery.commitUrl}](https://github.com/example/project/commit/${'b'.repeat(40)})`,
+ `已提交 ${delivery.commitUrl}`,
+ `[commit](${delivery.commitUrl}) trailing prose`,
+])test(`wrapped delivery rejects invalid destination ${url}`,async()=>{
+ const {dom,h}=await fixture();try{assert.equal(h.reportHasCloudDelivery({githubDelivery:{...delivery,commitUrl:url}}),false);}finally{dom.window.close();}
+});
