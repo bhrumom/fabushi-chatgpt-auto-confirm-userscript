@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.93
+// @version      2.10.94
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -68,7 +68,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.93';
+  const VERSION = '2.10.94';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -8643,7 +8643,7 @@ function stopAmbiguousSend(task, perform = true, now = Date.now()) {
     return null;
   }
   function currentWorkFinalReport(value, task) {
-    if (!task || task.phase !== 'work' || !String(value || '').trim()) return null;
+    if (!task || task.phase !== 'work' || !/taskId[\"'\s]*:/i.test(String(value || ''))) return null;
     try { return parseWorkFinalReport(value, task); }
     catch { return null; }
   }
@@ -10878,8 +10878,15 @@ NaN
         for(const item of workspace.tasks)appendTaskRow(group,item,false);list.append(group);
       });
       }
-      const nextSignature=JSON.stringify([selected,task?.modelPreset,task?.reasoningPreset,task?.goalRevision,task?.messageVersion,task?.url,task?.state,task?.preview,taskAttachmentSummary(task),task?.attachmentUploadPending,task?.attachmentUploadFailed,task?.attachmentUploadRetryAt,task?.attachmentUploadRetryCount]);
+      const nextSignature=JSON.stringify([selected,task?.modelPreset,task?.reasoningPreset,task?.goalRevision,task?.messageVersion,task?.url,task?.state,Boolean(task?.preview),taskAttachmentSummary(task),task?.attachmentUploadPending,task?.attachmentUploadFailed,task?.attachmentUploadRetryAt,task?.attachmentUploadRetryCount]);
       if(signature===nextSignature){
+        const previewNode=feed.querySelector('.live-preview');
+        const previewText=`实时回复\n${task?.preview || ''}`;
+        if(previewNode && previewNode.textContent!==previewText){
+          const nearBottom=feed.scrollHeight-feed.scrollTop-feed.clientHeight<80;
+          previewNode.textContent=previewText;
+          if(nearBottom)feed.scrollTop=feed.scrollHeight;
+        }
         recordPaint(0);
         return;
       }
@@ -10902,7 +10909,7 @@ NaN
       if(task)feed.append(element('small',`最近 2 小时记录：已保留 ${allMessages.length} 条；页面刷新/会话切换后继续恢复。`,'render-limit'));
       if(allMessages.length>renderedMessages.length)feed.append(element('small',`为保持页面流畅，本次显示最近 ${renderedMessages.length}/${allMessages.length} 条；其余仍保存在最近 2 小时记录中。`,'render-limit'));
       for(const message of renderedMessages){const bubble=element('div',message.text,`bubble ${message.role}`);const time=element('time',new Date(message.at).toLocaleTimeString());bubble.append(time);feed.append(bubble);}
-      if(task?.preview && !terminal.has(task.state))feed.append(element('div',`实时回复\n${task.preview}`,'bubble assistant'));
+      if(task?.preview && !terminal.has(task.state))feed.append(element('div',`实时回复\n${task.preview}`,'bubble assistant live-preview'));
       const sessionURL = canonicalConversationURL(task?.url);
       if(sessionURL){
         const phaseName = '工作';

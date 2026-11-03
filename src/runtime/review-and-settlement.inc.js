@@ -144,7 +144,7 @@
     return null;
   }
   function currentWorkFinalReport(value, task) {
-    if (!task || task.phase !== 'work' || !String(value || '').trim()) return null;
+    if (!task || task.phase !== 'work' || !/taskId[\"'\s]*:/i.test(String(value || ''))) return null;
     try { return parseWorkFinalReport(value, task); }
     catch { return null; }
   }

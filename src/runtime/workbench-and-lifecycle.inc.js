@@ -563,8 +563,15 @@
         for(const item of workspace.tasks)appendTaskRow(group,item,false);list.append(group);
       });
       }
-      const nextSignature=JSON.stringify([selected,task?.modelPreset,task?.reasoningPreset,task?.goalRevision,task?.messageVersion,task?.url,task?.state,task?.preview,taskAttachmentSummary(task),task?.attachmentUploadPending,task?.attachmentUploadFailed,task?.attachmentUploadRetryAt,task?.attachmentUploadRetryCount]);
+      const nextSignature=JSON.stringify([selected,task?.modelPreset,task?.reasoningPreset,task?.goalRevision,task?.messageVersion,task?.url,task?.state,Boolean(task?.preview),taskAttachmentSummary(task),task?.attachmentUploadPending,task?.attachmentUploadFailed,task?.attachmentUploadRetryAt,task?.attachmentUploadRetryCount]);
       if(signature===nextSignature){
+        const previewNode=feed.querySelector('.live-preview');
+        const previewText=`实时回复\n${task?.preview || ''}`;
+        if(previewNode && previewNode.textContent!==previewText){
+          const nearBottom=feed.scrollHeight-feed.scrollTop-feed.clientHeight<80;
+          previewNode.textContent=previewText;
+          if(nearBottom)feed.scrollTop=feed.scrollHeight;
+        }
         recordPaint(0);
         return;
       }
@@ -587,7 +594,7 @@
       if(task)feed.append(element('small',`最近 2 小时记录：已保留 ${allMessages.length} 条；页面刷新/会话切换后继续恢复。`,'render-limit'));
       if(allMessages.length>renderedMessages.length)feed.append(element('small',`为保持页面流畅，本次显示最近 ${renderedMessages.length}/${allMessages.length} 条；其余仍保存在最近 2 小时记录中。`,'render-limit'));
       for(const message of renderedMessages){const bubble=element('div',message.text,`bubble ${message.role}`);const time=element('time',new Date(message.at).toLocaleTimeString());bubble.append(time);feed.append(bubble);}
-      if(task?.preview && !terminal.has(task.state))feed.append(element('div',`实时回复\n${task.preview}`,'bubble assistant'));
+      if(task?.preview && !terminal.has(task.state))feed.append(element('div',`实时回复\n${task.preview}`,'bubble assistant live-preview'));
       const sessionURL = canonicalConversationURL(task?.url);
       if(sessionURL){
         const phaseName = '工作';
