@@ -20,4 +20,7 @@ Release 2.10.94 after checks. Revert source and bundle together if semantics reg
 ## Compliance
 | Requirement | Status | Evidence |
 | --- | --- | --- |
-| R1–R3 | blocked | Implementation and Actions pending; final evidence tracked in PR. |
+| R1 | passed | Preview content is excluded from feed signature; stable preview node updates in place. Regression retains node/content assertions and checks manual scroll, bottom follow, history rebuild and preview removal/restoration. |
+| R2 | passed | taskId field prefilter precedes existing parser; identity and delivery validation unchanged. Existing report regressions retained. |
+| R3 cloud verification | blocked | Exact-head Actions required; final results and source identity tracked in PR #211 and release v2.10.94. |
+| R3 live responsiveness | blocked | No installed-browser performance measurement; cloud regression does not prove live latency. |
