@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT 自动确认 · Fabushi
 // @namespace    https://fabushi.ombhrum.com/userscripts/chatgpt-auto-confirm
-// @version      2.10.92
+// @version      2.10.93
 // @description  独立单标签任务工作台：目标编排、单次任务、附件粘贴预览、授权识别、实时消息、内存感知与可中断调度。
 // @match        https://chatgpt.com/*
 // @match        https://chat.openai.com/*
@@ -68,7 +68,7 @@ async function bootstrapAttempt() {
   'use strict';
   if (window.top !== window.self) return;
   const INSTANCE = '__FABUSHI_AUTO_CONFIRM_INSTANCE__';
-  const VERSION = '2.10.92';
+  const VERSION = '2.10.93';
   const DOCUMENT_INSTANCE_ID = crypto.randomUUID();
   const previousInstance = window[INSTANCE];
   if (previousInstance?.version === VERSION && previousInstance?.active) return;
@@ -4481,6 +4481,12 @@ function createBackgroundClock(page, { onWake = () => {} } = {}) {
       await closeModelPickerMenu(signal);
       waitForReasoningPicker(task, 'ChatGPT 模型菜单已打开，但强度滑块暂时消失，重新打开后仍未恢复');
       return false;
+    }
+    // A hydrated four-level slider proves Pro is unavailable. Keep the saved
+    // preference so a later session can select Pro again when it returns.
+    if (target === 4 && slider.min === 0 && slider.max === 3) {
+      target = 3;
+      log(task, 'ChatGPT Pro 档位暂不可用，自动选择极高并校验后继续发送');
     }
     if (target < slider.min || target > slider.max) {
       trigger = reasoningPickerTrigger();
